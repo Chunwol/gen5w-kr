@@ -22,6 +22,16 @@ check 'standard omits consent install package' test ! -e "$W/standard/packages/g
 check 'standard retains consent restore metadata' test -f "$W/standard/checks/gen5w.kr.consent/FILES.md5"
 check 'standard includes native notice timer' test -f "$W/standard/packages/gen5w.kr.notice.zip"
 check 'backend is explicitly builtin' grep -qx builtin "$W/standard/GEN5W-BACKEND"
+python3 - "$W/dist" <<'PY'
+import pathlib,sys,zipfile
+p=pathlib.Path(sys.argv[1])/'gen5w.kr.dongle.zip'
+with zipfile.ZipFile(p,'w') as z:
+  z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.dongle\n')
+  z.writestr('scripts/pre.sh','exit 0\n')
+PY
+check 'build dongle variant' python3 "$ROOT/tools/integrated/build.py" --skip-native --variant dongle --dist "$W/dist" --output "$W/dongle"
+check 'dongle includes dongle package' test -f "$W/dongle/packages/gen5w.kr.dongle.zip"
+check 'dongle backend is explicitly dongle' grep -qx dongle "$W/dongle/GEN5W-BACKEND"
 check 'local edition cannot be built by public tool' eval '! python3 "$ROOT/tools/integrated/build.py" --skip-native --variant skip-consent --dist "$W/dist" --output "$W/local-refused"'
 check 'refused edition creates no files' test ! -e "$W/local-refused"
 sed "s#/system/bin/sh#$(command -v mksh)#g" "$W/usb/NEMESIS.sh" > "$W/usb/entry.sh"
