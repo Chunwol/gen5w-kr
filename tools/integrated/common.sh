@@ -15,6 +15,7 @@ if [ -f GEN5W-VARIANT ]; then
     VARIANT=${VARIANT%$'\r'}
     case "$VARIANT" in
         standard) ;;
+        dongle) ;;
         *) echo 'REFUSED unknown bundle variant'; exit 1;;
     esac
 fi
@@ -23,8 +24,11 @@ if [ -f GEN5W-BACKEND ]; then
     IFS= read -r BACKEND < GEN5W-BACKEND
     BACKEND=${BACKEND%$'\r'}
 fi
-[ "$BACKEND" = builtin ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
-REVERSE='gen5w.kr.notice gen5w.kr.consent gen5w.kr.core gen5w.kr.bridge gen5w.kr.hotspot gen5w.kr.audio gen5w.kr.wireless wireless.carplay.aa'
+if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
+    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
+fi
+[ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
+REVERSE='gen5w.kr.notice gen5w.kr.consent gen5w.kr.core gen5w.kr.bridge gen5w.kr.hotspot gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
 . ./hotspot-repair.sh
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
@@ -55,7 +59,7 @@ gate() {
 hook() { gate "$APPS/$1" "$2"; }
 durable() {
     case "$1" in gen5w.kr.hotspot) [ -d "$SYS/etc/gen5w-kr-backup/hotspot" ];;
-        gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.notice|gen5w.kr.consent)
+        gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.notice|gen5w.kr.consent|gen5w.kr.dongle)
         [ -d "$SYS/etc/gen5w-kr-backup/${1##*.}" ];; *) return 1;; esac
 }
 check_stage() {

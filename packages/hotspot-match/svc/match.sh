@@ -9,12 +9,19 @@ log() { echo "$1" >> "$LOG" 2>/dev/null; true; }
 
 log "=== match service $(date 2>/dev/null)"
 i=0
-while [ $i -lt 20 ]; do
+while [ $i -lt 30 ]; do
     out=$(run check)
     log "check: $out"
     case "$out" in
         *"RESULT ready"*|*"RESULT match"*|*"RESULT mismatch"*) log "settings observed; AP activation belongs to the connection session"; exit 0 ;;
-        *) sleep 6; i=$((i+1)) ;;   # wifi service / ap not ready yet
+        *)
+            if [ $i -lt 5 ]; then
+                sleep 1
+            else
+                sleep 2
+            fi
+            i=$((i+1))
+            ;;
     esac
 done
 log 'settings unavailable; no AP change'

@@ -93,6 +93,65 @@
 
 해외 전용 스타게이저·엑센트/베르나·카렌스·스토닉·X씨드는 제외했습니다. ccNC·ccIC·고급형 6세대 등 다른 세대도 대상이 아닙니다.
 
+## 타 차종 바이너리 레시피 (DL3HEV, EV6, NEEV, NEEV_KR)
+
+Gen5W 플랫폼을 공유하는 타 차종(K5 DL3 하이브리드, EV6 CV, 아이오닉 5 NE EV 내수/수출형)의 경우, 기본 OS(Android KitKat 4.4.2 API 18/19, Telechips TCC893x/897x ARMv7) 및 하드웨어 인터페이스 구조는 코나(OS HEV)와 동일합니다. 그러나 컴파일 타임의 ProGuard 난독화 토큰 이동 및 ODEX 내 Dalvik 가상 레지스터 매핑 차이로 인해 각 차종 전용의 바이너리 레시피가 필요합니다.
+
+### 1. 차종별 핵심 타깃 바이너리 및 역할
+| 타깃 파일 | 역할 및 수정 내용 |
+|---|---|
+| `HKMC_GPM.odex` | Android Auto 순정 내비게이션 바인딩. `stepofspec == 999` 분기를 native helper로 우회하여 순정 TBT 엔진 직결. |
+| `HKMC_DiPO.odex` | CarPlay 순정 프로젝션 바인딩. iAP2 경로 안내 권한과 헤드유닛 통신 채널 연동. |
+| `Iap2ServerApp.odex` | Apple iAP2 RouteGuidance capability 선언 및 RFCOMM 무선 세션 연결 관리. |
+| `libhardware_legacy.so` | (동글형) 외장 USB Wi-Fi(RTL8188/RTL8821/Atheros) 핫플러그 및 HAL 어댑터 브리지. |
+
+### 2. 차종별 원본 식별 체크섬 및 오프셋 매핑
+- **K5 하이브리드 (DL3 HEV)**:
+  - `HKMC_GPM.odex` MD5: `def8588772f648a6acedbed8ecdcd5d8`
+  - `HKMC_DiPO.odex` MD5: `b6c36634ebf49b45d84798b89cbfbf67`
+  - `Iap2ServerApp.odex` MD5: `1252fd62faecba96941f2177bf36eb8b`
+- **기아 EV6 (CV)**:
+  - `HKMC_GPM.odex` MD5: `96cd7c27a9db19acb3900f21f57ea9f0`
+  - `HKMC_DiPO.odex` MD5: `a565e180fdb0b73d6520f28c91cdba63`
+  - `Iap2ServerApp.odex` MD5: `03950e4b691f846e5478a5a69818c65e`
+- **아이오닉 5 (NE EV 한국형)**:
+  - `HKMC_GPM.odex` MD5: `4805d9e0cafbbb4f0f622e033d4359c4` (APK)
+  - 차종별 원본 체크섬과 오프셋 매핑 테이블은 `tools/iap2/`의 차종별 프로필 JSON을 통해 관리되며, 빌드 시 전용 native helper 바이너리가 컴파일됩니다.
+
+---
+
+## ccNC (Connected Car Navigation Cockpit) 플랫폼 아키텍처 비교
+
+ccNC(ccIC, 고급형 6세대 등)는 Gen5W와 완전히 다른 차세대 인포테인먼트 아키텍처를 채택하고 있습니다.
+
+| 항목 | 표준형 Gen5W (본 프로젝트 대상) | ccNC (Connected Car Navigation Cockpit) |
+|---|---|---|
+| **기반 OS** | Android 4.4.2 KitKat (32-bit ARMv7) | Android Automotive OS (AAOS) 10/12 (64-bit ARMv8) |
+| **시스템 아키텍처** | 단일 AP (Telechips TCC893x/897x) | 하이퍼바이저(QNX Hypervisor) 기반 도메인 분리 (AP: NVIDIA / Samsung Exynos Auto) |
+| **계기판 통신 방식** | 독점 IPC (`NavigationCluster.jar`) + MNSOFT 네이티브 후킹 | Google Automotive 표준 `CarNavigationStatusService` 및 `ClusterHomeService` |
+| **Android Auto HUD** | 순정 비활성화 상태 (GPM step 999 차단) → **바이너리 패치 필수** | OS 레벨 공식 지원 (차량 펌웨어 설정 및 구글 공식 프로토콜 탑재) |
+| **CarPlay HUD** | iAP2 RouteGuidance capability 언락 필요 | 무선 프로젝션 및 계기판/HUD 표출 기본 순정 탑재 |
+
+> [!NOTE]
+> ccNC 탑재 차량은 본 프로젝트의 Dalvik ODEX 패치나 32-bit KitKat 바이너리 패처의 적용 대상이 아니며, 이미 제조사 및 구글의 최신 표준 규격으로 동작합니다.
+
+---
+
+## USB Wi-Fi 외장 동글 지원 아키텍처 (동글형 배포판)
+
+내장 Wi-Fi 모듈이 탑재되지 않은 Gen5W 기본 사양 트림을 위해 USB 외장 Wi-Fi 동글 배포판이 지원됩니다.
+
+1. **지원 칩셋 및 드라이버**:
+   - Realtek RTL8188EU (`8188eu.ko`)
+   - Realtek RTL8821CU (`8821cu.ko`)
+   - Atheros AR9271 (`ath9k_htc.ko` + `htc_9271.fw`)
+2. **동작 방식**:
+   - 차량 부팅 시 `tools/usb-wifi/package/bin/gen5w-dongle-load`가 USB 버스를 스캔하여 동글 식별(`0cf3:9271`, `0bda:8179`, `0bda:c811` 등).
+   - 순정 `libhardware_legacy.so`를 가로채는 HAL 어댑터(`libhardware_legacy.so` wrapper)를 통해 내장 Wi-Fi인 것처럼 안드로이드 프레임워크에 wlan0 인터페이스를 노출.
+   - 빌드 시 `--variant dongle` 옵션을 지정하면 동글 런타임이 포함된 `gen5w.kr.dongle.zip` 패키지가 통합 USB 번들에 포함되어 배포됩니다.
+
+---
+
 ## 확인 결과를 남길 때
 
 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)에 릴리스 버전 또는 `BUILD-REVISION`, 차량·연식·전체 펌웨어 버전을 적어 주세요. 무선·유선 연결, HUD의 성공/실패/미사용을 구분하고 `GEN5W-REPORT/ISSUE.md`를 확인해 첨부하면 해당 칸을 갱신할 수 있습니다. VIN·MAC·SSID·비밀번호·제조사 파일은 올리지 마세요.

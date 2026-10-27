@@ -78,6 +78,59 @@ public final class ClusterIcon {
         }
         return ordinary(m);
     }
+
+    /**
+     * Refines a simplistic or primitive turn icon (e.g. from Android Auto or stock GPM)
+     * using Korea's 6 major road categories detected in roadName / description text.
+     */
+    public static int refineManeuver(int baseIcon, String road, String desc) {
+        String r = road == null ? "" : road;
+        String d = desc == null ? "" : desc;
+        String text = (r + " " + d).trim();
+        if (text.isEmpty()) return baseIcon;
+
+        int side = 0;
+        if (baseIcon == 0x42 || baseIcon == 0x43 || baseIcon == 0x44 || baseIcon == IC_ENTER_R || baseIcon == IC_EXIT_R) side = 1;
+        else if (baseIcon == 0x45 || baseIcon == 0x46 || baseIcon == 0x47 || baseIcon == IC_ENTER_L || baseIcon == IC_EXIT_L) side = -1;
+
+        if (hasAny(text, "오른쪽", "오른쪽에", "우측", "우회전", "오른편", "끝차로", "바깥")) side = 1;
+        else if (hasAny(text, "왼쪽", "왼쪽에", "좌측", "좌회전", "왼편", "1차로")) side = -1;
+
+        if (hasAny(text, "터널", "tunnel")) {
+            if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
+            return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
+        }
+        if (hasAny(text, "지하차도", "지하 차도", "지하도로", "지하 도로", "지하차로", "지하 차로",
+                "지하차선", "지하 차선", "지하길", "지하통로", "지하보차도", "언더패스", "underpass",
+                "지하차도옆", "지하차도 옆", "지하차도 옆길", "지하차도옆길")) {
+            if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
+            return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
+        }
+        if (hasAny(text, "고가차도", "고가 차도", "고가도로", "고가 도로", "고가차로", "고가 차로",
+                "고가차선", "고가 차선", "고가교", "고가길", "오버패스", "overpass",
+                "고가도로옆", "고가도로 옆", "고가 옆길", "고가 옆", "고가옆길", "고가옆",
+                "고가차도 옆길", "고가차도옆길", "고가차도 옆", "고가차도옆")) {
+            if (isSide(text)) return side > 0 ? OVERPASS_SIDE_R : OVERPASS_SIDE_L;
+            return side > 0 ? OVERPASS_ENTRY_R : OVERPASS_ENTRY_LC;
+        }
+        if (hasAny(text, "휴게소", "졸음쉼터", "졸음 쉼터", "간이휴게소", "간이 휴게소", "임시휴게소",
+                "화물차라운지", "화물차 라운지", "복합휴게소", "rest area", "service area")) return REST_AREA;
+        if (hasAny(text, "요금소", "톨게이트", "하이패스", "원톨링", "민자요금소", "민자 요금소",
+                "개방식요금소", "통행료", "toll") || tollgateAbbreviation(text)) return TOLL;
+        if (hasAny(text, "나들목", "분기점", "고속도로", "고속 도로", "도시고속도로", "도시 고속 도로",
+                "순환도로", "순환 고속도로", "분기도로", "분기 도로", "램프", "램프도로", "onramp", "offramp")
+                || interchangeAbbreviation(text)) {
+            if (hasAny(text, "진출", "나가", "빠져", "출구", "방면 출구", "오른쪽 출구", "왼쪽 출구", "exit", "offramp", "off ramp")) {
+                return pick(side, IC_EXIT_C, IC_EXIT_R, IC_EXIT_L);
+            }
+            if (hasAny(text, "진입", "합류", "올라", "onramp")) {
+                return pick(side, IC_ENTER_C, IC_ENTER_R, IC_ENTER_L);
+            }
+            if (baseIcon > 0) return baseIcon;
+            return pick(side, IC_ENTER_C, IC_ENTER_R, IC_ENTER_L);
+        }
+        return baseIcon;
+    }
     private static boolean interchangeAbbreviation(String text) {
         return java.util.regex.Pattern.compile("(?i)(?<![a-z])(i\\.?c|j\\.?c)(?![a-z])").matcher(text).find();
     }

@@ -40,6 +40,35 @@ public final class LaneFrame {
             icon == ClusterIcon.OVERPASS_SIDE_R || icon == ClusterIcon.UNDERPASS_SIDE_R);
         return out;
     }
+
+    /** Helper for Android Auto or manual lane guidance inputs. */
+    public static byte[] encodeSimple(int count, int[] directions, boolean[] recommended, int icon) {
+        if (count <= 0 || count > 8) return clear();
+        GuidanceParser.Lanes lanes = new GuidanceParser.Lanes();
+        for (int i = 0; i < count; i++) {
+            GuidanceParser.Lane lane = new GuidanceParser.Lane();
+            lane.index = i;
+            int dirVal = (directions != null && i < directions.length) ? directions[i] : 0;
+            int angle = dirVal;
+            if (dirVal >= 1 && dirVal <= 8) {
+                switch (dirVal) {
+                    case 1: angle = 0; break;
+                    case 2: angle = -45; break;
+                    case 3: angle = -90; break;
+                    case 4: angle = 45; break;
+                    case 5: angle = 90; break;
+                    case 6: angle = -135; break;
+                    case 7: angle = 135; break;
+                    case 8: angle = 180; break;
+                }
+            }
+            lane.angles = new int[]{angle};
+            boolean rec = recommended != null && i < recommended.length && recommended[i];
+            lane.highlights = rec ? new int[]{angle} : new int[0];
+            lanes.lanes.add(lane);
+        }
+        return encode(lanes, icon);
+    }
     // Direction identities cross-checked with two stock native conversion tables.
     // Unsupported angles cannot be represented exactly by these eight identities.
     static int direction(int angle) {

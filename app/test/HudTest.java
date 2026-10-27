@@ -1,4 +1,5 @@
 import kr.gen5w.hud.ClusterIcon;
+import kr.gen5w.hud.HighwayFrame;
 import kr.gen5w.hud.LaneBits;
 import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.GuidanceParser;
@@ -109,6 +110,40 @@ public final class HudTest {
             turn.type = type; turn.exitAngle = 90;
             if (type != 0) eq("defined turn has icon " + type, ClusterIcon.of(turn) == ClusterIcon.NONE ? 0 : 1, 1);
         }
+
+        // AA Korean 6 road categories refinement
+        eq("refine tollgate", ClusterIcon.refineManeuver(0x41, "서울TG", ""), ClusterIcon.TOLL);
+        eq("refine underpass entry right", ClusterIcon.refineManeuver(0x43, "우측 밤밭지하차도", ""), ClusterIcon.UNDERPASS_ENTRY_R);
+        eq("refine underpass side right", ClusterIcon.refineManeuver(0x42, "지하차도 옆길", ""), ClusterIcon.UNDERPASS_SIDE_R);
+        eq("refine underpass side left", ClusterIcon.refineManeuver(0x46, "지하차도 옆길", ""), ClusterIcon.UNDERPASS_SIDE_L);
+        eq("refine overpass side right", ClusterIcon.refineManeuver(0x42, "고가차도 옆길", ""), ClusterIcon.OVERPASS_SIDE_R);
+        eq("refine rest area", ClusterIcon.refineManeuver(0x41, "안성휴게소", ""), ClusterIcon.REST_AREA);
+        eq("refine ic exit right", ClusterIcon.refineManeuver(0x43, "동탄나들목 진출", ""), ClusterIcon.IC_EXIT_R);
+        eq("refine normal road unchanged", ClusterIcon.refineManeuver(0x41, "세종대로", ""), 0x41);
+
+        // AA LaneFrame.encodeSimple
+        byte[] simpleLanes = LaneFrame.encodeSimple(3, new int[]{0, 90, -90}, new boolean[]{false, true, false}, 0);
+        eq("simple lanes size", simpleLanes.length, 81);
+        eq("simple lanes count", simpleLanes[1], 3);
+        eq("simple lanes lane 2 highlight", (simpleLanes[3+1] & 0x02) != 0 ? 1 : 0, 1);
+
+        // HighwayFrame
+        HighwayFrame.Item hwIc = HighwayFrame.build(ClusterIcon.IC_EXIT_R, "동탄IC 진출", 500f);
+        eq("highway IC type", hwIc != null ? hwIc.type : 0, 1);
+        eq("highway IC direction right", hwIc != null ? hwIc.direction : 0, 2);
+        eq("highway IC distance", (int)(hwIc != null ? hwIc.distance : 0), 500);
+
+        HighwayFrame.Item hwRest = HighwayFrame.build(0, "안성휴게소", 1200f);
+        eq("highway rest area type", hwRest != null ? hwRest.type : 0, 4);
+
+        HighwayFrame.Item hwTg = HighwayFrame.build(0, "서울TG", 300f);
+        eq("highway tollgate type", hwTg != null ? hwTg.type : 0, 3);
+
+        HighwayFrame.Item hwJc = HighwayFrame.build(0, "판교JC", 800f);
+        eq("highway JC type", hwJc != null ? hwJc.type : 0, 2);
+
+        HighwayFrame.Item hwNone = HighwayFrame.build(0, "일반도로", 100f);
+        eq("highway non-highway returns null", hwNone == null ? 1 : 0, 1);
 
         System.out.println(fails == 0 ? "hud all match" : fails + " failed");
         System.exit(fails == 0 ? 0 : 1);

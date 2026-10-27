@@ -7,6 +7,7 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
+import sys
 import zipfile
 
 HERE = Path(__file__).resolve().parent
@@ -41,13 +42,21 @@ def native():
 
 
 def build(dist, output, variant='standard'):
-    if variant != 'standard':
-        raise SystemExit('Only the standard public edition is built here')
+    if variant not in ('standard', 'dongle'):
+        raise SystemExit('Unsupported edition variant: ' + variant)
     if output.exists():
         raise SystemExit('Output already exists: ' + str(output))
+    pkg_ids = list(IDS)
+    if variant == 'dongle':
+        dongle_zip = dist / 'gen5w.kr.dongle.zip'
+        if not dongle_zip.is_file():
+            sys.path.insert(0, str(HERE.parents[1] / 'tools' / 'usb-wifi'))
+            import build_dongle_zip
+            build_dongle_zip.build_dongle_zip(HERE.parents[1] / 'tools' / 'usb-wifi' / 'package', dongle_zip)
+        pkg_ids.insert(0, 'gen5w.kr.dongle')
     # Validate all inputs before creating an output tree.
     payloads = {}
-    for ident in IDS:
+    for ident in pkg_ids:
         path = dist / (ident + '.zip')
         with zipfile.ZipFile(path) as z:
             if z.testzip():
@@ -117,7 +126,7 @@ def build(dist, output, variant='standard'):
     (output / 'BUILD-REVISION').write_text(subprocess.check_output(
         ['git','rev-parse','HEAD'], cwd=HERE.parents[1], text=True).strip()+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-VARIANT').write_text(variant+'\n', encoding='ascii', newline='\n')
-    (output / 'GEN5W-BACKEND').write_text('builtin\n', encoding='ascii', newline='\n')
+    (output / 'GEN5W-BACKEND').write_text(('dongle' if variant == 'dongle' else 'builtin')+'\n', encoding='ascii', newline='\n')
     (output / 'NEMESIS.data').write_text('[nemesis]\nversion=1.0\ntype=open\nid=gen5w.kr.integrated\nname=Gen5W KR integrated installer\ncompat=gen5w\n', encoding='ascii', newline='\n')
     (output / 'NEMESIS.sh').write_text('''#!/system/bin/sh
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
@@ -158,7 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path)
     parser.add_argument('--native-only', action='store_true')
     parser.add_argument('--skip-native', action='store_true')
-    parser.add_argument('--variant', choices=('standard',), default='standard')
+    parser.add_argument('--variant', choices=('standard', 'dongle'), default='standard')
     args = parser.parse_args()
     if not args.skip_native:
         native()

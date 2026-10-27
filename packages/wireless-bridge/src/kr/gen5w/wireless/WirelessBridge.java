@@ -92,6 +92,7 @@ public final class WirelessBridge implements WirelessSession.Port {
         f.addAction("android.hardware.usb.action.CARPLAY_DEVICE_DETACHED");
         f.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         f.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        f.addAction("android.hardware.usb.action.USB_STATE");
         f.addAction("com.hkmc.intent.action.SYSTEM_POWERON");
         context.registerReceiver(events,f,null,main);
         IntentFilter stop=new IntentFilter("kr.gen5w.wireless.STOP_BRIDGE");
@@ -177,11 +178,15 @@ public final class WirelessBridge implements WirelessSession.Port {
             carplayCable=true;refreshWired();
         }else if("android.hardware.usb.action.CARPLAY_DEVICE_DETACHED".equals(action)){
             carplayCable=false;refreshWired();
+        }else if("android.hardware.usb.action.USB_STATE".equals(action)){
+            boolean usbConnected=i.getBooleanExtra("connected",false);
+            if(!usbConnected){carplayCable=false;cable=false;}
+            refreshWired();
         }else if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action) || UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)){
             refreshWired();
             UsbDevice usb=(UsbDevice)i.getParcelableExtra(UsbManager.EXTRA_DEVICE);
             // Pause even if the host inventory has not caught up with this event.
-            if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action) && usb!=null && usb.getVendorId()==0x05ac) {
+            if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action) && usb!=null && (usb.getVendorId()==0x05ac || usb.getVendorId()==0x18d1)) {
                 cable=true;session.environment(registered,true,false,now());
             }
         }
@@ -339,7 +344,7 @@ public final class WirelessBridge implements WirelessSession.Port {
         try {
             UsbManager usb=(UsbManager)context.getSystemService(Context.USB_SERVICE);
             if(usb!=null)for(UsbDevice device:usb.getDeviceList().values()) {
-                if(device!=null && device.getVendorId()==0x05ac){present=true;break;}
+                if(device!=null && (device.getVendorId()==0x05ac || device.getVendorId()==0x18d1)){present=true;break;}
             }
         }catch(RuntimeException ignored){}
         try {
@@ -347,7 +352,11 @@ public final class WirelessBridge implements WirelessSession.Port {
             present |= WirelessSession.wiredConfiguration((String)get.invoke(null,"sys.usb.config"))
                     || WirelessSession.wiredConfiguration((String)get.invoke(null,"sys.usb.state"));
         }catch(Exception ignored){}
-        if(cable!=present){cable=present;session.environment(registered,cable,false,now());}
+        if(cable!=present){
+            cable=present;
+            session.environment(registered,cable,false,now());
+            if(!cable){scan();session.tick(now());}
+        }
     }
     void ensureHotspot(final long g) throws Exception{
         requireCurrent(g);

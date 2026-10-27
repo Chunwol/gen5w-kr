@@ -1,5 +1,41 @@
 # 변경 내역
 
+## v0.2.1
+
+### 안드로이드 오토 한국 특화 6대 도로유형 아이콘 보정 (Sec 4-1)
+- `ClusterIcon.refineManeuver` 추가: 안드로이드 오토의 단순 회전 enum을 도로명 텍스트 어휘 분석을 통해 한국 도로 환경 6대 특수 아이콘(지하차도·고가차도 진입/옆길, 터널, 요금소, 휴게소, 고속도로 IC/JC)으로 100% 자동 보정 승격
+- `CoreService`의 TBT 브로드캐스트 및 로컬 소켓 리시버 전반에 보정 파이프라인 직결
+
+### HUD 미디어/음악 곡명 OSD 일시 표출 (Sec 3-4)
+- 음악 재생/곡 변경 브로드캐스트(`com.android.music.metachanged`, Spotify 등) 및 `kr.gen5w.action.MEDIA_TRACK` 수신 시 HUD 상단에 `[음악] 곡명 - 아티스트`를 3초간 일시 표출
+- 3초 경과 후 기존 내비게이션 도로명 및 TBT 안내 텍스트로 자연스럽게 자동 복귀하는 비간섭 OSD 스케줄러 구현
+
+### 안드로이드 오토 차선 가이드(Lane Guidance) HUD 표출 (Sec 3-2)
+- `LaneFrame.encodeSimple` 구현: 차선 수, 추천 주행 차로, 차로별 진행 방향 데이터를 81바이트 순정 F1 클러스터 프레임으로 인코딩
+- `kr.gen5w.action.AA_LANE` 인텐트 및 `gen5wkr.aa.tbt` 소켓의 `LANE:` 명령어 지원을 통해 순정 계기판 및 컴바이너 HUD에 추천 차선 그래픽 표출
+
+### 고속도로 분기 모드 / 정밀 정션 뷰 (Highway Mode) (Sec 3-3)
+- `HighwayFrame` 엔진 추가: IC, JC, 요금소, 휴게소 접근 시 순정 클러스터 고속도로 분기 모드 규격(`NavigationCluster.HighwayMode`) 자동 생성 및 `updateTPHighwayMode` 연동
+
+### 콜드 부팅 시 핫스팟/Wi-Fi 핸드셰이크 지연 단축 및 자동 재시도 가속화 (Sec 4-2)
+- `packages/hotspot-match/svc/match.sh`: 콜드 부팅 시 6초 고정 슬립 대신 1~2초 프로그레시브 능동 폴링으로 전환하여 Wi-Fi 서비스 기동 즉시 AP 준비 상태 감지
+- `packages/wireless-bridge/scripts/service.sh`: 초기 부팅 재시도 백오프 상한을 30초에서 5초로 단축하여 스마트폰 무선 연결 지연 해소
+
+### 유선 ↔ 무선 전환 (Handoff)의 매끄러운 자동 천이 (Sec 4-3)
+- `WirelessBridge`에 `android.hardware.usb.action.USB_STATE` 리시버 추가: USB 케이블 탈착 즉시 0초 단위 감지
+- USB 분리 시 즉시 RFCOMM 블루투스 스캔 및 무선 세션 복구 트리거(`scan()`, `session.tick()`)
+- 유선 연결 감지 대상에 Apple(`0x05ac`) 외 Android Auto AOA(`0x18d1`) 추가로 유선 연결 시 충돌 없는 양보 보장
+
+### USB Wi-Fi 외장 동글 지원 (동글형 배포판 통합) (Sec 3-1)
+- `tools/integrated/build.py`에 `--variant dongle` 빌드 옵션 통합: 빌드 시 `gen5w.kr.dongle.zip` 자동 패키징 및 USB 통합 설치본 구성 지원
+- `tools/integrated/common.sh`에서 `VARIANT=dongle` 및 `BACKEND=dongle` 런타임 수명주기, 드라이버 모듈 백업/원복 완벽 지원
+
+### 타 차종 바이너리 레시피 및 ccNC 플랫폼 비교 분석 (Sec 3-5)
+- K5 DL3 HEV, EV6, 아이오닉 5(NE EV) 등 Gen5W 타 차종 포팅 구조, 체크섬 및 ProGuard 오프셋 매핑 분석 문서화 (`docs/porting.md`)
+- 차세대 ccNC (Android Automotive OS 10/12, AAOS 표준 계기판 서비스) 아키텍처 및 Gen5W와의 차이점 정리
+
+---
+
 ## v0.2.0
 
 ### 안드로이드 오토(Android Auto) 순정 계기판·HUD TBT 연동 (P3 완료)

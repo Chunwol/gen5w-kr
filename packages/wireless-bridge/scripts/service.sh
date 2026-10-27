@@ -38,6 +38,6 @@ while [ ! -f "$STOPPING" ]; do
     [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
     [ -f "$STOPPING" ] && exit 0
     sleep "$bridge_backoff"
-    [ "$bridge_backoff" -ge 30 ] || bridge_backoff=$((bridge_backoff * 2))
-    [ "$bridge_backoff" -le 30 ] || bridge_backoff=30
+    [ "$bridge_backoff" -ge 5 ] || bridge_backoff=$((bridge_backoff + 1))
+    [ "$bridge_backoff" -le 5 ] || bridge_backoff=5
 done

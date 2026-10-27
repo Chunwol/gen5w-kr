@@ -23,6 +23,8 @@ import kr.gen5w.hud.ClusterIcon;
 import kr.gen5w.hud.GuidanceParser;
 import kr.gen5w.hud.GuidanceSession;
 import kr.gen5w.hud.GuidanceRequest;
+import kr.gen5w.hud.HighwayFrame;
+import kr.gen5w.hud.LaneFrame;
 import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.NotificationEpoch;
 import kr.gen5w.hud.NativeWarningSupport;
@@ -99,8 +101,18 @@ public final class CoreService extends Service {
         io.postDelayed(outputRetry, 1000);
         IntentFilter filter = new IntentFilter();
         filter.addAction("kr.gen5w.action.AA_TBT");
+        filter.addAction("kr.gen5w.action.AA_LANE");
         filter.addAction("com.google.android.apps.auto.navigation.TBT");
         registerReceiver(aaReceiver, filter);
+
+        IntentFilter mediaFilter = new IntentFilter();
+        mediaFilter.addAction("com.android.music.metachanged");
+        mediaFilter.addAction("com.android.music.playstatechanged");
+        mediaFilter.addAction("com.spotify.music.metadatachanged");
+        mediaFilter.addAction("com.google.android.music.metachanged");
+        mediaFilter.addAction("kr.gen5w.action.MEDIA_TRACK");
+        registerReceiver(mediaReceiver, mediaFilter);
+
         startAaSocketServer();
         bind();
     }
@@ -117,6 +129,7 @@ public final class CoreService extends Service {
     @Override public void onDestroy() {
         stopping = true;
         try { unregisterReceiver(aaReceiver); } catch (Exception ignored) {}
+        try { unregisterReceiver(mediaReceiver); } catch (Exception ignored) {}
         if (aaServer != null) { try { aaServer.close(); } catch (Exception ignored) {} }
         epoch.close();
         main.removeCallbacksAndMessages(null);
@@ -335,19 +348,118 @@ public final class CoreService extends Service {
         });
     }
 
+    private String currentRoadName = null;
+    private int currentIcon1 = 0, currentIcon2 = 0;
+    private long currentDist = -1;
+    private volatile boolean mediaOsdActive = false;
+
+    private void renderMediaOsd(final String track, final String artist) {
+        if (track == null || track.trim().isEmpty()) return;
+        io.post(new Runnable() {
+            public void run() {
+                if (!refreshOwnership()) return;
+                try {
+                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    String title = track.trim();
+                    String line = "[음악] " + title;
+                    if (artist != null && !artist.trim().isEmpty()) {
+                        line += " - " + artist.trim();
+                    }
+                    mediaOsdActive = true;
+                    int icon = currentIcon1 > 0 ? currentIcon1 : 0x41;
+                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, currentIcon2}, line));
+                    cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(line));
+                    writeDebugLog("MEDIA_OSD: " + line);
+                    io.removeCallbacks(restoreNaviRunnable);
+                    io.postDelayed(restoreNaviRunnable, 3000);
+                } catch (Throwable e) { outputError(e); }
+            }
+        });
+    }
+
+    private final Runnable restoreNaviRunnable = new Runnable() {
+        public void run() {
+            mediaOsdActive = false;
+            if (!refreshOwnership()) return;
+            try {
+                if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                if (currentDist < 0 || currentIcon1 <= 0) {
+                    cluster.updateTPTurnListNew(TurnFrame.clear());
+                    cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(""));
+                } else {
+                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{currentIcon1, currentIcon2}, currentRoadName));
+                    cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(currentRoadName != null ? currentRoadName : ""));
+                }
+                writeDebugLog("MEDIA_OSD: restored navi road=" + currentRoadName);
+            } catch (Throwable e) { outputError(e); }
+        }
+    };
+
+    private final BroadcastReceiver mediaReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String track = intent.getStringExtra("track");
+            if (track == null) track = intent.getStringExtra("title");
+            if (track == null) track = intent.getStringExtra("track_name");
+            String artist = intent.getStringExtra("artist");
+            if (artist == null) artist = intent.getStringExtra("artist_name");
+            if (track != null && !track.trim().isEmpty()) {
+                renderMediaOsd(track, artist);
+            }
+        }
+    };
+
+    private void renderAaLane(final byte[] frame) {
+        io.post(new Runnable() {
+            public void run() {
+                if (!refreshOwnership()) return;
+                try {
+                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    cluster.updateLaneInfo(frame != null ? frame : LaneFrame.clear());
+                    writeDebugLog("AA_LANE: updated " + (frame != null ? frame.length : 0) + " bytes");
+                } catch (Throwable e) { outputError(e); }
+            }
+        });
+    }
+
     private void renderAaTbt(final int icon, final int secondIcon, final long dist, final String road) {
         io.post(new Runnable() {
             public void run() {
                 if (!refreshOwnership()) return;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    currentIcon1 = icon;
+                    currentIcon2 = secondIcon;
+                    currentDist = dist;
+                    currentRoadName = road;
                     if (dist < 0 || icon <= 0) {
                         cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
-                        cluster.updateTPTurnListNew(TurnFrame.clear());
+                        if (!mediaOsdActive) {
+                            cluster.updateTPTurnListNew(TurnFrame.clear());
+                            cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(""));
+                        }
+                        cluster.updateTPHighwayMode(null);
+                        cluster.updateLaneInfo(LaneFrame.clear());
                         writeDebugLog("AA_TBT: cleared");
                     } else {
                         cluster.updateTBTInfo(icon, secondIcon, 0f, (float)dist, 0, secondIcon, 0, 0, 0);
-                        cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
+                        if (!mediaOsdActive) {
+                            cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
+                            cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(road != null ? road : ""));
+                        }
+                        HighwayFrame.Item hwItem = HighwayFrame.build(icon, road, (float)dist);
+                        if (hwItem != null) {
+                            NavigationCluster.HighwayMode hwMode = new NavigationCluster.HighwayMode();
+                            hwMode.type = hwItem.type;
+                            hwMode.direction = hwItem.direction;
+                            hwMode.traffic = hwItem.traffic;
+                            hwMode.unit = hwItem.unit;
+                            hwMode.distance = hwItem.distance;
+                            hwMode.name = hwItem.name;
+                            cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[]{hwMode});
+                        } else {
+                            cluster.updateTPHighwayMode(null);
+                        }
                         writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
                                 + " 2nd=0x" + Integer.toHexString(secondIcon)
                                 + " dist=" + dist + "m road='" + (road == null ? "" : road) + "'");
@@ -378,8 +490,32 @@ public final class CoreService extends Service {
                     Maneuver m = new Maneuver();
                     m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
+                } else if (icon > 0 && (road != null || desc != null)) {
+                    icon = ClusterIcon.refineManeuver(icon, road, desc);
+                }
+                if (second > 0 && road != null) {
+                    second = ClusterIcon.refineManeuver(second, road, null);
                 }
                 renderAaTbt(icon, second, dist, road);
+
+                int laneCount = intent.getIntExtra("lane_count", 0);
+                if (laneCount > 0) {
+                    int[] dirs = intent.getIntArrayExtra("lane_dirs");
+                    boolean[] rec = intent.getBooleanArrayExtra("lane_rec");
+                    byte[] laneFrame = LaneFrame.encodeSimple(laneCount, dirs, rec, icon);
+                    renderAaLane(laneFrame);
+                }
+            } else if ("kr.gen5w.action.AA_LANE".equals(action)) {
+                byte[] raw = intent.getByteArrayExtra("lane_raw");
+                if (raw != null) {
+                    renderAaLane(raw);
+                } else {
+                    int laneCount = intent.getIntExtra("lane_count", 0);
+                    int[] dirs = intent.getIntArrayExtra("lane_dirs");
+                    boolean[] rec = intent.getBooleanArrayExtra("lane_rec");
+                    byte[] laneFrame = LaneFrame.encodeSimple(laneCount, dirs, rec, currentIcon1);
+                    renderAaLane(laneFrame);
+                }
             }
         }
     };
@@ -408,6 +544,10 @@ public final class CoreService extends Service {
             long dist = -1;
             int type = 3, icon = 0, second = 0;
             boolean clear = false;
+            String mediaTrack = null, mediaArtist = null;
+            int laneCount = 0;
+            int[] laneDirs = null;
+            boolean[] laneRec = null;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty()) break;
@@ -417,16 +557,51 @@ public final class CoreService extends Service {
                 else if (line.startsWith("TYPE:")) try { type = Integer.parseInt(line.substring(5).trim()); } catch (Exception ignored) {}
                 else if (line.startsWith("ICON:")) try { icon = Integer.decode(line.substring(5).trim()); } catch (Exception ignored) {}
                 else if (line.startsWith("2ND:")) try { second = Integer.decode(line.substring(4).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("TRACK:")) mediaTrack = line.substring(6).trim();
+                else if (line.startsWith("ARTIST:")) mediaArtist = line.substring(7).trim();
+                else if (line.startsWith("LANE:")) {
+                    try {
+                        String[] parts = line.substring(5).trim().split(":");
+                        laneCount = Integer.parseInt(parts[0]);
+                        if (parts.length > 1) {
+                            String[] lTokens = parts[1].split("\\|");
+                            laneDirs = new int[lTokens.length];
+                            laneRec = new boolean[lTokens.length];
+                            for (int i = 0; i < lTokens.length; i++) {
+                                String tok = lTokens[i];
+                                if (tok.contains("#")) {
+                                    String[] sub = tok.split("#");
+                                    laneDirs[i] = Integer.parseInt(sub[0]);
+                                    laneRec[i] = true;
+                                } else {
+                                    laneDirs[i] = Integer.parseInt(tok);
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
                 else if (line.equalsIgnoreCase("CLEAR")) clear = true;
             }
             client.close();
+            if (mediaTrack != null) {
+                renderMediaOsd(mediaTrack, mediaArtist);
+            }
+            if (laneCount > 0) {
+                byte[] lf = LaneFrame.encodeSimple(laneCount, laneDirs, laneRec, icon > 0 ? icon : currentIcon1);
+                renderAaLane(lf);
+            }
             if (clear || dist < 0) {
-                renderAaTbt(0, 0, -1, null);
+                if (mediaTrack == null) renderAaTbt(0, 0, -1, null);
             } else {
                 if (icon <= 0 && (road != null || desc != null)) {
                     Maneuver m = new Maneuver();
                     m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
+                } else if (icon > 0 && (road != null || desc != null)) {
+                    icon = ClusterIcon.refineManeuver(icon, road, desc);
+                }
+                if (second > 0 && road != null) {
+                    second = ClusterIcon.refineManeuver(second, road, null);
                 }
                 renderAaTbt(icon, second, dist, road);
             }
