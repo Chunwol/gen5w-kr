@@ -33,6 +33,10 @@ cat > "$W/bin/nemesis" <<'EOF'
 echo "$*" >> "$AUDIO_TEST_FIXTURE/remounts"
 [ "$2" != "${AUDIO_TEST_REMOUNT_FAIL:-never}" ]
 EOF
+cat > "$W/bin/chown" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
 sed 's@/original@/original35@g;s@/patched@/patched35@g' "$W/bin/tool" > "$W/pkg/bin/audio-patch-v035"
 chmod +x "$W/pkg/bin/audio-patch-v035"
 cat > "$W/bin/mv" <<'EOF'

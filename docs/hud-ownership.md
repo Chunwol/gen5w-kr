@@ -12,13 +12,17 @@
 
 ## 과속·카메라 경고
 
-순정의 경고·제한속도 출력 API는 회전·차선·거리와 구분됩니다. 앱은 경고 API를 쓰거나 순정 내비를 종료하지 않습니다. 이 변경은 순정 경고 경로를 유지하는 처리이며, CarPlay 중 순정 내비가 경고를 계속 제공하도록 새로 구현한 기능은 아닙니다. 해당 조합의 HUD 표시는 실차 미확인입니다.
+순정의 경고·제한속도 출력 API는 회전·차선·거리와 완전히 분리된 독립 채널입니다:
+- 회전·거리: `NavigationCluster.updateTBTInfo(IIFFIIIII)` 및 차선 프레임 (우리 앱이 CarPlay/Android Auto에서 수신하여 전송)
+- 과속·카메라: `NavigationCluster.updateTBTTrapInfo(17개 int)` 및 경고 거리 `updateNaviWarnDist(3개 int)` (순정 내비 엔진이 안전운전 모드에서 전송)
 
-V039의 인터페이스를 확인한 결과 카메라 종류·과속 경고·제한속도는 `updateTBTTrapInfo(17개 int)` 또는 `updateTBTTrapInfoNew(NaviTbtTrapInfo)` 경로입니다. `updateNaviWarnDist(3개 int)` / `updateNaviWarnDist2(10개 int)`는 경고 거리이고, `updateSLIFNaviInformation(5·6·11개 int)`는 별도 제한속도 정보입니다. CarPlay 회전·거리용 `updateTBTInfo(IIFFIIIII)`만으로 이 경고를 생성할 수 없습니다.
-
-순정 내비의 Java 진입점 `NativeCall.sendClusterData`와 `sendClusterParser`에서 경고 변환기로 전달하는 구간에는 CarPlay 표시 상태나 경로 안내 여부에 따른 차단이 없습니다. 다만 이 진입점을 호출하는 native 내비 엔진이 CarPlay 사용 중·목적지 없는 주행 중에도 데이터를 계속 생성하는지는 확인되지 않았습니다. Java 경로의 존재만으로 백그라운드 경고 작동을 판단하지 않습니다.
-
-`NavigationClusterListener.onHandleNaviSLIFInfo`와 G2/G3 콜백은 MICOM에서 내비 쪽으로 들어오는 표지 인식 응답이며, 순정 내비가 출력한 카메라 경고를 구독하는 콜백이 아닙니다. 확인한 인터페이스에는 순정 카메라 경고의 조회·구독 API가 없고, `State_Table`에도 카메라·속도 데이터 열이 없습니다. 따라서 이 콜백이나 경로 안내 플래그를 경고 입력으로 바꿔 재전송하지 않습니다. 새 경고 중계를 구현하려면 native 엔진의 실제 출력 지속 여부와 지원되는 수신 경로가 먼저 증명되어야 합니다.
+### 순정 카메라 억제 원인 및 생존 메커니즘
+1. **억제 원인 (리버스 엔지니어링 확인)**:
+   CarPlay 또는 Android Auto 길안내가 시작되면, 프로젝션 시스템이 `com.mnsoft.navi.action.Route_Guide_ACTION` 또는 `SOUND_OFF`를 순정 내비(`NaviETCReceiver`)로 전송합니다. 이를 수신한 순정 내비는 C++ 네이티브 엔진에 opcode `0x836` ("Carplay route is set" / "AA route is set")을 내려보내며, 네이티브 엔진은 즉시 클러스터/HUD 단속카메라 패킷(`updateTBTTrapInfo`) 생성을 전면 중단(Mute)합니다.
+2. **생존 처리 (안전운전 모드 유지)**:
+   네이티브 엔진은 opcode `0xfa5` ("Carplay route is not set" / "AA route is not set")를 받으면 정상 백그라운드 안전운전 안내 모드로 복귀하여 단속카메라 패킷을 다시 송출합니다. 이 신호는 `com.mnsoft.navi.action.SOUND_ON` 브로드캐스트를 통해 트리거됩니다.
+3. **CoreService 감시 및 공존 구현**:
+   `CoreService`는 순정 내비가 목적지 안내 중이 아닐 때(`StockGuidance.IDLE`) 주기적으로 및 연결/상태 전환 시 `com.mnsoft.navi.action.SOUND_ON`을 유지합니다. 이를 통해 순정 내비의 안전운전 안내 엔진이 셧다운(`0x836`)되는 것을 차단하고 `0xfa5` 모드를 유지시킴으로써, **HUD에 CarPlay/Android Auto TBT 길안내 화살표와 순정 과속·카메라 경고가 동시에 정상 표출**되도록 동작합니다. 순정 내비에서 목적지를 직접 설정한 경우(`StockGuidance.ACTIVE`)에는 순정 안내에 모든 제어권을 양보합니다.
 
 앱 시작 시 경고·거리·제한속도 writer의 이름·인자·반환형만 조사하고 `hud-native-warning.status`에 다음 중 하나를 기록합니다. 조사 중 writer 호출이나 위치·속도·카메라 값 저장은 없습니다. 이 상태는 순정 내비 활성 상태나 HUD 표시 성공과 별개입니다.
 

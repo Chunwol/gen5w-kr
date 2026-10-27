@@ -26,4 +26,4 @@ KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜
 
 거리 출력은 status 필드10의 미터 값을 별도 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`의 scale0으로 전달합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 distanceErr=-3을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다.
 
-순정 내비 안내 중에는 CarPlay HUD 출력을 양보합니다. 상태 조회가 실패해도 출력·지우기를 보류하고, 안내 종료 후 최신 CarPlay 정보를 다시 전송합니다. 권한과 과속·카메라 경고의 적용 범위는 [HUD 우선순위](hud-ownership.md)를 참고하세요.
+순정 내비 안내 중에는 CarPlay HUD 출력을 양보합니다. 상태 조회가 실패해도 출력·지우기를 보류하고, 안내 종료 후 최신 CarPlay 정보를 다시 전송합니다. 순정 내비가 목적지 안내 중이 아닐 때(IDLE)는 카플레이 및 안드로이드 오토 TBT와 순정 단속카메라/과속 경고가 HUD에 동시에 표출되도록 순정 안전운전 안내 모드(SOUND_ON, opcode 0xfa5)를 유지합니다. 권한과 과속·카메라 경고의 적용 범위는 [HUD 우선순위](hud-ownership.md)를 참고하세요.

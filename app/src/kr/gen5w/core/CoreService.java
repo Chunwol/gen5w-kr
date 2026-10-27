@@ -30,6 +30,7 @@ import kr.gen5w.probe.Item;
  */
 public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
+    private static final String ACTION_SOUND_ON = "com.mnsoft.navi.action.SOUND_ON";
     private static final long RETRY_MS = 5000;
     private HandlerThread worker;
     private Handler io, main;
@@ -41,6 +42,7 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
+    private int soundTick; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -93,6 +95,7 @@ public final class CoreService extends Service {
             disconnected();
             main.removeCallbacks(registerRetry); register();
         }
+        keepStockSafetyGuidanceAlive();
         return START_STICKY;
     }
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -125,8 +128,16 @@ public final class CoreService extends Service {
                 try { out.write((owner + "\n").getBytes("US-ASCII")); }
                 finally { out.close(); }
             } catch (java.io.IOException e) { Log.w(TAG, "HUD owner status unavailable"); }
+            if (next == StockGuidance.IDLE) keepStockSafetyGuidanceAlive();
         }
         return next == StockGuidance.IDLE;
+    }
+    private void keepStockSafetyGuidanceAlive() {
+        try {
+            sendBroadcast(new Intent(ACTION_SOUND_ON));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "stock safety broadcast unavailable: " + e.getMessage());
+        }
     }
     private boolean outputError(Throwable e) {
         cluster = null;
@@ -147,8 +158,11 @@ public final class CoreService extends Service {
     }
     private final Runnable outputRetry = new Runnable() { public void run() {
         if (stopping) return;
-        refreshOwnership();
+        boolean idle = refreshOwnership();
         session.retryOutput();
+        if (idle && (++soundTick % 3 == 0)) {
+            keepStockSafetyGuidanceAlive();
+        }
         io.postDelayed(this, 1000);
     }};
     private void bind() {
@@ -259,6 +273,7 @@ public final class CoreService extends Service {
                 if (outputEpoch <= closed) {
                     refreshOwnership();
                     session.disconnect(); cluster = null; outputEpoch = closed;
+                    keepStockSafetyGuidanceAlive();
                 }
             }
         });

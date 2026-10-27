@@ -1,0 +1,13 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.dongle
+name=Gen5W KR - USB Wi-Fi dongle support (ath9k_htc)
+types=application
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=bin/status.sh
+uid=root

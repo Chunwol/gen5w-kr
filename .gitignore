@@ -16,3 +16,5 @@ tools/integrated/bin/zipstore*
 packages/notice-timer/bin/notice-patch-v*
 packages/hotspot-match/bin/hotspot-patch-v*
 local-only/
+tools/usb-wifi/package/files/
+tools/usb-wifi/hal_adapter/*.so
