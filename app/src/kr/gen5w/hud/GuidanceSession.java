@@ -62,6 +62,7 @@ public final class GuidanceSession {
     }
     public void maneuver(Maneuver m) {
         if (m == null) { disconnect(); return; }
+        if (m.appSource == null) m.appSource = this.source;
         long newKey = key(m.component, m.index);
         if (!maneuvers.containsKey(newKey) && maneuvers.size() >= 128) {
             Long victim = null;

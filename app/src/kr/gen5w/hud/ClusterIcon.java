@@ -42,30 +42,36 @@ public final class ClusterIcon {
         if (m.junctionType == 1 || m.type == 6 || m.type == 7 || m.type == 19
                 || (m.type >= 28 && m.type <= 46)) return roundabout(m);
 
-        if (hasAny(text, "터널")) {
+        if (hasAny(text, "터널", "tunnel")) {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
             return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
         }
         if (hasAny(text, "지하차도", "지하 차도", "지하도로", "지하 도로", "지하차로", "지하 차로",
-                "지하차선", "지하 차선", "지하길", "지하차도옆")) {
+                "지하차선", "지하 차선", "지하길", "지하통로", "지하보차도", "언더패스", "underpass",
+                "지하차도옆", "지하차도 옆", "지하차도 옆길", "지하차도옆길")) {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
             return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
         }
         if (hasAny(text, "고가차도", "고가 차도", "고가도로", "고가 도로", "고가차로", "고가 차로",
-                "고가차선", "고가 차선", "고가교", "고가길", "고가도로옆", "고가 옆길", "고가 옆", "고가옆길", "고가옆")) {
+                "고가차선", "고가 차선", "고가교", "고가길", "오버패스", "overpass",
+                "고가도로옆", "고가도로 옆", "고가 옆길", "고가 옆", "고가옆길", "고가옆",
+                "고가차도 옆길", "고가차도옆길", "고가차도 옆", "고가차도옆")) {
             if (isSide(text)) return side > 0 ? OVERPASS_SIDE_R : OVERPASS_SIDE_L;
             return side > 0 ? OVERPASS_ENTRY_R : OVERPASS_ENTRY_LC;
         }
-        if (hasAny(text, "휴게소", "졸음쉼터")) return REST_AREA;
-        if (hasAny(text, "요금소", "톨게이트", "하이패스", "원톨링") || tollgateAbbreviation(text)) return TOLL;
-        if (hasAny(text, "나들목", "분기점", "고속도로", "고속 도로", "도시고속도로", "도시 고속 도로", "분기도로", "분기 도로")
+        if (hasAny(text, "휴게소", "졸음쉼터", "졸음 쉼터", "간이휴게소", "간이 휴게소", "임시휴게소",
+                "화물차라운지", "화물차 라운지", "복합휴게소", "rest area", "service area")) return REST_AREA;
+        if (hasAny(text, "요금소", "톨게이트", "하이패스", "원톨링", "민자요금소", "민자 요금소",
+                "개방식요금소", "통행료", "toll") || tollgateAbbreviation(text)) return TOLL;
+        if (hasAny(text, "나들목", "분기점", "고속도로", "고속 도로", "도시고속도로", "도시 고속 도로",
+                "순환도로", "순환 고속도로", "분기도로", "분기 도로", "램프", "램프도로", "onramp", "offramp")
                 || interchangeAbbreviation(text)) {
             // Surface intersection turns (type 1/2) without ramp keywords preserve normal turn icons
-            if ((m.type == 1 || m.type == 2) && !hasAny(text, "진입", "진출", "램프", "합류", "올라", "빠져", "나가", "출구")) {
+            if ((m.type == 1 || m.type == 2) && !hasAny(text, "진입", "진출", "램프", "합류", "올라", "빠져", "나가", "출구", "onramp", "offramp")) {
                 return ordinary(m);
             }
             if (m.type == 8 || m.type == 22 || m.type == 23
-                    || (m.type != 9 && hasAny(text, "진출", "나가", "빠져", "출구"))) {
+                    || (m.type != 9 && m.type != 24 && m.type != 25 && hasAny(text, "진출", "나가", "빠져", "출구", "방면 출구", "오른쪽 출구", "왼쪽 출구", "exit", "offramp", "off ramp"))) {
                 return pick(side, IC_EXIT_C, IC_EXIT_R, IC_EXIT_L);
             }
             return pick(side, IC_ENTER_C, IC_ENTER_R, IC_ENTER_L);
@@ -73,10 +79,10 @@ public final class ClusterIcon {
         return ordinary(m);
     }
     private static boolean interchangeAbbreviation(String text) {
-        return java.util.regex.Pattern.compile("(?i)(?:^|[^a-z])(?:i\\.?c|j\\.?c)(?=$|[^a-z])").matcher(text).find();
+        return java.util.regex.Pattern.compile("(?i)(?<![a-z])(i\\.?c|j\\.?c)(?![a-z])").matcher(text).find();
     }
     private static boolean tollgateAbbreviation(String text) {
-        return java.util.regex.Pattern.compile("(?i)(?:^|[^a-z])t\\.?g(?=$|[^a-z])").matcher(text).find();
+        return java.util.regex.Pattern.compile("(?i)(?<![a-z])t\\.?g(?![a-z])").matcher(text).find();
     }
 
     // Numeric cluster IDs verified against the stock DiPO ManeuverType mapping.
@@ -163,25 +169,28 @@ public final class ClusterIcon {
         return false;
     }
     static boolean isSide(String s) {
-        if (hasAny(s, "진입", "본선")) return false;
-        return hasAny(s, "옆길", "측도", "우측 도로", "좌측 도로", "우측도로", "좌측도로", "오른쪽 도로", "왼쪽 도로",
-                "옆 차로", "옆차로", "옆길 도로", "측면 도로", "측면도로", "지하차도옆", "고가도로옆");
+        if (hasAny(s, "진입", "본선", "올라")) return false;
+        return hasAny(s, "옆길", "옆 길", "측도", "우측 도로", "좌측 도로", "우측도로", "좌측도로", "오른쪽 도로", "왼쪽 도로",
+                "오른쪽길", "왼쪽길", "오른쪽 방향", "왼쪽 방향", "바깥길",
+                "옆 차로", "옆차로", "옆 차선", "옆차선", "옆길 도로", "측면 도로", "측면도로",
+                "지하차도옆", "지하차도 옆", "고가도로옆", "고가도로 옆", "고가 옆", "고가옆",
+                "터널 옆", "터널옆", "터널 옆길", "터널옆길");
     }
 
     /** direction side from the text or exit angle, falling back to centre/unknown. */
     static int side(Maneuver m) {
         String t = ((m.afterRoad == null ? "" : m.afterRoad) + " " + (m.desc == null ? "" : m.desc));
         switch (m.type) {
-            case 1: case 13: case 20: case 22: case 47: case 49: case 52: return -1;
-            case 2: case 14: case 21: case 23: case 48: case 50: case 53: return 1;
+            case 1: case 13: case 20: case 22: case 24: case 47: case 49: case 52: return -1;
+            case 2: case 14: case 21: case 23: case 25: case 48: case 50: case 53: return 1;
             default: break;
         }
-        if (hasAny(t, "오른쪽", "오른쪽에", "우측", "우회전", "오른편", "오른 쪽", "오른쪽 방향", "우측 도로", "우측도로",
+        if (hasAny(t, "오른쪽", "오른쪽에", "우측", "우회전", "오른편", "오른 쪽", "오른쪽 방향", "오른쪽길", "우측 도로", "우측도로",
                 "오른쪽 도로", "오른쪽도로", "우측차로", "우측차선", "우측 차로", "우측 차선", "끝 차로", "끝차로",
-                "바깥차로", "바깥 차로", "1시", "2시", "3시", "4시", "5시")) return 1;
-        if (hasAny(t, "왼쪽", "왼쪽에", "좌측", "좌회전", "왼편", "왼 쪽", "왼쪽 방향", "좌측 도로", "좌측도로",
+                "바깥차로", "바깥 차로", "하위 차로", "하위차로", "1시", "2시", "3시", "4시", "5시")) return 1;
+        if (hasAny(t, "왼쪽", "왼쪽에", "좌측", "좌회전", "왼편", "왼 쪽", "왼쪽 방향", "왼쪽길", "좌측 도로", "좌측도로",
                 "왼쪽 도로", "왼쪽도로", "좌측차로", "좌측차선", "좌측 차로", "좌측 차선", "1차로", "1차선",
-                "1, 2차로", "1,2차로", "1, 2차선", "1,2차선", "7시", "8시", "9시", "10시", "11시")) return -1;
+                "1, 2차로", "1,2차로", "1, 2차선", "1,2차선", "상위 차로", "상위차로", "7시", "8시", "9시", "10시", "11시")) return -1;
         if (m.exitAngle != Maneuver.UNKNOWN_ANGLE) {
             if (m.exitAngle > 10) return 1;
             if (m.exitAngle < -10) return -1;

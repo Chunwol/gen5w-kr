@@ -45,6 +45,13 @@ public final class HudTest {
         eq("kakao left direction road", ClusterIcon.of(m("왼쪽 방향")), 0x47);
         eq("kakao right direction road", ClusterIcon.of(m("오른쪽 방향")), 0x42);
         eq("tg abbreviation", ClusterIcon.of(m("서울TG")), ClusterIcon.TOLL);
+        eq("tg joined abbreviation", ClusterIcon.of(m("분당TG진입")), ClusterIcon.TOLL);
+        eq("jc abbreviation", ClusterIcon.of(m("판교JC")), ClusterIcon.IC_ENTER_C);
+        eq("tmap underpass side attached", ClusterIcon.of(m("지하차도옆길")), ClusterIcon.UNDERPASS_SIDE_L);
+        eq("tmap overpass side attached", ClusterIcon.of(m("우측 고가차도옆길")), ClusterIcon.OVERPASS_SIDE_R);
+        eq("tunnel side attached", ClusterIcon.of(m("터널 옆길")), ClusterIcon.UNDERPASS_SIDE_L);
+        eq("rest area sleep shelter", ClusterIcon.of(m("졸음 쉼터")), ClusterIcon.REST_AREA);
+        eq("truck lounge", ClusterIcon.of(m("화물차 라운지")), ClusterIcon.REST_AREA);
         Maneuver surfaceTurnWithIC = m("서판교IC 방면"); surfaceTurnWithIC.type = 2; // normal right turn at surface
         eq("surface right turn with IC destination stays normal turn", ClusterIcon.of(surfaceTurnWithIC), 0x43);
         Maneuver rampEnterWithIC = m("서판교IC 진입"); rampEnterWithIC.type = 2;
