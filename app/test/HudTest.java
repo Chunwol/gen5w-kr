@@ -44,6 +44,11 @@ public final class HudTest {
         eq("tmap overpass side", ClusterIcon.of(m("고가도로옆")), ClusterIcon.OVERPASS_SIDE_L);
         eq("kakao left direction road", ClusterIcon.of(m("왼쪽 방향")), 0x47);
         eq("kakao right direction road", ClusterIcon.of(m("오른쪽 방향")), 0x42);
+        eq("tg abbreviation", ClusterIcon.of(m("서울TG")), ClusterIcon.TOLL);
+        Maneuver surfaceTurnWithIC = m("서판교IC 방면"); surfaceTurnWithIC.type = 2; // normal right turn at surface
+        eq("surface right turn with IC destination stays normal turn", ClusterIcon.of(surfaceTurnWithIC), 0x43);
+        Maneuver rampEnterWithIC = m("서판교IC 진입"); rampEnterWithIC.type = 2;
+        eq("ramp enter with IC becomes IC enter right", ClusterIcon.of(rampEnterWithIC), ClusterIcon.IC_ENTER_R);
         Maneuver noTurn = m("고가도로"); noTurn.type = 0;
         eq("NoTurn cannot be overridden by road text", ClusterIcon.of(noTurn), ClusterIcon.NONE);
         noTurn.type = 999;

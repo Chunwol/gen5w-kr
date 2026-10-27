@@ -52,14 +52,18 @@ public final class ClusterIcon {
             return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
         }
         if (hasAny(text, "고가차도", "고가 차도", "고가도로", "고가 도로", "고가차로", "고가 차로",
-                "고가차선", "고가 차선", "고가", "고가도로옆")) {
+                "고가차선", "고가 차선", "고가교", "고가길", "고가도로옆", "고가 옆길", "고가 옆", "고가옆길", "고가옆")) {
             if (isSide(text)) return side > 0 ? OVERPASS_SIDE_R : OVERPASS_SIDE_L;
             return side > 0 ? OVERPASS_ENTRY_R : OVERPASS_ENTRY_LC;
         }
         if (hasAny(text, "휴게소", "졸음쉼터")) return REST_AREA;
-        if (hasAny(text, "요금소", "톨게이트", "하이패스", "원톨링")) return TOLL;
+        if (hasAny(text, "요금소", "톨게이트", "하이패스", "원톨링") || tollgateAbbreviation(text)) return TOLL;
         if (hasAny(text, "나들목", "분기점", "고속도로", "고속 도로", "도시고속도로", "도시 고속 도로", "분기도로", "분기 도로")
                 || interchangeAbbreviation(text)) {
+            // Surface intersection turns (type 1/2) without ramp keywords preserve normal turn icons
+            if ((m.type == 1 || m.type == 2) && !hasAny(text, "진입", "진출", "램프", "합류", "올라", "빠져", "나가", "출구")) {
+                return ordinary(m);
+            }
             if (m.type == 8 || m.type == 22 || m.type == 23
                     || (m.type != 9 && hasAny(text, "진출", "나가", "빠져", "출구"))) {
                 return pick(side, IC_EXIT_C, IC_EXIT_R, IC_EXIT_L);
@@ -70,6 +74,9 @@ public final class ClusterIcon {
     }
     private static boolean interchangeAbbreviation(String text) {
         return java.util.regex.Pattern.compile("(?i)(?:^|[^a-z])(?:i\\.?c|j\\.?c)(?=$|[^a-z])").matcher(text).find();
+    }
+    private static boolean tollgateAbbreviation(String text) {
+        return java.util.regex.Pattern.compile("(?i)(?:^|[^a-z])t\\.?g(?=$|[^a-z])").matcher(text).find();
     }
 
     // Numeric cluster IDs verified against the stock DiPO ManeuverType mapping.
@@ -138,9 +145,6 @@ public final class ClusterIcon {
         else if (a >= -67) code = 0x68;
         else if (a >= -112) code = 0x69;
         else code = 0x68; // Stock DiPO also uses 68 at -135 degrees.
-        // Stock DiPO explicitly emits C0 for the left-driving circle at angle0.
-        // Other left-driving directional IDs are unproven: retain the verified
-        // circle rather than manufacturing a numeric family offset.
         return m.drivingSide == 1 ? 0xc0 : code;
     }
     private static int curve(int angle, boolean right) {
@@ -159,8 +163,9 @@ public final class ClusterIcon {
         return false;
     }
     static boolean isSide(String s) {
+        if (hasAny(s, "진입", "본선")) return false;
         return hasAny(s, "옆길", "측도", "우측 도로", "좌측 도로", "우측도로", "좌측도로", "오른쪽 도로", "왼쪽 도로",
-                "옆 차로", "옆차로", "옆길 도로", "측면 도로", "측면도로", "지하차도옆", "고가도로옆", "옆");
+                "옆 차로", "옆차로", "옆길 도로", "측면 도로", "측면도로", "지하차도옆", "고가도로옆");
     }
 
     /** direction side from the text or exit angle, falling back to centre/unknown. */
