@@ -1,5 +1,30 @@
 # 변경 내역
 
+## v0.2.0
+
+### 안드로이드 오토(Android Auto) 순정 계기판·HUD TBT 연동 (P3 완료)
+- 스마트폰에 별도 보조 앱 설치 없이 순정 네이티브 프로젝션 규격(NavigationStatusService)을 통한 TBT 연동
+- 순정 Google Projection 모듈(`/system/app/HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch-v039`로 우회하여 순정 `GpmNaviTBTManager` 활성화
+- Google 지도, 티맵, 네이버 지도, 카카오내비의 회전 아이콘, 2nd TBT 및 남은 거리를 순정 계기판과 HUD에 직결 표출
+- `CoreService`에 안드로이드 오토 보조 브로드캐스트(`kr.gen5w.action.AA_TBT`) 및 로컬 추상 소켓(`gen5wkr.aa.tbt`) 인터페이스 추가
+
+### 2nd TBT(다음 연속 회전 안내) 지원 (P2 완료)
+- `GuidanceSession`에서 차기 회전(current[1])을 파싱하여 2nd TBT 아이콘 생성
+- `NavigationCluster.updateTBTInfo`의 2번째 및 6번째 파라미터(`sideStreet`, `combiSideStreet`)에 2차 회전 아이콘 코드 전달
+- 계기판 및 컴바이너 HUD의 2차 분기 안내 슬롯 지원
+
+### 6대 도로 유형 매핑 및 내비 3사(네이버·티맵·카카오) 100% 매핑 고도화
+- 지하차도, 고가차도, 터널, 요금소(TG), 휴게소/졸음쉼터, 고속도로 IC/JC 어휘 전수 지원
+- 네이버 지도 공백 분리형, 티맵 붙여쓰기형, 카카오내비 방향 지시형 어휘 및 축약어(`TG`, `IC`, `JC`) 완벽 대응
+- 일반 교차로 회전과 고속도로 램프 진입 간의 키워드 충돌 방지 로직 적용
+- `Maneuver.appSource` 주입을 통한 앱별 커스텀 매핑 파이프라인 구축
+
+### 안전 및 안정성 강화
+- `HKMC_GPM.odex` 원본을 `/system/etc/gen5w-kr-backup/bridge/gpmoriginal` 및 `/data/nemesis/backup/gen5w.kr.bridge/gpmoriginal`에 영구 보존
+- 원자적 교체(`mv`), 언인스톨 시 원본 100% 복원, 비정상 중단 시 자동 롤백 라이프사이클 구현
+- 순정 안전운전 안내 모드(SOUND_ON, opcode 0xfa5) 연동으로 과속/카메라 경고와 HUD TBT 동시 표출 유지
+- 회전교차로 미확인 각도 시 안전을 위한 클리어 처리 보장
+
 ## v0.1.2
 
 - 꺼진 Wi-Fi를 없는 장치로 오판하지 않도록 감지와 일시 활성화·복원 처리 수정

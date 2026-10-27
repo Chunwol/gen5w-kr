@@ -9,8 +9,8 @@
 | wireless | 순정 무선 연결·핫스팟 기능 선언과 설정 |
 | audio | 알려진 원본의 AAC·Opus 형식 알림 수정 |
 | hotspot | 실제 핫스팟과 CarPlay 접속 정보 일치 |
-| bridge | Bluetooth 연결과 순정 iAP2·CarPlay 서비스 연결 |
-| core | CarPlay 길안내 수신과 계기판·HUD 출력 |
+| bridge | Bluetooth 연결과 순정 iAP2·CarPlay 및 Android Auto TBT 서비스 연결 |
+| core | CarPlay 및 Android Auto 길안내 수신과 계기판·HUD 출력 |
 | consent | 선택한 버전에서 시동 동의 안내 생략 |
 
 제조사 구현은 배포하지 않습니다. 원본 파일 전체 해시와 의존 파일 조합이 맞을 때만 수정하며, 원본은 기기 안에 보관합니다.
@@ -25,11 +25,11 @@ bridge는 연결된 휴대폰이 광고한 UUID를 확인해 RFCOMM을 엽니다
 
 ## 길안내
 
-core는 `com.remote.service.IAP2SERVICE`에 별도 이름 `gen5wkr.core`로 등록합니다. 순정 소비자의 등록을 대체하지 않습니다. 등록된 안내 component를 조회하고 `Iap2SvcStartRouteGuidanceUpdate`를 명시적으로 요청합니다.
+CarPlay 길안내는 `core`가 `com.remote.service.IAP2SERVICE`에 별도 이름 `gen5wkr.core`로 등록합니다. 순정 소비자의 등록을 대체하지 않습니다. 등록된 안내 component를 조회하고 `Iap2SvcStartRouteGuidanceUpdate`를 명시적으로 요청합니다. 알림 `0x78/0x79/0x7a`를 상태·회전·차선으로 처리하며, 6대 도로 유형(지하차도·고가차도·터널·요금소·휴게소·IC/JC) 전수 어휘 매핑 엔진을 통해 순정 심볼 코드로 변환합니다.
 
-알림 `0x78/0x79/0x7a`를 상태·회전·차선으로 처리합니다. 부분 갱신을 합치고 현재 선택된 항목만 출력합니다. 지도 앱 변경, 재탐색, 안내 종료와 연결 해제 시 이전 상태를 지웁니다.
+Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch`로 우회하여, Google 표준 네비게이션 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 차량 네이티브 수준에서 활성화합니다. 이를 통해 사용자 스마트폰에 별도 앱을 설치하지 않고도 Google 지도·티맵·네이버 지도·카카오내비의 TBT 정보가 전달됩니다.
 
-출력은 순정 `NavigationCluster`의 `updateTPTurnListNew`, `updateLaneInfo`, `updateTBTInfo`를 사용합니다. 출력이 실패하면 최신 정보나 지움 요청을 다시 보냅니다. 자체 CAN 프레임은 만들지 않습니다. 메시지 필드와 프레임 규격은 [iAP2](iap2-fields.md), [HUD](hud.md)를 참고하세요.
+출력은 순정 `NavigationCluster`의 `updateTPTurnListNew`, `updateLaneInfo`, `updateTBTInfo`를 사용합니다. `updateTBTInfo`의 `sideStreet` 및 `combiSideStreet` 슬롯에 2nd TBT(차기 회전 아이콘)를 전달하여 계기판과 컴바이너 HUD의 2차 분기 표출을 지원합니다. 출력이 실패하면 최신 정보나 지움 요청을 다시 보냅니다. 자체 CAN 프레임은 만들지 않습니다. 메시지 필드와 프레임 규격은 [iAP2](iap2-fields.md), [HUD](hud.md)를 참고하세요.
 
 ## 시동 안내
 
