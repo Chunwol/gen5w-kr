@@ -1,0 +1,6 @@
+[nemesis]
+version=1.0
+type=execute
+id=gen5w.kr.probe.collect
+name=Copy the Gen5W probe log to USB
+compat=gen5w

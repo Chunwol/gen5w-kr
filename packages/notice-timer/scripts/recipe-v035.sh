@@ -1,0 +1,2 @@
+NOTICE_RECIPE=v035-stock-consent-3000ms
+NOTICE_APK_SHA=cac8d463cdcb70bfd6de91efd47aebd352bd75fc8893b13b1d65f897accb8f8e

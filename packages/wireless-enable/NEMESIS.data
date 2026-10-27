@@ -1,0 +1,13 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.wireless
+name=Gen5W KR - turn on wireless CarPlay / Android Auto
+types=application
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=bin/status.sh
+uid=root

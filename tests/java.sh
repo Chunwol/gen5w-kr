@@ -1,0 +1,24 @@
+#!/bin/bash
+# JVM tests, runnable separately in Git Bash where the Windows JDK is available.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if ! command -v javac >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then
+    echo "SKIP JVM tests (need both javac and java)"
+    exit 77
+fi
+mkdir -p .build
+work=$(mktemp -d "$PWD/.build/java-tests.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
+    app/src/kr/gen5w/hud/*.java app/test/*Test.java \
+    packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
+    packages/hotspot-match/src/kr/gen5w/hotspot/ApProfiles.java packages/hotspot-match/test/ApProfilesTest.java \
+    probe/src/kr/gen5w/probe/Item.java probe/src/kr/gen5w/probe/Dump.java probe/test/DumpTest.java
+java -cp "$work" HudTest
+java -cp "$work" GuidanceParserTest
+java -cp "$work" GuidanceSessionTest
+java -cp "$work" OwnershipTest
+java -cp "$work" DumpTest
+java -cp "$work" WirelessSessionTest
+java -cp "$work" TbtDistanceTest
+java -cp "$work" ApProfilesTest

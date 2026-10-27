@@ -1,0 +1,13 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.notice
+name=Gen5W KR - stock warning 3 second eligible timer
+types=application
+preinstall=scripts/pre.sh
+postinstall=scripts/post.sh
+preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=bin/status.sh
+uid=root

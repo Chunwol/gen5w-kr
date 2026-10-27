@@ -1,0 +1,21 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.probe
+name=Gen5W KR probe - route guidance log (read-only)
+types=application,service
+
+[app.0]
+kind=apk
+path=app/gen5w-probe.apk
+package=kr.gen5w.probe
+
+[app.1]
+kind=sh
+path=bin/collect.sh
+uid=root
+
+[service.0]
+name=probe
+kind=instance
+path=kr.gen5w.probe/.ProbeService
+mode=background

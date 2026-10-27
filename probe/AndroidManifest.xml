@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="kr.gen5w.probe"
+    android:versionCode="1"
+    android:versionName="0.1">
+
+    <uses-sdk android:minSdkVersion="18" android:targetSdkVersion="19" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application android:label="Gen5W probe" android:allowBackup="false">
+        <uses-library android:name="com.tcc.iap2" android:required="false" />
+
+        <service android:name=".ProbeService" android:exported="false" />
+
+        <receiver android:name=".StartReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.hkmc.intent.action.SYSTEM_POWERON" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

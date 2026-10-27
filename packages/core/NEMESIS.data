@@ -1,0 +1,24 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.core
+name=Gen5W KR - CarPlay HUD
+types=application,service
+preinstall=scripts/pre.sh
+
+[app.0]
+kind=apk
+path=app/gen5w-core.apk
+package=kr.gen5w.core
+
+[service.0]
+name=core
+kind=instance
+path=kr.gen5w.core/.CoreService
+mode=background
+
+[service.1]
+name=owner
+kind=sh
+path=scripts/owner.sh
+uid=system
+mode=restart

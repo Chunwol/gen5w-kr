@@ -1,0 +1,69 @@
+"""Check distribution contents without proprietary/private test inputs."""
+import configparser
+from io import BytesIO
+from pathlib import Path
+import struct
+import sys
+import zipfile
+
+def classes(data):
+    assert data[:4]==b'dex\n', 'invalid app dex'
+    count,off=struct.unpack_from('<II',data,56);strings=[]
+    for i in range(count):
+        pos=struct.unpack_from('<I',data,off+i*4)[0]
+        while data[pos]&128:pos+=1
+        pos+=1;strings.append(data[pos:data.index(0,pos)].decode('utf-8',errors='replace'))
+    count,off=struct.unpack_from('<II',data,64)
+    types=[strings[struct.unpack_from('<I',data,off+i*4)[0]] for i in range(count)]
+    count,off=struct.unpack_from('<II',data,96)
+    assert count>0, 'empty app dex'
+    assert all(types[struct.unpack_from('<I',data,off+i*32)[0]].startswith('Lkr/gen5w/') for i in range(count)), 'foreign implementation in dex'
+
+def audit(path):
+    with zipfile.ZipFile(path) as z:
+        assert z.testzip() is None, 'corrupt ZIP'
+        meta=configparser.ConfigParser(interpolation=None)
+        meta.read_string(z.read('NEMESIS.data').decode())
+        assert meta['nemesis']['id']==path.stem, 'package identity differs'
+        assert z.read('LICENSE').startswith(b' '), 'license missing'
+        assert len(z.read('BUILD-REVISION').strip())==40, 'source revision missing'
+        assert 'SOURCE.md' in z.namelist(), 'source notice missing'
+        for name in z.namelist():
+            p=Path(name);parts=set(p.parts)
+            assert not parts.intersection({'src','stubs','private','.build','__pycache__'}), 'development/private content in ZIP'
+            assert p.suffix not in {'.odex','.so','.java','.class','.keystore','.pass','.img','.ext4'}, 'forbidden artifact '+name
+            data=z.read(name)
+            if p.suffix=='.dex':classes(data)
+            if p.suffix=='.apk':
+                assert p.name in {'gen5w-core.apk','gen5w-probe.apk'}, 'unexpected APK'
+                with zipfile.ZipFile(BytesIO(data)) as apk:classes(apk.read('classes.dex'))
+            if data[:4]==b'\x7fELF':
+                assert data[4]==1 and struct.unpack_from('<H',data,18)[0]==40, 'non-ARM shipped binary'
+                offset=struct.unpack_from('<I',data,28)[0];size,count=struct.unpack_from('<HH',data,42)
+                assert all(struct.unpack_from('<I',data,offset+i*size)[0] not in (2,3) for i in range(count)), 'dynamic ABI dependency'
+    print('AUDITED',path.name)
+
+root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
+packages=sorted(root.glob('gen5w.kr.*.zip'))
+assert len(packages)==7, 'missing module/probe package'
+for package in packages:audit(package)
+with zipfile.ZipFile(root/'usb-integrated.zip') as z:
+    assert z.testzip() is None
+    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==6
+print('AUDITED six-module integrated installer; no OEM/private inputs required')
+assert not (root/'gen5w.kr.consent.zip').exists(), 'local notice-disabling package in distribution'
+assert not (root/'gen5w-kr-skip-consent.zip').exists(), 'local edition in distribution'
+for variant,count in [('standard',6)]:
+    with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
+        assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
+        assert z.read('GEN5W-VARIANT').decode().strip()==variant
+        assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
+        assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','repair-hotspot.sh','docs/beginner-guide.md'])
+        assert z.read('GEN5W-BACKEND')==b'builtin\n'
+        assert not any(n.endswith('svc/agree.sh') or n.endswith('gen5w.kr.consent.zip') for n in z.namelist())
+        assert z.read('BUILD-REVISION')==zipfile.ZipFile(root/'gen5w.kr.core.zip').read('BUILD-REVISION')
+with zipfile.ZipFile(root/'gen5w-kr-source.zip') as z:
+    assert all('gen5w-kr-source/'+p in z.namelist() for p in ['LICENSE','tools/build-all.sh','app/src/kr/gen5w/core/CoreService.java'])
+    assert not any(Path(n).suffix in {'.odex','.so','.apk','.dex','.img','.keystore','.pass'} for n in z.namelist()), 'private/binary source content'
+    assert not any('/consent-skip/' in n or n.endswith('/svc/agree.sh') for n in z.namelist()), 'local notice-disabling source in public archive'
+print('AUDITED public standard edition and corresponding source; local edition excluded')

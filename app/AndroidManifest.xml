@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="kr.gen5w.core" android:versionCode="2" android:versionName="1.0-rc1">
+    <uses-sdk android:minSdkVersion="18" android:targetSdkVersion="19" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <application android:label="Gen5W KR" android:allowBackup="false">
+        <uses-library android:name="com.tcc.iap2" android:required="true" />
+        <service android:name=".CoreService" android:exported="false" />
+        <receiver android:name=".StartReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.hkmc.intent.action.SYSTEM_POWERON" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

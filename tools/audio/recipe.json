@@ -1,0 +1,26 @@
+{
+  "id": "v039-1",
+  "original_sha256": "5a54a845d4d20d30f7f53f728b70cbe87c975b25b16872a1fc31ef7a7dc7485d",
+  "patches": [
+    {
+      "section": ".input",
+      "offset": 15020,
+      "length": 200,
+      "original_span_sha256": "6fa7725d481246fa816a3ed9f8932df0c6a1df23dadfdda9026e75f8c32ed9d2",
+      "replacement_sha256": "b357bba17e2889819864fd7c1a3927af888f732aee8e99d522ad414c18e89c73"
+    },
+    {
+      "section": ".output",
+      "offset": 15220,
+      "length": 348,
+      "original_span_sha256": "d9a03dd5981c7212ac1e703f28403e2db243462e364018619277f755ca8ae59d",
+      "replacement_sha256": "5a9c7859f478865003a1d486d776b6ecbf90d8f2b9a0f824d7ca2e7f4bb19c8e"
+    }
+  ],
+  "dependencies": {
+    "core": "3924bfb709e7c84a72b196a17b470edc3e5920de5e41cd699a8a289952af1585",
+    "utils": "8bbb98a853748654e802a473bce5e79fd9bd9d04f26270262c2c8edca6545787",
+    "opus": "3a80e9cd0341393a71a779bb6454b27b3ff11258e52fbc9e882aa1bf0cc191a4"
+  },
+  "patched_sha256": "f88eb320bc5ce92d4b3333b9f73269ceed23b065b3ea00a67434dbeb1ff61da7"
+}

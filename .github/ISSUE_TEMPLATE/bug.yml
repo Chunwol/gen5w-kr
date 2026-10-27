@@ -1,0 +1,43 @@
+name: 오류 보고
+description: 비식별 정보로 재현 조건과 영향을 보고합니다.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: 제조사 파일, VIN, 전화번호, MAC, SSID/비밀번호, 키/인증서, 원시 로그를 첨부하지 마세요.
+  - type: input
+    id: firmware
+    attributes:
+      label: 차량 연식/모델과 펌웨어 버전
+      description: 개인 차량 식별자는 제외합니다.
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: gen5w-kr 코드 커밋 또는 CI 실행 번호
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: 사용한 버전
+      description: 공식 배포판은 기본형(내장 Wi-Fi)입니다.
+      options:
+        - 기본형 (내장 Wi-Fi)
+        - 동글형 (USB Wi-Fi, 개발 중)
+        - 기타 (로컬 테스트 버전 등)
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: 진단 로그
+      description: USB의 GEN5W-REPORT/ISSUE.md를 확인하고 첨부해 주세요. 원시 로그는 첨부하지 마세요.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 재현 순서, 기대 동작, 실제 동작
+      description: 유선/무선, 실패 단계와 관련 모듈을 적어 주세요.
+    validations:
+      required: true

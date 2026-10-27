@@ -1,0 +1,6 @@
+[nemesis]
+version=1.0
+type=execute
+id=gen5w.kr.detect
+name=Gen5W KR - check what this unit supports (read-only)
+compat=gen5w
