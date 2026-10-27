@@ -42,11 +42,15 @@ public final class ClusterIcon {
         if (m.junctionType == 1 || m.type == 6 || m.type == 7 || m.type == 19
                 || (m.type >= 28 && m.type <= 46)) return roundabout(m);
 
-        if (hasAny(text, "지하차도", "지하도로", "지하차로")) {
+        if (hasAny(text, "터널")) {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
             return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
         }
-        if (hasAny(text, "고가차도", "고가도로", "고가")) {
+        if (hasAny(text, "지하차도", "지하도로", "지하차로", "지하차선", "지하 차로", "지하 차선", "지하 도로", "지하길")) {
+            if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
+            return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
+        }
+        if (hasAny(text, "고가차도", "고가도로", "고가차로", "고가차선", "고가 차로", "고가 차선", "고가 도로", "고가")) {
             if (isSide(text)) return side > 0 ? OVERPASS_SIDE_R : OVERPASS_SIDE_L;
             return side > 0 ? OVERPASS_ENTRY_R : OVERPASS_ENTRY_LC;
         }
@@ -69,6 +73,26 @@ public final class ClusterIcon {
     // A named turn remains usable when an angle is absent or not an exact multiple
     // of 30/45 degrees. Never infer the opposite turn from a conflicting angle.
     private static int ordinary(Maneuver m) {
+        String t = ((m.afterRoad == null ? "" : m.afterRoad) + " " + (m.desc == null ? "" : m.desc));
+        int s = side(m);
+        // Naver Map (and Kakao/T-map) may emit type 3 (Continue), 5 (FollowHighway), 11 (Straight),
+        // or 16/51 while indicating a turn or exit in text or exit angle.
+        if (m.type == 3 || m.type == 5 || m.type == 11 || m.type == 16 || m.type == 51) {
+            if (hasAny(t, "유턴", "u턴")) return m.drivingSide == 1 ? 0x49 : 0x48;
+            if (hasAny(t, "좌회전", "왼쪽", "좌측", "왼편")) {
+                if (hasAny(t, "급한", "유턴 방향", "크게")) return 0x45;
+                if (hasAny(t, "완만", "비스듬", "완만한")) return 0x47;
+                return curve(m.exitAngle, false);
+            }
+            if (hasAny(t, "우회전", "오른쪽", "우측", "오른편")) {
+                if (hasAny(t, "급한", "크게")) return 0x44;
+                if (hasAny(t, "완만", "비스듬", "완만한")) return 0x42;
+                return curve(m.exitAngle, true);
+            }
+            if (m.exitAngle != Maneuver.UNKNOWN_ANGLE && Math.abs(m.exitAngle) >= 20) {
+                return curve(m.exitAngle, m.exitAngle > 0);
+            }
+        }
         switch (m.type) {
             case 1: case 20: return curve(m.exitAngle, false);
             case 2: case 21: return curve(m.exitAngle, true);
@@ -89,7 +113,10 @@ public final class ClusterIcon {
             case 10: case 12: case 27: return 0x70;
             case 24: return 0x72;
             case 25: return 0x71;
-            default: return NONE;
+            default:
+                if (s < 0) return curve(m.exitAngle, false);
+                if (s > 0) return curve(m.exitAngle, true);
+                return NONE;
         }
     }
     // Exit ordinals do not encode physical direction. Anchors are stock DiPO
@@ -125,9 +152,11 @@ public final class ClusterIcon {
         for (String k : keys) if (low.contains(k)) return true;
         return false;
     }
-    static boolean isSide(String s) { return hasAny(s, "옆길", "측도", "우측 도로", "좌측 도로"); }
+    static boolean isSide(String s) {
+        return hasAny(s, "옆길", "측도", "우측 도로", "좌측 도로", "우측도로", "좌측도로", "옆 차로", "옆차로", "옆길 도로", "측면 도로", "측면도로");
+    }
 
-    /** direction side from the text, falling back to centre/unknown. */
+    /** direction side from the text or exit angle, falling back to centre/unknown. */
     static int side(Maneuver m) {
         String t = ((m.afterRoad == null ? "" : m.afterRoad) + " " + (m.desc == null ? "" : m.desc));
         switch (m.type) {
@@ -135,8 +164,12 @@ public final class ClusterIcon {
             case 2: case 14: case 21: case 23: case 48: case 50: case 53: return 1;
             default: break;
         }
-        if (hasAny(t, "우측", "오른쪽", "우회전")) return 1;
-        if (hasAny(t, "좌측", "왼쪽", "좌회전")) return -1;
+        if (hasAny(t, "우측", "오른쪽", "우회전", "오른편", "오른 쪽", "우측차로", "우측차선", "우측 차로", "우측 차선", "끝 차로", "끝차로", "바깥차로", "바깥 차로")) return 1;
+        if (hasAny(t, "좌측", "왼쪽", "좌회전", "왼편", "왼 쪽", "좌측차로", "좌측차선", "좌측 차로", "좌측 차선", "1차로", "1차선", "1, 2차로", "1,2차로", "1, 2차선", "1,2차선")) return -1;
+        if (m.exitAngle != Maneuver.UNKNOWN_ANGLE) {
+            if (m.exitAngle > 10) return 1;
+            if (m.exitAngle < -10) return -1;
+        }
         return 0;
     }
 }

@@ -42,7 +42,6 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
-    private int soundTick; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -158,11 +157,8 @@ public final class CoreService extends Service {
     }
     private final Runnable outputRetry = new Runnable() { public void run() {
         if (stopping) return;
-        boolean idle = refreshOwnership();
+        refreshOwnership();
         session.retryOutput();
-        if (idle && (++soundTick % 3 == 0)) {
-            keepStockSafetyGuidanceAlive();
-        }
         io.postDelayed(this, 1000);
     }};
     private void bind() {

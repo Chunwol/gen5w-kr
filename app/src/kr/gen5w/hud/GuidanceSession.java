@@ -99,13 +99,14 @@ public final class GuidanceSession {
         if (update.hasLaneIndex) laneIndex = update.laneIndex;
         if (update.hasLaneTotal) laneTotal = update.laneTotal;
         if (update.hasLaneVisible) laneVisible = update.laneVisible;
-        if (state != 1 && state != 6) {
+        if (!isNavigating(state)) {
             maneuvers.clear(); current = new int[0];
             clearLaneState();
             distance = -1;
         }
         render();
     }
+    public static boolean isNavigating(int s) { return s == 1 || s == 6; }
     public void disconnect() {
         component = -1; state = -1; source = null;
         current = new int[0]; maneuvers.clear();
@@ -118,9 +119,9 @@ public final class GuidanceSession {
     private void render() {
         renderLanes();
         Maneuver selected = current.length == 0 ? null : maneuvers.get(key(component,current[0]));
-        int selectedIcon = (state == 1 || state == 6) ? ClusterIcon.of(selected) : ClusterIcon.NONE;
+        int selectedIcon = isNavigating(state) ? ClusterIcon.of(selected) : ClusterIcon.NONE;
         emitTbt(selectedIcon < 0 ? 0 : selectedIcon, selectedIcon < 0 ? -1 : distance);
-        if ((state != 1 && state != 6) || current.length == 0) { emit(TurnFrame.clear()); return; }
+        if (!isNavigating(state) || current.length == 0) { emit(TurnFrame.clear()); return; }
         Maneuver first = maneuvers.get(key(component, current[0]));
         if (first == null) { emit(TurnFrame.clear()); return; }
         int[] icons = new int[Math.min(3, current.length)];
@@ -140,7 +141,7 @@ public final class GuidanceSession {
         laneSets.clear(); laneIndex = -1; laneTotal = -1; laneVisible = false;
     }
     private void renderLanes() {
-        if ((state != 1 && state != 6) || !laneVisible || laneIndex < 0 || laneTotal == 0) {
+        if (!isNavigating(state) || !laneVisible || laneIndex < 0 || laneTotal == 0) {
             emitLanes(LaneFrame.clear()); return;
         }
         Maneuver first = current.length == 0 ? null : maneuvers.get(key(component,current[0]));

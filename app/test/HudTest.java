@@ -18,6 +18,10 @@ public final class HudTest {
     static String hex(byte[] f, int off) { return String.format("%02x%02x", f[off] & 0xff, f[off+1] & 0xff); }
 
     public static void main(String[] a) {
+        eq("tunnel entry centre", ClusterIcon.of(m("남산1호터널")), ClusterIcon.UNDERPASS_ENTRY_LC);
+        eq("tunnel entry right", ClusterIcon.of(m("우측 터널")), ClusterIcon.UNDERPASS_ENTRY_R);
+        eq("naver turn left in type 3", ClusterIcon.of(m("좌회전")), 0x46);
+        eq("naver turn right in type 3", ClusterIcon.of(m("우회전")), 0x43);
         eq("underpass entry centre", ClusterIcon.of(m("밤밭지하차도")), ClusterIcon.UNDERPASS_ENTRY_LC);
         eq("underpass entry right", ClusterIcon.of(m("우측 밤밭지하차도")), ClusterIcon.UNDERPASS_ENTRY_R);
         eq("underpass side road", ClusterIcon.of(m("지하차도 옆길")), ClusterIcon.UNDERPASS_SIDE_L);
