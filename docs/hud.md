@@ -24,6 +24,8 @@ KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜
 
 좌측 통행 회전교차로는 순정에서 확인한 일반 원형 `C0`를 사용합니다. 좌측 통행 방향별 코드가 증명되지 않아 출구 방향 세부 표시는 제공하지 않습니다.
 
-거리 출력은 status 필드10의 미터 값을 별도 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`의 scale0으로 전달합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 distanceErr=-3을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다.
+거리 출력은 status 필드10의 미터 값을 별도 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`의 scale0으로 전달합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 distanceErr=-3을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다. `updateTBTInfo`의 2번째 및 6번째 파라미터(`sideStreet`, `combiSideStreet`)에 2nd TBT(다음 연속 회전 아이콘)를 전달하여 계기판과 컴바이너 HUD의 2차 분기 슬롯을 채웁니다.
+
+또한 `CoreService`는 CarPlay iAP2 외에도 Android Auto(AA) 길안내 신호를 수신할 수 있는 브로드캐스트(`kr.gen5w.action.AA_TBT`) 및 로컬 추상 소켓(`gen5wkr.aa.tbt`) 인터페이스를 제공하여, 안드로이드 폰 내비 연동 시에도 동일한 6대 도로 유형 매핑 엔진과 1st/2nd TBT 슬롯을 통해 HUD 표출을 지원합니다.
 
 순정 내비 안내 중에는 CarPlay HUD 출력을 양보합니다. 상태 조회가 실패해도 출력·지우기를 보류하고, 안내 종료 후 최신 CarPlay 정보를 다시 전송합니다. 순정 내비가 목적지 안내 중이 아닐 때(IDLE)는 카플레이 및 안드로이드 오토 TBT와 순정 단속카메라/과속 경고가 HUD에 동시에 표출되도록 순정 안전운전 안내 모드(SOUND_ON, opcode 0xfa5)를 유지합니다. 권한과 과속·카메라 경고의 적용 범위는 [HUD 우선순위](hud-ownership.md)를 참고하세요.
