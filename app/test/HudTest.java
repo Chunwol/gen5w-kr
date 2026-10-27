@@ -31,6 +31,19 @@ public final class HudTest {
         eq("rest area", ClusterIcon.of(m("안성휴게소")), ClusterIcon.REST_AREA);
         eq("ic enter right", ClusterIcon.of(m("우측 동탄나들목")), ClusterIcon.IC_ENTER_R);
         eq("ic exit", ClusterIcon.of(m("동탄나들목 진출")), ClusterIcon.IC_EXIT_C);
+        // Naver / Kakao / TMap official guidance phrases
+        eq("naver underpass centre spaced", ClusterIcon.of(m("전방에 지하 차도 진입")), ClusterIcon.UNDERPASS_ENTRY_LC);
+        eq("naver underpass left spaced", ClusterIcon.of(m("왼쪽에 지하 차도 진입")), ClusterIcon.UNDERPASS_ENTRY_LC);
+        eq("naver underpass right spaced", ClusterIcon.of(m("오른쪽에 지하 차도 진입")), ClusterIcon.UNDERPASS_ENTRY_R);
+        eq("naver underpass side left", ClusterIcon.of(m("왼쪽에 지하 차도 옆길")), ClusterIcon.UNDERPASS_SIDE_L);
+        eq("naver underpass side right", ClusterIcon.of(m("오른쪽에 지하 차도 옆길")), ClusterIcon.UNDERPASS_SIDE_R);
+        eq("naver overpass centre spaced", ClusterIcon.of(m("전방에 고가 차로 진입")), ClusterIcon.OVERPASS_ENTRY_LC);
+        eq("naver overpass side left", ClusterIcon.of(m("왼쪽에 고가 차도 옆길")), ClusterIcon.OVERPASS_SIDE_L);
+        eq("naver overpass side right", ClusterIcon.of(m("오른쪽에 고가 차도 옆길")), ClusterIcon.OVERPASS_SIDE_R);
+        eq("tmap underpass side", ClusterIcon.of(m("지하차도옆")), ClusterIcon.UNDERPASS_SIDE_L);
+        eq("tmap overpass side", ClusterIcon.of(m("고가도로옆")), ClusterIcon.OVERPASS_SIDE_L);
+        eq("kakao left direction road", ClusterIcon.of(m("왼쪽 방향")), 0x47);
+        eq("kakao right direction road", ClusterIcon.of(m("오른쪽 방향")), 0x42);
         Maneuver noTurn = m("고가도로"); noTurn.type = 0;
         eq("NoTurn cannot be overridden by road text", ClusterIcon.of(noTurn), ClusterIcon.NONE);
         noTurn.type = 999;

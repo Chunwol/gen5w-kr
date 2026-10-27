@@ -188,6 +188,7 @@ write_summary() {
         cat "$destination/RESULT.md.tmp" | html_escape
         echo '</pre><p><a href="ISSUE.md">이슈 첨부용 문서</a> · <a href="https://github.com/Chunwol/gen5w-kr/issues/new/choose">문제 신고</a></p></html>'
     } > "$destination/RESULT.html.tmp" || return 1
+    [ -f "$DATA/data/kr.gen5w.core/files/navi-debug.log" ] && cp -f "$DATA/data/kr.gen5w.core/files/navi-debug.log" "$destination/navi-debug.log" 2>/dev/null || true
     for file in RESULT.md ISSUE.md RESULT.html; do mv "$destination/$file.tmp" "$destination/$file" || return 1; done
     cat "$destination/RESULT.md"
     echo 'USB의 GEN5W-REPORT/RESULT.html에서 한눈에 확인하고, ISSUE.md를 검토 후 이슈에 첨부하세요.'

@@ -46,19 +46,22 @@ public final class ClusterIcon {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
             return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
         }
-        if (hasAny(text, "지하차도", "지하도로", "지하차로", "지하차선", "지하 차로", "지하 차선", "지하 도로", "지하길")) {
+        if (hasAny(text, "지하차도", "지하 차도", "지하도로", "지하 도로", "지하차로", "지하 차로",
+                "지하차선", "지하 차선", "지하길", "지하차도옆")) {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
             return side > 0 ? UNDERPASS_ENTRY_R : UNDERPASS_ENTRY_LC;
         }
-        if (hasAny(text, "고가차도", "고가도로", "고가차로", "고가차선", "고가 차로", "고가 차선", "고가 도로", "고가")) {
+        if (hasAny(text, "고가차도", "고가 차도", "고가도로", "고가 도로", "고가차로", "고가 차로",
+                "고가차선", "고가 차선", "고가", "고가도로옆")) {
             if (isSide(text)) return side > 0 ? OVERPASS_SIDE_R : OVERPASS_SIDE_L;
             return side > 0 ? OVERPASS_ENTRY_R : OVERPASS_ENTRY_LC;
         }
         if (hasAny(text, "휴게소", "졸음쉼터")) return REST_AREA;
-        if (hasAny(text, "요금소", "톨게이트", "하이패스")) return TOLL;
-        if (hasAny(text, "나들목", "분기점") || interchangeAbbreviation(text)) {
+        if (hasAny(text, "요금소", "톨게이트", "하이패스", "원톨링")) return TOLL;
+        if (hasAny(text, "나들목", "분기점", "고속도로", "고속 도로", "도시고속도로", "도시 고속 도로", "분기도로", "분기 도로")
+                || interchangeAbbreviation(text)) {
             if (m.type == 8 || m.type == 22 || m.type == 23
-                    || (m.type != 9 && hasAny(text, "진출", "나가", "빠져"))) {
+                    || (m.type != 9 && hasAny(text, "진출", "나가", "빠져", "출구"))) {
                 return pick(side, IC_EXIT_C, IC_EXIT_R, IC_EXIT_L);
             }
             return pick(side, IC_ENTER_C, IC_ENTER_R, IC_ENTER_L);
@@ -79,17 +82,17 @@ public final class ClusterIcon {
         // or 16/51 while indicating a turn or exit in text or exit angle.
         if (m.type == 3 || m.type == 5 || m.type == 11 || m.type == 16 || m.type == 51) {
             if (hasAny(t, "유턴", "u턴")) return m.drivingSide == 1 ? 0x49 : 0x48;
-            if (hasAny(t, "좌회전", "왼쪽", "좌측", "왼편")) {
-                if (hasAny(t, "급한", "유턴 방향", "크게")) return 0x45;
-                if (hasAny(t, "완만", "비스듬", "완만한")) return 0x47;
+            if (hasAny(t, "좌회전", "왼쪽", "왼쪽에", "좌측", "왼편", "비보호 좌회전")) {
+                if (hasAny(t, "급한", "유턴 방향", "크게", "7시", "8시")) return 0x45;
+                if (hasAny(t, "완만", "비스듬", "완만한", "10시", "11시", "방향", "도로", "옆길", "옆")) return 0x47;
                 return curve(m.exitAngle, false);
             }
-            if (hasAny(t, "우회전", "오른쪽", "우측", "오른편")) {
-                if (hasAny(t, "급한", "크게")) return 0x44;
-                if (hasAny(t, "완만", "비스듬", "완만한")) return 0x42;
+            if (hasAny(t, "우회전", "오른쪽", "오른쪽에", "우측", "오른편")) {
+                if (hasAny(t, "급한", "크게", "4시", "5시")) return 0x44;
+                if (hasAny(t, "완만", "비스듬", "완만한", "1시", "2시", "방향", "도로", "옆길", "옆")) return 0x42;
                 return curve(m.exitAngle, true);
             }
-            if (m.exitAngle != Maneuver.UNKNOWN_ANGLE && Math.abs(m.exitAngle) >= 20) {
+            if (m.exitAngle != Maneuver.UNKNOWN_ANGLE && Math.abs(m.exitAngle) >= 15) {
                 return curve(m.exitAngle, m.exitAngle > 0);
             }
         }
@@ -116,7 +119,10 @@ public final class ClusterIcon {
             default:
                 if (s < 0) return curve(m.exitAngle, false);
                 if (s > 0) return curve(m.exitAngle, true);
-                return NONE;
+                if (m.exitAngle != Maneuver.UNKNOWN_ANGLE && Math.abs(m.exitAngle) >= 15) {
+                    return curve(m.exitAngle, m.exitAngle > 0);
+                }
+                return 0x41;
         }
     }
     // Exit ordinals do not encode physical direction. Anchors are stock DiPO
@@ -153,7 +159,8 @@ public final class ClusterIcon {
         return false;
     }
     static boolean isSide(String s) {
-        return hasAny(s, "옆길", "측도", "우측 도로", "좌측 도로", "우측도로", "좌측도로", "옆 차로", "옆차로", "옆길 도로", "측면 도로", "측면도로");
+        return hasAny(s, "옆길", "측도", "우측 도로", "좌측 도로", "우측도로", "좌측도로", "오른쪽 도로", "왼쪽 도로",
+                "옆 차로", "옆차로", "옆길 도로", "측면 도로", "측면도로", "지하차도옆", "고가도로옆", "옆");
     }
 
     /** direction side from the text or exit angle, falling back to centre/unknown. */
@@ -164,8 +171,12 @@ public final class ClusterIcon {
             case 2: case 14: case 21: case 23: case 48: case 50: case 53: return 1;
             default: break;
         }
-        if (hasAny(t, "우측", "오른쪽", "우회전", "오른편", "오른 쪽", "우측차로", "우측차선", "우측 차로", "우측 차선", "끝 차로", "끝차로", "바깥차로", "바깥 차로")) return 1;
-        if (hasAny(t, "좌측", "왼쪽", "좌회전", "왼편", "왼 쪽", "좌측차로", "좌측차선", "좌측 차로", "좌측 차선", "1차로", "1차선", "1, 2차로", "1,2차로", "1, 2차선", "1,2차선")) return -1;
+        if (hasAny(t, "오른쪽", "오른쪽에", "우측", "우회전", "오른편", "오른 쪽", "오른쪽 방향", "우측 도로", "우측도로",
+                "오른쪽 도로", "오른쪽도로", "우측차로", "우측차선", "우측 차로", "우측 차선", "끝 차로", "끝차로",
+                "바깥차로", "바깥 차로", "1시", "2시", "3시", "4시", "5시")) return 1;
+        if (hasAny(t, "왼쪽", "왼쪽에", "좌측", "좌회전", "왼편", "왼 쪽", "왼쪽 방향", "좌측 도로", "좌측도로",
+                "왼쪽 도로", "왼쪽도로", "좌측차로", "좌측차선", "좌측 차로", "좌측 차선", "1차로", "1차선",
+                "1, 2차로", "1,2차로", "1, 2차선", "1,2차선", "7시", "8시", "9시", "10시", "11시")) return -1;
         if (m.exitAngle != Maneuver.UNKNOWN_ANGLE) {
             if (m.exitAngle > 10) return 1;
             if (m.exitAngle < -10) return -1;

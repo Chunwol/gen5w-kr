@@ -15,9 +15,11 @@ import com.tcc.iap2.IIap2Service;
 import com.tcc.iap2.Iap2ListenerInfo;
 import com.tcc.iap2.Iap2NotiMsg;
 import java.util.List;
+import kr.gen5w.hud.ClusterIcon;
 import kr.gen5w.hud.GuidanceParser;
 import kr.gen5w.hud.GuidanceSession;
 import kr.gen5w.hud.GuidanceRequest;
+import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.NotificationEpoch;
 import kr.gen5w.hud.NativeWarningSupport;
 import kr.gen5w.probe.Convert;
@@ -249,11 +251,52 @@ public final class CoreService extends Service {
             io.post(new Runnable() {
                 public void run() {
                     if (!epoch.isCurrent(ticket)) return;
+                    logNaviDebug(what, fields);
                     refreshOwnership();
                     if (outputEpoch != ticket) { session.disconnect(); outputEpoch = ticket; }
                     session.message(what, fields);
                 }
             });
+        }
+        private void logNaviDebug(int what, List<Item> fields) {
+            try {
+                if (what == GuidanceParser.MANEUVER) {
+                    Maneuver m = GuidanceParser.maneuver(fields, null);
+                    if (m != null) {
+                        int icon = ClusterIcon.of(m);
+                        String line = "MANEUVER: comp=" + m.component + " idx=" + m.index + " type=" + m.type
+                                + " angle=" + m.exitAngle + " side=" + m.drivingSide + " junc=" + m.junctionType
+                                + " road='" + (m.afterRoad == null ? "" : m.afterRoad) + "'"
+                                + " desc='" + (m.desc == null ? "" : m.desc) + "'"
+                                + " -> icon=0x" + Integer.toHexString(icon);
+                        writeDebugLog(line);
+                    }
+                } else if (what == GuidanceParser.STATUS) {
+                    GuidanceParser.Status s = GuidanceParser.status(fields);
+                    if (s != null) {
+                        String line = "STATUS: comp=" + s.component + " state=" + s.state
+                                + " dist=" + s.distanceToNext + " src='" + (s.source == null ? "" : s.source) + "'"
+                                + " curr=" + java.util.Arrays.toString(s.current);
+                        writeDebugLog(line);
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        private void writeDebugLog(String line) {
+            Log.i("Gen5wNavi", line);
+            try {
+                java.io.File dir = getFilesDir();
+                if (dir == null) return;
+                java.io.File f = new java.io.File(dir, "navi-debug.log");
+                if (f.length() > 512 * 1024) {
+                    java.io.File bak = new java.io.File(dir, "navi-debug.log.1");
+                    bak.delete();
+                    f.renameTo(bak);
+                }
+                java.io.FileWriter fw = new java.io.FileWriter(f, true);
+                fw.write(System.currentTimeMillis() + " " + line + "\n");
+                fw.close();
+            } catch (Throwable ignored) {}
         }
         private void clear(final long ticket) {
             if (!stopping) io.post(new Runnable() {
