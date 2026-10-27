@@ -10,6 +10,8 @@ TARGET=$SYS/app/Iap2ServerApp.odex
 APK=$SYS/app/Iap2ServerApp.apk
 DIPO_TARGET=$SYS/app/HKMC_DiPO.odex
 DIPO_APK=$SYS/app/HKMC_DiPO.apk
+GPM_TARGET=$SYS/app/HKMC_GPM.odex
+GPM_APK=$SYS/app/HKMC_GPM.apk
 STATE=$SYS/etc/gen5w-kr-backup/bridge
 MARK=$DATA/nemesis/backup/gen5w.kr.bridge
 STAGE=$TARGET.gen5w-kr-bridge.tmp
@@ -20,6 +22,8 @@ original() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" original "$1"; }
 patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
 dipo_original() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" original "$1"; }
 dipo_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" patched "$1"; }
+gpm_original() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" original "$1"; }
+gpm_patched() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" patched "$1"; }
 owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/owner")" = "$OWNER" ]; }
 sys_ro() { "$NEM" remount ro >/dev/null 2>&1; }
 inspect() {
@@ -29,9 +33,9 @@ inspect() {
     done
     # NEMESIS extracts native files as 0644; only our fixed helper names change mode.
     for bridge_version in v035 v039; do
-        for bridge_kind in iap2 dipo; do
+        for bridge_kind in iap2 dipo gpm; do
             bridge_tool=$SCRIPT_DIR/../bin/$bridge_kind-patch-$bridge_version
-            [ -f "$bridge_tool" ] && [ ! -L "$bridge_tool" ] && chmod 755 "$bridge_tool" || return 1
+            if [ -f "$bridge_tool" ] && [ ! -L "$bridge_tool" ]; then chmod 755 "$bridge_tool" || return 1; fi
         done
     done
     BRIDGE_OWNED=no
@@ -53,6 +57,8 @@ inspect() {
     fi
     TOOL=$SCRIPT_DIR/../bin/iap2-patch-$VERSION
     DIPO_TOOL=$SCRIPT_DIR/../bin/dipo-patch-$VERSION
+    GPM_TOOL=
+    [ -f "$SCRIPT_DIR/../bin/gpm-patch-$VERSION" ] && [ -x "$SCRIPT_DIR/../bin/gpm-patch-$VERSION" ] && GPM_TOOL=$SCRIPT_DIR/../bin/gpm-patch-$VERSION
     OWNER=gen5w.kr.bridge:$VERSION-1
     if original "$TARGET"; then BRIDGE_STATE=stock
     elif patched "$TARGET"; then BRIDGE_STATE=patched
@@ -64,14 +70,31 @@ inspect() {
         [ "$BRIDGE_OWNED" = no ] && return 77
         return 1
     fi
+    GPM_STATE=
+    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
+        if gpm_original "$GPM_TARGET"; then GPM_STATE=stock
+        elif gpm_patched "$GPM_TARGET"; then GPM_STATE=patched
+        else
+            log 'SKIP bridge: unknown or mismatched GPM ODEX'
+            [ "$BRIDGE_OWNED" = no ] && return 77
+            return 1
+        fi
+    fi
     case "$VERSION" in
-        v035) APK_SHA=$BRIDGE_APK_V035_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V035_SHA;;
-        v039) APK_SHA=$BRIDGE_APK_V039_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V039_SHA;;
+        v035) APK_SHA=$BRIDGE_APK_V035_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V035_SHA; GPM_APK_SHA=;;
+        v039) APK_SHA=$BRIDGE_APK_V039_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V039_SHA; GPM_APK_SHA=${BRIDGE_GPM_APK_V039_SHA:-};;
     esac
     if ! "$TOOL" verify "$APK" "$APK_SHA" || ! "$DIPO_TOOL" verify "$DIPO_APK" "$DIPO_APK_SHA"; then
         log 'SKIP bridge: stock APK and ODEX version do not match'
         [ "$BRIDGE_OWNED" = no ] && return 77
         return 1
+    fi
+    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ -n "$GPM_APK_SHA" ]; then
+        if ! "$GPM_TOOL" verify "$GPM_APK" "$GPM_APK_SHA"; then
+            log 'SKIP bridge: stock GPM APK and ODEX version do not match'
+            [ "$BRIDGE_OWNED" = no ] && return 77
+            return 1
+        fi
     fi
     if [ "$BRIDGE_OWNED" = yes ]; then
         if [ -e "$STATE/original" ] || [ -L "$STATE/original" ]; then
@@ -80,14 +103,23 @@ inspect() {
         if [ -e "$STATE/dipooriginal" ] || [ -L "$STATE/dipooriginal" ]; then
             dipo_original "$STATE/dipooriginal" || { log 'FAIL bridge: durable DiPO backup damaged'; return 1; }
         fi
+        if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
+            if [ -e "$STATE/gpmoriginal" ] || [ -L "$STATE/gpmoriginal" ]; then
+                gpm_original "$STATE/gpmoriginal" || { log 'FAIL bridge: durable GPM backup damaged'; return 1; }
+            fi
+        fi
     fi
     if [ "$BRIDGE_STATE" = patched ] || [ "$DIPO_STATE" = patched ]; then
         [ "$BRIDGE_OWNED" = yes ] && original "$STATE/original" && dipo_original "$STATE/dipooriginal" || { log 'FAIL bridge: patch lacks owned original pair'; return 1; }
+    fi
+    if [ "$GPM_STATE" = patched ]; then
+        [ "$BRIDGE_OWNED" = yes ] && gpm_original "$STATE/gpmoriginal" || { log 'FAIL bridge: GPM patch lacks owned original'; return 1; }
     fi
     if [ -e "$MARK" ]; then
         [ -d "$MARK" ] && [ ! -L "$MARK/owner" ] && [ "$(cat "$MARK/owner" 2>/dev/null)" = "$OWNER" ] || return 1
         if [ -e "$MARK/original" ] || [ -L "$MARK/original" ]; then original "$MARK/original" || return 1; fi
         if [ -e "$MARK/dipooriginal" ] || [ -L "$MARK/dipooriginal" ]; then dipo_original "$MARK/dipooriginal" || return 1; fi
+        if [ -e "$MARK/gpmoriginal" ] || [ -L "$MARK/gpmoriginal" ]; then gpm_original "$MARK/gpmoriginal" || return 1; fi
     fi
 }
 save_original() {
@@ -101,11 +133,21 @@ save_original() {
         dipo_original "$DIPO_TARGET" && [ ! -L "$STATE/dipooriginal.tmp" ] || return 1
         cp -p "$DIPO_TARGET" "$STATE/dipooriginal.tmp" && dipo_original "$STATE/dipooriginal.tmp" && mv "$STATE/dipooriginal.tmp" "$STATE/dipooriginal" || return 1
     fi
+    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
+        if ! gpm_original "$STATE/gpmoriginal"; then
+            gpm_original "$GPM_TARGET" && [ ! -L "$STATE/gpmoriginal.tmp" ] || return 1
+            cp -p "$GPM_TARGET" "$STATE/gpmoriginal.tmp" && gpm_original "$STATE/gpmoriginal.tmp" && mv "$STATE/gpmoriginal.tmp" "$STATE/gpmoriginal" || return 1
+        fi
+    fi
     mkdir -p "$MARK" || return 1
     [ ! -L "$MARK/owner" ] && [ ! -L "$MARK/original.tmp" ] && [ ! -L "$MARK/dipooriginal.tmp" ] || return 1
     echo "$OWNER" > "$MARK/owner" || return 1
     cp -p "$STATE/original" "$MARK/original.tmp" && original "$MARK/original.tmp" && mv "$MARK/original.tmp" "$MARK/original" || return 1
     cp -p "$STATE/dipooriginal" "$MARK/dipooriginal.tmp" && dipo_original "$MARK/dipooriginal.tmp" && mv "$MARK/dipooriginal.tmp" "$MARK/dipooriginal" || return 1
+    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
+        [ ! -L "$MARK/gpmoriginal.tmp" ] || return 1
+        cp -p "$STATE/gpmoriginal" "$MARK/gpmoriginal.tmp" && gpm_original "$MARK/gpmoriginal.tmp" && mv "$MARK/gpmoriginal.tmp" "$MARK/gpmoriginal" || return 1
+    fi
     chmod 700 "$STATE" "$MARK" || return 1
     sync
 }
@@ -122,7 +164,8 @@ stage_clear_one() {
 }
 stage_clear() {
     stage_clear_one "$STAGE" "$STATE/staging" "$TOOL" &&
-        stage_clear_one "$DIPO_TARGET.gen5w-kr-bridge.tmp" "$STATE/dipostaging" "$DIPO_TOOL"
+        stage_clear_one "$DIPO_TARGET.gen5w-kr-bridge.tmp" "$STATE/dipostaging" "$DIPO_TOOL" &&
+        { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || stage_clear_one "$GPM_TARGET.gen5w-kr-bridge.tmp" "$STATE/gpmstaging" "$GPM_TOOL"; }
 }
 replace_target() {
     typeset replace_source=$1 replace_kind=$2 replace_path=$3 replace_tool=$4 replace_backup=$5 replace_marker=$6
@@ -147,17 +190,23 @@ restore_target() {
         dipo_patched "$DIPO_TARGET" && dipo_original "$STATE/dipooriginal" &&
             replace_target "$STATE/dipooriginal" original "$DIPO_TARGET" "$DIPO_TOOL" "$STATE/dipooriginal" "$STATE/dipostaging" || restore_rc=1
     fi
+    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && ! gpm_original "$GPM_TARGET"; then
+        gpm_patched "$GPM_TARGET" && gpm_original "$STATE/gpmoriginal" &&
+            replace_target "$STATE/gpmoriginal" original "$GPM_TARGET" "$GPM_TOOL" "$STATE/gpmoriginal" "$STATE/gpmstaging" || restore_rc=1
+    fi
     return "$restore_rc"
 }
 cleanup_owned() {
-    owned && original "$TARGET" && dipo_original "$DIPO_TARGET" || return 1
-    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp replacement diporeplacement staging dipostaging owner; do
+    owned && original "$TARGET" && dipo_original "$DIPO_TARGET" &&
+        { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_original "$GPM_TARGET"; } || return 1
+    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp gpmoriginal gpmoriginal.tmp replacement diporeplacement gpmreplacement staging dipostaging gpmstaging owner; do
         [ ! -L "$STATE/$bridge_file" ] || return 1
     done
-    rm -f "$STATE/original" "$STATE/original.tmp" "$STATE/dipooriginal" "$STATE/dipooriginal.tmp" "$STATE/replacement" "$STATE/diporeplacement" "$STATE/staging" "$STATE/dipostaging" "$STATE/owner" && rmdir "$STATE" || return 1
+    rm -f "$STATE/original" "$STATE/original.tmp" "$STATE/dipooriginal" "$STATE/dipooriginal.tmp" "$STATE/gpmoriginal" "$STATE/gpmoriginal.tmp" \
+         "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" "$STATE/staging" "$STATE/dipostaging" "$STATE/gpmstaging" "$STATE/owner" && rmdir "$STATE" || return 1
     if [ -d "$MARK" ]; then
         [ ! -L "$MARK/owner" ] && [ "$(cat "$MARK/owner")" = "$OWNER" ] && [ ! -L "$MARK/original.tmp" ] && [ ! -L "$MARK/dipooriginal.tmp" ] || return 1
-        rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" "$MARK/owner" && rmdir "$MARK" || return 1
+        rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" && rmdir "$MARK" || return 1
     fi
     rmdir "$SYS/etc/gen5w-kr-backup" 2>/dev/null || true
 }

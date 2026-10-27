@@ -1,6 +1,6 @@
 # Gen5W KR
 
-한국 내수용 현대·기아·제네시스 Gen5W 내비게이션을 위한 비공식 오픈소스 프로젝트입니다. 지원 조건에 맞는 차량에서 무선 폰 프로젝션을 활성화하고, CarPlay 길안내를 계기판과 HUD에 연결합니다.
+한국 내수용 현대·기아·제네시스 Gen5W 내비게이션을 위한 비공식 오픈소스 프로젝트입니다. 지원 조건에 맞는 차량에서 무선 폰 프로젝션을 활성화하고, CarPlay 및 Android Auto 길안내를 계기판과 HUD에 연결합니다.
 
 [설치 가이드](docs/beginner-guide.md) · [지원 차량과 버전](docs/porting.md) · [문제 신고](https://github.com/Chunwol/gen5w-kr/issues) · [개발 후원](https://github.com/sponsors/Chunwol)
 
@@ -31,7 +31,7 @@ NEMESIS가 이미 설치되어 있다면 받은 ZIP의 압축을 풀고 **내용
 
 Gen5W라도 차량과 소프트웨어 버전에 따라 지원 여부가 다릅니다. 설치 전에 [지원 차량과 버전](docs/porting.md)을 확인하세요.
 
-HUD 길안내는 CarPlay용입니다. 표시되는 정보는 사용하는 지도 앱과 차량에 따라 다르며, Android Auto의 HUD 지원과는 별개입니다.
+HUD 길안내는 CarPlay 및 Android Auto를 모두 지원합니다. 스마트폰에 별도 앱을 설치할 필요 없이 순정 프로젝션 규격(NavigationStatusService 및 iAP2)을 통해 계기판과 HUD에 회전·거리 정보가 표출됩니다.
 
 ## 다른 차량 지원과 참여
 

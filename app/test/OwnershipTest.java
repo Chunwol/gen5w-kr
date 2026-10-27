@@ -7,7 +7,7 @@ public final class OwnershipTest {
         byte[] frame;
         public boolean turns(byte[] value) { turns++; frame=value.clone(); return true; }
         public boolean lanes(byte[] value) { lanes++; return true; }
-        public boolean tbt(int value,long meters) { distances++; icon=value; return true; }
+        public boolean tbt(int value,int secondValue,long meters) { distances++; icon=value; return true; }
         int writes() { return turns+lanes+distances; }
     }
     static void check(boolean value,String message) {

@@ -12,8 +12,11 @@ def main():
     host='windows-x86_64' if os.name=='nt' else 'linux-x86_64'
     clang=Path(a.ndk)/'toolchains/llvm/prebuilt'/host/'bin'/('clang.exe' if os.name=='nt' else 'clang')
     dest=ROOT/'packages/wireless-bridge/bin';dest.mkdir(parents=True,exist_ok=True)
-    for kind,version in ((kind,version) for kind in ('iap2','dipo') for version in ('v035','v039')):
-        filename=f'{version}.json' if kind=='iap2' else f'dipo-{version}.json'
+    targets = [('iap2', 'v035'), ('iap2', 'v039'), ('dipo', 'v035'), ('dipo', 'v039'), ('gpm', 'v039')]
+    for kind, version in targets:
+        if kind == 'iap2': filename = f'{version}.json'
+        elif kind == 'dipo': filename = f'dipo-{version}.json'
+        elif kind == 'gpm': filename = f'gpm-{version}.json'
         r=json.loads((ROOT/'tools/iap2'/filename).read_text())
         out=ROOT/'.build/iap2'/kind/version;out.mkdir(parents=True,exist_ok=True)
         header=[f'#define ORIGINAL_SHA "{r["original_sha256"]}"',f'#define PATCHED_SHA "{r["patched_sha256"]}"']
@@ -25,5 +28,5 @@ def main():
             '-fno-builtin','-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
             '-fno-pie','-nostdlib','-static','-Wl,-e,_start','-Wl,--build-id=none','-I',str(out),
             'tools/audio/patch.c','tools/audio/runtime.c','tools/audio/syscalls.S','-o',str(dest/f'{kind}-patch-{version}')],cwd=ROOT,check=True)
-    print('Built four freestanding ARM control-shim helpers')
+    print('Built freestanding ARM control-shim helpers')
 if __name__=='__main__': main()

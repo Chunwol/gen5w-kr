@@ -1,4 +1,5 @@
 build/
+app/bin/
 *.keystore
 *.pass
 dist/

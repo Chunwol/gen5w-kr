@@ -22,8 +22,17 @@ if [ "$DIPO_STATE" = stock ]; then
         exit 1
     fi
 fi
-patched "$TARGET" && dipo_patched "$DIPO_TARGET" || { restore_target; exit 1; }
-rm -f "$STATE/replacement" "$STATE/diporeplacement" || exit 1
+if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ "$GPM_STATE" = stock ]; then
+    [ ! -L "$STATE/gpmreplacement" ] || { restore_target; exit 1; }
+    rm -f "$STATE/gpmreplacement" || { restore_target; exit 1; }
+    if ! { "$GPM_TOOL" apply "$STATE/gpmoriginal" "$STATE/gpmreplacement" && gpm_patched "$STATE/gpmreplacement" &&
+        replace_target "$STATE/gpmreplacement" patched "$GPM_TARGET" "$GPM_TOOL" "$STATE/gpmoriginal" "$STATE/gpmstaging"; }; then
+        restore_target || log 'FAIL bridge: rollback incomplete; originals retained'
+        exit 1
+    fi
+fi
+patched "$TARGET" && dipo_patched "$DIPO_TARGET" && { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || { restore_target; exit 1; }
+rm -f "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" || exit 1
 [ ! -L "$STOPPING" ] && rm -f "$STOPPING" || exit 1
 sync
 sys_ro || exit 1
