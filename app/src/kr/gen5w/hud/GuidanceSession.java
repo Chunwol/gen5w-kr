@@ -12,7 +12,7 @@ import kr.gen5w.probe.Item;
 public final class GuidanceSession {
     public interface Sink { boolean turns(byte[] frame); }
     public interface LaneSink extends Sink { boolean lanes(byte[] frame); }
-    public interface TbtSink extends LaneSink { boolean tbt(int icon, long distanceMeters); }
+    public interface TbtSink extends LaneSink { boolean tbt(int icon, int secondIcon, long distanceMeters); }
     private final Sink sink;
     private boolean outputAllowed = true;
     private final Map<Long, Maneuver> maneuvers = new LinkedHashMap<Long, Maneuver>();
@@ -23,13 +23,13 @@ public final class GuidanceSession {
     private byte[] lastLanes;
     private byte[] desiredFrame, desiredLanes;
     private boolean desiredTbt;
-    private int desiredIcon;
+    private int desiredIcon, desiredSecondIcon;
     private long desiredDistance;
     private final Map<Long, GuidanceParser.Lanes> laneSets = new LinkedHashMap<Long, GuidanceParser.Lanes>();
     private int laneIndex = -1, laneTotal = -1;
     private boolean laneVisible;
     private long distance = -1, sentDistance = Long.MIN_VALUE;
-    private int sentIcon = Integer.MIN_VALUE;
+    private int sentIcon = Integer.MIN_VALUE, sentSecondIcon = Integer.MIN_VALUE;
 
     public GuidanceSession(Sink sink) { this.sink = sink; }
     /** Yield without emitting clears; retain only the latest desired CarPlay data. */
@@ -115,13 +115,20 @@ public final class GuidanceSession {
         distance = -1;
         emit(TurnFrame.clear());
         emitLanes(LaneFrame.clear());
-        emitTbt(0, -1);
+        emitTbt(0, 0, -1);
     }
     private void render() {
         renderLanes();
         Maneuver selected = current.length == 0 ? null : maneuvers.get(key(component,current[0]));
         int selectedIcon = isNavigating(state) ? ClusterIcon.of(selected) : ClusterIcon.NONE;
-        emitTbt(selectedIcon < 0 ? 0 : selectedIcon, selectedIcon < 0 ? -1 : distance);
+        int secondIcon = ClusterIcon.NONE;
+        if (isNavigating(state) && current.length > 1) {
+            Maneuver second = maneuvers.get(key(component, current[1]));
+            secondIcon = ClusterIcon.of(second);
+        }
+        int firstCode = selectedIcon < 0 ? 0 : selectedIcon;
+        int secondCode = secondIcon < 0 ? 0 : secondIcon;
+        emitTbt(firstCode, secondCode, selectedIcon < 0 ? -1 : distance);
         if (!isNavigating(state) || current.length == 0) { emit(TurnFrame.clear()); return; }
         Maneuver first = maneuvers.get(key(component, current[0]));
         if (first == null) { emit(TurnFrame.clear()); return; }
@@ -133,10 +140,12 @@ public final class GuidanceSession {
         desiredFrame = frame;
         if (outputAllowed && !Arrays.equals(lastFrame, frame) && sink.turns(frame.clone())) lastFrame = frame;
     }
-    private void emitTbt(int icon, long meters) {
-        desiredTbt = true; desiredIcon = icon; desiredDistance = meters;
-        if (outputAllowed && sink instanceof TbtSink && (icon != sentIcon || meters != sentDistance)
-                && ((TbtSink)sink).tbt(icon, meters)) { sentIcon = icon; sentDistance = meters; }
+    private void emitTbt(int icon, int secondIcon, long meters) {
+        desiredTbt = true; desiredIcon = icon; desiredSecondIcon = secondIcon; desiredDistance = meters;
+        if (outputAllowed && sink instanceof TbtSink && (icon != sentIcon || secondIcon != sentSecondIcon || meters != sentDistance)
+                && ((TbtSink)sink).tbt(icon, secondIcon, meters)) {
+            sentIcon = icon; sentSecondIcon = secondIcon; sentDistance = meters;
+        }
     }
     private void clearLaneState() {
         laneSets.clear(); laneIndex = -1; laneTotal = -1; laneVisible = false;
@@ -157,12 +166,12 @@ public final class GuidanceSession {
     public void retryOutput() {
         if (desiredFrame != null) emit(desiredFrame);
         if (desiredLanes != null) emitLanes(desiredLanes);
-        if (desiredTbt) emitTbt(desiredIcon, desiredDistance);
+        if (desiredTbt) emitTbt(desiredIcon, desiredSecondIcon, desiredDistance);
     }
     /** A failed cluster binding may have lost all three output channels. */
     public void invalidateOutput() {
         lastFrame = null; lastLanes = null;
-        sentIcon = Integer.MIN_VALUE; sentDistance = Long.MIN_VALUE;
+        sentIcon = Integer.MIN_VALUE; sentSecondIcon = Integer.MIN_VALUE; sentDistance = Long.MIN_VALUE;
     }
     private static long key(int component, int index) { return ((long)component << 32) | (index & 0xffffffffL); }
 }

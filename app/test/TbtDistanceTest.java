@@ -5,11 +5,11 @@ public final class TbtDistanceTest {
     static int checks;
     static void check(boolean value) { checks++; if(!value)throw new AssertionError("TBT "+checks); }
     static final class Output implements GuidanceSession.TbtSink {
-        int icon, calls, turnCalls, laneCalls; long meters; boolean accept=true;
+        int icon, secondIcon, calls, turnCalls, laneCalls; long meters; boolean accept=true;
         byte[] turnFrame, laneFrame;
         public boolean turns(byte[] frame){turnCalls++;if(accept)turnFrame=frame;return accept;}
         public boolean lanes(byte[] frame){laneCalls++;if(accept)laneFrame=frame;return accept;}
-        public boolean tbt(int i,long m){icon=i;meters=m;calls++;return accept;}
+        public boolean tbt(int i, int s, long m){icon=i;secondIcon=s;meters=m;calls++;return accept;}
     }
     static Item n(int id,int value){Item i=new Item();i.id=id;i.ints=new int[]{value};return i;}
     static Item list(int...values){Item i=new Item();i.id=13;i.ints=values;return i;}
@@ -26,6 +26,8 @@ public final class TbtDistanceTest {
         check(out.icon==0 && out.meters==-1);
         session.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,2),n(3,1),n(5,999)));
         check(out.icon==0x46 && out.meters==-1); // leg length is not distance remaining
+        session.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),list(1, 2)));
+        check(out.icon==0x43 && out.secondIcon==0x46);
         Item wide=n(10,-1);wide.type=6;
         session.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),wide));
         check(out.meters==4294967295L);

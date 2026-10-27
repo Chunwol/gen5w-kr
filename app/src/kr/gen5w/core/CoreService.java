@@ -1,10 +1,14 @@
 package kr.gen5w.core;
 
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.net.LocalServerSocket;
+import android.net.LocalSocket;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -22,6 +26,7 @@ import kr.gen5w.hud.GuidanceRequest;
 import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.NotificationEpoch;
 import kr.gen5w.hud.NativeWarningSupport;
+import kr.gen5w.hud.TurnFrame;
 import kr.gen5w.probe.Convert;
 import kr.gen5w.probe.Item;
 
@@ -56,13 +61,17 @@ public final class CoreService extends Service {
         io.post(new Runnable() { public void run() { recordWarningCapability(); } });
         stockGuidance = new StockGuidance();
         session = new GuidanceSession(new GuidanceSession.TbtSink() {
-            public boolean tbt(int icon, long meters) {
+            public boolean tbt(int icon, int secondIcon, long meters) {
                 if (!refreshOwnership()) return false;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     // OEM scale 0 = metres. Unknown distance uses its error flag.
-                    cluster.updateTBTInfo(icon, 0, 0f, meters < 0 ? 0f : (float)meters,
-                            meters < 0 ? -3 : 0, 0, 0, 0, 0);
+                    // secondIcon populates sideStreet (2) and combiSideStreet (6)
+                    cluster.updateTBTInfo(icon, secondIcon, 0f, meters < 0 ? 0f : (float)meters,
+                            meters < 0 ? -3 : 0, secondIcon, 0, 0, 0);
+                    writeDebugLog("TBT: 1st=0x" + Integer.toHexString(icon)
+                            + " 2nd=0x" + Integer.toHexString(secondIcon)
+                            + " dist=" + meters + "m");
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
@@ -88,6 +97,11 @@ public final class CoreService extends Service {
         });
         session.setOutputAllowed(false);
         io.postDelayed(outputRetry, 1000);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("kr.gen5w.action.AA_TBT");
+        filter.addAction("com.google.android.apps.auto.navigation.TBT");
+        registerReceiver(aaReceiver, filter);
+        startAaSocketServer();
         bind();
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -102,6 +116,8 @@ public final class CoreService extends Service {
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onDestroy() {
         stopping = true;
+        try { unregisterReceiver(aaReceiver); } catch (Exception ignored) {}
+        if (aaServer != null) { try { aaServer.close(); } catch (Exception ignored) {} }
         epoch.close();
         main.removeCallbacksAndMessages(null);
         if (iap2 != null) {
@@ -282,28 +298,29 @@ public final class CoreService extends Service {
                 }
             } catch (Throwable ignored) {}
         }
-        private void writeDebugLog(String line) {
-            Log.i("Gen5wNavi", line);
-            try {
-                java.io.File dir = getFilesDir();
-                if (dir == null) return;
-                java.io.File f = new java.io.File(dir, "navi-debug.log");
-                if (f.length() > 512 * 1024) {
-                    java.io.File bak = new java.io.File(dir, "navi-debug.log.1");
-                    bak.delete();
-                    f.renameTo(bak);
-                }
-                java.io.FileWriter fw = new java.io.FileWriter(f, true);
-                fw.write(System.currentTimeMillis() + " " + line + "\n");
-                fw.close();
-            } catch (Throwable ignored) {}
-        }
         private void clear(final long ticket) {
             if (!stopping) io.post(new Runnable() {
                 public void run() { if (epoch.isCurrent(ticket)) { refreshOwnership(); session.disconnect(); } }
             });
         }
     };
+
+    private void writeDebugLog(String line) {
+        Log.i("Gen5wNavi", line);
+        try {
+            java.io.File dir = getFilesDir();
+            if (dir == null) return;
+            java.io.File f = new java.io.File(dir, "navi-debug.log");
+            if (f.length() > 512 * 1024) {
+                java.io.File bak = new java.io.File(dir, "navi-debug.log.1");
+                bak.delete();
+                f.renameTo(bak);
+            }
+            java.io.FileWriter fw = new java.io.FileWriter(f, true);
+            fw.write(System.currentTimeMillis() + " " + line + "\n");
+            fw.close();
+        } catch (Throwable ignored) {}
+    }
     private void disconnected() {
         main.removeCallbacks(routeRetry);
         final long closed = epoch.close();
@@ -316,5 +333,103 @@ public final class CoreService extends Service {
                 }
             }
         });
+    }
+
+    private void renderAaTbt(final int icon, final int secondIcon, final long dist, final String road) {
+        io.post(new Runnable() {
+            public void run() {
+                if (!refreshOwnership()) return;
+                try {
+                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    if (dist < 0 || icon <= 0) {
+                        cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
+                        cluster.updateTPTurnListNew(TurnFrame.clear());
+                        writeDebugLog("AA_TBT: cleared");
+                    } else {
+                        cluster.updateTBTInfo(icon, secondIcon, 0f, (float)dist, 0, secondIcon, 0, 0, 0);
+                        cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
+                        writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
+                                + " 2nd=0x" + Integer.toHexString(secondIcon)
+                                + " dist=" + dist + "m road='" + (road == null ? "" : road) + "'");
+                    }
+                } catch (Throwable e) { outputError(e); }
+            }
+        });
+    }
+
+    private final BroadcastReceiver aaReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String action = intent.getAction();
+            if ("kr.gen5w.action.AA_TBT".equals(action)
+                    || "com.google.android.apps.auto.navigation.TBT".equals(action)) {
+                boolean clear = intent.getBooleanExtra("clear", false);
+                long dist = intent.getLongExtra("distance", intent.getIntExtra("dist", -1));
+                if (clear || dist < 0) {
+                    renderAaTbt(0, 0, -1, null);
+                    return;
+                }
+                int icon = intent.getIntExtra("icon", 0);
+                int second = intent.getIntExtra("second_icon", 0);
+                String road = intent.getStringExtra("road");
+                String desc = intent.getStringExtra("desc");
+                int type = intent.getIntExtra("type", 3);
+                if (icon <= 0 && (road != null || desc != null)) {
+                    Maneuver m = new Maneuver();
+                    m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
+                    icon = ClusterIcon.of(m);
+                }
+                renderAaTbt(icon, second, dist, road);
+            }
+        }
+    };
+
+    private LocalServerSocket aaServer;
+    private void startAaSocketServer() {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    aaServer = new LocalServerSocket("gen5wkr.aa.tbt");
+                    while (!stopping) {
+                        LocalSocket client = aaServer.accept();
+                        handleAaClient(client);
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }, "gen5w-aa-tbt").start();
+    }
+
+    private void handleAaClient(LocalSocket client) {
+        try {
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(client.getInputStream(), "UTF-8"));
+            String line;
+            String road = null, desc = null;
+            long dist = -1;
+            int type = 3, icon = 0, second = 0;
+            boolean clear = false;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) break;
+                if (line.startsWith("ROAD:")) road = line.substring(5).trim();
+                else if (line.startsWith("DESC:")) desc = line.substring(5).trim();
+                else if (line.startsWith("DIST:")) try { dist = Long.parseLong(line.substring(5).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("TYPE:")) try { type = Integer.parseInt(line.substring(5).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("ICON:")) try { icon = Integer.decode(line.substring(5).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("2ND:")) try { second = Integer.decode(line.substring(4).trim()); } catch (Exception ignored) {}
+                else if (line.equalsIgnoreCase("CLEAR")) clear = true;
+            }
+            client.close();
+            if (clear || dist < 0) {
+                renderAaTbt(0, 0, -1, null);
+            } else {
+                if (icon <= 0 && (road != null || desc != null)) {
+                    Maneuver m = new Maneuver();
+                    m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
+                    icon = ClusterIcon.of(m);
+                }
+                renderAaTbt(icon, second, dist, road);
+            }
+        } catch (Throwable ignored) {}
     }
 }
