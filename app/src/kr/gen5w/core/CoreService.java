@@ -51,6 +51,7 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
+    private int unknownStreak = 0; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -147,20 +148,32 @@ public final class CoreService extends Service {
     /** Check again at each write, including clears and retries. No OEM stop calls. */
     private boolean refreshOwnership() {
         int next = stockGuidance.read();
-        session.setOutputAllowed(next == StockGuidance.IDLE);
+        boolean allowed;
+        if (next == StockGuidance.ACTIVE) {
+            allowed = false;
+            unknownStreak = 0;
+        } else if (next == StockGuidance.IDLE) {
+            allowed = true;
+            unknownStreak = 0;
+        } else {
+            // UNKNOWN: StockOwner unreachable or provider not yet ready.
+            // After initial grace period (3 retries), fail-open so CarPlay HUD is not permanently blocked.
+            allowed = ++unknownStreak > 3;
+        }
+        session.setOutputAllowed(allowed);
         if (next != stockState) {
             stockState = next;
             String owner = next == StockGuidance.IDLE ? "CARPLAY"
                     : next == StockGuidance.ACTIVE ? "STOCK" : "UNKNOWN";
-            Log.i(TAG, "HUD owner=" + owner);
+            Log.i(TAG, "HUD owner=" + owner + (allowed && next == StockGuidance.UNKNOWN ? " (fallback-allowed)" : ""));
             try {
                 java.io.FileOutputStream out = openFileOutput("hud-owner.status", MODE_PRIVATE);
                 try { out.write((owner + "\n").getBytes("US-ASCII")); }
                 finally { out.close(); }
             } catch (java.io.IOException e) { Log.w(TAG, "HUD owner status unavailable"); }
-            if (next == StockGuidance.IDLE) keepStockSafetyGuidanceAlive();
+            if (allowed) keepStockSafetyGuidanceAlive();
         }
-        return next == StockGuidance.IDLE;
+        return allowed;
     }
     private void keepStockSafetyGuidanceAlive() {
         try {

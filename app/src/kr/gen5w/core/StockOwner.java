@@ -25,7 +25,7 @@ public final class StockOwner {
                 if ("1".equals(state)) return '1';
                 if (!"0".equals(state)) return '?';
             }
-            return rows > 0 ? '0' : '?';
+            return '0';
         } catch (RuntimeException e) { return '?'; }
         finally {
             if (cursor != null) try { cursor.close(); } catch (RuntimeException ignored) { }
