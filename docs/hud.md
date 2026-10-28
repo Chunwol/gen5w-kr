@@ -31,3 +31,9 @@ KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜
 순정 내비 안내 중에는 CarPlay HUD 출력을 양보합니다. 상태 조회가 실패해도 출력·지우기를 보류하고, 안내 종료 후 최신 CarPlay 정보를 다시 전송합니다. 앱은 순정 내비의 음소거를 변경하지 않습니다. 과속·카메라 경고의 동시 표출은 실차 확인 대상입니다. [HUD 우선순위](hud-ownership.md)와 [V039 코드 대조 결과](v039-cluster-review.md)를 참고하세요.
 
 핸들 통화 버튼의 보완 범위와 확인 항목은 [CarPlay 핸들 통화 버튼](wireless-call-button.md)을 참고하세요.
+
+## Android Auto 펌웨어 구분
+
+순정 GPM HUD 활성화 도구는 V035와 V039를 별도 빌드하며, iAP2·DiPO와 같은 펌웨어의 APK/ODEX 조합만 허용합니다. 이전 배포의 gpm-v039 프로필은 V035 원본을 잘못 참조했습니다. 이번 수정은 두 실제 원본으로 프로필을 분리한 것이며, 카메라 경고 중계나 고속도로 전용 화면 구현은 아닙니다.
+
+아이폰 CarPlay와 안드로이드 Android Auto의 유선/무선 성공 여부는 각각 확인합니다. 무선 CarPlay의 성공이 무선 AA 지원을 증명하지 않습니다. [추가 구현 조사·로드맵](superpowers/plans/2026-10-28-hud-highway-stock-warning-roadmap.md)에 확인된 경로와 남은 조건을 기록합니다.

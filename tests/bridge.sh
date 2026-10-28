@@ -14,14 +14,17 @@ for version in v035 v039; do
     echo "dipo-$version-previous" > "$W/fixture/dipo-$version-previous"
     echo "dipo-$version-apk" > "$W/fixture/dipo-$version-apk"
 done
-echo "gpm-v039-original" > "$W/fixture/gpm-v039-original"
-echo "gpm-v039-patched" > "$W/fixture/gpm-v039-patched"
-echo "gpm-v039-apk" > "$W/fixture/gpm-v039-apk"
+for version in v035 v039; do
+    echo "gpm-$version-original" > "$W/fixture/gpm-$version-original"
+    echo "gpm-$version-patched" > "$W/fixture/gpm-$version-patched"
+    echo "gpm-$version-apk" > "$W/fixture/gpm-$version-apk"
+done
 cat > "$W/pkg/scripts/recipe.sh" <<'EOF'
 BRIDGE_APK_V035_SHA=v035-apk
 BRIDGE_APK_V039_SHA=v039-apk
 BRIDGE_DIPO_APK_V035_SHA=dipo-v035-apk
 BRIDGE_DIPO_APK_V039_SHA=dipo-v039-apk
+BRIDGE_GPM_APK_V035_SHA=gpm-v035-apk
 BRIDGE_GPM_APK_V039_SHA=gpm-v039-apk
 BRIDGE_DIPO_PREVIOUS_V035_SHA=dipo-v035-previous
 BRIDGE_DIPO_PREVIOUS_V039_SHA=dipo-v039-previous
@@ -50,15 +53,18 @@ apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/dipo-$version-original" && cp "$BRIDGE_
 esac
 EOF
 done
-cat > "$W/pkg/bin/gpm-patch-v039" <<'EOF'
+for version in v035 v039; do
+cat > "$W/pkg/bin/gpm-patch-$version" <<'EOF'
 #!/bin/sh
+version=${0##*-}
 case "$1" in
-original|patched) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/gpm-v039-$1";;
+original|patched) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/gpm-$version-$1";;
 verify) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$3";;
-apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/gpm-v039-original" && cp "$BRIDGE_TEST_FIXTURE/gpm-v039-patched" "$3";;
+apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/gpm-$version-original" && cp "$BRIDGE_TEST_FIXTURE/gpm-$version-patched" "$3";;
 *) exit 2;;
 esac
 EOF
+done
 cat > "$W/bin/nemesis" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$BRIDGE_TEST_FIXTURE/calls"
@@ -95,7 +101,7 @@ touch "$W/pkg/app/bridge.dex" "$W/sys/framework/com.tcc.iap2.jar"
 for version in v035 v039; do
 cp "$W/fixture/$version-original" "$TARGET"; cp "$W/fixture/$version-apk" "$APK"
 cp "$W/fixture/dipo-$version-original" "$DIPO"; cp "$W/fixture/dipo-$version-apk" "$DIPOAPK"
-if [ "$version" = v039 ]; then
+if [ -f "$W/pkg/bin/gpm-patch-$version" ]; then
     cp "$W/fixture/gpm-$version-original" "$GPM"; cp "$W/fixture/gpm-$version-apk" "$GPMAPK"
 fi
 chmod 600 "$DIPO"
@@ -105,7 +111,7 @@ check "$version helpers made executable" test -x "$W/pkg/bin/iap2-patch-$version
 check "$version install" run post
 check "$version patched exact" cmp -s "$TARGET" "$W/fixture/$version-patched"
 check "$version DiPO patched exact" cmp -s "$DIPO" "$W/fixture/dipo-$version-patched"
-if [ "$version" = v039 ]; then
+if [ -f "$W/pkg/bin/gpm-patch-$version" ]; then
     check "$version GPM patched exact" cmp -s "$GPM" "$W/fixture/gpm-$version-patched"
     check "$version durable GPM original" cmp -s "$PERSIST/gpmoriginal" "$W/fixture/gpm-$version-original"
 fi
@@ -123,12 +129,20 @@ cp "$W/fixture/$version-patched" "$TARGET"
 check "$version uninstall" run preun
 check "$version original identity" cmp -s "$TARGET" "$W/fixture/$version-original"
 check "$version DiPO original identity" cmp -s "$DIPO" "$W/fixture/dipo-$version-original"
-if [ "$version" = v039 ]; then
+if [ -f "$W/pkg/bin/gpm-patch-$version" ]; then
     check "$version GPM original identity" cmp -s "$GPM" "$W/fixture/gpm-$version-original"
 fi
 check "$version DiPO original mode" test "$(stat -c %a "$DIPO")" = 600
 check "$version uninstall mode restored" test "$(stat -c %a "$TARGET")" = 640
 check "$version owned state removed" test ! -d "$PERSIST"
+if [ "$version" = v039 ]; then other=v035; else other=v039; fi
+cp "$W/fixture/gpm-$other-original" "$GPM"
+if run pre; then bad "$version mismatched GPM ODEX refused"; else ok "$version mismatched GPM ODEX refused"; fi
+cp "$W/fixture/gpm-$version-original" "$GPM"
+cp "$W/fixture/gpm-$other-apk" "$GPMAPK"
+if run pre; then bad "$version mismatched GPM APK refused"; else ok "$version mismatched GPM APK refused"; fi
+cp "$W/fixture/gpm-$version-apk" "$GPMAPK"
+
 done
 cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
 cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"

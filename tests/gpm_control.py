@@ -13,21 +13,25 @@ sys.path.insert(0, str(ROOT / 'tools/iap2'))
 from gpm_patch import make_recipe
 
 class GpmRecipeTest(unittest.TestCase):
-    def test_recipe_matches_committed_profile(self):
-        profile = ROOT / 'tools/iap2/gpm-v039.json'
-        self.assertTrue(profile.exists(), 'gpm-v039.json must exist')
-        data = json.loads(profile.read_text(encoding='utf-8'))
-        self.assertEqual(data['id'], 'gpm-hud-enable-1')
-        self.assertEqual(data['original_sha256'], '8c510448ee23dff74d6690e8e88ea119947706390dcc2f8e717dad4004dacc58')
-        self.assertEqual(data['patched_sha256'], 'bb4407f6c78fb76a39ef51d88c14a7d77dd385f2fe1492ca198a7be02c900bfe')
-        # Check that patch 0 zeroes 4 bytes at offset 1017894
-        self.assertEqual(data['patches'][0]['offset'], 1017894)
-        self.assertEqual(data['patches'][0]['bytes'], [0, 0, 0, 0])
+    def test_recipe_matches_firmware(self):
+        expected = {
+            'v035': '8c510448ee23dff74d6690e8e88ea119947706390dcc2f8e717dad4004dacc58',
+            'v039': 'caee2cdf77a101d9b103d850658c85c4ed922e863d6566166b87037a11fd55c8',
+        }
+        for version, original in expected.items():
+            with self.subTest(version=version):
+                data = json.loads((ROOT/('tools/iap2/gpm-'+version+'.json')).read_text(encoding='utf-8'))
+                self.assertEqual(data['id'], 'gpm-hud-enable-1')
+                self.assertEqual(data['original_sha256'], original)
+                self.assertEqual(data['patches'][0]['bytes'], [0, 0, 0, 0])
+                self.assertNotEqual(data['patched_sha256'], original)
+
 
 def private_check(path):
     raw = path.read_bytes()
     recipe, changed = make_recipe(raw)
-    profile = ROOT / 'tools/iap2/gpm-v039.json'
+    version = 'v035' if hashlib.sha256(raw).hexdigest() == '8c510448ee23dff74d6690e8e88ea119947706390dcc2f8e717dad4004dacc58' else 'v039'
+    profile = ROOT / ('tools/iap2/gpm-'+version+'.json')
     if profile.exists():
         assert json.loads(profile.read_text(encoding='utf-8')) == recipe, 'reviewed gpm profile changed'
     assert recipe['original_sha256'] == hashlib.sha256(raw).hexdigest()

@@ -30,14 +30,20 @@ def make_recipe(raw):
     # const/16 v3, 0x03e7 (999)
     # if-ne / if-lt v0, v3, target
     patch_pos = None
-    for i in range(count - 8):
+    for i in range(count - 9):
         if words[i] & 0xff == 0x71:
             mid = words[i+1]
-            if mid < len(dex.methods) and 'bJ' in dex.methods[mid]:
+            if mid < len(dex.methods) and dex.methods[mid] in {
+                    'Lcom/google/android/projection/sink/d/d;->bJ()I',
+                    'Lcom/google/android/projection/sink/d/d;->bG()I'}:
                 # verify pattern: move-result, const/16 999, if
                 if (words[i+3] & 0xff == 0x0a and
                     words[i+4] & 0xff == 0x13 and words[i+5] == 0x03e7 and
-                    0x32 <= (words[i+6] & 0xff) <= 0x3d):
+                    words[i+6] == 0x3034 and words[i+7] == 11 and
+                    words[i+8] & 0xff == 0x22 and words[i+9] < len(dex.types) and
+                    dex.types[words[i+9]] == 'Lcom/google/android/projection/sink/navigation/GpmNaviTBTManager;'):
+                    # Both reviewed versions branch around this exact allocation.
+                    # Do not accept a similarly named getter elsewhere.
                     patch_pos = i + 6
                     break
 

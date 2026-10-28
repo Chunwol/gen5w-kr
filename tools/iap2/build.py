@@ -12,7 +12,7 @@ def main():
     host='windows-x86_64' if os.name=='nt' else 'linux-x86_64'
     clang=Path(a.ndk)/'toolchains/llvm/prebuilt'/host/'bin'/('clang.exe' if os.name=='nt' else 'clang')
     dest=ROOT/'packages/wireless-bridge/bin';dest.mkdir(parents=True,exist_ok=True)
-    targets = [('iap2', 'v035'), ('iap2', 'v039'), ('dipo', 'v035'), ('dipo', 'v039'), ('gpm', 'v039')]
+    targets = [('iap2', 'v035'), ('iap2', 'v039'), ('dipo', 'v035'), ('dipo', 'v039'), ('gpm', 'v035'), ('gpm', 'v039')]
     for kind, version in targets:
         if kind == 'iap2': filename = f'{version}.json'
         elif kind == 'dipo': filename = f'dipo-{version}.json'
