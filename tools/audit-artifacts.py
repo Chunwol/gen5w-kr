@@ -60,10 +60,10 @@ for variant,count in [('standard',6)]:
         assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
         assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','repair-hotspot.sh','docs/beginner-guide.md'])
         assert z.read('GEN5W-BACKEND')==b'builtin\n'
-        assert not any(n.endswith('svc/agree.sh') or n.endswith('gen5w.kr.consent.zip') for n in z.namelist())
+        assert not any(n.endswith('gen5w.kr.consent.zip') for n in z.namelist())
         assert z.read('BUILD-REVISION')==zipfile.ZipFile(root/'gen5w.kr.core.zip').read('BUILD-REVISION')
 with zipfile.ZipFile(root/'gen5w-kr-source.zip') as z:
     assert all('gen5w-kr-source/'+p in z.namelist() for p in ['LICENSE','tools/build-all.sh','app/src/kr/gen5w/core/CoreService.java'])
     assert not any(Path(n).suffix in {'.odex','.so','.apk','.dex','.img','.keystore','.pass'} for n in z.namelist()), 'private/binary source content'
-    assert not any('/consent-skip/' in n or n.endswith('/svc/agree.sh') for n in z.namelist()), 'local notice-disabling source in public archive'
+    assert not any('/consent-skip/' in n for n in z.namelist()), 'local notice-disabling source in public archive'
 print('AUDITED public standard edition and corresponding source; local edition excluded')

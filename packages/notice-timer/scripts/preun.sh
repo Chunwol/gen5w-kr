@@ -8,6 +8,7 @@ inspect || exit $?
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 restore_target && stage_clear && cleanup_owned || exit 1
+rm -f "$SYS/etc/permissions/com.mobis.feature.remove_consentscreen.xml" 2>/dev/null || true
 sync
 sys_ro || exit 1
 trap - EXIT
