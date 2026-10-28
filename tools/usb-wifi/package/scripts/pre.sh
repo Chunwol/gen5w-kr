@@ -9,6 +9,20 @@ verify_stock_target || {
     exit 1
 }
 
+# Verify required payload files exist in package
+[ -f "$SCRIPT_DIR/../files/libhardware_legacy.so" ] || {
+    log "FAIL dongle: missing adapter library payload"
+    exit 1
+}
+[ -f "$SCRIPT_DIR/../files/modules/ath9k_htc.ko" ] || {
+    log "FAIL dongle: missing kernel modules payload"
+    exit 1
+}
+[ -f "$SCRIPT_DIR/../files/firmware/htc_9271.fw" ] || {
+    log "FAIL dongle: missing firmware payload"
+    exit 1
+}
+
 # Positive hardware detection or explicit install override
 if ! has_dongle_hw; then
     if [ ! -f "${DONGLE_TEST_FLAG:-/data/nemesis/GEN5W-DONGLE}" ] && [ ! -f /mnt/usb/GEN5W-DONGLE ]; then

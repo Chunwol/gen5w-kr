@@ -1,8 +1,8 @@
 [nemesis]
 version=1.0
 id=gen5w.kr.notice
-name=Gen5W KR - stock warning auto agree and 3 second timer
-types=application,service
+name=Gen5W KR - stock warning 3 second timer
+types=application
 preinstall=scripts/pre.sh
 postinstall=scripts/post.sh
 preuninstall=scripts/preun.sh
@@ -11,10 +11,3 @@ preuninstall=scripts/preun.sh
 kind=sh
 path=bin/status.sh
 uid=root
-
-[service.0]
-name=agree
-kind=sh
-path=svc/agree.sh
-uid=root
-mode=restart

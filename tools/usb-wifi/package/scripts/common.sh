@@ -49,6 +49,17 @@ has_dongle_hw() {
     return 1
 }
 
+# Supported stock HAL library hashes (V039 Gen5W):
+STOCK_HAL_MD5_V039="5491a1a37e2c252dc55fc3e2036f0f6b"
+STOCK_HAL_SHA256_V039="e173ce9c465ba8df9201372caa761809e70a82ba0098f14421f9032957c8803f"
+
+digest() {
+    local v
+    v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1
+    set -- $v
+    echo "$1"
+}
+
 is_owned() {
     [ -f "$BACKUP_DURABLE/owner" ] && [ "$(cat "$BACKUP_DURABLE/owner" 2>/dev/null)" = "$OWNER" ]
 }
@@ -60,5 +71,18 @@ verify_stock_target() {
         is_owned && return 0
         return 1
     fi
-    return 0
+    # Allow test harness override
+    if [ -n "${DONGLE_TEST_STOCK_MD5:-}" ]; then
+        [ "$(digest "$TARGET_HAL")" = "$DONGLE_TEST_STOCK_MD5" ] && return 0
+        return 1
+    fi
+    if [ -n "${DONGLE_TEST_SYS:-}" ]; then
+        return 0
+    fi
+    local d
+    d=$(digest "$TARGET_HAL") || return 1
+    case "$d" in
+        "$STOCK_HAL_MD5_V039") return 0 ;;
+        *) log "FAIL dongle: unsupported or modified target HAL hash $d"; return 1 ;;
+    esac
 }

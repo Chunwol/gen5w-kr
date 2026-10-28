@@ -82,14 +82,17 @@ safe_remove() {
     local id=$1
     if [ ! -f "$APPS/$id/NEMESIS.data" ]; then
         durable "$id" || return 0
-        check_stage_tree "$id" && gate "$(pwd)/checks/$id" preuninstall || true
+        check_stage_tree "$id" || return 1
+        gate "$(pwd)/checks/$id" preuninstall || return 1
         report "RESTORED $id: recovered durable ownership after data reset"
         return 0
     fi
     # Native NEMESIS ignores this hook's return value. Check it ourselves first.
-    hook "$id" preuninstall 2>/dev/null || true
-    "$NEM" uninstall "$id" 2>/dev/null || true
-    [ ! -e "$APPS/$id" ] || rm -rf "$APPS/$id" 2>/dev/null || true
+    hook "$id" preuninstall || return 1
+    "$NEM" uninstall "$id" || return 1
+    if [ -e "$APPS/$id" ]; then
+        rm -rf "$APPS/$id" || return 1
+    fi
     return 0
 }
 snapshot() {
@@ -169,6 +172,24 @@ finish() {
 }
 begin() {
     local state= id
+    if [ -f "$TX/state" ]; then
+        state=$(cat "$TX/state" 2>/dev/null)
+        case "$state" in
+            applying|recovering)
+                if [ -f "$TX/prior/complete" ]; then
+                    report 'RECOVERING interrupted prior transaction before new installation'
+                    rollback_transaction || { report 'REFUSED cannot recover prior transaction'; return 1; }
+                else
+                    report 'REFUSED interrupted transaction without complete snapshot'
+                    return 1
+                fi
+                ;;
+            recovery-required)
+                report 'REFUSED unresolved system recovery required'
+                return 1
+                ;;
+        esac
+    fi
     rm -f "$NOREBOOT" 2>/dev/null || true
     set_state capturing || return 1
     rm -rf "$TX/prior" || return 1
@@ -176,7 +197,9 @@ begin() {
     mkdir "$TX/prior" || return 1
     : > "$NOREBOOT" || return 1
     # Capture every prior tree before any hook can mutate the system.
-    for id in wireless.carplay.aa $ALL_IDS; do snapshot "$id" 2>/dev/null || true; done
+    for id in wireless.carplay.aa $ALL_IDS; do
+        snapshot "$id" || { report "FAILED snapshot $id"; return 1; }
+    done
     [ ! -L "$WIRELESS_OFF" ] || return 1
     if [ -f "$WIRELESS_OFF" ]; then echo disabled; else echo enabled; fi > "$TX/prior/wireless-mode" || return 1
     echo 1 > "$TX/prior/complete" && sync

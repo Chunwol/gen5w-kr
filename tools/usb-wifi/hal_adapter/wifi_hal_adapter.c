@@ -198,7 +198,7 @@ FORWARD_0(const char *, get_dhcp_error_string)
 
 /* Wi-Fi Supplicant & Hostapd Socket Forwarding */
 FORWARD_1(int, wifi_delete_config_file, const char *)
-FORWARD_0(int, wifi_stop_supplicant)
+FORWARD_1(int, wifi_stop_supplicant, int)
 FORWARD_1(int, wifi_connect_on_socket_path, const char *)
 FORWARD_1(int, wifi_connect_to_supplicant, const char *)
 FORWARD_0(int, wifi_connect_to_hostapd)

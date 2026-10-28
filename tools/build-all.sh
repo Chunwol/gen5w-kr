@@ -35,6 +35,11 @@ cp app/build/gen5w-core.apk packages/core/app/gen5w-core.apk
 "$PY" -I tools/mkpkg.py packages/core dist/gen5w.kr.core.zip
 "$PY" -I tools/notice/build.py --ndk "$NDK"
 "$PY" -I tools/mkpkg.py packages/notice-timer dist/gen5w.kr.notice.zip
+
+# USB Wi-Fi dongle adapter and package
+"$PY" -I tools/usb-wifi/hal_adapter/build.py --ndk "$NDK"
+"$PY" -I tools/usb-wifi/build_dongle_zip.py
+
 "$PY" -I tools/integrated/build.py --dist dist --output dist/usb-integrated
 "$PY" -I tools/integrated/build.py --skip-native --variant standard --dist dist --output dist/gen5w-kr-standard
 "$PY" -I tools/integrated/build.py --skip-native --variant dongle --dist dist --output dist/gen5w-kr-dongle

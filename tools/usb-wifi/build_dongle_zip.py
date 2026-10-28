@@ -6,6 +6,16 @@ import sys
 import stat
 
 def build_dongle_zip(pkg_dir: Path, out_zip: Path):
+    # Verify required driver payloads exist before packaging
+    required = [
+        pkg_dir / 'files' / 'libhardware_legacy.so',
+        pkg_dir / 'files' / 'modules' / 'ath9k_htc.ko',
+        pkg_dir / 'files' / 'firmware' / 'htc_9271.fw',
+    ]
+    for req in required:
+        if not req.is_file():
+            raise SystemExit(f'Refused to build dongle package: missing required payload {req}')
+
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     if out_zip.exists():
         out_zip.unlink()

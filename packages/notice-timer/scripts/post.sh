@@ -27,16 +27,6 @@ if [ "$NOTICE_STATE" = stock ]; then
     fi
 fi
 rm -f "$STATE/replacement" || exit 1
-FEATURE_XML=$SYS/etc/permissions/com.mobis.feature.remove_consentscreen.xml
-if [ -f "$SCRIPT_DIR/../files/com.mobis.feature.remove_consentscreen.xml" ]; then
-    mkdir -p "$SYS/etc/permissions" 2>/dev/null || true
-    cp "$SCRIPT_DIR/../files/com.mobis.feature.remove_consentscreen.xml" "$FEATURE_XML.tmp" &&
-    chmod 644 "$FEATURE_XML.tmp" && chown 0:0 "$FEATURE_XML.tmp" 2>/dev/null &&
-    mv "$FEATURE_XML.tmp" "$FEATURE_XML" || true
-fi
-if [ -f "$SCRIPT_DIR/../svc/agree.sh" ]; then
-    chmod 755 "$SCRIPT_DIR/../svc/agree.sh" 2>/dev/null || true
-fi
 sync
 sys_ro || exit 1
 trap - EXIT

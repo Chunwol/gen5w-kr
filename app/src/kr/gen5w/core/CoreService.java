@@ -51,7 +51,6 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
-    private int unknownStreak = 0; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -148,24 +147,13 @@ public final class CoreService extends Service {
     /** Check again at each write, including clears and retries. No OEM stop calls. */
     private boolean refreshOwnership() {
         int next = stockGuidance.read();
-        boolean allowed;
-        if (next == StockGuidance.ACTIVE) {
-            allowed = false;
-            unknownStreak = 0;
-        } else if (next == StockGuidance.IDLE) {
-            allowed = true;
-            unknownStreak = 0;
-        } else {
-            // UNKNOWN: StockOwner unreachable or provider not yet ready.
-            // After initial grace period (3 retries), fail-open so CarPlay HUD is not permanently blocked.
-            allowed = ++unknownStreak > 3;
-        }
+        boolean allowed = (next == StockGuidance.IDLE);
         session.setOutputAllowed(allowed);
         if (next != stockState) {
             stockState = next;
             String owner = next == StockGuidance.IDLE ? "CARPLAY"
                     : next == StockGuidance.ACTIVE ? "STOCK" : "UNKNOWN";
-            Log.i(TAG, "HUD owner=" + owner + (allowed && next == StockGuidance.UNKNOWN ? " (fallback-allowed)" : ""));
+            Log.i(TAG, "HUD owner=" + owner);
             try {
                 java.io.FileOutputStream out = openFileOutput("hud-owner.status", MODE_PRIVATE);
                 try { out.write((owner + "\n").getBytes("US-ASCII")); }
@@ -366,6 +354,12 @@ public final class CoreService extends Service {
     private long currentDist = -1;
     private volatile boolean mediaOsdActive = false;
 
+    private static NavigationCluster.CrossroadName crossroadName(String name) {
+        NavigationCluster.CrossroadName cr = new NavigationCluster.CrossroadName();
+        cr.name = name != null ? name : "";
+        return cr;
+    }
+
     private void renderMediaOsd(final String track, final String artist) {
         if (track == null || track.trim().isEmpty()) return;
         io.post(new Runnable() {
@@ -381,7 +375,7 @@ public final class CoreService extends Service {
                     mediaOsdActive = true;
                     int icon = currentIcon1 > 0 ? currentIcon1 : 0x41;
                     cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, currentIcon2}, line));
-                    cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(line));
+                    cluster.updateTPCrossroadName(crossroadName(line));
                     writeDebugLog("MEDIA_OSD: " + line);
                     io.removeCallbacks(restoreNaviRunnable);
                     io.postDelayed(restoreNaviRunnable, 3000);
@@ -396,12 +390,16 @@ public final class CoreService extends Service {
             if (!refreshOwnership()) return;
             try {
                 if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                if (currentDist < 0 || currentIcon1 <= 0) {
-                    cluster.updateTPTurnListNew(TurnFrame.clear());
-                    cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(""));
-                } else {
+                if (currentDist >= 0 && currentIcon1 > 0) {
                     cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{currentIcon1, currentIcon2}, currentRoadName));
-                    cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(currentRoadName != null ? currentRoadName : ""));
+                    cluster.updateTPCrossroadName(crossroadName(currentRoadName));
+                } else if (session != null && session.hasActiveGuidance()) {
+                    cluster.updateTPCrossroadName(crossroadName(""));
+                    session.invalidateOutput();
+                    session.retryOutput();
+                } else {
+                    cluster.updateTPTurnListNew(TurnFrame.clear());
+                    cluster.updateTPCrossroadName(crossroadName(""));
                 }
                 writeDebugLog("MEDIA_OSD: restored navi road=" + currentRoadName);
             } catch (Throwable e) { outputError(e); }
@@ -449,16 +447,16 @@ public final class CoreService extends Service {
                         cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
                         if (!mediaOsdActive) {
                             cluster.updateTPTurnListNew(TurnFrame.clear());
-                            cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(""));
+                            cluster.updateTPCrossroadName(crossroadName(""));
                         }
-                        cluster.updateTPHighwayMode(null);
+                        cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[0]);
                         cluster.updateLaneInfo(LaneFrame.clear());
                         writeDebugLog("AA_TBT: cleared");
                     } else {
                         cluster.updateTBTInfo(icon, secondIcon, 0f, (float)dist, 0, secondIcon, 0, 0, 0);
                         if (!mediaOsdActive) {
                             cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
-                            cluster.updateTPCrossroadName(new NavigationCluster.CrossroadName(road != null ? road : ""));
+                            cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
                         }
                         HighwayFrame.Item hwItem = HighwayFrame.build(icon, road, (float)dist);
                         if (hwItem != null) {
@@ -471,7 +469,7 @@ public final class CoreService extends Service {
                             hwMode.name = hwItem.name;
                             cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[]{hwMode});
                         } else {
-                            cluster.updateTPHighwayMode(null);
+                            cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[0]);
                         }
                         writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
                                 + " 2nd=0x" + Integer.toHexString(secondIcon)

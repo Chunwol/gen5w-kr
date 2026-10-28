@@ -168,6 +168,9 @@ public final class GuidanceSession {
         if (desiredLanes != null) emitLanes(desiredLanes);
         if (desiredTbt) emitTbt(desiredIcon, desiredSecondIcon, desiredDistance);
     }
+    public boolean hasActiveGuidance() {
+        return desiredFrame != null && !Arrays.equals(desiredFrame, TurnFrame.clear());
+    }
     /** A failed cluster binding may have lost all three output channels. */
     public void invalidateOutput() {
         lastFrame = null; lastLanes = null;

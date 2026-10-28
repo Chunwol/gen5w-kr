@@ -5,7 +5,6 @@ public class NavigationCluster {
     public static final class CrossroadName {
         public String name;
         public CrossroadName() {}
-        public CrossroadName(String name) { this.name = name; }
     }
 
     public static final class HighwayMode {
