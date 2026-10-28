@@ -41,6 +41,9 @@ public final class ClusterIcon {
         int side = side(m);
         if (m.junctionType == 1 || m.type == 6 || m.type == 7 || m.type == 19
                 || (m.type >= 28 && m.type <= 46)) return roundabout(m);
+        // Keep the existing explicit ramp mapping. A destination
+        // name (TG, rest area, or another IC) cannot change its maneuver kind.
+        if (m.type == 8 || m.type == 9 || m.type == 22 || m.type == 23) return ordinary(m);
 
         if (hasAny(text, "터널", "tunnel")) {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
@@ -74,7 +77,11 @@ public final class ClusterIcon {
                     || (m.type != 9 && m.type != 24 && m.type != 25 && hasAny(text, "진출", "나가", "빠져", "출구", "방면 출구", "오른쪽 출구", "왼쪽 출구", "exit", "offramp", "off ramp"))) {
                 return pick(side, IC_EXIT_C, IC_EXIT_R, IC_EXIT_L);
             }
-            return pick(side, IC_ENTER_C, IC_ENTER_R, IC_ENTER_L);
+            if (hasAny(text, "진입", "합류", "올라", "onramp", "on ramp")) {
+                return pick(side, IC_ENTER_C, IC_ENTER_R, IC_ENTER_L);
+            }
+            // An IC/JC or highway name alone does not identify a ramp maneuver.
+            return ordinary(m);
         }
         return ordinary(m);
     }
@@ -84,17 +91,22 @@ public final class ClusterIcon {
      * using Korea's 6 major road categories detected in roadName / description text.
      */
     public static int refineManeuver(int baseIcon, String road, String desc) {
+        // Refine only ordinary arrows. Keep explicit stock facility/ramp,
+        // arrival, unknown and cleared icons exactly as supplied.
+        if (baseIcon < 0x41 || baseIcon > 0x47) return baseIcon;
         String r = road == null ? "" : road;
         String d = desc == null ? "" : desc;
         String text = (r + " " + d).trim();
         if (text.isEmpty()) return baseIcon;
 
         int side = 0;
-        if (baseIcon == 0x42 || baseIcon == 0x43 || baseIcon == 0x44 || baseIcon == IC_ENTER_R || baseIcon == IC_EXIT_R) side = 1;
-        else if (baseIcon == 0x45 || baseIcon == 0x46 || baseIcon == 0x47 || baseIcon == IC_ENTER_L || baseIcon == IC_EXIT_L) side = -1;
+        if (baseIcon == 0x42 || baseIcon == 0x43 || baseIcon == 0x44) side = 1;
+        else if (baseIcon == 0x45 || baseIcon == 0x46 || baseIcon == 0x47) side = -1;
 
-        if (hasAny(text, "오른쪽", "오른쪽에", "우측", "우회전", "오른편", "끝차로", "바깥")) side = 1;
-        else if (hasAny(text, "왼쪽", "왼쪽에", "좌측", "좌회전", "왼편", "1차로")) side = -1;
+        if (side == 0) {
+            if (hasAny(text, "오른쪽", "오른쪽에", "우측", "우회전", "오른편", "끝차로", "바깥")) side = 1;
+            else if (hasAny(text, "왼쪽", "왼쪽에", "좌측", "좌회전", "왼편", "1차로")) side = -1;
+        }
 
         if (hasAny(text, "터널", "tunnel")) {
             if (isSide(text)) return side > 0 ? UNDERPASS_SIDE_R : UNDERPASS_SIDE_L;
@@ -144,8 +156,8 @@ public final class ClusterIcon {
     private static int ordinary(Maneuver m) {
         String t = ((m.afterRoad == null ? "" : m.afterRoad) + " " + (m.desc == null ? "" : m.desc));
         int s = side(m);
-        // Naver Map (and Kakao/T-map) may emit type 3 (Continue), 5 (FollowHighway), 11 (Straight),
-        // or 16/51 while indicating a turn or exit in text or exit angle.
+        // App-independent fallback text hints for generic maneuver types.
+        // This is not evidence of what any named map app or version emits.
         if (m.type == 3 || m.type == 5 || m.type == 11 || m.type == 16 || m.type == 51) {
             if (hasAny(t, "유턴", "u턴")) return m.drivingSide == 1 ? 0x49 : 0x48;
             if (hasAny(t, "좌회전", "왼쪽", "왼쪽에", "좌측", "왼편", "비보호 좌회전")) {

@@ -29,7 +29,7 @@ CarPlay 길안내는 `core`가 `com.remote.service.IAP2SERVICE`에 별도 이름
 
 Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch`로 우회하여, Google 표준 네비게이션 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 차량 네이티브 수준에서 활성화합니다. 이를 통해 사용자 스마트폰에 별도 앱을 설치하지 않고도 Google 지도·티맵·네이버 지도·카카오내비의 TBT 정보가 전달됩니다.
 
-출력은 순정 `NavigationCluster`의 `updateTPTurnListNew`, `updateLaneInfo`, `updateTBTInfo`를 사용합니다. `updateTBTInfo`의 `sideStreet` 및 `combiSideStreet` 슬롯에 2nd TBT(차기 회전 아이콘)를 전달하여 계기판과 컴바이너 HUD의 2차 분기 표출을 지원합니다. 출력이 실패하면 최신 정보나 지움 요청을 다시 보냅니다. 자체 CAN 프레임은 만들지 않습니다. 메시지 필드와 프레임 규격은 [iAP2](iap2-fields.md), [HUD](hud.md)를 참고하세요.
+출력은 순정 `NavigationCluster`의 `updateTPTurnListNew`, `updateLaneInfo`, `updateTBTInfo`를 사용합니다. 2nd TBT(차기 회전 아이콘)는 `updateTPTurnListNew`의 두 번째 슬롯과 `updateTBTInfo`의 `sideStreet`에 전달합니다. `combiSideStreet`는 V039의 0~4 범위에 맞춰 0을 사용합니다. 출력이 실패하면 최신 정보나 지움 요청을 다시 보냅니다. 자체 CAN 프레임은 만들지 않습니다. 메시지 필드와 프레임 규격은 [iAP2](iap2-fields.md), [HUD](hud.md)를 참고하세요.
 
 ## 시동 안내
 

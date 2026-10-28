@@ -575,9 +575,7 @@ public final class CoreService extends Service {
                 } else if (icon > 0 && (road != null || desc != null)) {
                     icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
-                if (second > 0 && road != null) {
-                    second = ClusterIcon.refineManeuver(second, road, null);
-                }
+                // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
 
                 int laneCount = intent.getIntExtra("lane_count", 0);
@@ -690,9 +688,7 @@ public final class CoreService extends Service {
                 } else if (icon > 0 && (road != null || desc != null)) {
                     icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
-                if (second > 0 && road != null) {
-                    second = ClusterIcon.refineManeuver(second, road, null);
-                }
+                // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
             }
         } catch (Throwable ignored) {

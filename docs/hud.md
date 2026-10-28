@@ -37,3 +37,13 @@ KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜
 순정 GPM HUD 활성화 도구는 V035와 V039를 별도 빌드하며, GPM 자체의 검증된 APK/ODEX 쌍으로 선택합니다. iAP2·DiPO와 참조 버전이 달라도 GPM의 두 파일이 서로 맞는 기존 지원 조합은 유지하고, 파일이 서로 섞인 조합은 거부합니다. 이전 배포의 gpm-v039 프로필은 V035 원본을 잘못 참조했습니다. 이번 수정은 두 실제 원본으로 프로필을 분리한 것이며, 카메라 경고 중계나 고속도로 전용 화면 구현은 아닙니다.
 
 아이폰 CarPlay와 안드로이드 Android Auto의 유선/무선 성공 여부는 각각 확인합니다. 무선 CarPlay의 성공이 무선 AA 지원을 증명하지 않습니다. [추가 구현 조사·로드맵](superpowers/plans/2026-10-28-hud-highway-stock-warning-roadmap.md)에 확인된 경로와 남은 조건을 기록합니다.
+
+## IC·JC·TG 입력 해석 보완
+
+- CarPlay의 명시적 램프 타입(8/9/22/23)은 기존 기본 매핑을 유지합니다. 도로명에 다른 IC·TG·휴게소가 있어도 램프 종류를 바꾸지 않습니다. 타입 22/23의 좌·우 진출과 타입 9의 진입 코드는 순정 DiPO 분기와 대조했습니다. 타입 8의 일반 진출 A3은 기존 자체 대체 정책이며 순정 DiPO의 직접 매핑이라고 주장하지 않습니다.
+- IC·JC 또는 고속도로 이름만 있으면 진입으로 바꾸지 않습니다. 텍스트 보완에 쓰는 진입·진출 표현은 기존 표현을 재사용하며, 이 보완은 실차 확인된 순정 동작과 구분합니다.
+- AA 보조 입력은 이미 받은 램프·요금소·휴게소 등 전용 아이콘을 보존합니다. 일반 화살표의 좌·우도 도로명으로 뒤집지 않습니다. 다음 회전에는 현재 도로명을 적용하지 않습니다.
+- 순정 AA `GpmNaviTBTManager.setRampDisplayType`은 ON_RAMP/OFF_RAMP와 TurnSide로 A0~A5를 선택합니다. 이 경로는 이번 보조 입력 수정의 적용 대상이 아니며 패치하지 않았습니다.
+- 새 경계 검사는 합성 입력입니다. 네이버지도·카카오맵·티맵의 특정 버전에서 수집한 패킷이나 실차 성공 기록이 아닙니다. 새 고속도로 전용 화면·휴게소 목록을 구현한 것도 아닙니다.
+
+공식 [CarPlay 메타데이터 설명](https://developer.apple.com/videos/play/wwdc2025/216/)과 [Android Maneuver API](https://developer.android.com/reference/androidx/car/app/navigation/model/Maneuver)는 구조화된 안내 종류를 제공합니다. 최신 AndroidX 종류 번호를 구형 GPM wire enum이나 이 앱의 CarPlay 타입 번호와 같다고 가정하지 않습니다. 이번 변경의 숫자 대조는 보유 순정 코드가 기준입니다.

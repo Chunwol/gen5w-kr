@@ -9,6 +9,9 @@ source = (root/'app/src/kr/gen5w/core/CoreService.java').read_text(encoding='utf
 assert 'com.mnsoft.navi.action.SOUND_ON' not in source, 'HUD must not force stock navigation sound on'
 assert 'com.mnsoft.navi.action.SOUND_OFF' not in source, 'HUD must not force stock navigation sound off'
 
+# Current-road metadata does not describe the next maneuver.
+assert 'ClusterIcon.refineManeuver(second, road, null)' not in source, 'AA next icon must not use the current road'
+
 def method(signature):
     start = source.index(signature)
     begin = source.index('{', start)

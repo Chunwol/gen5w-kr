@@ -30,9 +30,9 @@ public final class HudTest {
         eq("overpass side right", ClusterIcon.of(m("우측 고가 옆길")), ClusterIcon.OVERPASS_SIDE_R);
         eq("toll", ClusterIcon.of(m("서울요금소")), ClusterIcon.TOLL);
         eq("rest area", ClusterIcon.of(m("안성휴게소")), ClusterIcon.REST_AREA);
-        eq("ic enter right", ClusterIcon.of(m("우측 동탄나들목")), ClusterIcon.IC_ENTER_R);
+        eq("ic enter right", ClusterIcon.of(m("우측 동탄나들목 진입")), ClusterIcon.IC_ENTER_R);
         eq("ic exit", ClusterIcon.of(m("동탄나들목 진출")), ClusterIcon.IC_EXIT_C);
-        // Naver / Kakao / TMap official guidance phrases
+        // Synthetic Korean text cases; these are not verified app captures.
         eq("naver underpass centre spaced", ClusterIcon.of(m("전방에 지하 차도 진입")), ClusterIcon.UNDERPASS_ENTRY_LC);
         eq("naver underpass left spaced", ClusterIcon.of(m("왼쪽에 지하 차도 진입")), ClusterIcon.UNDERPASS_ENTRY_LC);
         eq("naver underpass right spaced", ClusterIcon.of(m("오른쪽에 지하 차도 진입")), ClusterIcon.UNDERPASS_ENTRY_R);
@@ -47,7 +47,7 @@ public final class HudTest {
         eq("kakao right direction road", ClusterIcon.of(m("오른쪽 방향")), 0x42);
         eq("tg abbreviation", ClusterIcon.of(m("서울TG")), ClusterIcon.TOLL);
         eq("tg joined abbreviation", ClusterIcon.of(m("분당TG진입")), ClusterIcon.TOLL);
-        eq("jc abbreviation", ClusterIcon.of(m("판교JC")), ClusterIcon.IC_ENTER_C);
+        eq("jc destination alone stays straight", ClusterIcon.of(m("판교JC")), 0x41);
         eq("tmap underpass side attached", ClusterIcon.of(m("지하차도옆길")), ClusterIcon.UNDERPASS_SIDE_L);
         eq("tmap overpass side attached", ClusterIcon.of(m("우측 고가차도옆길")), ClusterIcon.OVERPASS_SIDE_R);
         eq("tunnel side attached", ClusterIcon.of(m("터널 옆길")), ClusterIcon.UNDERPASS_SIDE_L);
