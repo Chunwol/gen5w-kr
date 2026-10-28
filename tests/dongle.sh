@@ -31,6 +31,7 @@ export DONGLE_TEST_SYS="$W/sys"
 export DONGLE_TEST_DATA="$W/data"
 export DONGLE_TEST_NEM="$W/bin/nemesis"
 export DONGLE_TEST_SYS_BUS="$W/sys/bus/usb/devices"
+export DONGLE_TEST_STOCK_MD5=$(md5sum "$W/fixture/stock_hal" | cut -d' ' -f1)
 
 TARGET=$W/sys/lib/libhardware_legacy.so
 STOCK_COPY=$W/sys/lib/libhardware_legacy_stock.so
@@ -68,6 +69,17 @@ check 'dongle status executes' mksh "$W/pkg/bin/status.sh"
 # 5. Idempotent reinstall
 check 'dongle reinstall succeeds' run post
 check 'dongle reinstall preserves original' cmp -s "$STOCK_COPY" "$W/fixture/stock_hal"
+
+# 5a. Tampered reinstall rejection
+echo "corrupted_stock" > "$STOCK_COPY"
+check 'dongle reinstall rejects corrupted stock copy' eval '! run post'
+cp "$W/fixture/stock_hal" "$STOCK_COPY"
+
+echo "corrupted_backup" > "$PERSIST/original"
+check 'dongle reinstall rejects corrupted durable backup' eval '! run post'
+cp "$W/fixture/stock_hal" "$PERSIST/original"
+
+check 'dongle reinstall succeeds after integrity restored' run post
 
 # 6. Preuninstall
 check 'dongle uninstall succeeds' run preun

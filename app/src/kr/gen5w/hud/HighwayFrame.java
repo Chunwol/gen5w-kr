@@ -49,4 +49,15 @@ public final class HighwayFrame {
         item.name = text;
         return item;
     }
+
+    public static Item clear() {
+        Item item = new Item();
+        item.type = 0;
+        item.direction = 0;
+        item.traffic = 0;
+        item.unit = 0;
+        item.distance = 0f;
+        item.name = "";
+        return item;
+    }
 }

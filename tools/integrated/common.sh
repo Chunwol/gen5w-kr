@@ -175,9 +175,9 @@ begin() {
     if [ -f "$TX/state" ]; then
         state=$(cat "$TX/state" 2>/dev/null)
         case "$state" in
-            applying|recovering)
+            applying|removing|recovering)
                 if [ -f "$TX/prior/complete" ]; then
-                    report 'RECOVERING interrupted prior transaction before new installation'
+                    report 'RECOVERING interrupted prior transaction before new operation'
                     rollback_transaction || { report 'REFUSED cannot recover prior transaction'; return 1; }
                 else
                     report 'REFUSED interrupted transaction without complete snapshot'
@@ -240,7 +240,12 @@ install_transaction() {
         id=gen5w.kr.consent
         if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
             : > "$TX/attempt.$id"; sync
-            safe_remove "$id" 2>/dev/null || true
+            safe_remove "$id" || {
+                result "$id" failed
+                report "FAILED restoring previous notice-disabling package $id"
+                rollback_transaction
+                return 1
+            }
         fi
         result "$id" disabled
     fi

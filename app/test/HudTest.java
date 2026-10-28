@@ -145,6 +145,11 @@ public final class HudTest {
         HighwayFrame.Item hwNone = HighwayFrame.build(0, "일반도로", 100f);
         eq("highway non-highway returns null", hwNone == null ? 1 : 0, 1);
 
+        HighwayFrame.Item hwClear = HighwayFrame.clear();
+        eq("highway clear not null", hwClear != null ? 1 : 0, 1);
+        eq("highway clear type", hwClear != null ? hwClear.type : -1, 0);
+        eq("highway clear name empty", hwClear != null && hwClear.name != null && hwClear.name.isEmpty() ? 1 : 0, 1);
+
         System.out.println(fails == 0 ? "hud all match" : fails + " failed");
         System.exit(fails == 0 ? 0 : 1);
     }

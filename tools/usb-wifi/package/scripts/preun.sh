@@ -18,6 +18,7 @@ elif [ -f "$STOCK_HAL" ]; then
 fi
 
 if [ -n "$ORIG_SRC" ] && [ -f "$ORIG_SRC" ]; then
+    verify_stock_hash "$ORIG_SRC" || { log "FAIL dongle: corrupted stock source on uninstall"; exit 1; }
     cp -p "$ORIG_SRC" "$TARGET_HAL.tmp" || exit 1
     chmod 644 "$TARGET_HAL.tmp" || true
     chown 0:0 "$TARGET_HAL.tmp" 2>/dev/null || true

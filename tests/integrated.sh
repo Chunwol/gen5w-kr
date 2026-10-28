@@ -78,6 +78,14 @@ check 'standard has no consent registration' test ! -e "$W/data/nemesis/apps/gen
 check 'failed switch can restore registered previous package' run rollback
 check 'prior consent registered after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.consent/NEMESIS.data"
 check 'successful public update retains only public modules' run update
+
+mkdir -p "$W/data/nemesis/apps/gen5w.kr.consent/scripts"
+printf '[nemesis]\nid=gen5w.kr.consent\npreuninstall=scripts/preun.sh\n' > "$W/data/nemesis/apps/gen5w.kr.consent/NEMESIS.data"
+echo 'exit 1' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
+check 'consent skip removal failure refuses transaction' eval '! run update'
+check 'consent skip removal failure reported' grep -q 'FAILED restoring previous notice-disabling package gen5w.kr.consent' "$W/out"
+rm -rf "$W/data/nemesis/apps/gen5w.kr.consent"
+check 'rollback after consent removal failure' run rollback
 echo usb > "$W/usb/GEN5W-BACKEND"
 check 'unavailable USB backend is refused before transaction mutation' eval '! run update'
 check 'backend refusal preserves installed modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
@@ -146,6 +154,9 @@ check 'skip preserves previous installed audio' test -f "$W/data/nemesis/apps/ge
 echo applying > "$W/data/nemesis/gen5w-kr-integrated/state"
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'power interruption recovers before retry' run update
+echo removing > "$W/data/nemesis/gen5w-kr-integrated/state"
+touch "$W/data/nemesis/gen5wkr.noreboot"
+check 'interrupted removal recovers before retry' run update
 # Migration uses only package metadata and its declared hooks.
 mkdir -p "$W/data/nemesis/apps/wireless.carplay.aa"
 printf '[nemesis]\nid=wireless.carplay.aa\npreuninstall=restore.sh\n' > "$W/data/nemesis/apps/wireless.carplay.aa/NEMESIS.data"

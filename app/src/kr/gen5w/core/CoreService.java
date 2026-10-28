@@ -51,6 +51,7 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
+    private boolean highwayModeActive = false; // io thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -433,6 +434,25 @@ public final class CoreService extends Service {
         });
     }
 
+    private void clearHighwayMode(NavigationCluster clu) {
+        if (clu == null) return;
+        try {
+            HighwayFrame.Item item = HighwayFrame.clear();
+            NavigationCluster.HighwayMode hwMode = new NavigationCluster.HighwayMode();
+            hwMode.type = item.type;
+            hwMode.direction = item.direction;
+            hwMode.traffic = item.traffic;
+            hwMode.unit = item.unit;
+            hwMode.distance = item.distance;
+            hwMode.name = item.name;
+            clu.updateTPHighwayMode(new NavigationCluster.HighwayMode[]{hwMode});
+        } catch (Throwable e) {
+            writeDebugLog("clearHighwayMode: " + e.getMessage());
+        } finally {
+            highwayModeActive = false;
+        }
+    }
+
     private void renderAaTbt(final int icon, final int secondIcon, final long dist, final String road) {
         io.post(new Runnable() {
             public void run() {
@@ -449,7 +469,7 @@ public final class CoreService extends Service {
                             cluster.updateTPTurnListNew(TurnFrame.clear());
                             cluster.updateTPCrossroadName(crossroadName(""));
                         }
-                        cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[0]);
+                        clearHighwayMode(cluster);
                         cluster.updateLaneInfo(LaneFrame.clear());
                         writeDebugLog("AA_TBT: cleared");
                     } else {
@@ -468,8 +488,9 @@ public final class CoreService extends Service {
                             hwMode.distance = hwItem.distance;
                             hwMode.name = hwItem.name;
                             cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[]{hwMode});
-                        } else {
-                            cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[0]);
+                            highwayModeActive = true;
+                        } else if (highwayModeActive) {
+                            clearHighwayMode(cluster);
                         }
                         writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
                                 + " 2nd=0x" + Integer.toHexString(secondIcon)

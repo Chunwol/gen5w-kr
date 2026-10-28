@@ -64,25 +64,39 @@ is_owned() {
     [ -f "$BACKUP_DURABLE/owner" ] && [ "$(cat "$BACKUP_DURABLE/owner" 2>/dev/null)" = "$OWNER" ]
 }
 
-verify_stock_target() {
-    [ -f "$TARGET_HAL" ] && [ ! -L "$TARGET_HAL" ] || return 1
-    # Check that target is not already our adapter unless owned
-    if [ -f "$STOCK_HAL" ]; then
-        is_owned && return 0
-        return 1
-    fi
-    # Allow test harness override
+verify_stock_hash() {
+    local target=$1 d
+    [ -f "$target" ] && [ ! -L "$target" ] || return 1
+    d=$(digest "$target") || return 1
     if [ -n "${DONGLE_TEST_STOCK_MD5:-}" ]; then
-        [ "$(digest "$TARGET_HAL")" = "$DONGLE_TEST_STOCK_MD5" ] && return 0
+        [ "$d" = "$DONGLE_TEST_STOCK_MD5" ] && return 0
         return 1
     fi
     if [ -n "${DONGLE_TEST_SYS:-}" ]; then
         return 0
     fi
-    local d
-    d=$(digest "$TARGET_HAL") || return 1
     case "$d" in
         "$STOCK_HAL_MD5_V039") return 0 ;;
-        *) log "FAIL dongle: unsupported or modified target HAL hash $d"; return 1 ;;
+        *) return 1 ;;
     esac
+}
+
+verify_stock_target() {
+    [ -f "$TARGET_HAL" ] && [ ! -L "$TARGET_HAL" ] || return 1
+    # Check if this is a reinstall / update on an already owned system
+    if [ -f "$STOCK_HAL" ] || is_owned; then
+        is_owned || { log "FAIL dongle: stock copy present without valid owner"; return 1; }
+        [ -f "$STOCK_HAL" ] && [ ! -L "$STOCK_HAL" ] || { log "FAIL dongle: missing or invalid stock copy"; return 1; }
+        verify_stock_hash "$STOCK_HAL" || { log "FAIL dongle: corrupted or modified stock copy"; return 1; }
+        [ -f "$BACKUP_DURABLE/original" ] && [ ! -L "$BACKUP_DURABLE/original" ] || {
+            log "FAIL dongle: missing or invalid durable backup"; return 1;
+        }
+        verify_stock_hash "$BACKUP_DURABLE/original" || { log "FAIL dongle: corrupted or modified durable backup"; return 1; }
+        return 0
+    fi
+    verify_stock_hash "$TARGET_HAL" || {
+        log "FAIL dongle: unsupported or modified target HAL hash $(digest "$TARGET_HAL" 2>/dev/null)"
+        return 1
+    }
+    return 0
 }
