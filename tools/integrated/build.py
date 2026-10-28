@@ -142,8 +142,9 @@ case "$action" in install|update|rollback|remove|status|repair-hotspot|wired-onl
 mkdir -p GEN5W-REPORT || exit 1
 [ ! -L GEN5W-REPORT/STARTUP.txt ] || exit 1
 echo "action=$action" > GEN5W-REPORT/STARTUP.txt || exit 1
-/system/bin/sh "./$action.sh"
+/system/bin/sh "./$action.sh" > GEN5W-REPORT/EXEC_LOG.txt 2>&1
 status=$?
+cat GEN5W-REPORT/EXEC_LOG.txt 2>/dev/null
 echo "exit=$status" >> GEN5W-REPORT/STARTUP.txt
 sync
 exit "$status"
