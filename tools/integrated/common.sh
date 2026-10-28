@@ -147,8 +147,15 @@ rollback_transaction() {
 }
 acquire() {
     chmod 755 ./zipstore 2>/dev/null || true
-    rm -rf "$TX" 2>/dev/null || true
-    mkdir -p "$TX/lock" || return 1
+    mkdir -p "$TX" || return 1
+    if ! mkdir "$TX/lock" 2>/dev/null; then
+        local pid=
+        [ ! -f "$TX/lock/pid" ] || pid=$(cat "$TX/lock/pid")
+        case "$pid" in ''|*[!0-9]*) rm -rf "$TX/lock" 2>/dev/null || true;; esac
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then report 'REFUSED another transaction is running'; return 1; fi
+        rm -rf "$TX/lock" 2>/dev/null || true
+        mkdir "$TX/lock" || return 1
+    fi
     echo $$ > "$TX/lock/pid"
     trap 'transaction_exit $?' EXIT
 }
@@ -197,10 +204,13 @@ install_transaction() {
     esac
     set_state applying || return 1
     if [ -e "$APPS/wireless.carplay.aa" ]; then
-        : > "$TX/attempt.wireless.carplay.aa"; sync
-        safe_remove wireless.carplay.aa 2>/dev/null || true
-        rm -rf "$APPS/wireless.carplay.aa" 2>/dev/null || true
-        report 'MIGRATED wireless.carplay.aa'
+        if [ -f "$APPS/wireless.carplay.aa/NEMESIS.data" ]; then
+            : > "$TX/attempt.wireless.carplay.aa"; sync
+            safe_remove wireless.carplay.aa || { rollback_transaction; return 1; }
+            report 'MIGRATED wireless.carplay.aa (prior package retained on unit)'
+        else
+            report 'PRESERVED incomplete prior package; checking original files for normal installation'
+        fi
     fi
     # Restore any previous local notice-disabling installation before the timer.
     if [ "$VARIANT" = standard ]; then
@@ -235,11 +245,6 @@ install_transaction() {
             continue
         fi
         if [ "$rc" != 0 ]; then
-            if [ "$id" = gen5w.kr.hotspot ] || [ "$id" = gen5w.kr.audio ]; then
-                result "$id" skipped
-                report "SKIPPED $id: preinstall check failed rc=$rc; continuing with core/HUD"
-                continue
-            fi
             result "$id" failed
             report "FAILED preinstall $id rc=$rc"
             rollback_transaction || return 1
@@ -250,7 +255,7 @@ install_transaction() {
         fi
         : > "$TX/attempt.$id"; sync
         safe_remove "$id" || {
-            if [ "$id" = gen5w.kr.hotspot ] || [ "$id" = gen5w.kr.audio ]; then
+            if [ "$id" = gen5w.kr.hotspot ]; then
                 result "$id" skipped
                 report "SKIPPED $id: safe_remove failed; continuing with core/HUD"
                 continue
@@ -260,7 +265,7 @@ install_transaction() {
         "$NEM" install "$(pwd)/packages/$id.zip"
         rc=$?
         if [ "$rc" != 0 ] || [ ! -f "$APPS/$id/NEMESIS.data" ]; then
-            if [ "$id" = gen5w.kr.hotspot ] || [ "$id" = gen5w.kr.audio ]; then
+            if [ "$id" = gen5w.kr.hotspot ]; then
                 result "$id" skipped
                 report "SKIPPED $id: package install failed rc=$rc; continuing with core/HUD"
                 continue
@@ -270,7 +275,7 @@ install_transaction() {
             rollback_transaction; return 1
         fi
         hook "$id" postinstall || {
-            if [ "$id" = gen5w.kr.hotspot ] || [ "$id" = gen5w.kr.audio ]; then
+            if [ "$id" = gen5w.kr.hotspot ]; then
                 result "$id" skipped
                 report "SKIPPED $id: postinstall hook failed; continuing with core/HUD"
                 continue

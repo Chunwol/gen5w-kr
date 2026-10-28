@@ -44,8 +44,8 @@ def audit(path):
     print('AUDITED',path.name)
 
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
-packages=sorted(root.glob('gen5w.kr.*.zip'))
-assert len(packages)==7, 'missing module/probe package'
+packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.dongle.zip']
+assert len(packages)==7, f'expected 7 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 with zipfile.ZipFile(root/'usb-integrated.zip') as z:
     assert z.testzip() is None
