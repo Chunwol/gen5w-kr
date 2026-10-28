@@ -14,7 +14,6 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Process;
-import android.os.SystemClock;
 import android.util.Log;
 import com.hkmc.cluster.NavigationCluster;
 import com.tcc.iap2.IIap2Listener;
@@ -41,13 +40,10 @@ import kr.gen5w.probe.Item;
  */
 public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
-    private static final String ACTION_SOUND_ON = "com.mnsoft.navi.action.SOUND_ON";
-    private static final String ACTION_SOUND_OFF = "com.mnsoft.navi.action.SOUND_OFF";
     private static final String ACTION_GPM_FINISH = "com.telechips.android.gpm.finish";
     private static final String ACTION_USB_STATE = "android.hardware.usb.action.USB_STATE";
     private static final String PERM_HUD_INPUT = "kr.gen5w.permission.HUD_INPUT";
     private static final long RETRY_MS = 5000;
-    private static final long SOUND_ON_REASSERT_MS = 5000L;
     private static final int AA_SOCKET_TIMEOUT_MS = 1000;
     private static final int AA_SOCKET_MAX_LINES = 16;
     private HandlerThread worker;
@@ -60,7 +56,6 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
-    private long lastSoundOnMs = 0L; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -95,7 +90,6 @@ public final class CoreService extends Service {
                             TurnFrame.tbtDistanceScale(meters),
                             0,
                             0);
-                    reassertStockSafetyPeriod();
                     writeDebugLog("TBT: 1st=0x" + Integer.toHexString(icon)
                             + " 2nd=0x" + Integer.toHexString(secondIcon)
                             + " dist=" + meters + "m");
@@ -141,7 +135,6 @@ public final class CoreService extends Service {
         IntentFilter sysFilter = new IntentFilter();
         sysFilter.addAction(ACTION_USB_STATE);
         sysFilter.addAction(ACTION_GPM_FINISH);
-        sysFilter.addAction(ACTION_SOUND_OFF);
         registerReceiver(systemReceiver, sysFilter);
 
         startAaSocketServer();
@@ -153,7 +146,6 @@ public final class CoreService extends Service {
             disconnected();
             main.removeCallbacks(registerRetry); register();
         }
-        keepStockSafetyGuidanceAlive();
         return START_STICKY;
     }
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -191,34 +183,8 @@ public final class CoreService extends Service {
                 try { out.write((owner + "\n").getBytes("US-ASCII")); }
                 finally { out.close(); }
             } catch (java.io.IOException e) { Log.w(TAG, "HUD owner status unavailable"); }
-            if (allowed) {
-                lastSoundOnMs = SystemClock.elapsedRealtime();
-                keepStockSafetyGuidanceAlive();
-            }
         }
         return allowed;
-    }
-    private final Runnable soundOnRetry = new Runnable() { public void run() {
-        if (!stopping) reassertStockSafetyPeriod();
-    }};
-    private void reassertStockSafetyPeriod() {
-        if (!refreshOwnership()) return;
-        long now = SystemClock.elapsedRealtime();
-        io.removeCallbacks(soundOnRetry);
-        long remaining = SOUND_ON_REASSERT_MS - (now - lastSoundOnMs);
-        if (remaining > 0) {
-            io.postDelayed(soundOnRetry, remaining);
-            return;
-        }
-        lastSoundOnMs = now;
-        keepStockSafetyGuidanceAlive();
-    }
-    private void keepStockSafetyGuidanceAlive() {
-        try {
-            sendBroadcast(new Intent(ACTION_SOUND_ON));
-        } catch (RuntimeException e) {
-            Log.w(TAG, "stock safety broadcast unavailable: " + e.getMessage());
-        }
     }
     private void purgeLegacyDebugLogs() {
         try {
@@ -394,7 +360,6 @@ public final class CoreService extends Service {
                 if (outputEpoch <= closed) {
                     refreshOwnership();
                     session.disconnect(); cluster = null; outputEpoch = closed;
-                    keepStockSafetyGuidanceAlive();
                 }
             }
         });
@@ -496,12 +461,6 @@ public final class CoreService extends Service {
                 if (!connected) {
                     renderAaTbt(0, 0, -1, null);
                 }
-            } else if (ACTION_SOUND_OFF.equals(action)) {
-                io.post(new Runnable() {
-                    public void run() {
-                        reassertStockSafetyPeriod();
-                    }
-                });
             }
         }
     };
@@ -584,7 +543,6 @@ public final class CoreService extends Service {
                         cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
                         cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
                     }
-                    reassertStockSafetyPeriod();
                     writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
                             + " 2nd=0x" + Integer.toHexString(secondIcon)
                             + " dist=" + dist + "m");

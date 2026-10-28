@@ -16,14 +16,11 @@
 - 회전·거리: `NavigationCluster.updateTBTInfo(IIFFIIIII)` 및 차선 프레임 (우리 앱이 CarPlay/Android Auto에서 수신하여 전송)
 - 과속·카메라: `NavigationCluster.updateTBTTrapInfo(17개 int)` 및 경고 거리 `updateNaviWarnDist(3개 int)` (순정 내비 엔진이 안전운전 모드에서 전송)
 
-### 순정 경고 채널 및 SOUND_ON 동작 범위
-1. **프로젝션 시 순정 내비 제어 경로 (V039 리버스 엔지니어링 확인)**:
-   - 프로젝션 서비스(`GalReceiverService` 등)는 `com.mnsoft.navi.action.Route_Guide_ACTION` 또는 `com.mnsoft.navi.action.SOUND_OFF`를 순정 내비(`NaviETCReceiver`)로 전송합니다.
-   - `NaviETCReceiver`는 `SOUND_OFF` 수신 시 내비 사운드 플래그를 끄고(`i.ad(false)`), 프로젝션 경로가 설정된 상태이면 네이티브 엔진에 opcode `0x836`을 전달합니다. 또한 `GpmNaviTBTManager.updateTBTTrapInfo()`는 `NavigationCluster.updateWarning`(17개 int)에 초기값을 보내 클러스터 경고 슬롯을 비울 수 있습니다.
-2. **CoreService의 비간섭 및 SOUND_ON 재요청**:
-   - `CoreService`는 클러스터 경고 채널(`updateWarning`, `updateNaviWarnDist`, `updateCurrentSpeedLimit`)을 일절 호출하거나 초기화하지 않습니다.
-   - 순정 내비가 목적지 안내 중이 아닐 때(`StockGuidance.IDLE`), 부팅·소유권 전환·`SOUND_OFF` 브로드캐스트 감지·주기적 TBT 출력(5초 간격)마다 `com.mnsoft.navi.action.SOUND_ON`을 전송하여 내비 사운드 활성화(`i.ad(true)`) 및 프로젝션 미설정 시 `0xfa5` 복귀를 요청합니다.
-   - 단, 프로젝션 경로 활성 중 네이티브 엔진의 경고 패킷 송출 여부는 순정 내비 내부 상태에 좌우되므로, 실제 주행 중 HUD 과속·카메라 경고 동시 표출 여부는 실차 검증 대상입니다. 순정 내비에서 목적지를 직접 설정한 경우(`StockGuidance.ACTIVE`)에는 순정 안내에 모든 제어권을 양보합니다.
+### 순정 경고와 음소거
+
+순정 프로젝션 서비스는 내비 사운드를 끄거나 순정 경고 슬롯을 초기화할 수 있습니다. `SOUND_ON`은 HUD 카메라 표시만 켜는 신호가 아니라 내비 사운드 상태도 바꿉니다. 따라서 앱은 이 신호를 보내지 않습니다. 서비스 시작·프로젝션 종료·HUD 소유권 변경·안내 갱신 때도 사용자나 순정 서비스가 정한 음소거를 해제하지 않습니다.
+
+순정 내비 안내 중에는 HUD 출력을 양보합니다. CarPlay/Android Auto와 순정 과속·카메라 경고의 동시 표출은 순정 엔진 상태에 달려 있으며, 이 앱에서 보장하지 않습니다. 별도의 카메라 경고를 생성하거나 순정 음소거를 강제로 풀지 않습니다.
 
 앱 시작 시 경고·거리·제한속도 writer의 이름·인자·반환형만 조사하고 `hud-native-warning.status`에 다음 중 하나를 기록합니다. 조사 중 writer 호출이나 위치·속도·카메라 값 저장은 없습니다. 이 상태는 순정 내비 활성 상태나 HUD 표시 성공과 별개입니다.
 
@@ -41,4 +38,4 @@ USB `GEN5W-REPORT/RESULT.html`의 **HUD 최근 출력 상태**에서 CarPlay 허
 
 순정 GPM의 `com.telechips.android.gpm.finish`를 받으면 보조 AA 안내 상태를 즉시 비웁니다. 순정 내비가 안내 중이거나 상태를 확인하지 못하면 화면 지우기는 보류하고, 순정 안내가 끝난 뒤 처리합니다. CarPlay 안내가 활성화되어 있으면 그 안내를 다시 표시합니다. 안내 갱신이 30초 동안 없다는 이유로 지우지는 않습니다. USB 상태 알림은 보조 신호로만 사용합니다.
 
-`SOUND_OFF`에 대한 재요청은 순정 내비가 `IDLE`일 때만 보내며, 5초 안에 중복된 요청은 하나로 모아 남은 시간 뒤 처리합니다. 통화나 사용자 음소거의 원인을 구별하는 기능은 아닙니다.
+`SOUND_OFF`를 받아 `SOUND_ON`을 재전송하던 동작은 제거했습니다. 통화 상태나 음소거 원인을 추측해 설정을 바꾸지 않습니다.

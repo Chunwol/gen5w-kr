@@ -57,6 +57,7 @@ public final class TbtDistanceTest {
         check(TurnFrame.tbtDistanceValue(350L)==350f && TurnFrame.tbtDistanceScale(350L)==TurnFrame.SCALE_METER && TurnFrame.tbtDistanceError(350L)==TurnFrame.DIST_ERR_OK);
         check(TurnFrame.tbtDistanceValue(999L)==999f && TurnFrame.tbtDistanceScale(999L)==TurnFrame.SCALE_METER);
         check(TurnFrame.tbtDistanceValue(1000L)==1.0f && TurnFrame.tbtDistanceScale(1000L)==TurnFrame.SCALE_KILOMETER);
+        check(TurnFrame.tbtDistanceValue(1900L)==1.9f && TurnFrame.tbtDistanceScale(1900L)==TurnFrame.SCALE_KILOMETER);
         check(TurnFrame.tbtDistanceValue(80000L)==80.0f && TurnFrame.tbtDistanceScale(80000L)==TurnFrame.SCALE_KILOMETER && TurnFrame.tbtDistanceError(80000L)==TurnFrame.DIST_ERR_OK);
         check(TurnFrame.tbtDistanceValue(4294967295L)==32767.9f && TurnFrame.tbtDistanceScale(4294967295L)==TurnFrame.SCALE_KILOMETER);
         System.out.println("TbtDistanceTest "+checks+" assertions passed");
