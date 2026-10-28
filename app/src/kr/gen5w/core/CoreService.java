@@ -43,6 +43,7 @@ public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
     private static final String ACTION_SOUND_ON = "com.mnsoft.navi.action.SOUND_ON";
     private static final String ACTION_SOUND_OFF = "com.mnsoft.navi.action.SOUND_OFF";
+    private static final String ACTION_GPM_FINISH = "com.telechips.android.gpm.finish";
     private static final String ACTION_USB_STATE = "android.hardware.usb.action.USB_STATE";
     private static final String PERM_HUD_INPUT = "kr.gen5w.permission.HUD_INPUT";
     private static final long RETRY_MS = 5000;
@@ -139,6 +140,7 @@ public final class CoreService extends Service {
 
         IntentFilter sysFilter = new IntentFilter();
         sysFilter.addAction(ACTION_USB_STATE);
+        sysFilter.addAction(ACTION_GPM_FINISH);
         sysFilter.addAction(ACTION_SOUND_OFF);
         registerReceiver(systemReceiver, sysFilter);
 
@@ -196,12 +198,20 @@ public final class CoreService extends Service {
         }
         return allowed;
     }
+    private final Runnable soundOnRetry = new Runnable() { public void run() {
+        if (!stopping) reassertStockSafetyPeriod();
+    }};
     private void reassertStockSafetyPeriod() {
+        if (!refreshOwnership()) return;
         long now = SystemClock.elapsedRealtime();
-        if (now - lastSoundOnMs >= SOUND_ON_REASSERT_MS) {
-            lastSoundOnMs = now;
-            keepStockSafetyGuidanceAlive();
+        io.removeCallbacks(soundOnRetry);
+        long remaining = SOUND_ON_REASSERT_MS - (now - lastSoundOnMs);
+        if (remaining > 0) {
+            io.postDelayed(soundOnRetry, remaining);
+            return;
         }
+        lastSoundOnMs = now;
+        keepStockSafetyGuidanceAlive();
     }
     private void keepStockSafetyGuidanceAlive() {
         try {
@@ -238,6 +248,7 @@ public final class CoreService extends Service {
     private final Runnable outputRetry = new Runnable() { public void run() {
         if (stopping) return;
         refreshOwnership();
+        flushAaClear();
         session.retryOutput();
         io.postDelayed(this, 1000);
     }};
@@ -393,6 +404,7 @@ public final class CoreService extends Service {
     private int currentIcon1 = 0, currentIcon2 = 0;
     private long currentDist = -1;
     private volatile boolean mediaOsdActive = false;
+    private boolean aaClearPending; // io thread: keep a clear until stock guidance yields
 
     private boolean isAaGuidanceActive() {
         return currentDist >= 0 && currentIcon1 > 0;
@@ -477,7 +489,9 @@ public final class CoreService extends Service {
         @Override public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             String action = intent.getAction();
-            if (ACTION_USB_STATE.equals(action)) {
+            if (ACTION_GPM_FINISH.equals(action)) {
+                renderAaTbt(0, 0, -1, null);
+            } else if (ACTION_USB_STATE.equals(action)) {
                 boolean connected = intent.getBooleanExtra("connected", true);
                 if (!connected) {
                     renderAaTbt(0, 0, -1, null);
@@ -485,10 +499,7 @@ public final class CoreService extends Service {
             } else if (ACTION_SOUND_OFF.equals(action)) {
                 io.post(new Runnable() {
                     public void run() {
-                        if (refreshOwnership()) {
-                            lastSoundOnMs = SystemClock.elapsedRealtime();
-                            keepStockSafetyGuidanceAlive();
-                        }
+                        reassertStockSafetyPeriod();
                     }
                 });
             }
@@ -522,52 +533,61 @@ public final class CoreService extends Service {
         });
     }
 
+    private void flushAaClear() {
+        if (!aaClearPending || !refreshOwnership()) return;
+        try {
+            if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+            if (session != null && session.hasActiveGuidance()) {
+                cluster.updateTPCrossroadName(crossroadName(""));
+                session.invalidateOutput();
+                session.retryOutput();
+            } else {
+                cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
+                if (!mediaOsdActive) {
+                    cluster.updateTPTurnListNew(TurnFrame.clear());
+                    cluster.updateTPCrossroadName(crossroadName(""));
+                }
+                cluster.updateLaneInfo(LaneFrame.clear());
+            }
+            aaClearPending = false;
+        } catch (Throwable e) { outputError(e); }
+    }
+
     private void renderAaTbt(final int icon, final int secondIcon, final long dist, final String road) {
         io.post(new Runnable() {
             public void run() {
+                if (dist < 0 || icon <= 0) {
+                    aaClearPending |= isAaGuidanceActive();
+                    resetAaState();
+                    flushAaClear();
+                    return;
+                }
                 if (!refreshOwnership()) return;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    if (dist < 0 || icon <= 0) {
-                        boolean hadAa = isAaGuidanceActive();
-                        resetAaState();
-                        if (session != null && session.hasActiveGuidance()) {
-                            cluster.updateTPCrossroadName(crossroadName(""));
-                            session.invalidateOutput();
-                            session.retryOutput();
-                        } else if (hadAa) {
-                            cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
-                            if (!mediaOsdActive) {
-                                cluster.updateTPTurnListNew(TurnFrame.clear());
-                                cluster.updateTPCrossroadName(crossroadName(""));
-                            }
-                            cluster.updateLaneInfo(LaneFrame.clear());
-                        }
-                        writeDebugLog("AA_TBT: cleared");
-                    } else {
-                        currentIcon1 = icon;
-                        currentIcon2 = secondIcon;
-                        currentDist = dist;
-                        currentRoadName = road;
-                        cluster.updateTBTInfo(
-                                icon,
-                                secondIcon,
-                                0f,
-                                TurnFrame.tbtDistanceValue(dist),
-                                TurnFrame.tbtDistanceError(dist),
-                                0,
-                                TurnFrame.tbtDistanceScale(dist),
-                                0,
-                                0);
-                        if (!mediaOsdActive) {
-                            cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
-                            cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
-                        }
-                        reassertStockSafetyPeriod();
-                        writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
-                                + " 2nd=0x" + Integer.toHexString(secondIcon)
-                                + " dist=" + dist + "m");
+                    aaClearPending = false;
+                    currentIcon1 = icon;
+                    currentIcon2 = secondIcon;
+                    currentDist = dist;
+                    currentRoadName = road;
+                    cluster.updateTBTInfo(
+                            icon,
+                            secondIcon,
+                            0f,
+                            TurnFrame.tbtDistanceValue(dist),
+                            TurnFrame.tbtDistanceError(dist),
+                            0,
+                            TurnFrame.tbtDistanceScale(dist),
+                            0,
+                            0);
+                    if (!mediaOsdActive) {
+                        cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
+                        cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
                     }
+                    reassertStockSafetyPeriod();
+                    writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
+                            + " 2nd=0x" + Integer.toHexString(secondIcon)
+                            + " dist=" + dist + "m");
                 } catch (Throwable e) { outputError(e); }
             }
         });

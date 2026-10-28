@@ -123,7 +123,9 @@ int wifi_load_driver(void) {
         if (geteuid() == 0 && access("/system/bin/gen5w-dongle-load", X_OK) == 0) {
             system("/system/bin/gen5w-dongle-load");
         }
-        int retry = 30;
+        /* Three five-second interface waits, two-second service polling and
+         * module startup fit within this bounded 30-second request budget. */
+        int retry = 300;
         while (retry-- > 0) {
             if (access("/sys/class/net/wlan0", F_OK) == 0) {
                 property_set(DRIVER_STATUS_PROP, "ok");

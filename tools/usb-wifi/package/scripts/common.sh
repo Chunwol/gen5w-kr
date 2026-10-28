@@ -16,13 +16,25 @@ BACKUP_DURABLE=$SYS/etc/gen5w-kr-backup/dongle
 BACKUP_RUNTIME=$DATA/nemesis/backup/gen5w.kr.dongle
 OWNER="gen5w.kr.dongle:1.0"
 
+log_size() {
+    # GNU ls includes a link-count field; Android toolbox ls does not.
+    local size
+    set -- $(LC_ALL=C ls -ln "$1" 2>/dev/null) || return 1
+    size=${5:-}
+    case "$size" in ''|*[!0-9]*) size=${4:-};; esac
+    case "$size" in ''|*[!0-9]*) return 1;; esac
+    echo "$size"
+}
+
 log() {
     echo "$1"
-    mkdir -p "$DATA/nemesis" 2>/dev/null || true
+    [ ! -L "$LOG_FILE" ] && [ ! -L "$LOG_FILE.1" ] || return 0
+    mkdir -p "${LOG_FILE%/*}" 2>/dev/null || return 0
     if [ -f "$LOG_FILE" ]; then
         local sz
-        sz=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
-        [ "${sz:-0}" -gt 32768 ] && mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || true
+        # Rotate conservatively if file size cannot be read.
+        sz=$(log_size "$LOG_FILE") || sz=32769
+        [ "$sz" -le 32768 ] || mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || return 0
     fi
     echo "$1" >> "$LOG_FILE" 2>/dev/null || true
 }

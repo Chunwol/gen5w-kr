@@ -5,16 +5,27 @@
 MOD_DIR=${DONGLE_MOD_DIR:-/system/wifi/dongle}
 LOG_FILE=${DONGLE_LOG_FILE:-/data/nemesis/dongle.log}
 
+log_size() {
+    # GNU ls includes a link-count field; Android toolbox ls does not.
+    local size
+    set -- $(LC_ALL=C ls -ln "$1" 2>/dev/null) || return 1
+    size=${5:-}
+    case "$size" in ''|*[!0-9]*) size=${4:-};; esac
+    case "$size" in ''|*[!0-9]*) return 1;; esac
+    echo "$size"
+}
+
 log() {
     echo "$1"
-    if [ -d /data/nemesis ]; then
-        if [ -f "$LOG_FILE" ]; then
-            local sz
-            sz=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
-            [ "${sz:-0}" -gt 32768 ] && mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || true
-        fi
-        echo "$1" >> "$LOG_FILE" 2>/dev/null || true
+    [ ! -L "$LOG_FILE" ] && [ ! -L "$LOG_FILE.1" ] || return 0
+    mkdir -p "${LOG_FILE%/*}" 2>/dev/null || return 0
+    if [ -f "$LOG_FILE" ]; then
+        local sz
+        # Rotate conservatively if file size cannot be read.
+        sz=$(log_size "$LOG_FILE") || sz=32769
+        [ "$sz" -le 32768 ] || mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || return 0
     fi
+    echo "$1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 # Already available
@@ -65,7 +76,7 @@ load_mod ath9k_common.ko || true
 load_mod ath9k_htc.ko || true
 
 # Wait for network interface creation
-timeout=25
+timeout=5
 while [ $timeout -gt 0 ]; do
     if [ -e /sys/class/net/wlan0 ]; then
         log "USB Wi-Fi dongle interface wlan0 detected"
@@ -73,7 +84,7 @@ while [ $timeout -gt 0 ]; do
         setprop gen5w.dongle.ready 1 2>/dev/null || true
         exit 0
     fi
-    sleep 0.2 2>/dev/null || sleep 1
+    sleep 1
     timeout=$((timeout - 1))
 done
 

@@ -7,6 +7,7 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 
+NET_ROOT=${DONGLE_TEST_NET_ROOT:-/sys/class/net}
 MAX_RETRIES=3
 fail_count=0
 
@@ -18,14 +19,14 @@ is_dongle_backend() {
 
 try_load() {
     [ -x "$LOADER_BIN" ] || return 1
-    if [ ! -e /sys/class/net/wlan0 ]; then
+    if [ ! -e "$NET_ROOT/wlan0" ]; then
         "$LOADER_BIN" >/dev/null 2>&1 || return 1
     fi
     return 0
 }
 
 # Initial boot check: if dongle backend is active and hardware is attached, load modules
-if is_dongle_backend && has_dongle_hw && [ ! -e /sys/class/net/wlan0 ]; then
+if is_dongle_backend && has_dongle_hw && [ ! -e "$NET_ROOT/wlan0" ]; then
     if try_load; then
         fail_count=0
     else
@@ -36,7 +37,7 @@ fi
 # Background loop: watch for hotplug or HAL load requests from system_server
 # Bounded retries (max 3 per hardware attachment or explicit request) prevent infinite insmod loops.
 while true; do
-    if [ -e /sys/class/net/wlan0 ]; then
+    if [ -e "$NET_ROOT/wlan0" ]; then
         fail_count=0
     else
         req=$(getprop wlan.driver.load.request 2>/dev/null)
