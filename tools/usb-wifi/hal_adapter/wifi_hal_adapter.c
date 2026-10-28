@@ -21,7 +21,6 @@
 #define DONGLE_FLAG_PROP "persist.gen5w.wifi.backend"
 #define DONGLE_LOAD_PROP "wlan.driver.load.request"
 #define DRIVER_STATUS_PROP "wlan.driver.status"
-#define DONGLE_REQ_FILE "/data/nemesis/gen5w.dongle.request"
 
 /* Exported global objects matching stock V039 libhardware_legacy.so ABI */
 const char *NEW_PATHS[2] = {
@@ -118,23 +117,13 @@ int wifi_load_driver(void) {
         if (is_wifi_driver_loaded()) {
             return 0;
         }
-        /* Signal root service and attempt helper script if wlan0 not ready yet */
+        /* Signal root service via system property; only run loader directly if already root */
         property_set(DRIVER_STATUS_PROP, "loading");
         property_set(DONGLE_LOAD_PROP, "1");
-        int fd = open(DONGLE_REQ_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-        if (fd >= 0) {
-            write(fd, "1\n", 2);
-            close(fd);
+        if (geteuid() == 0 && access("/system/bin/gen5w-dongle-load", X_OK) == 0) {
+            system("/system/bin/gen5w-dongle-load");
         }
-        if (access("/system/bin/gen5w-dongle-load", X_OK) == 0) {
-            if (access("/system/xbin/nemesis", X_OK) == 0) {
-                system("/system/xbin/nemesis root 0 -c /system/bin/gen5w-dongle-load");
-            }
-            if (access("/sys/class/net/wlan0", F_OK) != 0) {
-                system("/system/bin/gen5w-dongle-load");
-            }
-        }
-        int retry = 50;
+        int retry = 30;
         while (retry-- > 0) {
             if (access("/sys/class/net/wlan0", F_OK) == 0) {
                 property_set(DRIVER_STATUS_PROP, "ok");

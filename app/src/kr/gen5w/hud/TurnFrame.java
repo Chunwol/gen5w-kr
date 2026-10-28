@@ -5,7 +5,36 @@ package kr.gen5w.hud;
  * road-name UTF-16LE starts at byte 5. The stock buffer is 87 bytes.
  */
 public final class TurnFrame {
+    public static final int SCALE_METER = 0;
+    public static final int SCALE_KILOMETER = 1;
+    public static final int DIST_ERR_OK = 0;
+    public static final int DIST_ERR_UNKNOWN = -3;
+
     private TurnFrame() {}
+
+    /**
+     * Converts distance in meters to the float value expected by stock
+     * NavigationCluster.updateTBTInfo (matching GpmNaviTBTManager.setDistanceValue
+     * and ClusterService.getFloatToShort).
+     * < 1000m uses meters (scale=0); >= 1000m converts to km (scale=1) and clamps
+     * to 32767.9f so signed 16-bit conversion in ClusterService never overflows.
+     */
+    public static float tbtDistanceValue(long meters) {
+        if (meters < 0) return 0f;
+        if (meters < 1000L) return (float) meters;
+        double km = meters / 1000.0;
+        if (km > 32767.9) km = 32767.9;
+        return (float) km;
+    }
+
+    public static int tbtDistanceScale(long meters) {
+        return meters >= 1000L ? SCALE_KILOMETER : SCALE_METER;
+    }
+
+    public static int tbtDistanceError(long meters) {
+        return meters < 0 ? DIST_ERR_UNKNOWN : DIST_ERR_OK;
+    }
+
     public static byte[] clear() { return new byte[]{(byte)0xf2, 0}; }
     public static byte[] encode(int[] icons, String name) {
         if (icons == null || icons.length == 0 || icons[0] <= 0 || icons[0] > 0xee) return clear();

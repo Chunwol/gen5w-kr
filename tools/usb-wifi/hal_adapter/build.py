@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -38,18 +39,37 @@ def main():
     pkg_files = ROOT / 'tools/usb-wifi/package/files'
     pkg_files.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        str(clang),
-        '--target=armv7a-linux-androideabi21',
-        '-shared', '-fPIC', '-O2',
-        '-Wl,-soname,libhardware_legacy.so',
-        '-Wl,-Bsymbolic',
-        '-Wl,--hash-style=both',
-        '-llog', '-ldl',
-        '-o', str(out_lib),
-        str(src),
-    ]
-    subprocess.run(cmd, check=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        stub_c = tmp_dir / 'cutils_stub.c'
+        stub_so = tmp_dir / 'libcutils.so'
+        stub_c.write_text(
+            'int property_get(const char *k, char *v, const char *d) { (void)k; (void)v; (void)d; return 0; }\n'
+            'int property_set(const char *k, const char *v) { (void)k; (void)v; return 0; }\n',
+            encoding='utf-8',
+        )
+        subprocess.run([
+            str(clang),
+            '--target=armv7a-linux-androideabi21',
+            '-shared', '-fPIC', '-O2',
+            '-Wl,-soname,libcutils.so',
+            '-o', str(stub_so),
+            str(stub_c),
+        ], check=True)
+
+        cmd = [
+            str(clang),
+            '--target=armv7a-linux-androideabi21',
+            '-shared', '-fPIC', '-O2',
+            '-Wl,-soname,libhardware_legacy.so',
+            '-Wl,-Bsymbolic',
+            '-Wl,--hash-style=both',
+            f'-L{tmp_dir}',
+            '-lcutils', '-llog', '-ldl',
+            '-o', str(out_lib),
+            str(src),
+        ]
+        subprocess.run(cmd, check=True)
     shutil.copyfile(out_lib, pkg_files / 'libhardware_legacy.so')
     print(f'Built {out_lib} successfully')
 

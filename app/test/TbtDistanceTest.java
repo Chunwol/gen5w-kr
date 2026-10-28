@@ -53,6 +53,12 @@ public final class TbtDistanceTest {
         check(flaky.turnCalls==turns+1 && flaky.laneCalls==lanes+1 && flaky.calls==distances+1);
         flaky.accept=false;retry.disconnect();flaky.accept=true;retry.retryOutput();
         check(flaky.turnFrame.length==2 && flaky.laneFrame[1]==0 && flaky.icon==0 && flaky.meters==-1);
+        check(TurnFrame.tbtDistanceValue(-1L)==0f && TurnFrame.tbtDistanceScale(-1L)==TurnFrame.SCALE_METER && TurnFrame.tbtDistanceError(-1L)==TurnFrame.DIST_ERR_UNKNOWN);
+        check(TurnFrame.tbtDistanceValue(350L)==350f && TurnFrame.tbtDistanceScale(350L)==TurnFrame.SCALE_METER && TurnFrame.tbtDistanceError(350L)==TurnFrame.DIST_ERR_OK);
+        check(TurnFrame.tbtDistanceValue(999L)==999f && TurnFrame.tbtDistanceScale(999L)==TurnFrame.SCALE_METER);
+        check(TurnFrame.tbtDistanceValue(1000L)==1.0f && TurnFrame.tbtDistanceScale(1000L)==TurnFrame.SCALE_KILOMETER);
+        check(TurnFrame.tbtDistanceValue(80000L)==80.0f && TurnFrame.tbtDistanceScale(80000L)==TurnFrame.SCALE_KILOMETER && TurnFrame.tbtDistanceError(80000L)==TurnFrame.DIST_ERR_OK);
+        check(TurnFrame.tbtDistanceValue(4294967295L)==32767.9f && TurnFrame.tbtDistanceScale(4294967295L)==TurnFrame.SCALE_KILOMETER);
         System.out.println("TbtDistanceTest "+checks+" assertions passed");
     }
 }

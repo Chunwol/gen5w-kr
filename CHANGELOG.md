@@ -2,20 +2,18 @@
 
 ## v0.2.1
 
-### 안드로이드 오토 한국 특화 6대 도로유형 아이콘 보정 (Sec 4-1)
-- `ClusterIcon.refineManeuver` 추가: 안드로이드 오토의 단순 회전 enum을 도로명 텍스트 어휘 분석을 통해 한국 도로 환경 6대 특수 아이콘(지하차도·고가차도 진입/옆길, 터널, 요금소, 휴게소, 고속도로 IC/JC)으로 100% 자동 보정 승격
-- `CoreService`의 TBT 브로드캐스트 및 로컬 소켓 리시버 전반에 보정 파이프라인 직결
+### 안드로이드 오토 한국 특화 6대 도로유형 아이콘 보정 및 보조 입력 파이프라인 (Sec 4-1)
+- `ClusterIcon.refineManeuver` 추가: 회전 enum과 도로명 텍스트 어휘 분석을 결합해 한국 도로 환경 6대 특수 아이콘(지하차도·고가차도 진입/옆길, 터널, 요금소, 휴게소, 고속도로 IC/JC)으로 보정
+- `CoreService`의 보조 TBT 브로드캐스트(`kr.gen5w.action.AA_TBT`) 및 로컬 소켓(`gen5wkr.aa.tbt`) 리시버에 보정 파이프라인 연결 (순정 `HKMC_GPM` 단독 실행 시에는 내장 `GpmNaviTBTManager`의 기본 TBT 경로 사용)
 
 ### HUD 미디어/음악 곡명 OSD 일시 표출 (Sec 3-4)
 - 음악 재생/곡 변경 브로드캐스트(`com.android.music.metachanged`, Spotify 등) 및 `kr.gen5w.action.MEDIA_TRACK` 수신 시 HUD 상단에 `[음악] 곡명 - 아티스트`를 3초간 일시 표출
-- 3초 경과 후 기존 내비게이션 도로명 및 TBT 안내 텍스트로 자연스럽게 자동 복귀하는 비간섭 OSD 스케줄러 구현
+- 3초 경과 후 활성 CarPlay 안내 또는 보조 AA 안내 상태로 자동 복귀하는 비간섭 OSD 스케줄러 구현
 
-### 안드로이드 오토 차선 가이드(Lane Guidance) HUD 표출 (Sec 3-2)
-- `LaneFrame.encodeSimple` 구현: 차선 수, 추천 주행 차로, 차로별 진행 방향 데이터를 81바이트 순정 F1 클러스터 프레임으로 인코딩
-- `kr.gen5w.action.AA_LANE` 인텐트 및 `gen5wkr.aa.tbt` 소켓의 `LANE:` 명령어 지원을 통해 순정 계기판 및 컴바이너 HUD에 추천 차선 그래픽 표출
-
-### 고속도로 분기 모드 / 정밀 정션 뷰 (Highway Mode) (Sec 3-3)
-- `HighwayFrame` 엔진 추가: IC, JC, 요금소, 휴게소 접근 시 순정 클러스터 고속도로 분기 모드 규격(`NavigationCluster.HighwayMode`) 자동 생성 및 `updateTPHighwayMode` 연동
+### 보조 차선 가이드(Lane Guidance) 인코딩 및 고속도로 프레임 유틸리티 (Sec 3-2, 3-3)
+- `LaneFrame.encodeSimple` 구현: 차선 수, 추천 주행 차로, 차로별 진행 방향 데이터를 81바이트 순정 F1 클러스터 프레임으로 인코딩 (`kr.gen5w.action.AA_LANE` 및 `gen5wkr.aa.tbt`의 `LANE:` 보조 입력용)
+- `HighwayFrame` 유틸리티: IC, JC, 요금소, 휴게소 어휘 분류 및 16비트 거리 클램핑 지원 (V039 `ClusterService.sendTPHighWay()`는 빈 메서드이므로 실차 클러스터 표출은 1차 회전 아이콘과 `TurnFrame`/`CrossroadName` 사용)
+- `TurnFrame.tbtDistanceValue`/`tbtDistanceScale`: 1,000m 이상 장거리를 km 단위(`scale=1`)로 변환하여 V039 `ClusterService` 16비트 변환 잘림 방지, `combiSideStreet`는 순정 허용 범위(`0~4`)에 맞춰 `0` 전달
 
 ### 콜드 부팅 시 핫스팟/Wi-Fi 핸드셰이크 지연 단축 및 자동 재시도 가속화 (Sec 4-2)
 - `packages/hotspot-match/svc/match.sh`: 콜드 부팅 시 6초 고정 슬립 대신 1~2초 프로그레시브 능동 폴링으로 전환하여 Wi-Fi 서비스 기동 즉시 AP 준비 상태 감지
@@ -46,7 +44,7 @@
 
 ### 2nd TBT(다음 연속 회전 안내) 지원 (P2 완료)
 - `GuidanceSession`에서 차기 회전(current[1])을 파싱하여 2nd TBT 아이콘 생성
-- `NavigationCluster.updateTBTInfo`의 2번째 및 6번째 파라미터(`sideStreet`, `combiSideStreet`)에 2차 회전 아이콘 코드 전달
+- `NavigationCluster.updateTPTurnListNew`의 2번째 슬롯과 `updateTBTInfo`의 2번째 파라미터(`sideStreet`)에 2차 회전 아이콘 코드 전달 (`combiSideStreet`는 V039 허용 범위 `0~4`에 맞춰 `0` 전달)
 - 계기판 및 컴바이너 HUD의 2차 분기 안내 슬롯 지원
 
 ### 6대 도로 유형 매핑 및 내비 3사(네이버·티맵·카카오) 100% 매핑 고도화
@@ -58,7 +56,7 @@
 ### 안전 및 안정성 강화
 - `HKMC_GPM.odex` 원본을 `/system/etc/gen5w-kr-backup/bridge/gpmoriginal` 및 `/data/nemesis/backup/gen5w.kr.bridge/gpmoriginal`에 영구 보존
 - 원자적 교체(`mv`), 언인스톨 시 원본 100% 복원, 비정상 중단 시 자동 롤백 라이프사이클 구현
-- 순정 안전운전 안내 모드(SOUND_ON, opcode 0xfa5) 연동으로 과속/카메라 경고와 HUD TBT 동시 표출 유지
+- 순정 내비 유휴 시 `SOUND_ON` 브로드캐스트 재요청 및 클러스터 경고 채널 비간섭 유지 (실차 과속·카메라 경고 동시 표출은 실차 확인 대상)
 - 회전교차로 미확인 각도 시 안전을 위한 클리어 처리 보장
 
 ## v0.1.2

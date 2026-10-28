@@ -7,7 +7,14 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 
-REQ_FILE=$DATA/nemesis/gen5w.dongle.request
+MAX_RETRIES=3
+fail_count=0
+
+is_dongle_backend() {
+    local b
+    b=$(getprop persist.gen5w.wifi.backend 2>/dev/null)
+    [ "$b" = "dongle" ] || [ "$b" = "usb" ]
+}
 
 try_load() {
     [ -x "$LOADER_BIN" ] || return 1
@@ -17,21 +24,37 @@ try_load() {
     return 0
 }
 
-# Initial boot check: if dongle hardware is attached, load modules immediately
-if has_dongle_hw && [ ! -e /sys/class/net/wlan0 ]; then
-    try_load || true
+# Initial boot check: if dongle backend is active and hardware is attached, load modules
+if is_dongle_backend && has_dongle_hw && [ ! -e /sys/class/net/wlan0 ]; then
+    if try_load; then
+        fail_count=0
+    else
+        fail_count=1
+    fi
 fi
 
 # Background loop: watch for hotplug or HAL load requests from system_server
+# Bounded retries (max 3 per hardware attachment or explicit request) prevent infinite insmod loops.
 while true; do
-    if [ ! -e /sys/class/net/wlan0 ]; then
-        status=$(getprop wlan.driver.status 2>/dev/null)
+    if [ -e /sys/class/net/wlan0 ]; then
+        fail_count=0
+    else
         req=$(getprop wlan.driver.load.request 2>/dev/null)
-        if [ -f "$REQ_FILE" ] || [ "$status" = "loading" ] || [ "$req" = "1" ] || has_dongle_hw; then
-            rm -f "$REQ_FILE" 2>/dev/null || true
+        if [ "$req" = "1" ]; then
             setprop wlan.driver.load.request 0 2>/dev/null || true
-            try_load || true
+            fail_count=0
+        fi
+        if ! has_dongle_hw && [ "$req" != "1" ]; then
+            fail_count=0
+        elif (is_dongle_backend && has_dongle_hw) || [ "$req" = "1" ]; then
+            if [ "$fail_count" -lt "$MAX_RETRIES" ]; then
+                if try_load; then
+                    fail_count=0
+                else
+                    fail_count=$((fail_count + 1))
+                fi
+            fi
         fi
     fi
-    sleep 1
+    sleep 2
 done

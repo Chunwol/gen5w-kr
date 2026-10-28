@@ -131,8 +131,12 @@ check 'dongle variant update failure rolls back dongle' eval '! run update'
 unset IT_FAIL
 check 'prior dongle retained after rollback' grep -qx dongle_old "$W/data/nemesis/apps/gen5w.kr.dongle/old.txt"
 rm -f "$W/usb/GEN5W-VARIANT"
-rm -rf "$W/data/nemesis/apps/gen5w.kr.dongle"
-check 'return to standard variant six modules' run update
+check 'return to standard variant removes dongle and keeps six modules' run update
+check 'standard variant removes dongle registration' test ! -e "$W/data/nemesis/apps/gen5w.kr.dongle"
+check 'standard variant retains six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'rollback after dongle to standard transition restores dongle' run rollback
+check 'dongle registration restored after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
+check 'return to standard variant again' run update
 export IT_PRE_FAIL=gen5w.kr.audio
 check 'explicit preinstall refusal reported' eval '! run update'
 unset IT_PRE_FAIL

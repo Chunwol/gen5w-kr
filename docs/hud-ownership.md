@@ -16,13 +16,14 @@
 - 회전·거리: `NavigationCluster.updateTBTInfo(IIFFIIIII)` 및 차선 프레임 (우리 앱이 CarPlay/Android Auto에서 수신하여 전송)
 - 과속·카메라: `NavigationCluster.updateTBTTrapInfo(17개 int)` 및 경고 거리 `updateNaviWarnDist(3개 int)` (순정 내비 엔진이 안전운전 모드에서 전송)
 
-### 순정 카메라 억제 원인 및 생존 메커니즘
-1. **억제 원인 (리버스 엔지니어링 확인)**:
-   CarPlay 또는 Android Auto 길안내가 시작되면, 프로젝션 시스템이 `com.mnsoft.navi.action.Route_Guide_ACTION` 또는 `SOUND_OFF`를 순정 내비(`NaviETCReceiver`)로 전송합니다. 이를 수신한 순정 내비는 C++ 네이티브 엔진에 opcode `0x836` ("Carplay route is set" / "AA route is set")을 내려보내며, 네이티브 엔진은 즉시 클러스터/HUD 단속카메라 패킷(`updateTBTTrapInfo`) 생성을 전면 중단(Mute)합니다.
-2. **생존 처리 (안전운전 모드 유지)**:
-   네이티브 엔진은 opcode `0xfa5` ("Carplay route is not set" / "AA route is not set")를 받으면 정상 백그라운드 안전운전 안내 모드로 복귀하여 단속카메라 패킷을 다시 송출합니다. 이 신호는 `com.mnsoft.navi.action.SOUND_ON` 브로드캐스트를 통해 트리거됩니다.
-3. **CoreService 감시 및 공존 구현**:
-   `CoreService`는 순정 내비가 목적지 안내 중이 아닐 때(`StockGuidance.IDLE`) 주기적으로 및 연결/상태 전환 시 `com.mnsoft.navi.action.SOUND_ON`을 유지합니다. 이를 통해 순정 내비의 안전운전 안내 엔진이 셧다운(`0x836`)되는 것을 차단하고 `0xfa5` 모드를 유지시킴으로써, **HUD에 CarPlay/Android Auto TBT 길안내 화살표와 순정 과속·카메라 경고가 동시에 정상 표출**되도록 동작합니다. 순정 내비에서 목적지를 직접 설정한 경우(`StockGuidance.ACTIVE`)에는 순정 안내에 모든 제어권을 양보합니다.
+### 순정 경고 채널 및 SOUND_ON 동작 범위
+1. **프로젝션 시 순정 내비 제어 경로 (V039 리버스 엔지니어링 확인)**:
+   - 프로젝션 서비스(`GalReceiverService` 등)는 `com.mnsoft.navi.action.Route_Guide_ACTION` 또는 `com.mnsoft.navi.action.SOUND_OFF`를 순정 내비(`NaviETCReceiver`)로 전송합니다.
+   - `NaviETCReceiver`는 `SOUND_OFF` 수신 시 내비 사운드 플래그를 끄고(`i.ad(false)`), 프로젝션 경로가 설정된 상태이면 네이티브 엔진에 opcode `0x836`을 전달합니다. 또한 `GpmNaviTBTManager.updateTBTTrapInfo()`는 `NavigationCluster.updateWarning`(17개 int)에 초기값을 보내 클러스터 경고 슬롯을 비울 수 있습니다.
+2. **CoreService의 비간섭 및 SOUND_ON 재요청**:
+   - `CoreService`는 클러스터 경고 채널(`updateWarning`, `updateNaviWarnDist`, `updateCurrentSpeedLimit`)을 일절 호출하거나 초기화하지 않습니다.
+   - 순정 내비가 목적지 안내 중이 아닐 때(`StockGuidance.IDLE`), 부팅·소유권 전환·`SOUND_OFF` 브로드캐스트 감지·주기적 TBT 출력(5초 간격)마다 `com.mnsoft.navi.action.SOUND_ON`을 전송하여 내비 사운드 활성화(`i.ad(true)`) 및 프로젝션 미설정 시 `0xfa5` 복귀를 요청합니다.
+   - 단, 프로젝션 경로 활성 중 네이티브 엔진의 경고 패킷 송출 여부는 순정 내비 내부 상태에 좌우되므로, 실제 주행 중 HUD 과속·카메라 경고 동시 표출 여부는 실차 검증 대상입니다. 순정 내비에서 목적지를 직접 설정한 경우(`StockGuidance.ACTIVE`)에는 순정 안내에 모든 제어권을 양보합니다.
 
 앱 시작 시 경고·거리·제한속도 writer의 이름·인자·반환형만 조사하고 `hud-native-warning.status`에 다음 중 하나를 기록합니다. 조사 중 writer 호출이나 위치·속도·카메라 값 저장은 없습니다. 이 상태는 순정 내비 활성 상태나 HUD 표시 성공과 별개입니다.
 

@@ -10,6 +10,7 @@ NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 WIRELESS_OFF=$DATA/nemesis/gen5wkr.wireless-disabled
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
 ALL_IDS="$IDS gen5w.kr.consent"
+SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS gen5w.kr.consent"
 VARIANT=standard
 if [ -f GEN5W-VARIANT ]; then
     IFS= read -r VARIANT < GEN5W-VARIANT
@@ -100,7 +101,7 @@ snapshot() {
     local id=$1 info tree=$APPS/$1
     if [ ! -f "$tree/NEMESIS.data" ]; then
         durable "$id" || return 0
-        if [ "$id" = gen5w.kr.consent ]; then
+        if [ "$id" = gen5w.kr.consent ] || { [ "$id" = gen5w.kr.dongle ] && [ "$VARIANT" = standard ] && [ "$BACKEND" = builtin ]; }; then
             return 0
         fi
         check_stage_tree "$id" || return 1
@@ -128,7 +129,7 @@ rollback_transaction() {
         safe_remove "$id" || { rc=1; break; }
     done
     if [ "$rc" = 0 ]; then
-        for id in wireless.carplay.aa $ALL_IDS; do
+        for id in $SNAPSHOT_IDS; do
             [ -f "$TX/attempt.$id" ] && [ -f "$TX/prior/$id.zip" ] || continue
             [ "$(digest "$TX/prior/$id.zip")" = "$(cat "$TX/prior/$id.md5")" ] || { rc=1; break; }
             gate "$TX/prior/$id" preinstall || { rc=1; break; }
@@ -139,13 +140,13 @@ rollback_transaction() {
     fi
     if [ "$rc" = 0 ]; then
         set_state rolled-back; rm -f "$NOREBOOT"
-        for id in $ALL_IDS; do
+        for id in gen5w.kr.dongle $ALL_IDS; do
             [ -f "$TX/attempt.$id" ] || continue
             case "$(cat "$TX/result.$id" 2>/dev/null)" in failed*) result "$id" failed-restored;; *) result "$id" restored;; esac
         done
     else
         set_state recovery-required; report 'RECOVERY REQUIRED: prior packages retained; no reboot'
-        for id in $ALL_IDS; do [ ! -f "$TX/attempt.$id" ] || result "$id" recovery-required; done
+        for id in gen5w.kr.dongle $ALL_IDS; do [ ! -f "$TX/attempt.$id" ] || result "$id" recovery-required; done
     fi
     return "$rc"
 }
@@ -198,7 +199,7 @@ begin() {
     mkdir "$TX/prior" || return 1
     : > "$NOREBOOT" || return 1
     # Capture every prior tree before any hook can mutate the system.
-    for id in wireless.carplay.aa $ALL_IDS; do
+    for id in $SNAPSHOT_IDS; do
         snapshot "$id" || { report "FAILED snapshot $id"; return 1; }
     done
     [ ! -L "$WIRELESS_OFF" ] || return 1
@@ -236,7 +237,7 @@ install_transaction() {
             report 'PRESERVED incomplete prior package; checking original files for normal installation'
         fi
     fi
-    # Restore any previous local notice-disabling installation before the timer.
+    # Restore any previous local notice-disabling or dongle installation before applying standard.
     if [ "$VARIANT" = standard ]; then
         id=gen5w.kr.consent
         if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
@@ -249,6 +250,20 @@ install_transaction() {
             }
         fi
         result "$id" disabled
+        if [ "$BACKEND" = builtin ]; then
+            id=gen5w.kr.dongle
+            if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
+                : > "$TX/attempt.$id"; sync
+                safe_remove "$id" || {
+                    result "$id" failed
+                    report "FAILED restoring previous dongle package $id"
+                    rollback_transaction
+                    return 1
+                }
+                result "$id" disabled
+                report "RESTORED $id: switched to standard built-in Wi-Fi mode"
+            fi
+        fi
     fi
     for id in $IDS; do
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.

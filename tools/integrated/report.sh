@@ -74,7 +74,15 @@ native_warning() {
     esac
 }
 write_summary() {
-    local destination="$(pwd)/GEN5W-REPORT" file id value label installed state revision rows= name
+    local destination="$(pwd)/GEN5W-REPORT" file id value label installed state revision rows= name report_ids="$ALL_IDS"
+    case " $report_ids " in
+        *" gen5w.kr.dongle "*) ;;
+        *)
+            if [ -f "$TX/result.gen5w.kr.dongle" ] || [ -f "$APPS/gen5w.kr.dongle/NEMESIS.data" ]; then
+                report_ids="gen5w.kr.dongle $report_ids"
+            fi
+            ;;
+    esac
     # Refuse linked report paths even though the device command runs as root.
     [ ! -L "$destination" ] || return 1
     mkdir -p "$destination" || return 1
@@ -97,7 +105,7 @@ write_summary() {
         echo
         echo '| 기능 | 적용 결과 | 설치 여부 |'
         echo '|---|---|---|'
-        for id in $ALL_IDS; do
+        for id in $report_ids; do
             name=$(feature_name "$id")
             value=$(cat "$TX/result.$id" 2>/dev/null); label=$(result_label "$value")
             installed=없음
@@ -178,7 +186,7 @@ write_summary() {
         echo '<h1>Gen5W KR 적용 결과</h1><p>설정·파일 적용 결과이며 실제 연결 성공과는 구분합니다.</p>'
         [ ! -f "$TX/recovery-mode" ] || echo '<p><strong>핫스팟 복구 경로입니다. 전체 설치 완료가 아닙니다.</strong></p>'
         echo '<table><thead><tr><th>기능</th><th>적용 결과</th><th>설치 등록</th></tr></thead><tbody>'
-        for id in $ALL_IDS; do
+        for id in $report_ids; do
             name=$(feature_name "$id"); value=$(cat "$TX/result.$id" 2>/dev/null)
             case "$value" in applied|wired-only|failed|failed-restored|restored|skipped|removed|disabled|recovery-required) ;; *) value=not-run;; esac
             label=$(result_label "$value"); installed=없음

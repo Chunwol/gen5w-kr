@@ -45,7 +45,7 @@ public final class HighwayFrame {
         item.direction = direction;
         item.traffic = 0; // normal
         item.unit = 0; // meters
-        item.distance = distanceMeters >= 0 ? distanceMeters : 0f;
+        item.distance = distanceMeters <= 0f ? 0f : (distanceMeters > 65535.9f ? 65535.9f : distanceMeters);
         item.name = text;
         return item;
     }

@@ -19,6 +19,11 @@ OWNER="gen5w.kr.dongle:1.0"
 log() {
     echo "$1"
     mkdir -p "$DATA/nemesis" 2>/dev/null || true
+    if [ -f "$LOG_FILE" ]; then
+        local sz
+        sz=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
+        [ "${sz:-0}" -gt 32768 ] && mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || true
+    fi
     echo "$1" >> "$LOG_FILE" 2>/dev/null || true
 }
 

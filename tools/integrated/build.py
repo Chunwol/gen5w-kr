@@ -98,6 +98,16 @@ def build(dist, output, variant='standard'):
     sums = [hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(stage).as_posix()
             for p in sorted(stage.rglob('*')) if p.is_file()]
     (stage / 'FILES.md5').write_text('\n'.join(sums) + '\n', encoding='ascii', newline='\n')
+    if variant == 'standard':
+        stage = output / 'checks/gen5w.kr.dongle'
+        source = HERE.parents[1] / 'tools/usb-wifi/package'
+        (stage / 'scripts').mkdir(parents=True)
+        for rel in ['NEMESIS.data', 'scripts/common.sh', 'scripts/preun.sh']:
+            shutil.copyfile(source / rel, stage / rel)
+            (stage / rel).chmod(0o755 if rel.endswith('.sh') else 0o644)
+        sums = [hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(stage).as_posix()
+                for p in sorted(stage.rglob('*')) if p.is_file()]
+        (stage / 'FILES.md5').write_text('\n'.join(sums) + '\n', encoding='ascii', newline='\n')
     for p in HERE.glob('*.sh'):
         shutil.copyfile(p, output / p.name)
         (output / p.name).chmod(0o755)

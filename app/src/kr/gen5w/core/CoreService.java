@@ -26,7 +26,6 @@ import kr.gen5w.hud.ClusterIcon;
 import kr.gen5w.hud.GuidanceParser;
 import kr.gen5w.hud.GuidanceSession;
 import kr.gen5w.hud.GuidanceRequest;
-import kr.gen5w.hud.HighwayFrame;
 import kr.gen5w.hud.LaneFrame;
 import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.NotificationEpoch;
@@ -43,9 +42,11 @@ import kr.gen5w.probe.Item;
 public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
     private static final String ACTION_SOUND_ON = "com.mnsoft.navi.action.SOUND_ON";
+    private static final String ACTION_SOUND_OFF = "com.mnsoft.navi.action.SOUND_OFF";
+    private static final String ACTION_USB_STATE = "android.hardware.usb.action.USB_STATE";
     private static final String PERM_HUD_INPUT = "kr.gen5w.permission.HUD_INPUT";
     private static final long RETRY_MS = 5000;
-    private static final long AA_TBT_STALE_MS = 30000L;
+    private static final long SOUND_ON_REASSERT_MS = 5000L;
     private static final int AA_SOCKET_TIMEOUT_MS = 1000;
     private static final int AA_SOCKET_MAX_LINES = 16;
     private HandlerThread worker;
@@ -58,7 +59,7 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private int stockState = -2; // worker thread only
-    private boolean highwayModeActive = false; // io thread only
+    private long lastSoundOnMs = 0L; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -68,17 +69,32 @@ public final class CoreService extends Service {
         main = new Handler(getMainLooper());
         worker = new HandlerThread("gen5w-route"); worker.start();
         io = new Handler(worker.getLooper());
-        io.post(new Runnable() { public void run() { recordWarningCapability(); } });
+        io.post(new Runnable() {
+            public void run() {
+                purgeLegacyDebugLogs();
+                recordWarningCapability();
+            }
+        });
         stockGuidance = new StockGuidance();
         session = new GuidanceSession(new GuidanceSession.TbtSink() {
             public boolean tbt(int icon, int secondIcon, long meters) {
                 if (!refreshOwnership()) return false;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    // OEM scale 0 = metres. Unknown distance uses its error flag.
-                    // secondIcon populates sideStreet (2) and combiSideStreet (6)
-                    cluster.updateTBTInfo(icon, secondIcon, 0f, meters < 0 ? 0f : (float)meters,
-                            meters < 0 ? -3 : 0, secondIcon, 0, 0, 0);
+                    // Stock scale: 0 = METER (<1000m), 1 = KILOMETER (>=1000m).
+                    // combiSideStreet (6th arg) only accepts 0..4 in V039 NavigationCluster;
+                    // secondIcon is carried in sideStreet (2nd arg) and TurnFrame slot 2.
+                    cluster.updateTBTInfo(
+                            icon,
+                            secondIcon,
+                            0f,
+                            TurnFrame.tbtDistanceValue(meters),
+                            TurnFrame.tbtDistanceError(meters),
+                            0,
+                            TurnFrame.tbtDistanceScale(meters),
+                            0,
+                            0);
+                    reassertStockSafetyPeriod();
                     writeDebugLog("TBT: 1st=0x" + Integer.toHexString(icon)
                             + " 2nd=0x" + Integer.toHexString(secondIcon)
                             + " dist=" + meters + "m");
@@ -119,7 +135,12 @@ public final class CoreService extends Service {
         mediaFilter.addAction("com.spotify.music.metadatachanged");
         mediaFilter.addAction("com.google.android.music.metachanged");
         mediaFilter.addAction("kr.gen5w.action.MEDIA_TRACK");
-        registerReceiver(mediaReceiver, mediaFilter, PERM_HUD_INPUT, null);
+        registerReceiver(mediaReceiver, mediaFilter);
+
+        IntentFilter sysFilter = new IntentFilter();
+        sysFilter.addAction(ACTION_USB_STATE);
+        sysFilter.addAction(ACTION_SOUND_OFF);
+        registerReceiver(systemReceiver, sysFilter);
 
         startAaSocketServer();
         bind();
@@ -138,6 +159,7 @@ public final class CoreService extends Service {
         stopping = true;
         try { unregisterReceiver(aaReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(mediaReceiver); } catch (Exception ignored) {}
+        try { unregisterReceiver(systemReceiver); } catch (Exception ignored) {}
         if (aaServer != null) { try { aaServer.close(); } catch (Exception ignored) {} }
         epoch.close();
         main.removeCallbacksAndMessages(null);
@@ -167,9 +189,19 @@ public final class CoreService extends Service {
                 try { out.write((owner + "\n").getBytes("US-ASCII")); }
                 finally { out.close(); }
             } catch (java.io.IOException e) { Log.w(TAG, "HUD owner status unavailable"); }
-            if (allowed) keepStockSafetyGuidanceAlive();
+            if (allowed) {
+                lastSoundOnMs = SystemClock.elapsedRealtime();
+                keepStockSafetyGuidanceAlive();
+            }
         }
         return allowed;
+    }
+    private void reassertStockSafetyPeriod() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastSoundOnMs >= SOUND_ON_REASSERT_MS) {
+            lastSoundOnMs = now;
+            keepStockSafetyGuidanceAlive();
+        }
     }
     private void keepStockSafetyGuidanceAlive() {
         try {
@@ -177,6 +209,14 @@ public final class CoreService extends Service {
         } catch (RuntimeException e) {
             Log.w(TAG, "stock safety broadcast unavailable: " + e.getMessage());
         }
+    }
+    private void purgeLegacyDebugLogs() {
+        try {
+            java.io.File dir = getFilesDir();
+            if (dir == null) return;
+            new java.io.File(dir, "navi-debug.log").delete();
+            new java.io.File(dir, "navi-debug.log.1").delete();
+        } catch (Throwable ignored) {}
     }
     private boolean outputError(Throwable e) {
         cluster = null;
@@ -271,7 +311,11 @@ public final class CoreService extends Service {
     };
     private final IIap2Listener listener = new IIap2Listener.Stub() {
         public void connected(int type, String name) {
-            if (!stopping) { epoch.open(); queueGuidanceRequest(); }
+            if (!stopping) {
+                epoch.open();
+                io.post(new Runnable() { public void run() { resetAaState(); } });
+                queueGuidanceRequest();
+            }
         }
         public void disconnected(int type) {
             if (!stopping) CoreService.this.disconnected();
@@ -330,19 +374,6 @@ public final class CoreService extends Service {
 
     private void writeDebugLog(String line) {
         Log.i("Gen5wNavi", line);
-        try {
-            java.io.File dir = getFilesDir();
-            if (dir == null) return;
-            java.io.File f = new java.io.File(dir, "navi-debug.log");
-            if (f.length() > 512 * 1024) {
-                java.io.File bak = new java.io.File(dir, "navi-debug.log.1");
-                bak.delete();
-                f.renameTo(bak);
-            }
-            java.io.FileWriter fw = new java.io.FileWriter(f, true);
-            fw.write(System.currentTimeMillis() + " " + line + "\n");
-            fw.close();
-        } catch (Throwable ignored) {}
     }
     private void disconnected() {
         main.removeCallbacks(routeRetry);
@@ -361,52 +392,18 @@ public final class CoreService extends Service {
     private String currentRoadName = null;
     private int currentIcon1 = 0, currentIcon2 = 0;
     private long currentDist = -1;
-    private long lastAaTbtTime = 0L;
     private volatile boolean mediaOsdActive = false;
 
     private boolean isAaGuidanceActive() {
-        if (currentDist < 0 || currentIcon1 <= 0 || lastAaTbtTime <= 0L) return false;
-        if (SystemClock.elapsedRealtime() - lastAaTbtTime > AA_TBT_STALE_MS) {
-            resetAaState();
-            return false;
-        }
-        return true;
+        return currentDist >= 0 && currentIcon1 > 0;
     }
 
     private void resetAaState() {
-        io.removeCallbacks(aaExpireRunnable);
         currentIcon1 = 0;
         currentIcon2 = 0;
         currentDist = -1;
         currentRoadName = null;
-        lastAaTbtTime = 0L;
     }
-
-    private final Runnable aaExpireRunnable = new Runnable() {
-        public void run() {
-            if (currentDist < 0 && currentIcon1 <= 0) return;
-            resetAaState();
-            if (!refreshOwnership()) return;
-            try {
-                if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                if (session != null && session.hasActiveGuidance()) {
-                    clearHighwayMode(cluster);
-                    cluster.updateTPCrossroadName(crossroadName(""));
-                    session.invalidateOutput();
-                    session.retryOutput();
-                } else {
-                    cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
-                    if (!mediaOsdActive) {
-                        cluster.updateTPTurnListNew(TurnFrame.clear());
-                        cluster.updateTPCrossroadName(crossroadName(""));
-                    }
-                    clearHighwayMode(cluster);
-                    cluster.updateLaneInfo(LaneFrame.clear());
-                }
-                writeDebugLog("AA_TBT: expired stale state");
-            } catch (Throwable e) { outputError(e); }
-        }
-    };
 
     private static NavigationCluster.CrossroadName crossroadName(String name) {
         NavigationCluster.CrossroadName cr = new NavigationCluster.CrossroadName();
@@ -414,20 +411,33 @@ public final class CoreService extends Service {
         return cr;
     }
 
+    private static String sanitizeText(String raw, int maxLen) {
+        if (raw == null) return "";
+        StringBuilder sb = new StringBuilder();
+        String trimmed = raw.trim();
+        for (int i = 0; i < trimmed.length() && sb.length() < maxLen; i++) {
+            char c = trimmed.charAt(i);
+            sb.append(Character.isISOControl(c) ? ' ' : c);
+        }
+        return sb.toString().trim();
+    }
+
     private void renderMediaOsd(final String track, final String artist) {
-        if (track == null || track.trim().isEmpty()) return;
+        final String safeTitle = sanitizeText(track, 32);
+        if (safeTitle.isEmpty()) return;
+        final String safeArtist = sanitizeText(artist, 32);
         io.post(new Runnable() {
             public void run() {
                 if (!refreshOwnership()) return;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    String title = track.trim();
-                    String line = "[음악] " + title;
-                    if (artist != null && !artist.trim().isEmpty()) {
-                        line += " - " + artist.trim();
+                    String line = "[음악] " + safeTitle;
+                    if (!safeArtist.isEmpty()) {
+                        line += " - " + safeArtist;
                     }
                     mediaOsdActive = true;
-                    boolean aaActive = isAaGuidanceActive();
+                    boolean cpActive = session != null && session.hasActiveGuidance();
+                    boolean aaActive = !cpActive && isAaGuidanceActive();
                     int icon = aaActive ? currentIcon1 : 0x41;
                     int second = aaActive ? currentIcon2 : 0;
                     cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, second}, line));
@@ -463,6 +473,28 @@ public final class CoreService extends Service {
         }
     };
 
+    private final BroadcastReceiver systemReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String action = intent.getAction();
+            if (ACTION_USB_STATE.equals(action)) {
+                boolean connected = intent.getBooleanExtra("connected", true);
+                if (!connected) {
+                    renderAaTbt(0, 0, -1, null);
+                }
+            } else if (ACTION_SOUND_OFF.equals(action)) {
+                io.post(new Runnable() {
+                    public void run() {
+                        if (refreshOwnership()) {
+                            lastSoundOnMs = SystemClock.elapsedRealtime();
+                            keepStockSafetyGuidanceAlive();
+                        }
+                    }
+                });
+            }
+        }
+    };
+
     private final BroadcastReceiver mediaReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
@@ -490,25 +522,6 @@ public final class CoreService extends Service {
         });
     }
 
-    private void clearHighwayMode(NavigationCluster clu) {
-        if (clu == null) return;
-        try {
-            HighwayFrame.Item item = HighwayFrame.clear();
-            NavigationCluster.HighwayMode hwMode = new NavigationCluster.HighwayMode();
-            hwMode.type = item.type;
-            hwMode.direction = item.direction;
-            hwMode.traffic = item.traffic;
-            hwMode.unit = item.unit;
-            hwMode.distance = item.distance;
-            hwMode.name = item.name;
-            clu.updateTPHighwayMode(new NavigationCluster.HighwayMode[]{hwMode});
-        } catch (Throwable e) {
-            writeDebugLog("clearHighwayMode: " + e.getMessage());
-        } finally {
-            highwayModeActive = false;
-        }
-    }
-
     private void renderAaTbt(final int icon, final int secondIcon, final long dist, final String road) {
         io.post(new Runnable() {
             public void run() {
@@ -516,19 +529,18 @@ public final class CoreService extends Service {
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     if (dist < 0 || icon <= 0) {
+                        boolean hadAa = isAaGuidanceActive();
                         resetAaState();
                         if (session != null && session.hasActiveGuidance()) {
-                            clearHighwayMode(cluster);
                             cluster.updateTPCrossroadName(crossroadName(""));
                             session.invalidateOutput();
                             session.retryOutput();
-                        } else {
+                        } else if (hadAa) {
                             cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
                             if (!mediaOsdActive) {
                                 cluster.updateTPTurnListNew(TurnFrame.clear());
                                 cluster.updateTPCrossroadName(crossroadName(""));
                             }
-                            clearHighwayMode(cluster);
                             cluster.updateLaneInfo(LaneFrame.clear());
                         }
                         writeDebugLog("AA_TBT: cleared");
@@ -537,28 +549,21 @@ public final class CoreService extends Service {
                         currentIcon2 = secondIcon;
                         currentDist = dist;
                         currentRoadName = road;
-                        lastAaTbtTime = SystemClock.elapsedRealtime();
-                        io.removeCallbacks(aaExpireRunnable);
-                        io.postDelayed(aaExpireRunnable, AA_TBT_STALE_MS);
-                        cluster.updateTBTInfo(icon, secondIcon, 0f, (float)dist, 0, secondIcon, 0, 0, 0);
+                        cluster.updateTBTInfo(
+                                icon,
+                                secondIcon,
+                                0f,
+                                TurnFrame.tbtDistanceValue(dist),
+                                TurnFrame.tbtDistanceError(dist),
+                                0,
+                                TurnFrame.tbtDistanceScale(dist),
+                                0,
+                                0);
                         if (!mediaOsdActive) {
                             cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
                             cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
                         }
-                        HighwayFrame.Item hwItem = HighwayFrame.build(icon, road, (float)dist);
-                        if (hwItem != null) {
-                            NavigationCluster.HighwayMode hwMode = new NavigationCluster.HighwayMode();
-                            hwMode.type = hwItem.type;
-                            hwMode.direction = hwItem.direction;
-                            hwMode.traffic = hwItem.traffic;
-                            hwMode.unit = hwItem.unit;
-                            hwMode.distance = hwItem.distance;
-                            hwMode.name = hwItem.name;
-                            cluster.updateTPHighwayMode(new NavigationCluster.HighwayMode[]{hwMode});
-                            highwayModeActive = true;
-                        } else if (highwayModeActive) {
-                            clearHighwayMode(cluster);
-                        }
+                        reassertStockSafetyPeriod();
                         writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
                                 + " 2nd=0x" + Integer.toHexString(secondIcon)
                                 + " dist=" + dist + "m");

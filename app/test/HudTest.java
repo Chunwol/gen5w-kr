@@ -150,6 +150,11 @@ public final class HudTest {
         eq("highway clear type", hwClear != null ? hwClear.type : -1, 0);
         eq("highway clear name empty", hwClear != null && hwClear.name != null && hwClear.name.isEmpty() ? 1 : 0, 1);
 
+        HighwayFrame.Item hwClamp = HighwayFrame.build(ClusterIcon.IC_EXIT_R, "동탄IC 진출", 80000f);
+        eq("highway distance clamped to 16-bit max", hwClamp != null ? (int)hwClamp.distance : 0, 65535);
+        HighwayFrame.Item hwNeg = HighwayFrame.build(ClusterIcon.IC_EXIT_R, "동탄IC 진출", -50f);
+        eq("highway negative distance clamped to zero", hwNeg != null ? (int)hwNeg.distance : -1, 0);
+
         System.out.println(fails == 0 ? "hud all match" : fails + " failed");
         System.exit(fails == 0 ? 0 : 1);
     }
