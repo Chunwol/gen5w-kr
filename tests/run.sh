@@ -9,7 +9,7 @@ done
 for f in $(find packages probe/package probe/usb tools -name '*.sh' -o -name '*.data' -o -name '*.xml'); do
     grep -q $'\r' "$f" && { echo "FAIL CRLF in $f"; rc=1; }
 done
-for t in tests/notice.sh tests/legacy-notice.sh tests/detect.sh tests/collect.sh tests/wireless.sh tests/hotspot.sh tests/hotspot_profile.sh tests/core.sh tests/recovery.sh tests/audio.sh tests/bridge.sh tests/dongle.sh tests/integrated-zip.sh tests/integrated-build.sh tests/integrated.sh; do bash "$t" || rc=1; done
+for t in tests/notice.sh tests/legacy-notice.sh tests/detect.sh tests/collect.sh tests/wireless.sh tests/hotspot.sh tests/hotspot_profile.sh tests/core.sh tests/recovery.sh tests/audio.sh tests/bridge.sh tests/dongle.sh tests/integrated-zip.sh tests/integrated-build.sh tests/integrated.sh tests/fat32-integrated.sh; do bash "$t" || rc=1; done
 for t in tests/iap2_control.py tests/dipo_control.py tests/gpm_control.py tests/notice.py tests/hotspot_profile.py; do python3 "$t" || rc=1; done
 
 echo "== JVM tests (HUD and probe)"
