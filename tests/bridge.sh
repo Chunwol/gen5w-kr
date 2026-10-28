@@ -141,6 +141,11 @@ if run pre; then bad "$version mismatched GPM ODEX refused"; else ok "$version m
 cp "$W/fixture/gpm-$version-original" "$GPM"
 cp "$W/fixture/gpm-$other-apk" "$GPMAPK"
 if run pre; then bad "$version mismatched GPM APK refused"; else ok "$version mismatched GPM APK refused"; fi
+# A complete reviewed GPM pair is selected by its own hashes, not the bridge label.
+cp "$W/fixture/gpm-$other-original" "$GPM"
+check "$version accepts independently matched GPM pair" run pre
+
+cp "$W/fixture/gpm-$version-original" "$GPM"
 cp "$W/fixture/gpm-$version-apk" "$GPMAPK"
 
 done
@@ -244,6 +249,15 @@ cp "$W/fixture/dipo-v039-patched" "$DIPO"
 check 'cleanup foreign fixture' run preun
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 run pre; rc=$?; check 'crossversion pair skipped' test "$rc" = 77
+# Preserve the previously supported V039 bridge + older reviewed GPM app pair.
+cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+cp "$W/fixture/gpm-v035-original" "$GPM"; cp "$W/fixture/gpm-v035-apk" "$GPMAPK"
+check 'V039 bridge installs reviewed older GPM pair' run post
+check 'older GPM uses its own patch' cmp -s "$GPM" "$W/fixture/gpm-v035-patched"
+check 'independent GPM pair uninstall' run preun
+check 'independent GPM original restored' cmp -s "$GPM" "$W/fixture/gpm-v035-original"
+cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
 # Upgrade from the exact previous DiPO output, retaining its owned original.
 cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
 cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"

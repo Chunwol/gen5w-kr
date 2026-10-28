@@ -180,7 +180,7 @@ Apple은 앱이 회전·교차로·차선 메타데이터를 제공하고 차량
 
 - gpm-v035.json을 분리하고, 실제 V039에서 gpm-v039.json을 새로 생성했습니다.
 - 버전별 getter 이름(bJ/bG)과 그 뒤 NavigationManager 할당 분기를 함께 확인한 뒤 정확한 조건 분기만 패치합니다.
-- 두 ARM helper를 각각 빌드하고 APK/ODEX 버전 조합 검증과 백업·원복을 적용합니다.
+- 두 ARM helper를 각각 빌드하고 GPM 자체의 APK/ODEX 쌍으로 선택합니다. 이전에 지원한 V039 브리지+기존 GPM 쌍도 유지하고, GPM APK와 ODEX가 서로 섞였으면 거부합니다. 백업·원복도 같은 GPM 쌍을 기준으로 처리합니다.
 - 합성 설치 검사에서 두 버전 및 잘못 섞인 조합 거부를 확인했습니다. 실제 원본에도 ARM 도구로 적용해 출력 SHA256과 반대 버전 거부를 확인했습니다.
 
 추가로 V035/V039의 automotive-service 원본 DEX에서 sendTPHighWay가 return-void 한 명령뿐임을 각각 확인했습니다. 네이티브 libExSLAndroidJNI/libExSLNavi는 현재 검색한 추출 디렉터리와 두 시스템 이미지의 lib 경로에 없었습니다. 지도/BIN 저장 영역의 네이티브 엔진 입력을 확보하기 전에는 카메라 생성 지속 여부를 확정할 수 없습니다.

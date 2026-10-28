@@ -37,7 +37,7 @@ owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/o
 sys_ro() { "$NEM" remount ro >/dev/null 2>&1; }
 inspect() {
     [ -x "$NEM" ] || return 1
-    for bridge_path in "$SYS/etc/gen5w-kr-backup" "$DATA/nemesis/backup" "$STATE" "$MARK" "$TARGET" "$APK" "$DIPO_TARGET" "$DIPO_APK" "$STOPPING"; do
+    for bridge_path in "$SYS/etc/gen5w-kr-backup" "$DATA/nemesis/backup" "$STATE" "$MARK" "$TARGET" "$APK" "$DIPO_TARGET" "$DIPO_APK" "$GPM_TARGET" "$GPM_APK" "$STOPPING"; do
         [ ! -L "$bridge_path" ] || { log 'FAIL bridge: symbolic link at managed path'; return 1; }
     done
     # NEMESIS extracts native files as 0644; only our fixed helper names change mode.
@@ -67,7 +67,8 @@ inspect() {
     TOOL=$SCRIPT_DIR/../bin/iap2-patch-$VERSION
     DIPO_TOOL=$SCRIPT_DIR/../bin/dipo-patch-$VERSION
     GPM_TOOL=
-    [ -f "$SCRIPT_DIR/../bin/gpm-patch-$VERSION" ] && [ -x "$SCRIPT_DIR/../bin/gpm-patch-$VERSION" ] && GPM_TOOL=$SCRIPT_DIR/../bin/gpm-patch-$VERSION
+    GPM_VERSION=
+    GPM_APK_SHA=
     OWNER=gen5w.kr.bridge:$VERSION-1
     if original "$TARGET"; then BRIDGE_STATE=stock
     elif patched "$TARGET"; then BRIDGE_STATE=patched
@@ -81,18 +82,30 @@ inspect() {
         return 1
     fi
     GPM_STATE=
-    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
-        if gpm_original "$GPM_TARGET"; then GPM_STATE=stock
-        elif gpm_patched "$GPM_TARGET"; then GPM_STATE=patched
-        else
-            log 'SKIP bridge: unknown or mismatched GPM ODEX'
+    if [ -f "$GPM_TARGET" ]; then
+        for gpm_version in v035 v039; do
+            GPM_TOOL=$SCRIPT_DIR/../bin/gpm-patch-$gpm_version
+            [ -f "$GPM_TOOL" ] && [ -x "$GPM_TOOL" ] || continue
+            case "$gpm_version" in
+                v035) GPM_APK_SHA=${BRIDGE_GPM_APK_V035_SHA:-};;
+                v039) GPM_APK_SHA=${BRIDGE_GPM_APK_V039_SHA:-};;
+            esac
+            [ -n "$GPM_APK_SHA" ] && "$GPM_TOOL" verify "$GPM_APK" "$GPM_APK_SHA" || continue
+            if gpm_original "$GPM_TARGET"; then GPM_STATE=stock
+            elif gpm_patched "$GPM_TARGET"; then GPM_STATE=patched
+            else continue; fi
+            GPM_VERSION=$gpm_version
+            break
+        done
+        if [ -z "$GPM_VERSION" ]; then
+            log 'SKIP bridge: unknown or mismatched GPM APK/ODEX pair'
             [ "$BRIDGE_OWNED" = no ] && return 77
             return 1
         fi
     fi
     case "$VERSION" in
-        v035) APK_SHA=$BRIDGE_APK_V035_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V035_SHA; GPM_APK_SHA=${BRIDGE_GPM_APK_V035_SHA:-};;
-        v039) APK_SHA=$BRIDGE_APK_V039_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V039_SHA; GPM_APK_SHA=${BRIDGE_GPM_APK_V039_SHA:-};;
+        v035) APK_SHA=$BRIDGE_APK_V035_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V035_SHA;;
+        v039) APK_SHA=$BRIDGE_APK_V039_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V039_SHA;;
     esac
     if ! "$TOOL" verify "$APK" "$APK_SHA" || ! "$DIPO_TOOL" verify "$DIPO_APK" "$DIPO_APK_SHA"; then
         log 'SKIP bridge: stock APK and ODEX version do not match'
