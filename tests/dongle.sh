@@ -81,6 +81,16 @@ cp "$W/fixture/stock_hal" "$PERSIST/original"
 
 check 'dongle reinstall succeeds after integrity restored' run post
 
+# 5b. Preuninstall refuses when all stock backups are missing or corrupted
+mv "$PERSIST/original" "$W/fixture/saved_persist"
+mv "$MARK/original" "$W/fixture/saved_mark"
+mv "$STOCK_COPY" "$W/fixture/saved_stock"
+check 'dongle uninstall refuses when no stock backup exists' eval '! run preun'
+check 'dongle adapter kept intact when uninstall refused' cmp -s "$TARGET" "$W/pkg/files/libhardware_legacy.so"
+mv "$W/fixture/saved_persist" "$PERSIST/original"
+mv "$W/fixture/saved_mark" "$MARK/original"
+mv "$W/fixture/saved_stock" "$STOCK_COPY"
+
 # 6. Preuninstall
 check 'dongle uninstall succeeds' run preun
 check 'dongle uninstall restores stock HAL byte-identical' cmp -s "$TARGET" "$W/fixture/stock_hal"

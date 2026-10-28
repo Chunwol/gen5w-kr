@@ -9,21 +9,24 @@ trap 'exit 1' HUP INT TERM
 
 # 1. Restore original HAL
 ORIG_SRC=""
-if [ -f "$BACKUP_DURABLE/original" ]; then
+if [ -f "$BACKUP_DURABLE/original" ] && [ ! -L "$BACKUP_DURABLE/original" ]; then
     ORIG_SRC="$BACKUP_DURABLE/original"
-elif [ -f "$BACKUP_RUNTIME/original" ]; then
+elif [ -f "$BACKUP_RUNTIME/original" ] && [ ! -L "$BACKUP_RUNTIME/original" ]; then
     ORIG_SRC="$BACKUP_RUNTIME/original"
-elif [ -f "$STOCK_HAL" ]; then
+elif [ -f "$STOCK_HAL" ] && [ ! -L "$STOCK_HAL" ]; then
     ORIG_SRC="$STOCK_HAL"
 fi
 
-if [ -n "$ORIG_SRC" ] && [ -f "$ORIG_SRC" ]; then
-    verify_stock_hash "$ORIG_SRC" || { log "FAIL dongle: corrupted stock source on uninstall"; exit 1; }
-    cp -p "$ORIG_SRC" "$TARGET_HAL.tmp" || exit 1
-    chmod 644 "$TARGET_HAL.tmp" || true
-    chown 0:0 "$TARGET_HAL.tmp" 2>/dev/null || true
-    mv -f "$TARGET_HAL.tmp" "$TARGET_HAL" || exit 1
+if [ -z "$ORIG_SRC" ] || [ ! -f "$ORIG_SRC" ] || [ -L "$ORIG_SRC" ]; then
+    log "FAIL dongle: no stock HAL backup available to restore"
+    exit 1
 fi
+
+verify_stock_hash "$ORIG_SRC" || { log "FAIL dongle: corrupted stock source on uninstall"; exit 1; }
+cp -p "$ORIG_SRC" "$TARGET_HAL.tmp" || exit 1
+chmod 644 "$TARGET_HAL.tmp" || true
+chown 0:0 "$TARGET_HAL.tmp" 2>/dev/null || true
+mv -f "$TARGET_HAL.tmp" "$TARGET_HAL" || exit 1
 
 # 2. Remove stock HAL copy
 rm -f "$STOCK_HAL" || true

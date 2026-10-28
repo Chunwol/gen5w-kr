@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <dlfcn.h>
 #include <unistd.h>
@@ -18,7 +19,34 @@
 
 #define STOCK_LIB_PATH "/system/lib/libhardware_legacy_stock.so"
 #define DONGLE_FLAG_PROP "persist.gen5w.wifi.backend"
+#define DONGLE_LOAD_PROP "wlan.driver.load.request"
 #define DRIVER_STATUS_PROP "wlan.driver.status"
+#define DONGLE_REQ_FILE "/data/nemesis/gen5w.dongle.request"
+
+/* Exported global objects matching stock V039 libhardware_legacy.so ABI */
+const char *NEW_PATHS[2] = {
+    "/sys/power/wake_lock",
+    "/sys/power/wake_unlock"
+};
+const char *OLD_PATHS[2] = {
+    "/sys/android_power/acquire_partial_wake_lock",
+    "/sys/android_power/release_wake_lock"
+};
+void *uevent_handler_list = NULL;
+int uevent_handler_list_lock = 0;
+int TxDataRate_num = 0;
+int MCS_DataRate = 0;
+int VHT_MCS_DataRate = 0;
+int select_band = 0;
+char dst_mac_address[20] = {0};
+char command_string[256] = {0};
+char command_string1[256] = {0};
+char command_string2[256] = {0};
+int rx_mode = 0;
+int tx_gain = 0;
+int enable_open_mode = 0;
+int channel_num = 0;
+int bandwidth = 0;
 
 /* Android property stubs */
 extern int property_get(const char *key, char *value, const char *default_value);
@@ -90,14 +118,27 @@ int wifi_load_driver(void) {
         if (is_wifi_driver_loaded()) {
             return 0;
         }
-        /* Run helper script if wlan0 not ready yet */
-        if (access("/system/bin/gen5w-dongle-load", X_OK) == 0) {
-            system("/system/bin/gen5w-dongle-load");
+        /* Signal root service and attempt helper script if wlan0 not ready yet */
+        property_set(DRIVER_STATUS_PROP, "loading");
+        property_set(DONGLE_LOAD_PROP, "1");
+        int fd = open(DONGLE_REQ_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (fd >= 0) {
+            write(fd, "1\n", 2);
+            close(fd);
         }
-        int retry = 20;
+        if (access("/system/bin/gen5w-dongle-load", X_OK) == 0) {
+            if (access("/system/xbin/nemesis", X_OK) == 0) {
+                system("/system/xbin/nemesis root 0 -c /system/bin/gen5w-dongle-load");
+            }
+            if (access("/sys/class/net/wlan0", F_OK) != 0) {
+                system("/system/bin/gen5w-dongle-load");
+            }
+        }
+        int retry = 50;
         while (retry-- > 0) {
             if (access("/sys/class/net/wlan0", F_OK) == 0) {
                 property_set(DRIVER_STATUS_PROP, "ok");
+                property_set(DONGLE_LOAD_PROP, "0");
                 return 0;
             }
             usleep(100000);
@@ -197,6 +238,11 @@ FORWARD_4(int, do_dhcp_request, const char *, char *, char *, uint32_t *)
 FORWARD_0(const char *, get_dhcp_error_string)
 
 /* Wi-Fi Supplicant & Hostapd Socket Forwarding */
+FORWARD_0(int, ensure_entropy_file_exists)
+FORWARD_1(int, update_ctrl_interface, const char *)
+FORWARD_1(int, ensure_config_file_exists, const char *)
+FORWARD_1(int, ensure_crc_config_file_exists, const char *)
+FORWARD_3(uint32_t, wpa_crc32_calc, uint32_t, const void *, size_t)
 FORWARD_1(int, wifi_delete_config_file, const char *)
 FORWARD_1(int, wifi_stop_supplicant, int)
 FORWARD_1(int, wifi_connect_on_socket_path, const char *)

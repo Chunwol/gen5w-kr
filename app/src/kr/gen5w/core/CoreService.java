@@ -7,11 +7,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 import com.hkmc.cluster.NavigationCluster;
 import com.tcc.iap2.IIap2Listener;
@@ -40,7 +43,11 @@ import kr.gen5w.probe.Item;
 public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
     private static final String ACTION_SOUND_ON = "com.mnsoft.navi.action.SOUND_ON";
+    private static final String PERM_HUD_INPUT = "kr.gen5w.permission.HUD_INPUT";
     private static final long RETRY_MS = 5000;
+    private static final long AA_TBT_STALE_MS = 30000L;
+    private static final int AA_SOCKET_TIMEOUT_MS = 1000;
+    private static final int AA_SOCKET_MAX_LINES = 16;
     private HandlerThread worker;
     private Handler io, main;
     private volatile boolean stopping;
@@ -104,7 +111,7 @@ public final class CoreService extends Service {
         filter.addAction("kr.gen5w.action.AA_TBT");
         filter.addAction("kr.gen5w.action.AA_LANE");
         filter.addAction("com.google.android.apps.auto.navigation.TBT");
-        registerReceiver(aaReceiver, filter);
+        registerReceiver(aaReceiver, filter, PERM_HUD_INPUT, null);
 
         IntentFilter mediaFilter = new IntentFilter();
         mediaFilter.addAction("com.android.music.metachanged");
@@ -112,7 +119,7 @@ public final class CoreService extends Service {
         mediaFilter.addAction("com.spotify.music.metadatachanged");
         mediaFilter.addAction("com.google.android.music.metachanged");
         mediaFilter.addAction("kr.gen5w.action.MEDIA_TRACK");
-        registerReceiver(mediaReceiver, mediaFilter);
+        registerReceiver(mediaReceiver, mediaFilter, PERM_HUD_INPUT, null);
 
         startAaSocketServer();
         bind();
@@ -286,6 +293,9 @@ public final class CoreService extends Service {
                     refreshOwnership();
                     if (outputEpoch != ticket) { session.disconnect(); outputEpoch = ticket; }
                     session.message(what, fields);
+                    if (session.hasActiveGuidance()) {
+                        resetAaState();
+                    }
                 }
             });
         }
@@ -297,8 +307,6 @@ public final class CoreService extends Service {
                         int icon = ClusterIcon.of(m);
                         String line = "MANEUVER: comp=" + m.component + " idx=" + m.index + " type=" + m.type
                                 + " angle=" + m.exitAngle + " side=" + m.drivingSide + " junc=" + m.junctionType
-                                + " road='" + (m.afterRoad == null ? "" : m.afterRoad) + "'"
-                                + " desc='" + (m.desc == null ? "" : m.desc) + "'"
                                 + " -> icon=0x" + Integer.toHexString(icon);
                         writeDebugLog(line);
                     }
@@ -306,7 +314,7 @@ public final class CoreService extends Service {
                     GuidanceParser.Status s = GuidanceParser.status(fields);
                     if (s != null) {
                         String line = "STATUS: comp=" + s.component + " state=" + s.state
-                                + " dist=" + s.distanceToNext + " src='" + (s.source == null ? "" : s.source) + "'"
+                                + " dist=" + s.distanceToNext
                                 + " curr=" + java.util.Arrays.toString(s.current);
                         writeDebugLog(line);
                     }
@@ -353,7 +361,52 @@ public final class CoreService extends Service {
     private String currentRoadName = null;
     private int currentIcon1 = 0, currentIcon2 = 0;
     private long currentDist = -1;
+    private long lastAaTbtTime = 0L;
     private volatile boolean mediaOsdActive = false;
+
+    private boolean isAaGuidanceActive() {
+        if (currentDist < 0 || currentIcon1 <= 0 || lastAaTbtTime <= 0L) return false;
+        if (SystemClock.elapsedRealtime() - lastAaTbtTime > AA_TBT_STALE_MS) {
+            resetAaState();
+            return false;
+        }
+        return true;
+    }
+
+    private void resetAaState() {
+        io.removeCallbacks(aaExpireRunnable);
+        currentIcon1 = 0;
+        currentIcon2 = 0;
+        currentDist = -1;
+        currentRoadName = null;
+        lastAaTbtTime = 0L;
+    }
+
+    private final Runnable aaExpireRunnable = new Runnable() {
+        public void run() {
+            if (currentDist < 0 && currentIcon1 <= 0) return;
+            resetAaState();
+            if (!refreshOwnership()) return;
+            try {
+                if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                if (session != null && session.hasActiveGuidance()) {
+                    clearHighwayMode(cluster);
+                    cluster.updateTPCrossroadName(crossroadName(""));
+                    session.invalidateOutput();
+                    session.retryOutput();
+                } else {
+                    cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
+                    if (!mediaOsdActive) {
+                        cluster.updateTPTurnListNew(TurnFrame.clear());
+                        cluster.updateTPCrossroadName(crossroadName(""));
+                    }
+                    clearHighwayMode(cluster);
+                    cluster.updateLaneInfo(LaneFrame.clear());
+                }
+                writeDebugLog("AA_TBT: expired stale state");
+            } catch (Throwable e) { outputError(e); }
+        }
+    };
 
     private static NavigationCluster.CrossroadName crossroadName(String name) {
         NavigationCluster.CrossroadName cr = new NavigationCluster.CrossroadName();
@@ -374,10 +427,12 @@ public final class CoreService extends Service {
                         line += " - " + artist.trim();
                     }
                     mediaOsdActive = true;
-                    int icon = currentIcon1 > 0 ? currentIcon1 : 0x41;
-                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, currentIcon2}, line));
+                    boolean aaActive = isAaGuidanceActive();
+                    int icon = aaActive ? currentIcon1 : 0x41;
+                    int second = aaActive ? currentIcon2 : 0;
+                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, second}, line));
                     cluster.updateTPCrossroadName(crossroadName(line));
-                    writeDebugLog("MEDIA_OSD: " + line);
+                    writeDebugLog("MEDIA_OSD: shown");
                     io.removeCallbacks(restoreNaviRunnable);
                     io.postDelayed(restoreNaviRunnable, 3000);
                 } catch (Throwable e) { outputError(e); }
@@ -391,18 +446,19 @@ public final class CoreService extends Service {
             if (!refreshOwnership()) return;
             try {
                 if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                if (currentDist >= 0 && currentIcon1 > 0) {
-                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{currentIcon1, currentIcon2}, currentRoadName));
-                    cluster.updateTPCrossroadName(crossroadName(currentRoadName));
-                } else if (session != null && session.hasActiveGuidance()) {
+                if (session != null && session.hasActiveGuidance()) {
+                    resetAaState();
                     cluster.updateTPCrossroadName(crossroadName(""));
                     session.invalidateOutput();
                     session.retryOutput();
+                } else if (isAaGuidanceActive()) {
+                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{currentIcon1, currentIcon2}, currentRoadName));
+                    cluster.updateTPCrossroadName(crossroadName(currentRoadName));
                 } else {
                     cluster.updateTPTurnListNew(TurnFrame.clear());
                     cluster.updateTPCrossroadName(crossroadName(""));
                 }
-                writeDebugLog("MEDIA_OSD: restored navi road=" + currentRoadName);
+                writeDebugLog("MEDIA_OSD: restored navi");
             } catch (Throwable e) { outputError(e); }
         }
     };
@@ -459,20 +515,31 @@ public final class CoreService extends Service {
                 if (!refreshOwnership()) return;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    currentIcon1 = icon;
-                    currentIcon2 = secondIcon;
-                    currentDist = dist;
-                    currentRoadName = road;
                     if (dist < 0 || icon <= 0) {
-                        cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
-                        if (!mediaOsdActive) {
-                            cluster.updateTPTurnListNew(TurnFrame.clear());
+                        resetAaState();
+                        if (session != null && session.hasActiveGuidance()) {
+                            clearHighwayMode(cluster);
                             cluster.updateTPCrossroadName(crossroadName(""));
+                            session.invalidateOutput();
+                            session.retryOutput();
+                        } else {
+                            cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
+                            if (!mediaOsdActive) {
+                                cluster.updateTPTurnListNew(TurnFrame.clear());
+                                cluster.updateTPCrossroadName(crossroadName(""));
+                            }
+                            clearHighwayMode(cluster);
+                            cluster.updateLaneInfo(LaneFrame.clear());
                         }
-                        clearHighwayMode(cluster);
-                        cluster.updateLaneInfo(LaneFrame.clear());
                         writeDebugLog("AA_TBT: cleared");
                     } else {
+                        currentIcon1 = icon;
+                        currentIcon2 = secondIcon;
+                        currentDist = dist;
+                        currentRoadName = road;
+                        lastAaTbtTime = SystemClock.elapsedRealtime();
+                        io.removeCallbacks(aaExpireRunnable);
+                        io.postDelayed(aaExpireRunnable, AA_TBT_STALE_MS);
                         cluster.updateTBTInfo(icon, secondIcon, 0f, (float)dist, 0, secondIcon, 0, 0, 0);
                         if (!mediaOsdActive) {
                             cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
@@ -494,7 +561,7 @@ public final class CoreService extends Service {
                         }
                         writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
                                 + " 2nd=0x" + Integer.toHexString(secondIcon)
-                                + " dist=" + dist + "m road='" + (road == null ? "" : road) + "'");
+                                + " dist=" + dist + "m");
                     }
                 } catch (Throwable e) { outputError(e); }
             }
@@ -568,9 +635,16 @@ public final class CoreService extends Service {
     }
 
     private void handleAaClient(LocalSocket client) {
+        if (client == null) return;
         try {
+            client.setSoTimeout(AA_SOCKET_TIMEOUT_MS);
+            Credentials creds = client.getPeerCredentials();
+            int uid = creds != null ? creds.getUid() : -1;
+            if (uid != 0 && uid != 1000 && uid != Process.myUid()) {
+                return;
+            }
             java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(client.getInputStream(), "UTF-8"));
+                    new java.io.InputStreamReader(client.getInputStream(), "UTF-8"), 1024);
             String line;
             String road = null, desc = null;
             long dist = -1;
@@ -580,7 +654,9 @@ public final class CoreService extends Service {
             int laneCount = 0;
             int[] laneDirs = null;
             boolean[] laneRec = null;
-            while ((line = reader.readLine()) != null) {
+            int linesRead = 0;
+            while (linesRead < AA_SOCKET_MAX_LINES && (line = reader.readLine()) != null) {
+                linesRead++;
                 line = line.trim();
                 if (line.isEmpty()) break;
                 if (line.startsWith("ROAD:")) road = line.substring(5).trim();
@@ -614,7 +690,6 @@ public final class CoreService extends Service {
                 }
                 else if (line.equalsIgnoreCase("CLEAR")) clear = true;
             }
-            client.close();
             if (mediaTrack != null) {
                 renderMediaOsd(mediaTrack, mediaArtist);
             }
@@ -637,6 +712,9 @@ public final class CoreService extends Service {
                 }
                 renderAaTbt(icon, second, dist, road);
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {
+        } finally {
+            try { client.close(); } catch (Throwable ignored) {}
+        }
     }
 }

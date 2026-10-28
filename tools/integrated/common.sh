@@ -27,6 +27,7 @@ if [ -f GEN5W-BACKEND ]; then
 fi
 if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
     IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
+    ALL_IDS="$IDS gen5w.kr.consent"
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
 REVERSE='gen5w.kr.notice gen5w.kr.consent gen5w.kr.core gen5w.kr.bridge gen5w.kr.hotspot gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
@@ -283,31 +284,16 @@ install_transaction() {
         fi
         : > "$TX/attempt.$id"; sync
         safe_remove "$id" || {
-            if [ "$id" = gen5w.kr.hotspot ]; then
-                result "$id" skipped
-                report "SKIPPED $id: safe_remove failed; continuing with core/HUD"
-                continue
-            fi
             result "$id" failed; rollback_transaction; return 1;
         }
         "$NEM" install "$(pwd)/packages/$id.zip"
         rc=$?
         if [ "$rc" != 0 ] || [ ! -f "$APPS/$id/NEMESIS.data" ]; then
-            if [ "$id" = gen5w.kr.hotspot ]; then
-                result "$id" skipped
-                report "SKIPPED $id: package install failed rc=$rc; continuing with core/HUD"
-                continue
-            fi
             result "$id" failed
             report "FAILED $id rc=$rc"
             rollback_transaction; return 1
         fi
         hook "$id" postinstall || {
-            if [ "$id" = gen5w.kr.hotspot ]; then
-                result "$id" skipped
-                report "SKIPPED $id: postinstall hook failed; continuing with core/HUD"
-                continue
-            fi
             result "$id" failed; report "FAILED postinstall $id"; rollback_transaction; return 1;
         }
         if [ "$id" = gen5w.kr.bridge ] && [ -f "$WIRELESS_OFF" ]; then result "$id" wired-only

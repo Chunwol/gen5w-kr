@@ -29,7 +29,7 @@ echo 'exit 0' >> "$W/bin/sync"
 chmod +x "$W/bin/sync"
 python3 - "$W/usb/packages" <<'PY'
 import zipfile,sys,hashlib,pathlib
-for m in ['wireless','audio','hotspot','bridge','core','notice']:
+for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
  with zipfile.ZipFile(sys.argv[1]+'/gen5w.kr.'+m+'.zip','w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+m+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
   z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
@@ -84,8 +84,11 @@ printf '[nemesis]\nid=gen5w.kr.consent\npreuninstall=scripts/preun.sh\n' > "$W/d
 echo 'exit 1' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
 check 'consent skip removal failure refuses transaction' eval '! run update'
 check 'consent skip removal failure reported' grep -q 'FAILED restoring previous notice-disabling package gen5w.kr.consent' "$W/out"
-rm -rf "$W/data/nemesis/apps/gen5w.kr.consent"
+echo 'exit 0' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
 check 'rollback after consent removal failure' run rollback
+echo 'exit 0' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
+check 'clean update after fixing consent preuninstall removes consent' run update
+check 'six modules remain after consent cleanup' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 echo usb > "$W/usb/GEN5W-BACKEND"
 check 'unavailable USB backend is refused before transaction mutation' eval '! run update'
 check 'backend refusal preserves installed modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
@@ -113,6 +116,23 @@ unset IT_FAIL
 check 'prior core retained after failure' grep -qx original "$W/data/nemesis/apps/gen5w.kr.core/old.txt"
 check 'failed update shown as restored' grep -q '실패 후 이전 상태로 원복' "$W/usb/GEN5W-REPORT/RESULT.md"
 check 'explicit rollback' run rollback
+echo hotspot_old > "$W/data/nemesis/apps/gen5w.kr.hotspot/old.txt"
+export IT_FAIL=gen5w.kr.hotspot
+check 'hotspot install failure rolls back instead of skipping' eval '! run update'
+unset IT_FAIL
+check 'prior hotspot retained after failure' grep -qx hotspot_old "$W/data/nemesis/apps/gen5w.kr.hotspot/old.txt"
+echo dongle > "$W/usb/GEN5W-VARIANT"
+check 'dongle variant installs seven modules' run update
+check 'dongle variant registers dongle module' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
+check 'dongle variant reports dongle feature' grep -q 'USB Wi-Fi 동글 드라이버·HAL' "$W/usb/GEN5W-REPORT/RESULT.md"
+echo dongle_old > "$W/data/nemesis/apps/gen5w.kr.dongle/old.txt"
+export IT_FAIL=gen5w.kr.core
+check 'dongle variant update failure rolls back dongle' eval '! run update'
+unset IT_FAIL
+check 'prior dongle retained after rollback' grep -qx dongle_old "$W/data/nemesis/apps/gen5w.kr.dongle/old.txt"
+rm -f "$W/usb/GEN5W-VARIANT"
+rm -rf "$W/data/nemesis/apps/gen5w.kr.dongle"
+check 'return to standard variant six modules' run update
 export IT_PRE_FAIL=gen5w.kr.audio
 check 'explicit preinstall refusal reported' eval '! run update'
 unset IT_PRE_FAIL
@@ -190,8 +210,10 @@ echo DO_NOT_COLLECT_PRIVATE_LOG > "$W/data/nemesis/gen5w.kr.hotspot.log"
 check 'status creates current support document' run status
 check 'support document excludes raw logs' eval '! grep -q DO_NOT_COLLECT_PRIVATE_LOG "$W/usb/GEN5W-REPORT/ISSUE.md"'
 mkdir -p "$W/data/data/kr.gen5w.core/files"
+echo "PRIVATE_ROUTE_NAME" > "$W/data/data/kr.gen5w.core/files/navi-debug.log"
 echo APIS_PRESENT_SOURCE_UNOBSERVED > "$W/data/data/kr.gen5w.core/files/hud-native-warning.status"
 check 'status includes honest native warning capability' run status
+check 'navi-debug.log is never copied to public USB report' test ! -e "$W/usb/GEN5W-REPORT/navi-debug.log"
 check 'native warning is never reported as proven live output' grep -q '순정 경고 API 확인 · CarPlay 중 표시 미확인' "$W/usb/GEN5W-REPORT/RESULT.html"
 echo DO_NOT_COLLECT_PRIVATE_WARNING > "$W/data/data/kr.gen5w.core/files/hud-native-warning.status"
 check 'unrecognized private warning file is ignored' run status

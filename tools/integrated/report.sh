@@ -1,12 +1,13 @@
 # Fixed allowlist only. No raw logs, phone identifiers or hotspot credentials.
 result() {
-    case "$1" in gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.notice|gen5w.kr.consent)
+    case "$1" in gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.notice|gen5w.kr.consent)
         echo "$2" > "$TX/result.$1";;
     esac
 }
 reset_results() { rm -f "$TX"/result.* "$TX/failure" "$TX/recovery-mode"; }
 feature_name() {
     case "$1" in
+        gen5w.kr.dongle) echo 'USB Wi-Fi 동글 드라이버·HAL';;
         gen5w.kr.wireless) echo '무선 연결·핫스팟 설정';;
         gen5w.kr.audio) echo '무선 음악·안내 음성';;
         gen5w.kr.hotspot) echo '핫스팟 이름·접속 정보 맞춤';;
@@ -188,7 +189,6 @@ write_summary() {
         cat "$destination/RESULT.md.tmp" | html_escape
         echo '</pre><p><a href="ISSUE.md">이슈 첨부용 문서</a> · <a href="https://github.com/Chunwol/gen5w-kr/issues/new/choose">문제 신고</a></p></html>'
     } > "$destination/RESULT.html.tmp" || return 1
-    [ -f "$DATA/data/kr.gen5w.core/files/navi-debug.log" ] && cp -f "$DATA/data/kr.gen5w.core/files/navi-debug.log" "$destination/navi-debug.log" 2>/dev/null || true
     for file in RESULT.md ISSUE.md RESULT.html; do mv "$destination/$file.tmp" "$destination/$file" || return 1; done
     cat "$destination/RESULT.md"
     echo 'USB의 GEN5W-REPORT/RESULT.html에서 한눈에 확인하고, ISSUE.md를 검토 후 이슈에 첨부하세요.'
