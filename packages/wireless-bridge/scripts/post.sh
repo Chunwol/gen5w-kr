@@ -13,7 +13,7 @@ if [ "$BRIDGE_STATE" = stock ]; then
     "$TOOL" apply "$STATE/original" "$STATE/replacement" && patched "$STATE/replacement" || { restore_target; exit 1; }
     replace_target "$STATE/replacement" patched "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || { restore_target; exit 1; }
 fi
-if [ "$DIPO_STATE" = stock ]; then
+if [ "$DIPO_STATE" != patched ]; then
     [ ! -L "$STATE/diporeplacement" ] || { restore_target; exit 1; }
     rm -f "$STATE/diporeplacement" || { restore_target; exit 1; }
     if ! { "$DIPO_TOOL" apply "$STATE/dipooriginal" "$STATE/diporeplacement" && dipo_patched "$STATE/diporeplacement" &&

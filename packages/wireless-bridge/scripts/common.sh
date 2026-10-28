@@ -22,6 +22,15 @@ original() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" original "$1"; }
 patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
 dipo_original() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" original "$1"; }
 dipo_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" patched "$1"; }
+dipo_previous() {
+    typeset previous_sha
+    case "$VERSION" in
+        v035) previous_sha=${BRIDGE_DIPO_PREVIOUS_V035_SHA:-};;
+        v039) previous_sha=${BRIDGE_DIPO_PREVIOUS_V039_SHA:-};;
+        *) return 1;;
+    esac
+    [ -n "$previous_sha" ] && [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" verify "$1" "$previous_sha"
+}
 gpm_original() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" original "$1"; }
 gpm_patched() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" patched "$1"; }
 owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/owner")" = "$OWNER" ]; }
@@ -65,6 +74,7 @@ inspect() {
     else log 'FAIL bridge: owned target changed'; return 1; fi
     if dipo_original "$DIPO_TARGET"; then DIPO_STATE=stock
     elif dipo_patched "$DIPO_TARGET"; then DIPO_STATE=patched
+    elif dipo_previous "$DIPO_TARGET"; then DIPO_STATE=previous
     else
         log 'SKIP bridge: unknown or mismatched DiPO ODEX'
         [ "$BRIDGE_OWNED" = no ] && return 77
@@ -109,7 +119,7 @@ inspect() {
             fi
         fi
     fi
-    if [ "$BRIDGE_STATE" = patched ] || [ "$DIPO_STATE" = patched ]; then
+    if [ "$BRIDGE_STATE" = patched ] || [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = previous ]; then
         [ "$BRIDGE_OWNED" = yes ] && original "$STATE/original" && dipo_original "$STATE/dipooriginal" || { log 'FAIL bridge: patch lacks owned original pair'; return 1; }
     fi
     if [ "$GPM_STATE" = patched ]; then
@@ -187,7 +197,7 @@ restore_target() {
             replace_target "$STATE/original" original "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || restore_rc=1
     fi
     if ! dipo_original "$DIPO_TARGET"; then
-        dipo_patched "$DIPO_TARGET" && dipo_original "$STATE/dipooriginal" &&
+        { dipo_patched "$DIPO_TARGET" || dipo_previous "$DIPO_TARGET"; } && dipo_original "$STATE/dipooriginal" &&
             replace_target "$STATE/dipooriginal" original "$DIPO_TARGET" "$DIPO_TOOL" "$STATE/dipooriginal" "$STATE/dipostaging" || restore_rc=1
     fi
     if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && ! gpm_original "$GPM_TARGET"; then

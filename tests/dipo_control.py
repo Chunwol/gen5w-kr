@@ -9,7 +9,7 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools/iap2'))
-from dipo_patch import dispatch_words, locate_body, make_recipe, ACTION, NEXT_ACTION
+from dipo_patch import dispatch_words, locate_body, make_recipe, ACTION, NEXT_ACTION, call_fallback, CALL_MARKER
 
 
 class DispatchTest(unittest.TestCase):
@@ -53,6 +53,39 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaises(ValueError): locate_body(words, [ACTION, NEXT_ACTION])
 
 
+class CallFallbackTest(unittest.TestCase):
+    def fixture(self):
+        # Authored synthetic method, not copied stock code.
+        words = [0x001a, 0, 0x002b, 18, 0, 0x0029, 14,
+                 0x0062, 0, 0x30f8, 193, 0x408,
+                 0x0062, 0, 0x30f8, 193, 0x508, 0x0029, 2, 0x000e,
+                 0x0100, 4, 0, 0, 5, 0, 5, 0, 5, 0, 5, 0]
+        return words, [CALL_MARKER], ['Lcom/daudio/app/dipo/telechips/CarPlayTelephony;->HookSwitch:Lcom/daudio/app/dipo/telechips/CarPlayTelephony;']
+
+    def test_only_missing_state_falls_through(self):
+        words, strings, fields = self.fixture()
+        pc, replacement = call_fallback(words, strings, fields)
+        self.assertEqual(pc, 5)
+        self.assertEqual(replacement, [0x003b, 14]) # if-gez v0, existing return
+        for state in (-1, -2, 0, 1, 2, 3, 4, 99):
+            # Packed-switch keeps 0..3 on its original case table.
+            target = 'stock' if 0 <= state <= 3 else ('hook' if state < 0 else 'return')
+            reached = pc + replacement[1] if state >= 0 else pc + 2
+            actual = 'stock' if 0 <= state <= 3 else ('return' if words[reached] == 0x000e else 'hook')
+            self.assertEqual(actual, target)
+        changed = words[:]; changed[pc:pc+2] = replacement
+        self.assertEqual(len(changed), len(words))
+        self.assertEqual(changed[:pc], words[:pc])
+        self.assertEqual(changed[pc+2:], words[pc+2:])
+
+    def test_unknown_layout_rejected(self):
+        for index, value in [(6, 3), (8, 1), (20, 0x0200), (21, 3), (22, 1), (24, 4)]:
+            words, strings, fields = self.fixture(); words[index] = value
+            with self.assertRaises(ValueError): call_fallback(words, strings, fields)
+        words, strings, fields = self.fixture()
+        with self.assertRaises(ValueError): call_fallback(words, ['different marker'], fields)
+
+
 def private_check(path):
     raw = path.read_bytes()
     recipe, changed = make_recipe(raw)
@@ -81,6 +114,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--stock', action='append', type=Path, default=[])
     args = parser.parse_args()
-    result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(DispatchTest))
+    result = unittest.TextTestRunner().run(unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in (DispatchTest, CallFallbackTest)]))
     if not result.wasSuccessful(): sys.exit(1)
     for path in args.stock: private_check(path)

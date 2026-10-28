@@ -11,6 +11,7 @@ printf 'apk035\n' > "$W/fixture/v035-apk"; printf 'apk039\n' > "$W/fixture/v039-
 for version in v035 v039; do
     echo "dipo-$version-original" > "$W/fixture/dipo-$version-original"
     echo "dipo-$version-patched" > "$W/fixture/dipo-$version-patched"
+    echo "dipo-$version-previous" > "$W/fixture/dipo-$version-previous"
     echo "dipo-$version-apk" > "$W/fixture/dipo-$version-apk"
 done
 echo "gpm-v039-original" > "$W/fixture/gpm-v039-original"
@@ -22,6 +23,8 @@ BRIDGE_APK_V039_SHA=v039-apk
 BRIDGE_DIPO_APK_V035_SHA=dipo-v035-apk
 BRIDGE_DIPO_APK_V039_SHA=dipo-v039-apk
 BRIDGE_GPM_APK_V039_SHA=gpm-v039-apk
+BRIDGE_DIPO_PREVIOUS_V035_SHA=dipo-v035-previous
+BRIDGE_DIPO_PREVIOUS_V039_SHA=dipo-v039-previous
 EOF
 for version in v035 v039; do
 cat > "$W/pkg/bin/iap2-patch-$version" <<'EOF'
@@ -227,4 +230,20 @@ cp "$W/fixture/dipo-v039-patched" "$DIPO"
 check 'cleanup foreign fixture' run preun
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 run pre; rc=$?; check 'crossversion pair skipped' test "$rc" = 77
+# Upgrade from the exact previous DiPO output, retaining its owned original.
+cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+check 'prepare owned previous patch' run post
+cp "$W/fixture/dipo-v039-previous" "$DIPO"
+check 'previous DiPO accepted at preflight' run pre
+check 'previous DiPO upgraded from original backup' run post
+check 'upgrade produces current DiPO' cmp -s "$DIPO" "$W/fixture/dipo-v039-patched"
+check 'upgrade preserves stock backup' cmp -s "$PERSIST/dipooriginal" "$W/fixture/dipo-v039-original"
+cp "$W/fixture/dipo-v039-previous" "$DIPO"
+check 'previous DiPO can be restored directly' run preun
+check 'previous restore is stock exact' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
+cp "$W/fixture/dipo-v039-previous" "$DIPO"
+if run post; then bad 'unowned previous DiPO refused'; else ok 'unowned previous DiPO refused'; fi
+check 'unowned previous creates no backup' test ! -d "$PERSIST"
+
 done_tests bridge

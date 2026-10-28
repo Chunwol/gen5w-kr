@@ -29,3 +29,5 @@ KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜
 또한 Android Auto(AA)는 순정 Google Projection 모듈(`/system/app/HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `wireless-bridge`의 `gpm-patch-v039`로 우회하여, Google 표준 계기판 턴바이턴 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 차량 네이티브 수준에서 활성화합니다. 순정 `GpmNaviTBTManager`는 회전 이벤트(`onNextTurn`)와 거리 이벤트(`onNextTurnDistance`)를 직접 `NavigationCluster`로 전달합니다. 이와 별개로 `CoreService`는 보조 외부 입력 인터페이스(`kr.gen5w.action.AA_TBT`, `kr.gen5w.action.AA_LANE`, `gen5wkr.aa.tbt` 로컬 소켓)를 제공하여, 외부 브리지나 보조 송신기가 연결된 경우 한국 도로 어휘 보정(`ClusterIcon.refineManeuver`)과 단순 차선 프레임(`LaneFrame.encodeSimple`)을 렌더링할 수 있습니다(순정 `HKMC_GPM` 단독 실행 시에는 `GpmNaviTBTManager`의 기본 TBT 경로로 동작합니다).
 
 순정 내비 안내 중에는 CarPlay HUD 출력을 양보합니다. 상태 조회가 실패해도 출력·지우기를 보류하고, 안내 종료 후 최신 CarPlay 정보를 다시 전송합니다. 앱은 순정 내비의 음소거를 변경하지 않습니다. 과속·카메라 경고의 동시 표출은 실차 확인 대상입니다. [HUD 우선순위](hud-ownership.md)와 [V039 코드 대조 결과](v039-cluster-review.md)를 참고하세요.
+
+핸들 통화 버튼의 보완 범위와 확인 항목은 [CarPlay 핸들 통화 버튼](wireless-call-button.md)을 참고하세요.

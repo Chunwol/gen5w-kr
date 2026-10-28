@@ -1,6 +1,6 @@
 """Generate an authored dispatch inside one stock DiPO receiver branch.
 
-Only the body after the existing wireless action comparison changes. Receiver
+The existing wireless action body and one missing-call-state branch change. Receiver
 registration, comparison, other actions, stock creation/start methods and native
 transport logic remain byte-identical. OEM bytes are never emitted in a recipe.
 """
@@ -16,6 +16,7 @@ ACTION = 'com.daudio.app.dipo.carplaymagiccode.wireless'
 NEXT_ACTION = 'com.daudio.app.dipo.carplaymagiccode.routeguidance'
 RECEIVER = 'Lcom/daudio/app/dipo/service/y;'
 SERVICE = 'Lcom/daudio/app/dipo/service/DipoService;'
+CALL_MARKER = "onKeyForService() performPhoneKey Call Key - hasn't PTTKey during CarPlay Calling"
 
 
 def instructions(words):
@@ -91,6 +92,39 @@ def dispatch_words(receiver, field, start_method, capacity):
     return words + [0] * (capacity - len(words))
 
 
+def call_fallback(words, strings, fields):
+    """Replace only the no-PTT call-state default with an authored if-gez.
+
+    Normal 0..3 switch cases keep their original targets. Negative (missing)
+    state falls through to the existing HookSwitch press/release block; unknown
+    nonnegative states still return. No relocation or register changes.
+    """
+    decoded = instructions(words)
+    markers = [pc for pc, op, _ in decoded if op == 0x1a and strings[words[pc+1]] == CALL_MARKER]
+    if len(markers) != 1: raise ValueError('missing unique no-PTT call marker')
+    switches = [pc for pc, op, _ in decoded if op == 0x2b and pc > markers[0]]
+    if len(switches) != 1: raise ValueError('unsupported no-PTT call switches')
+    pc = switches[0]
+    payload = pc + signed(words[pc+1] | words[pc+2] << 16, 32)
+    if payload < 0 or payload+12 > len(words) or list(words[payload:payload+4]) != [0x100, 4, 0, 0]:
+        raise ValueError('unsupported call-state table')
+    branch = pc+3
+    if words[branch] != 0x29: raise ValueError('expected two-word call default goto')
+    end = branch + signed(words[branch+1], 16)
+    if not 0 <= end < len(words) or words[end] != 0x000e: raise ValueError('call default must return')
+    target = pc + signed(words[payload+4] | words[payload+5] << 16, 32)
+    if target != branch+2: raise ValueError('HookSwitch case is not adjacent')
+    hook = 'Lcom/daudio/app/dipo/telechips/CarPlayTelephony;->HookSwitch:Lcom/daudio/app/dipo/telechips/CarPlayTelephony;'
+    for start in (target, target+5):
+        if words[start] != 0x62 or words[start+1] >= len(fields) or fields[words[start+1]] != hook:
+            raise ValueError('call fallback does not load HookSwitch')
+        if words[start+2] != 0x30f8: raise ValueError('unsupported telephony invocation')
+    if words[target+3] != words[target+8] or words[target+4] != 0x408 or words[target+9] != 0x508:
+        raise ValueError('HookSwitch press/release registers differ')
+    if words[pc] >> 8 != 0: raise ValueError('unsupported call-state register')
+    return branch, [0x003b, words[branch+1]] # if-gez v0, original return
+
+
 def make_recipe(raw):
     dex = Dex(raw)
     name = RECEIVER + '->onReceive(Landroid/content/Context;Landroid/content/Intent;)V'
@@ -110,8 +144,16 @@ def make_recipe(raw):
     own = dispatch_words(registers - ins, field, start_method, end - begin)
     body = struct.pack('<' + 'H' * len(own), *own)
     absolute = dex.base + offset + 16 + begin * 2
-    recipe,result=finalize(raw,dex,[(absolute,body)],[RECEIVER])
-    recipe['id']='dipo-wireless-start-1'
+    call_offset = dex.code[SERVICE + '->i(II)V'][0]
+    call_registers, call_ins, _, call_tries, _, call_count = struct.unpack_from('<HHHHII', dex.data, call_offset)
+    if (call_registers, call_ins, call_tries) != (11, 3, 0):
+        raise ValueError('unsupported call key frame')
+    call_words = struct.unpack_from('<'+'H'*call_count, dex.data, call_offset+16)
+    call_pc, own_branch = call_fallback(call_words, dex.strings, dex.fields)
+    call_absolute = dex.base+call_offset+16+call_pc*2
+    recipe,result=finalize(raw,dex,[(absolute,body),
+        (call_absolute,struct.pack('<HH',*own_branch))],[RECEIVER,SERVICE])
+    recipe['id']='dipo-wireless-start-call-2'
     return recipe,result
 
 
