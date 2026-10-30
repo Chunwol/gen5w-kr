@@ -9,8 +9,14 @@ done
 for f in $(find packages probe/package probe/usb tools -name '*.sh' -o -name '*.data' -o -name '*.xml'); do
     grep -q $'\r' "$f" && { echo "FAIL CRLF in $f"; rc=1; }
 done
-for t in tests/notice.sh tests/legacy-notice.sh tests/detect.sh tests/collect.sh tests/wireless.sh tests/hotspot.sh tests/hotspot_profile.sh tests/core.sh tests/recovery.sh tests/audio.sh tests/bridge.sh tests/dongle.sh tests/integrated-zip.sh tests/integrated-build.sh tests/integrated.sh tests/fat32-integrated.sh; do bash "$t" || rc=1; done
-for t in tests/iap2_control.py tests/dipo_control.py tests/gpm_control.py tests/dongle_runtime.py tests/core_lifecycle.py tests/notice.py tests/hotspot_profile.py; do python3 "$t" || rc=1; done
+for t in tests/notice.sh tests/legacy-notice.sh tests/detect.sh tests/collect.sh tests/wireless.sh tests/hotspot.sh tests/hotspot_profile.sh tests/core.sh tests/recovery.sh tests/audio.sh tests/bridge.sh tests/dongle.sh tests/bootguard.sh tests/bootguard-runtime.sh tests/integrated-zip.sh tests/integrated-build.sh tests/integrated.sh tests/fat32-integrated.sh; do bash "$t" || rc=1; done
+python_tests="tests/iap2_control.py tests/dipo_control.py tests/gpm_control.py tests/dongle_runtime.py tests/notice.py tests/hotspot_profile.py tests/fastboot_recovery.py tests/recovery_usb.py"
+if command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1; then
+    python_tests="$python_tests tests/core_lifecycle.py"
+else
+    echo "SKIP core_lifecycle.py (need both javac and java)"
+fi
+for t in $python_tests; do python3 "$t" || rc=1; done
 
 echo "== JVM tests (HUD and probe)"
 bash tests/java.sh

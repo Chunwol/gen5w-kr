@@ -34,6 +34,7 @@ fi
 patched "$TARGET" && dipo_patched "$DIPO_TARGET" && { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || { restore_target; exit 1; }
 rm -f "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" || exit 1
 [ ! -L "$STOPPING" ] && rm -f "$STOPPING" || exit 1
+wipe_dalvik || { restore_target || log 'FAIL bridge: cache cleanup failed; originals retained'; exit 1; }
 sync
 sys_ro || exit 1
 trap - EXIT

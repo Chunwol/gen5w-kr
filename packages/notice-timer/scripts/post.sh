@@ -27,6 +27,7 @@ if [ "$NOTICE_STATE" = stock ]; then
     fi
 fi
 rm -f "$STATE/replacement" || exit 1
+wipe_dalvik || { restore_target || log 'FAIL notice: cache cleanup failed; backups retained'; exit 1; }
 sync
 sys_ro || exit 1
 trap - EXIT

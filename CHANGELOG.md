@@ -1,5 +1,22 @@
 # 변경 내역
 
+## v0.2.2
+
+### 부트루프 자동 복구 (gen5wkr.bootguard)
+- 설치 완료를 기록하기 전에 `gen5wkr.bootguard`를 원자적으로 무장(`armed`/`count`/`max`)하고, 무장 실패 시 커밋·재부팅을 진행하지 않음(fail-closed)
+- 매 부팅 시도를 세고(boot-id로 중복 방지), `sys.boot_completed` 미도달이 설치 때 무장한 한도를 넘으면 boot-critical ODEX(`services`/`SystemUI`/`Iap2ServerApp`/`HKMC_DiPO`/`HKMC_GPM`)와 `libCarPlayAudio.so`를 순정 백업으로 **바이트 비교 복원** + 해당 Dalvik 캐시 삭제 후 콜드부팅
+- 정상 부팅 완료 시 그 부팅의 연속 실패 카운터만 0으로, 가드는 다음 시동까지 무장 유지(사용 중 재부팅 뒤 다음 시동 반복 실패도 복구). 가드가 있는데 무장 안 됐으면 서비스 시작 거부
+- 복구 성공만 `recovered` 기록, 실패는 `recovery-required`로 추가 재부팅 중단
+- 검증: `tests/bootguard.sh`(복구·캐시 삭제·fail-closed), `tests/bootguard-runtime.sh`(카운트·한도·boot-id·mark-ok)
+
+### 복구·안전 문서
+- 설치 전 복구 준비 체크리스트 `docs/pre-install-recovery-checklist.md`(공식 SW USB + recovery 진입 확인이 소프트 벽돌 백스톱, HW/부트로더 손상은 물리 정비)
+- 부트 안전장치 추가 보강 계획 `docs/boot-safety-reinforcements.md`(R1 첫 콜드부팅 엄격화, R2 카운트 조기 훅, R3 provisional, R4 boot-critical 표면 축소; R2/R4는 미구현 명세)
+- `docs/boot-safety.md`, `docs/bootloader-recovery.md`(PC fastboot 복구 경로, 공개 패키지는 LK/부트로더 미변경)
+
+### 기타
+- 핫스팟 프로필·notice·bridge 서비스 경로 보강(진행 중 작업 포함)
+
 ## v0.2.1
 
 ### 안드로이드 오토 한국 특화 6대 도로유형 아이콘 보정 및 보조 입력 파이프라인 (Sec 4-1)

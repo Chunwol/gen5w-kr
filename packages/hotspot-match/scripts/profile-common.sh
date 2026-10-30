@@ -12,6 +12,23 @@ OWNER=gen5w.kr.hotspot:$PROFILE_RECIPE
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 
 log() { echo "$1"; }
+# Drop any stale optimized copy so the newly written /system framework ODEX is
+# the one the next boot loads. services.odex hosts a boot-critical system_server
+# class; a mismatched dalvik-cache entry can fail its load and loop the boot.
+DALVIK_ROOTS=${PROFILE_TEST_DALVIK:-"/data/dalvik-cache /data/dalvik-cache/arm /cache/dalvik-cache"}
+wipe_dalvik() {
+    local _d _f
+    for _d in $DALVIK_ROOTS; do
+        [ -d "$_d" ] || continue
+        [ ! -L "$_d" ] || return 1
+        for _f in "$_d"/*services*; do
+            [ -e "$_f" ] || continue
+            rm -f "$_f" || return 1
+            [ ! -e "$_f" ] || return 1
+        done
+    done
+    return 0
+}
 original() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" original "$1"; }
 patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
 owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/owner")" = "$OWNER" ]; }

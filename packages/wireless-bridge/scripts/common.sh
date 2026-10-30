@@ -18,6 +18,24 @@ STAGE=$TARGET.gen5w-kr-bridge.tmp
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 log() { echo "$1"; }
+# Drop any stale optimized copies so the newly written /system ODEX files are the
+# ones the next boot loads. A mismatched dalvik-cache entry can fail class load.
+DALVIK_ROOTS=${BRIDGE_TEST_DALVIK:-"/data/dalvik-cache /data/dalvik-cache/arm /cache/dalvik-cache"}
+wipe_dalvik() {
+    local _d _n _f
+    for _d in $DALVIK_ROOTS; do
+        [ -d "$_d" ] || continue
+        [ ! -L "$_d" ] || return 1
+        for _n in Iap2ServerApp HKMC_DiPO HKMC_GPM; do
+            for _f in "$_d"/*"$_n"*; do
+                [ -e "$_f" ] || continue
+                rm -f "$_f" || return 1
+                [ ! -e "$_f" ] || return 1
+            done
+        done
+    done
+    return 0
+}
 original() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" original "$1"; }
 patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
 dipo_original() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" original "$1"; }

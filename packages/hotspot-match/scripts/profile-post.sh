@@ -30,6 +30,7 @@ if [ "$PROFILE_STATE" = stock ]; then
 fi
 rm -f "$STATE/replacement" || exit 1
 clear_stop || exit 1
+wipe_dalvik || { restore_target || log 'FAIL hotspot: cache cleanup failed; backups retained'; exit 1; }
 sync
 sys_ro || exit 1
 trap - EXIT

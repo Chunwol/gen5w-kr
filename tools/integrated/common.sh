@@ -8,6 +8,7 @@ APPS=$DATA/nemesis/apps
 TX=$DATA/nemesis/gen5w-kr-integrated
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 WIRELESS_OFF=$DATA/nemesis/gen5wkr.wireless-disabled
+BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
 ALL_IDS="$IDS gen5w.kr.consent"
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS gen5w.kr.consent"
@@ -164,13 +165,65 @@ acquire() {
     echo $$ > "$TX/lock/pid"
     trap 'transaction_exit $?' EXIT
 }
+# A plain reboot lets the bootloader RESUME a QuickBoot snapshot. After we patch
+# boot-critical /system ODEX (services.odex, SystemUI.odex), resuming a snapshot
+# captured against the prior state loops system_server -- the observed "worked
+# once, bricked on the next reboot; rear camera and radio still fine" failure.
+# Force one full cold boot so the next boot rebuilds a fresh snapshot from a
+# consistent /system. Everyday QuickBoot resumes are unaffected (only this
+# post-install boot is cold, and that boot is slow anyway for dexopt).
+# VEHICLE-UNVERIFIED: the force-normal command path is not confirmed on a real
+# unit. Validate on the mock harness and one car before any production use.
+cold_reboot() {
+    sync
+    [ "${IT_NO_REBOOT:-0}" = 1 ] && return 0
+    [ -x /system/bin/d_audio ] && /system/bin/d_audio -c reboot force_normal 2>/dev/null && return 0
+    /system/bin/reboot force_normal 2>/dev/null
+    /system/bin/reboot
+}
+
+# Arm the boot-loop safety net before rebooting into patched /system. The runtime
+# service resets only the consecutive-failure count after sys.boot_completed; the
+# guard remains armed for a later ignition-cycle failure. If the unit fails to
+# boot IT_BOOTGUARD_MAX times, on-boot recovery restores stock from the on-unit
+# backups (etc/gen5w-kr-backup/*/original) and cold-boots. Uses only data already
+# on the unit, so no USB bundle is required to self-heal.
+bootguard_arm() {
+    local stage=$BOOTGUARD.tmp.$$ max=${IT_BOOTGUARD_MAX:-3}
+    case "$max" in ''|*[!0-9]*|0) return 1;; esac
+    [ ! -L "$BOOTGUARD" ] || return 1
+    [ ! -e "$BOOTGUARD" ] || [ -d "$BOOTGUARD" ] || return 1
+    [ "${IT_BOOTGUARD_FAIL:-0}" = 1 ] && return 1
+    rm -rf "$stage" 2>/dev/null || return 1
+    mkdir -p "$stage" || return 1
+    printf '0\n' > "$stage/count" || { rm -rf "$stage"; return 1; }
+    printf '%s\n' "$max" > "$stage/max" || { rm -rf "$stage"; return 1; }
+    printf 'armed\n' > "$stage/armed" || { rm -rf "$stage"; return 1; }
+    sync
+    rm -rf "$BOOTGUARD" 2>/dev/null || { rm -rf "$stage"; return 1; }
+    mv "$stage" "$BOOTGUARD" || { rm -rf "$stage"; return 1; }
+    if [ -f "$BOOTGUARD/armed" ] && [ -f "$BOOTGUARD/count" ] && [ -f "$BOOTGUARD/max" ]; then
+        return 0
+    fi
+    rm -rf "$BOOTGUARD" 2>/dev/null || true
+    return 1
+}
 finish() {
-    set_state committed || return 1
+    bootguard_arm || {
+        report 'FAILED boot-loop guard: refusing to commit or reboot'
+        rollback_transaction || report 'RECOVERY REQUIRED: boot-loop guard could not be armed'
+        return 1
+    }
+    set_state committed || {
+        rm -rf "$BOOTGUARD" 2>/dev/null || true
+        rollback_transaction || report 'RECOVERY REQUIRED: commit state could not be written'
+        return 1
+    }
     rm -f "$NOREBOOT"
     report 'COMMITTED: module hooks checked; vehicle audio/HUD/connection test pending'
     write_summary || echo '결과 문서를 USB에 저장하지 못했습니다. Manager 로그를 확인하세요.'
     sync
-    [ "${IT_NO_REBOOT:-0}" = 1 ] || /system/bin/reboot
+    [ "${IT_NO_REBOOT:-0}" = 1 ] || cold_reboot
 }
 begin() {
     local state= id
