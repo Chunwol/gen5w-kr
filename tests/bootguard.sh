@@ -90,6 +90,9 @@ printf 'unrelated\n' > "$W/integrated/checks/gen5w.kr.hotspot/unrelated"
 (cd "$W/integrated/checks/gen5w.kr.hotspot" && md5sum unrelated > FILES.md5)
 check 'bootguard arm rejects unlisted verifier' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
 (cd "$W/integrated/checks/gen5w.kr.hotspot" && md5sum bin/hotspot-patch-v039 >> FILES.md5)
+printf 'junk\n' > "$W/integrated-system/framework/services.odex"
+check 'bootguard arm refuses an unrecognised stock target' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
+printf 'stock-services\n' > "$W/integrated-system/framework/services.odex"
 check 'bootguard arm retains listed verifier' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"
 check 'retained verifier matches package' cmp -s "$W/integrated/checks/gen5w.kr.hotspot/bin/hotspot-patch-v039" "$W/integrated-data/nemesis/gen5wkr.bootguard/verifiers/hotspot-v039"
 

@@ -40,6 +40,19 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 
 다른 설치 ZIP에서도 `GEN5W-ACTION`에 `check`를 적으면 같은 점검을 실행합니다.
 
+### 보고서 가드 (안전판·무선 안전판)
+
+`gen5w-kr-safe.zip`과 `gen5w-kr-safe-wireless.zip`은 점검 보고서가 있어야만 설치합니다. 설치·업데이트를 시작하면 아무것도 바꾸기 전에 같은 점검을 다시 실행해 `GEN5W-REPORT/CHECK.txt`와 비교합니다.
+
+- 보고서가 없으면 거부합니다.
+- 보고서의 판정이 "설치 가능"이 아니거나, 지금 다시 점검한 판정이 "설치 가능"이 아니면 거부합니다.
+- 점검 USB와 설치 ZIP의 빌드(`BUILD-REVISION`)가 다르면 거부합니다. 같은 빌드에서 나온 두 ZIP만 함께 씁니다.
+- 펌웨어·대상 파일 6개의 순정 판정과 해시·기능 선언 파일·NEMESIS 패키지 목록·이전 설치·부트가드 상태가 한 줄이라도 다르면 거부하고 `MISMATCH` 줄로 어긋난 값을 기록합니다.
+- Wi-Fi 전원·빈 공간·부팅 횟수처럼 수시로 바뀌는 값은 비교하지 않습니다.
+- 설치가 실패해 되돌린 뒤에는 이전 설치 상태가 바뀌므로 점검을 다시 실행해야 합니다.
+
+순서: `gen5w-kr-check.zip` 내용을 USB 최상위에 풀어 실행 → USB의 `GEN5W-REPORT` 폴더는 그대로 두고 설치 ZIP 내용을 같은 USB 최상위에 덮어 풀기 → 설치 실행.
+
 ## 무선 안전판 (safe-wireless)
 
 `gen5w-kr-safe-wireless.zip`은 시동 동의 화면(SystemUI)은 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다.

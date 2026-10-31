@@ -374,6 +374,14 @@ begin() {
 install_transaction() {
     local id info rc wireless_ready
     reset_results
+    # Safe editions install only onto the exact state a same-build pre-install
+    # check (gen5w-kr-check) recorded and approved. Runs before any change.
+    if keeps_systemui; then
+        "$SH" ./check.sh --verify > "$TX/check-verify" 2>&1
+        rc=$?
+        while IFS= read -r info; do report "$info"; done < "$TX/check-verify"
+        [ "$rc" = 0 ] || { report 'REFUSED pre-install check guard'; return 1; }
+    fi
     # Validate every input identity before the first installed package is removed.
     for id in $IDS; do
         [ -f "packages/$id.zip" ] || { result "$id" failed; report "MISSING $id"; return 1; }

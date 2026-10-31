@@ -4,6 +4,10 @@
 # (facts) and CHECK.md (verdict) to the USB only. Fixed allowlist: properties,
 # file hashes, verifier verdicts, package ids. No VIN, serials, phone data,
 # hotspot credentials, keys or /data file contents.
+#
+# check.sh --verify (run by the safe installers before any change): repeat the
+# check into CHECK-NOW.txt and pass only if CHECK.txt exists, came from the same
+# build, said "install", and every stable fact still matches exactly.
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 export PATH=${CK_TEST_PATH:-/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin}
 DATA=${IT_DATA:-/data}
@@ -12,10 +16,17 @@ APPS=$DATA/nemesis/apps
 TX=$DATA/nemesis/gen5w-kr-integrated
 BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 OUT=GEN5W-REPORT
+MODE=check
+[ "$1" = --verify ] && MODE=verify
 [ ! -L "$OUT" ] || exit 1
 mkdir -p "$OUT" || exit 1
-for f in CHECK.txt CHECK.md; do [ ! -L "$OUT/$f" ] || exit 1; done
-FACTS=$OUT/CHECK.txt
+for f in CHECK.txt CHECK.md CHECK-NOW.txt; do [ ! -L "$OUT/$f" ] || exit 1; done
+if [ "$MODE" = verify ]; then
+    [ -f "$OUT/CHECK.txt" ] || { echo 'REFUSED no pre-install check report (GEN5W-REPORT/CHECK.txt): run gen5w-kr-check first'; exit 1; }
+    FACTS=$OUT/CHECK-NOW.txt
+else
+    FACTS=$OUT/CHECK.txt
+fi
 : > "$FACTS" || exit 1
 
 fact() { echo "$1=$2" >> "$FACTS"; }
@@ -184,6 +195,30 @@ else
             WL='무선 코드는 있으나 Wi-Fi 장치가 지금은 꺼져 있어 확인되지 않았습니다. 설치기가 Wi-Fi를 잠깐 켜서 확인하고, 안 되면 유선 전용으로 설치합니다.'
         fi
     fi
+fi
+
+if [ -n "$BLOCK" ]; then fact verdict block; else fact verdict install; fi
+
+if [ "$MODE" = verify ]; then
+    # Volatile values (Wi-Fi power, free space, boot counter) are not compared.
+    stable() { grep -vE '^(wifi_on|wifi_hardware_seen|df|bootguard_count)=' "$1"; }
+    SAVED=$OUT/CHECK.txt
+    grep -qx 'verdict=install' "$SAVED" || { echo 'REFUSED pre-install check report did not say install'; exit 1; }
+    [ -z "$BLOCK" ] || { echo 'REFUSED unit no longer passes the pre-install check'; exit 1; }
+    bad=0
+    stable "$FACTS" > "$OUT/CHECK-NOW.stable"
+    stable "$SAVED" > "$OUT/CHECK-SAVED.stable"
+    while IFS= read -r line; do
+        grep -qxF "$line" "$OUT/CHECK-SAVED.stable" || { echo "MISMATCH now: $line"; bad=1; }
+    done < "$OUT/CHECK-NOW.stable"
+    while IFS= read -r line; do
+        grep -qxF "$line" "$OUT/CHECK-NOW.stable" || { echo "MISMATCH report: $line"; bad=1; }
+    done < "$OUT/CHECK-SAVED.stable"
+    rm -f "$OUT/CHECK-NOW.stable" "$OUT/CHECK-SAVED.stable"
+    sync
+    [ "$bad" = 0 ] || { echo 'REFUSED unit state differs from the pre-install check report: run gen5w-kr-check again'; exit 1; }
+    echo 'CHECK verified: unit matches the pre-install check report'
+    exit 0
 fi
 
 {

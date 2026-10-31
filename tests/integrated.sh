@@ -35,6 +35,8 @@ for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
   z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
   z.writestr('scripts/post.sh','[ "$IT_POST_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\nexit 0\n')
   if m=='hotspot': z.writestr('app/match.dex',b'own-test-helper')
+  if m=='bridge':
+   for t in ('iap2','dipo','gpm'): z.writestr('bin/'+t+'-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; patched) grep -q "^patched" "$2";; *) exit 1;; esac\n')
   if m=='notice': z.writestr('bin/notice-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; *) exit 1;; esac\n')
  package=pathlib.Path(sys.argv[1])/('gen5w.kr.'+m+'.zip')
  stage=package.parent.parent/'checks'/('gen5w.kr.'+m);stage.mkdir(parents=True)
@@ -45,7 +47,7 @@ for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
  (stage/'FILES.md5').write_text('\n'.join(sums)+'\n')
  (stage/'PACKAGE.md5').write_text(hashlib.md5(package.read_bytes()).hexdigest()+'\n')
 PY
-run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
+run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
 check 'integrated install all modules' run install
 check 'six registered module trees' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 check 'transaction committed' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
@@ -140,8 +142,29 @@ check 'dongle registration restored after rollback' test -f "$W/data/nemesis/app
 check 'return to standard variant again' run update
 # Safe edition: wired HUD only. Wi-Fi/hotspot/audio and the SystemUI notice timer
 # are restored to stock, and the boot guard recovers after 2 failed boots.
-mkdir -p "$W/sys/priv-app"; echo stock > "$W/sys/priv-app/SystemUI.odex"
+mkdir -p "$W/sys/priv-app" "$W/sys/app"; echo stock > "$W/sys/priv-app/SystemUI.odex"
+for f in Iap2ServerApp HKMC_DiPO HKMC_GPM; do echo stock > "$W/sys/app/$f.odex"; done
 echo safe > "$W/usb/GEN5W-VARIANT"
+rm -rf "$W/usb/GEN5W-REPORT"
+check 'safe edition refuses without a pre-install check report' eval '! run update'
+check 'missing report reason' grep -q 'no pre-install check report' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'refusal without report changes no modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'pre-install check passes on stock' run check
+check 'check report says install' grep -qx 'verdict=install' "$W/usb/GEN5W-REPORT/CHECK.txt"
+cp "$W/usb/GEN5W-REPORT/CHECK.txt" "$W/check.saved"
+echo other-build > "$W/usb/BUILD-REVISION"
+check 'report from a different build is refused' eval '! run update'
+rm -f "$W/usb/BUILD-REVISION"
+echo patched > "$W/sys/app/HKMC_GPM.odex"
+check 'changed file after the check is refused' eval '! run update'
+check 'mismatch is reported' grep -q 'MISMATCH' "$W/data/nemesis/gen5w-kr-integrated/report"
+echo stock > "$W/sys/app/HKMC_GPM.odex"
+sed -i 's/^verdict=install$/verdict=block/' "$W/usb/GEN5W-REPORT/CHECK.txt"
+check 'report that did not say install is refused' eval '! run update'
+cp "$W/check.saved" "$W/usb/GEN5W-REPORT/CHECK.txt"
+check 'unchanged unit matching the report counts as verified' eval 'run update || true; grep -q "CHECK verified" "$W/data/nemesis/gen5w-kr-integrated/report"'
+check 'rollback after verified safe install' run rollback
+run check
 check 'safe edition installs' run update
 check 'safe edition keeps only bridge and core' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 2
 check 'safe edition registers bridge' test -f "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
@@ -157,17 +180,21 @@ check 'safe edition retains the SystemUI verifier' test -x "$W/data/nemesis/gen5
 check 'rollback from safe edition restores six modules' run rollback
 check 'six modules back after safe rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 echo patched > "$W/sys/priv-app/SystemUI.odex"
+check 'check blocks a SystemUI that is not recognised stock' eval '! run check'
+check 'check report says block' grep -qx 'verdict=block' "$W/usb/GEN5W-REPORT/CHECK.txt"
 check 'safe edition refuses when SystemUI is not recognised stock' eval '! run update'
 check 'refused safe edition keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
-check 'refused safe edition reports the reason' grep -q 'SystemUI.odex is not a recognised stock file' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'refused safe edition reports the reason' grep -q 'REFUSED pre-install check guard' "$W/data/nemesis/gen5w-kr-integrated/report"
 echo stock > "$W/sys/priv-app/SystemUI.odex"
 # Safe-wireless edition: wireless CarPlay/AA kept, SystemUI (consent screen) stock, guard at 2.
 echo safe-wireless > "$W/usb/GEN5W-VARIANT"
+run check
 : > "$W/usb/GEN5W-WIFI-CLIENT"
 check 'safe-wireless refuses the Wi-Fi client opt-in' eval '! run update'
 check 'safe-wireless refusal reports the reason' grep -q 'does not enable the Wi-Fi client' "$W/data/nemesis/gen5w-kr-integrated/report"
 check 'safe-wireless refusal keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 rm -f "$W/usb/GEN5W-WIFI-CLIENT"
+run check
 check 'safe-wireless edition installs' run update
 check 'safe-wireless keeps five modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 for m in wireless audio hotspot bridge core; do
@@ -181,6 +208,7 @@ check 'safe-wireless commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integ
 check 'rollback from safe-wireless restores six modules' run rollback
 check 'six modules back after safe-wireless rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 echo patched > "$W/sys/priv-app/SystemUI.odex"
+run check
 check 'safe-wireless refuses when SystemUI is not recognised stock' eval '! run update'
 check 'refused safe-wireless keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 echo stock > "$W/sys/priv-app/SystemUI.odex"
