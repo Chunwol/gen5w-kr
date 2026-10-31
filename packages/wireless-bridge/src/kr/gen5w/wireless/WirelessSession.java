@@ -2,6 +2,16 @@ package kr.gen5w.wireless;
 
 /** Serialized transport ownership and retry policy; no Android dependencies. */
 public final class WirelessSession {
+    /** The Android USB device-mode state is independent of a host CarPlay cable. */
+    public static final class WiredSignal {
+        private boolean attached;
+        public void event(String action, boolean appleDevice) {
+            if ("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED".equals(action)) attached=true;
+            else if ("android.hardware.usb.action.CARPLAY_DEVICE_DETACHED".equals(action) ||
+                    ("android.hardware.usb.action.USB_DEVICE_DETACHED".equals(action) && appleDevice)) attached=false;
+        }
+        public boolean attached() { return attached; }
+    }
     public interface Port {
         void open(long generation, String address);
         void start(long generation);

@@ -157,6 +157,22 @@ check "preinstall reports restoration error rather than hardware absence" eval '
 
 setup unknownwifi
 check "refused when wifi hardware is unknown" eval '! run pre.sh'
+mkdir -p "$W/data/nemesis/backup/gen5w.kr.wireless"
+echo legacy > "$W/data/nemesis/backup/gen5w.kr.wireless/saved"
+check "unknown wifi refuses orphaned legacy backup" eval 'run pre.sh; [ "$?" -eq 1 ]'
+
+# An inconclusive probe after a verified installation is not evidence that the
+# previous working configuration should be removed.
+setup korean
+check "install before inconclusive recheck" eval 'run pre.sh && run post.sh'
+mkdir -p "$W/data/nemesis/apps/gen5w.kr.wireless"
+printf '[nemesis]\nid=gen5w.kr.wireless\n' > "$W/data/nemesis/apps/gen5w.kr.wireless/NEMESIS.data"
+printf '#!/bin/sh\n' > "$W/bin/dmesg"
+check "unknown hardware preserves verified existing wireless" eval 'run pre.sh; [ "$?" -eq 78 ]'
+mv "$W/sys/app/HKMC_DiPO.odex" "$W/original-dipo"
+check "unreadable projection capability preserves verified existing wireless" eval 'run pre.sh; [ "$?" -eq 78 ]'
+echo changed >> "$W/sys/build.prop"
+check "damaged existing wireless state is not preserved as verified even when code is unreadable" eval 'run pre.sh; [ "$?" -eq 1 ]'
 
 # Another model's file must never be selected when this model has no config.
 setup korean

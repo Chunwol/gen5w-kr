@@ -22,6 +22,7 @@ verify_stock_target || {
     log "FAIL dongle: missing firmware payload"
     exit 1
 }
+aux_install_check || { log 'FAIL dongle: file collision or unknown ownership'; exit 1; }
 
 # Positive hardware detection or explicit install override
 if ! has_dongle_hw; then

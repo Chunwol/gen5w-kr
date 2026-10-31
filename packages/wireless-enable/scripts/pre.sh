@@ -1,10 +1,27 @@
 #!/system/bin/sh
 . ./scripts/common.sh
 log "=== preinstall gen5w.kr.wireless $(date 2>/dev/null) firmware=$(getprop ro.build.product 2>/dev/null)"
-if ! has_wireless_code; then
-    log "FAIL: no wireless projection code in the stock apps on this unit"
-    toast "무선 기능을 확인하지 못해 제외합니다."
+preserve_existing_or_skip() {
+    _installed=$DATA/nemesis/apps/gen5w.kr.wireless
+    if [ -e "$STATE" ] || [ -L "$STATE" ] || [ -e "$_installed" ] || [ -L "$_installed" ] || [ -e "$MARK" ] || [ -L "$MARK" ]; then
+        [ -d "$_installed" ] && [ ! -L "$_installed" ] &&
+        [ -f "$_installed/NEMESIS.data" ] && [ ! -L "$_installed/NEMESIS.data" ] &&
+        grep -q '^id=gen5w\.kr\.wireless$' "$_installed/NEMESIS.data" &&
+        [ -f "$STATE/complete" ] && [ ! -L "$STATE/complete" ] && state_check || {
+            log 'FAIL: existing wireless ownership or recovery state is incomplete'
+            exit 1
+        }
+        log 'Wireless detection inconclusive; preserve verified existing configuration'
+        toast '무선 기능을 확인하지 못해 기존 설정을 유지합니다.'
+        exit 78
+    fi
+    log 'Wireless detection inconclusive; no prior configuration to preserve'
+    toast '무선 기능을 확인하지 못해 제외합니다.'
     exit 77
+}
+if ! has_wireless_code; then
+    log 'Wireless projection capability could not be confirmed'
+    preserve_existing_or_skip
 fi
 _w=$(wifi_hw)
 if [ $? -ne 0 ]; then
@@ -13,9 +30,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 if [ "$_w" = unknown ]; then
-    log "FAIL: Wi-Fi chip state unknown - no changes made"
-    toast "Wi-Fi 하드웨어를 확인하지 못해 무선 기능을 제외합니다."
-    exit 77
+    preserve_existing_or_skip
 fi
 state_load || exit 1
 if [ -s "$MARK/saved" ]; then

@@ -48,4 +48,12 @@ for module in wireless; do
   check 'wifi runtime property restored after reset' test "$(cat "$W/props/persist.wifi.state")" = 1
  fi
 done
+setup wireless-enable
+check 'wireless retained restore setup' eval 'run pre.sh && run post.sh'
+state="$W/sys/etc/gen5w-kr-backup/wireless"
+check 'wireless retained restore succeeds' bash -c 'cd "$1/app" && PATH="$1/bin:$PATH" EN_TEST_SYS="$1/sys" EN_TEST_DATA="$1/data" EN_TEST_NEM="$1/nemesis" mksh -c '\''. ./scripts/common.sh; state_restore retain'\''' _ "$W"
+check 'wireless retained restore keeps durable journal' test -s "$state/manifest"
+check 'wireless retained restore keeps runtime journal' test -d "$W/data/nemesis/backup/gen5w.kr.wireless"
+check 'wireless retained restore restores original property' test "$(cat "$W/props/persist.ium.support")" = stock
+check 'wireless retained restore can be resumed' bash -c 'cd "$1/app" && PATH="$1/bin:$PATH" EN_TEST_SYS="$1/sys" EN_TEST_DATA="$1/data" EN_TEST_NEM="$1/nemesis" mksh -c '\''. ./scripts/common.sh; state_restore retain'\''' _ "$W"
 done_tests recovery

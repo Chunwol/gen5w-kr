@@ -67,7 +67,7 @@ public final class WirelessBridge implements WirelessSession.Port {
     ComponentName server;
     boolean bound, registered;
     volatile boolean cable, shuttingDown;
-    boolean carplayCable;
+    final WirelessSession.WiredSignal carplayCable=new WirelessSession.WiredSignal();
     boolean nativeRequested;
     int pendingBytes;
     IIap2Listener listener;
@@ -175,16 +175,17 @@ public final class WirelessBridge implements WirelessSession.Port {
             if(d!=null && state==2){linked.add(d.getAddress());consider(d);}
             // A profile disconnect is not an ACL disconnect. RFCOMM may remain active.
         }else if("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED".equals(action)){
-            carplayCable=true;refreshWired();
+            carplayCable.event(action,false);refreshWired();
         }else if("android.hardware.usb.action.CARPLAY_DEVICE_DETACHED".equals(action)){
-            carplayCable=false;refreshWired();
+            carplayCable.event(action,false);refreshWired();
         }else if("android.hardware.usb.action.USB_STATE".equals(action)){
-            boolean usbConnected=i.getBooleanExtra("connected",false);
-            if(!usbConnected){carplayCable=false;cable=false;}
+            // USB_STATE describes this unit's device-mode link, not a phone
+            // detached from its USB host port.
             refreshWired();
         }else if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action) || UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)){
-            refreshWired();
             UsbDevice usb=(UsbDevice)i.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            carplayCable.event(action,usb!=null && usb.getVendorId()==0x05ac);
+            refreshWired();
             // Pause even if the host inventory has not caught up with this event.
             if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action) && usb!=null && (usb.getVendorId()==0x05ac || usb.getVendorId()==0x18d1)) {
                 cable=true;session.environment(registered,true,false,now());
@@ -340,7 +341,7 @@ public final class WirelessBridge implements WirelessSession.Port {
     }
     /** USB host discovery and stock USB mode can precede the CarPlay broadcast. */
     void refreshWired() {
-        boolean present=carplayCable;
+        boolean present=carplayCable.attached();
         try {
             UsbManager usb=(UsbManager)context.getSystemService(Context.USB_SERVICE);
             if(usb!=null)for(UsbDevice device:usb.getDeviceList().values()) {

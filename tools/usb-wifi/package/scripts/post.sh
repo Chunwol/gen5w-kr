@@ -4,35 +4,48 @@ SCRIPT_DIR=${0%/*}
 . "$SCRIPT_DIR/common.sh"
 
 verify_stock_target || exit 1
+aux_install_check || { log 'FAIL dongle: file collision or unknown ownership'; exit 1; }
 
 sys_rw || { log "FAIL dongle: cannot remount /system rw"; exit 1; }
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 
 # 1. Back up stock library if not already backed up
-mkdir -p "$BACKUP_DURABLE" "$BACKUP_RUNTIME" || exit 1
-if [ ! -f "$BACKUP_DURABLE/original" ]; then
-    cp -p "$TARGET_HAL" "$BACKUP_DURABLE/original" || exit 1
-    echo "$OWNER" > "$BACKUP_DURABLE/owner" || exit 1
-    chmod 600 "$BACKUP_DURABLE/owner" "$BACKUP_DURABLE/original" || true
+mkdir -p "${BACKUP_DURABLE%/*}" "${BACKUP_RUNTIME%/*}" || exit 1
+if [ ! -e "$BACKUP_DURABLE" ]; then
+    stage="$BACKUP_DURABLE.tmp.$$"
+    [ ! -e "$stage" ] && [ ! -L "$stage" ] && mkdir "$stage" || exit 1
+    cp -p "$TARGET_HAL" "$stage/original" || exit 1
+    echo "$OWNER" > "$stage/owner" || exit 1
+    chmod 600 "$stage/owner" || exit 1
+    aux_payload_manifest > "$stage/files" || exit 1
+    [ -s "$stage/files" ] || exit 1
+    digest "$stage/files" > "$stage/files.md5" || exit 1
+    getprop persist.gen5w.wifi.backend > "$stage/backend.original" || exit 1
+    digest "$stage/backend.original" > "$stage/backend.md5" || exit 1
+    sync
+    mv "$stage" "$BACKUP_DURABLE" || exit 1
+    sync
 fi
-cp -p "$BACKUP_DURABLE/original" "$BACKUP_RUNTIME/original" || exit 1
-echo "$OWNER" > "$BACKUP_RUNTIME/owner" || exit 1
+if [ ! -e "$BACKUP_RUNTIME" ]; then
+    runtime_stage="$BACKUP_RUNTIME.tmp.$$"
+    [ ! -e "$runtime_stage" ] && [ ! -L "$runtime_stage" ] && mkdir "$runtime_stage" || exit 1
+    cp -p "$BACKUP_DURABLE/original" "$runtime_stage/original" || exit 1
+    echo "$OWNER" > "$runtime_stage/owner" || exit 1
+    sync
+    mv "$runtime_stage" "$BACKUP_RUNTIME" || exit 1
+    sync
+fi
 
 # 2. Place stock HAL at STOCK_HAL path so adapter can dlopen it
 if [ ! -f "$STOCK_HAL" ]; then
-    cp -p "$BACKUP_DURABLE/original" "$STOCK_HAL" || exit 1
-    chmod 644 "$STOCK_HAL" || true
-    chown 0:0 "$STOCK_HAL" 2>/dev/null || true
+    install_owned_file "$BACKUP_DURABLE/original" "$STOCK_HAL" 644 || exit 1
 fi
 
 # 3. Install adapter library as TARGET_HAL
 ADAPTER_SRC="$SCRIPT_DIR/../files/libhardware_legacy.so"
 [ -f "$ADAPTER_SRC" ] || { log "FAIL dongle: missing adapter library payload"; exit 1; }
-cp -p "$ADAPTER_SRC" "$TARGET_HAL.tmp" || exit 1
-chmod 644 "$TARGET_HAL.tmp" || true
-chown 0:0 "$TARGET_HAL.tmp" 2>/dev/null || true
-mv -f "$TARGET_HAL.tmp" "$TARGET_HAL" || exit 1
+install_owned_file "$ADAPTER_SRC" "$TARGET_HAL" 644 || exit 1
 
 # 4. Install kernel modules
 mkdir -p "$MOD_DIR" || exit 1
@@ -40,9 +53,7 @@ mkdir -p "$MOD_DIR" || exit 1
 module_count=0
 for m in "$SCRIPT_DIR/../files/modules"/*.ko; do
     [ -f "$m" ] || continue
-    cp -p "$m" "$MOD_DIR/" || exit 1
-    chmod 644 "$MOD_DIR/${m##*/}" || true
-    chown 0:0 "$MOD_DIR/${m##*/}" 2>/dev/null || true
+    install_owned_file "$m" "$MOD_DIR/${m##*/}" 644 || exit 1
     module_count=$((module_count + 1))
 done
 [ "$module_count" -gt 0 ] || { log "FAIL dongle: zero kernel modules installed"; exit 1; }
@@ -53,9 +64,7 @@ mkdir -p "$FW_DIR" || exit 1
 fw_count=0
 for f in "$SCRIPT_DIR/../files/firmware"/*; do
     [ -f "$f" ] || continue
-    cp -p "$f" "$FW_DIR/" || exit 1
-    chmod 644 "$FW_DIR/${f##*/}" || true
-    chown 0:0 "$FW_DIR/${f##*/}" 2>/dev/null || true
+    install_owned_file "$f" "$FW_DIR/${f##*/}" 644 || exit 1
     fw_count=$((fw_count + 1))
 done
 [ "$fw_count" -gt 0 ] || { log "FAIL dongle: zero firmware files installed"; exit 1; }
@@ -63,13 +72,12 @@ done
 # 6. Install loader script
 LOADER_SRC="$SCRIPT_DIR/../bin/gen5w-dongle-load"
 if [ -f "$LOADER_SRC" ]; then
-    cp -p "$LOADER_SRC" "$LOADER_BIN" || exit 1
-    chmod 755 "$LOADER_BIN" || true
-    chown 0:0 "$LOADER_BIN" 2>/dev/null || true
+    install_owned_file "$LOADER_SRC" "$LOADER_BIN" 755 || exit 1
 fi
 
 # 7. Configure backend property
-setprop persist.gen5w.wifi.backend dongle 2>/dev/null || true
+setprop persist.gen5w.wifi.backend dongle 2>/dev/null &&
+[ "$(getprop persist.gen5w.wifi.backend 2>/dev/null)" = dongle ] || { log 'FAIL dongle: backend setting not confirmed'; exit 1; }
 
 sync
 sys_ro || exit 1

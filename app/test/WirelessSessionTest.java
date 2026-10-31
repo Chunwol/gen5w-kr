@@ -10,6 +10,17 @@ public final class WirelessSessionTest {
         public void authenticated(long g){auth++;}
     }
     public static void main(String[] args) throws Exception {
+        WirelessSession.WiredSignal cableSignal = new WirelessSession.WiredSignal();
+        cableSignal.event("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED", false);
+        cableSignal.event("android.hardware.usb.action.USB_STATE", false);
+        check(cableSignal.attached());
+        cableSignal.event("android.hardware.usb.action.USB_DEVICE_DETACHED", false);
+        check(cableSignal.attached());
+        cableSignal.event("android.hardware.usb.action.CARPLAY_DEVICE_DETACHED", false);
+        check(!cableSignal.attached());
+        cableSignal.event("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED", false);
+        cableSignal.event("android.hardware.usb.action.USB_DEVICE_DETACHED", true);
+        check(!cableSignal.attached());
         Fake p=new Fake();WirelessSession s=new WirelessSession(p);
         s.candidate("a",0);s.tick(0);check(p.open==0);
         s.environment(true,false,false,0);s.tick(0);check(p.open==1);long g=p.ticket;

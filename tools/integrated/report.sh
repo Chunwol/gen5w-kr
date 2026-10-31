@@ -20,6 +20,7 @@ feature_name() {
 result_label() {
     case "$1" in
         applied) echo '적용 완료';;
+        preserved) echo '기존 설정 유지 · 무선 장치 확인 필요';;
         wired-only) echo '유선 HUD 기반 적용 · 무선 자동 연결 끔';;
         failed) echo '실패';;
         failed-restored) echo '실패 후 이전 상태로 원복';;
@@ -56,10 +57,21 @@ hud_owner() {
     [ ! -L "$file" ] && [ -f "$file" ] || { echo '아직 확인되지 않음'; return; }
     value=$(cat "$file" 2>/dev/null)
     case "$value" in
-        CARPLAY) echo 'CarPlay 안내 출력 허용';;
-        STOCK) echo '순정 내비 안내 우선 · CarPlay HUD 대기';;
-        UNKNOWN) echo '순정 안내 상태 확인 불가 · CarPlay HUD 대기';;
+        CARPLAY) echo '마지막 확인: CarPlay 안내 출력 허용';;
+        AA) echo '마지막 확인: 보조 Android Auto 안내 출력 중';;
+        STOCK) echo '마지막 확인: 순정 내비 안내 우선 · CarPlay HUD 대기';;
+        UNKNOWN) echo '마지막 확인: 순정 안내 상태 확인 불가 · CarPlay HUD 대기';;
         *) echo '아직 확인되지 않음';;
+    esac
+}
+hud_variant() {
+    local file=$DATA/data/kr.gen5w.core/files/hud-variant.status value
+    [ ! -L "$file" ] && [ -f "$file" ] || { echo '확인되지 않음'; return; }
+    value=$(cat "$file" 2>/dev/null)
+    case "$value" in
+        CONFIG_ON) echo '마지막 확인: 차량 설정에서 켜짐 · 실제 표시 미확인';;
+        CONFIG_OFF) echo '마지막 확인: 차량 설정에서 꺼짐 · 실제 장착 미확인';;
+        *) echo '확인되지 않음';;
     esac
 }
 native_warning() {
@@ -100,7 +112,9 @@ write_summary() {
         if [ -f "$TX/recovery-mode" ]; then echo '**핫스팟 복구 경로로 진행했습니다. 전체 설치 완료가 아닙니다.**'; echo; fi
         echo '- 기본형 · 순정 주의 안내 표시 후 3초 자동 전환 (지원 조건에 한함)'
         echo
-        echo "- HUD 최근 출력 상태: $(hud_owner)"
+        echo "- HUD 설정: $(hud_variant)"
+        echo '- 계기판 길안내 지원 여부: 확인되지 않음'
+        echo "- 길안내 출력 우선순위: $(hud_owner)"
         echo "- 순정 과속·카메라 경고: $(native_warning)"
         echo
         echo '| 기능 | 적용 결과 | 설치 여부 |'

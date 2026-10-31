@@ -11,6 +11,7 @@ CarPlay의 회전·거리·차선 정보를 순정 `NavigationCluster`로 전달
 - `CoreService`: 별도 listener `gen5wkr.core`로 복사한 메시지를 전달합니다. 연결 세대가 다른 대기 알림을 버립니다. 종료 시 자기 listener만 해제합니다.
 - `GuidanceRequest`: 등록 후 native count/list API에서 실제 광고된 component 이름을 얻어 `Iap2SvcStartRouteGuidanceUpdate(names,true,true)`를 요청합니다. 식별/인증/연결 알림과 5초 재시도로 준비 지연을 처리하며 성공은 연결 세대당 한 번만 요청합니다. 공용 `StopRouteGuidanceUpdate`는 호출하지 않습니다.
 - `NativeWarningSupport`: 실행 중 firmware의 순정 경고·경고 거리·제한속도 writer 선언을 읽어 호환 여부를 따로 기록합니다. API 존재와 실제 경고 수신을 구분하며 경고 writer는 호출하지 않습니다. 카메라 HUD 중계 기능을 새로 구현한 것은 아닙니다.
+- `HudVariant`: 순정 차량 설정의 HUD 옵션을 읽어 켜짐·꺼짐·미확인으로 기록합니다. API 또는 설정 파일이 준비되지 않았거나 접근할 수 없으면 미확인으로 남을 수 있으며, 이를 HUD 미장착으로 판단하지 않습니다. 설정값은 HUD의 실제 장착이나 표시 성공을 증명하지 않으며, 계기판 출력을 제한하지 않습니다. 설치 결과에는 마지막으로 조회한 상태가 표시됩니다.
 
 `GuidanceSession.Sink`는 기존 회전 전용 소비자를 유지합니다. `LaneSink extends Sink`를 구현하면 `lanes(byte[])`도 호출합니다. 동일한 프레임은 성공적으로 전송된 뒤에만 중복 억제합니다. 실패한 전송은 다음 갱신에서 재시도합니다.
 
@@ -24,7 +25,7 @@ KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜
 
 좌측 통행 회전교차로는 순정에서 확인한 일반 원형 `C0`를 사용합니다. 좌측 통행 방향별 코드가 증명되지 않아 출구 방향 세부 표시는 제공하지 않습니다.
 
-거리 출력은 status 필드10의 미터 값을 별도 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`로 전달합니다. 순정 `GpmNaviTBTManager.setDistanceValue` 및 `ClusterService.getFloatToShort` 규격에 맞춰 1,000m 미만은 미터(`scale=0`), 1,000m 이상은 킬로미터(`scale=1`, 최대 `32767.9`km 클램핑)로 변환하여 16비트 정수 변환 시 장거리 잘림을 방지합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 `distanceErr=-3`을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다. 2nd TBT(다음 연속 회전 아이콘)는 `updateTPTurnListNew`의 2번째 슬롯과 `updateTBTInfo`의 2번째 파라미터(`sideStreet`)로 전달하며, 6번째 파라미터(`combiSideStreet`)는 V039 순정 범위 검사(`0~4`)에 맞춰 `0`을 전달합니다. V039 `ClusterService$NaviCluster.sendTPHighWay()`는 펌웨어 내 빈 메서드(`return-void`)이므로 고속도로 IC/JC/TG/휴게소 안내는 1차 회전 아이콘과 `TurnFrame`/`CrossroadName`으로 표출합니다.
+거리 출력은 status 필드10의 미터 값을 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`로 전달합니다. 현재 구현은 1,000m 미만을 미터(`scale=0`), 그 이상을 킬로미터(`scale=1`, 최대 `32767.9`km)로 변환합니다. V039의 `ClusterService`는 거리 정수부를 전송하면서 소수 첫째 자리도 별도 필드에 넣습니다. 실제 계기판·HUD 표시와 V039 순정 GPM의 입력 방식은 확인이 필요합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 `distanceErr=-3`을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다. 다음 회전 아이콘은 `updateTPTurnListNew`의 두 번째 슬롯과 `updateTBTInfo`의 `sideStreet`에 전달하며, `combiSideStreet`는 V039 범위 검사(`0~4`)에 맞춰 `0`을 전달합니다. 고속도로 전용 표시는 현재 구현하지 않았으며, IC·JC·TG 등은 일반 회전 안내로 표시합니다. 전용 경로의 입력과 실제 표시는 [조사·로드맵](superpowers/plans/2026-10-28-hud-highway-stock-warning-roadmap.md)에서 별도로 확인합니다.
 
 또한 Android Auto(AA)는 순정 Google Projection 모듈(`/system/app/HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `wireless-bridge`의 `gpm-patch-v039`로 우회하여, Google 표준 계기판 턴바이턴 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 차량 네이티브 수준에서 활성화합니다. 순정 `GpmNaviTBTManager`는 회전 이벤트(`onNextTurn`)와 거리 이벤트(`onNextTurnDistance`)를 직접 `NavigationCluster`로 전달합니다. 이와 별개로 `CoreService`는 보조 외부 입력 인터페이스(`kr.gen5w.action.AA_TBT`, `kr.gen5w.action.AA_LANE`, `gen5wkr.aa.tbt` 로컬 소켓)를 제공하여, 외부 브리지나 보조 송신기가 연결된 경우 한국 도로 어휘 보정(`ClusterIcon.refineManeuver`)과 단순 차선 프레임(`LaneFrame.encodeSimple`)을 렌더링할 수 있습니다(순정 `HKMC_GPM` 단독 실행 시에는 `GpmNaviTBTManager`의 기본 TBT 경로로 동작합니다).
 

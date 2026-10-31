@@ -81,9 +81,18 @@ check_stage_tree() {
         [ "$(digest "checks/$id/$path")" = "$sum" ] || return 1
     done < "checks/$id/FILES.md5"
 }
+orphaned_wireless_backup() {
+    [ "$1" = gen5w.kr.wireless ] || return 1
+    { [ -e "$DATA/nemesis/backup/$1" ] || [ -L "$DATA/nemesis/backup/$1" ]; } || return 1
+    ! durable "$1"
+}
 safe_remove() {
     local id=$1
     if [ ! -f "$APPS/$id/NEMESIS.data" ]; then
+        if orphaned_wireless_backup "$id"; then
+            report 'REFUSED wireless removal: legacy backup has no registered recovery package or durable journal'
+            return 1
+        fi
         durable "$id" || return 0
         check_stage_tree "$id" || return 1
         gate "$(pwd)/checks/$id" preuninstall || return 1
@@ -100,10 +109,26 @@ safe_remove() {
 }
 snapshot() {
     local id=$1 info tree=$APPS/$1
+    if [ "$id" = gen5w.kr.dongle ] && durable "$id"; then
+        if [ ! -f "$SYS/etc/gen5w-kr-backup/dongle/files" ] || [ -L "$SYS/etc/gen5w-kr-backup/dongle/files" ] ||
+           [ ! -f "$SYS/etc/gen5w-kr-backup/dongle/files.md5" ] || [ -L "$SYS/etc/gen5w-kr-backup/dongle/files.md5" ]; then
+            report 'REFUSED dongle transition: legacy installation lacks a file ownership journal'
+            return 1
+        fi
+    fi
     if [ ! -f "$tree/NEMESIS.data" ]; then
+        if orphaned_wireless_backup "$id"; then
+            report 'REFUSED wireless snapshot: legacy backup has no registered recovery package or durable journal'
+            return 1
+        fi
         durable "$id" || return 0
-        if [ "$id" = gen5w.kr.consent ] || { [ "$id" = gen5w.kr.dongle ] && [ "$VARIANT" = standard ] && [ "$BACKEND" = builtin ]; }; then
-            return 0
+        if [ "$id" = gen5w.kr.consent ]; then
+            report 'REFUSED consent transition: installed package is missing; recovery requires review'
+            return 1
+        fi
+        if [ "$id" = gen5w.kr.dongle ] && [ "$VARIANT" = standard ] && [ "$BACKEND" = builtin ]; then
+            report 'REFUSED dongle transition: installed package is missing; restore with the matching bundle first'
+            return 1
         fi
         check_stage_tree "$id" || return 1
         tree=$(pwd)/checks/$id
@@ -140,7 +165,10 @@ rollback_transaction() {
         done
     fi
     if [ "$rc" = 0 ]; then
-        set_state rolled-back; rm -f "$NOREBOOT"
+        set_state rolled-back || { report 'RECOVERY REQUIRED: rollback state could not be recorded'; return 1; }
+        if [ "${KEEP_NOREBOOT:-0}" != 1 ]; then
+            rm -f "$NOREBOOT" || { report 'RECOVERY REQUIRED: reboot suppression could not be cleared'; return 1; }
+        fi
         for id in gen5w.kr.dongle $ALL_IDS; do
             [ -f "$TX/attempt.$id" ] || continue
             case "$(cat "$TX/result.$id" 2>/dev/null)" in failed*) result "$id" failed-restored;; *) result "$id" restored;; esac
@@ -165,10 +193,9 @@ acquire() {
     echo $$ > "$TX/lock/pid"
     trap 'transaction_exit $?' EXIT
 }
-# A plain reboot lets the bootloader RESUME a QuickBoot snapshot. After we patch
-# boot-critical /system ODEX (services.odex, SystemUI.odex), resuming a snapshot
-# captured against the prior state loops system_server -- the observed "worked
-# once, bricked on the next reboot; rear camera and radio still fine" failure.
+# A plain reboot may resume a QuickBoot snapshot. A mismatch between a snapshot
+# and modified boot-critical ODEX is a possible failure mode; the observed
+# vehicle boot loop has not been attributed to this or any other cause.
 # Force one full cold boot so the next boot rebuilds a fresh snapshot from a
 # consistent /system. Everyday QuickBoot resumes are unaffected (only this
 # post-install boot is cold, and that boot is slow anyway for dexopt).
@@ -189,24 +216,83 @@ cold_reboot() {
 # backups (etc/gen5w-kr-backup/*/original) and cold-boots. Uses only data already
 # on the unit, so no USB bundle is required to self-heal.
 bootguard_arm() {
-    local stage=$BOOTGUARD.tmp.$$ max=${IT_BOOTGUARD_MAX:-3}
+    local stage=$BOOTGUARD.tmp.$$ previous=$BOOTGUARD.previous max=${IT_BOOTGUARD_MAX:-3} item id source name sum path extra found
     case "$max" in ''|*[!0-9]*|0) return 1;; esac
     [ ! -L "$BOOTGUARD" ] || return 1
     [ ! -e "$BOOTGUARD" ] || [ -d "$BOOTGUARD" ] || return 1
+    [ ! -e "$previous" ] && [ ! -L "$previous" ] || return 1
     [ "${IT_BOOTGUARD_FAIL:-0}" = 1 ] && return 1
     rm -rf "$stage" 2>/dev/null || return 1
     mkdir -p "$stage" || return 1
+    mkdir "$stage/verifiers" || { rm -rf "$stage"; return 1; }
+    for item in 'gen5w.kr.hotspot hotspot-patch-v039 hotspot-v039' 'gen5w.kr.hotspot hotspot-patch-v035 hotspot-v035' 'gen5w.kr.audio audio-patch audio-v039' 'gen5w.kr.audio audio-patch-v035 audio-v035'; do
+        set -- $item; id=$1; source="checks/$1/bin/$2"; name=$3
+        [ -e "$source" ] || [ -L "$source" ] || continue
+        [ -f "$source" ] && [ ! -L "$source" ] && check_stage_tree "$id" || { rm -rf "$stage"; return 1; }
+        found=no
+        while read -r sum path extra; do
+            if [ "$path" = "bin/$2" ] && [ -z "$extra" ] && [ "$sum" = "$(digest "$source")" ]; then
+                found=yes
+                break
+            fi
+        done < "checks/$id/FILES.md5"
+        [ "$found" = yes ] || { rm -rf "$stage"; return 1; }
+        cp "$source" "$stage/verifiers/$name" && chmod 755 "$stage/verifiers/$name" &&
+        digest "$source" > "$stage/verifiers/$name.md5" &&
+        [ -s "$stage/verifiers/$name.md5" ] &&
+        [ "$(digest "$stage/verifiers/$name")" = "$(cat "$stage/verifiers/$name.md5")" ] || { rm -rf "$stage"; return 1; }
+    done
     printf '0\n' > "$stage/count" || { rm -rf "$stage"; return 1; }
     printf '%s\n' "$max" > "$stage/max" || { rm -rf "$stage"; return 1; }
     printf 'armed\n' > "$stage/armed" || { rm -rf "$stage"; return 1; }
     sync
-    rm -rf "$BOOTGUARD" 2>/dev/null || { rm -rf "$stage"; return 1; }
-    mv "$stage" "$BOOTGUARD" || { rm -rf "$stage"; return 1; }
+    if [ -d "$BOOTGUARD" ]; then
+        mv "$BOOTGUARD" "$previous" || { rm -rf "$stage"; return 1; }
+        sync
+    fi
+    mv "$stage" "$BOOTGUARD" || {
+        [ ! -d "$previous" ] || mv "$previous" "$BOOTGUARD" || true
+        rm -rf "$stage"; sync; return 1;
+    }
+    sync
     if [ -f "$BOOTGUARD/armed" ] && [ -f "$BOOTGUARD/count" ] && [ -f "$BOOTGUARD/max" ]; then
         return 0
     fi
-    rm -rf "$BOOTGUARD" 2>/dev/null || true
+    # Keep both generations for inspection if post-rename validation fails.
     return 1
+}
+bootguard_reconcile_previous() {
+    local state=$1 previous=$BOOTGUARD.previous dir value field
+    [ -e "$previous" ] || [ -L "$previous" ] || return 0
+    [ -d "$previous" ] && [ ! -L "$previous" ] || return 1
+    for dir in "$previous" "$BOOTGUARD"; do
+        [ -e "$dir" ] || [ -L "$dir" ] || continue
+        [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+        [ ! -e "$dir/recovery-required" ] && [ ! -L "$dir/recovery-required" ] &&
+        [ ! -e "$dir/recovered" ] && [ ! -L "$dir/recovered" ] || return 1
+        for field in armed count max; do
+            [ -f "$dir/$field" ] && [ ! -L "$dir/$field" ] || return 1
+        done
+        [ "$(cat "$dir/armed")" = armed ] || return 1
+        for field in count max; do
+            value=$(cat "$dir/$field") || return 1
+            case "$value" in ''|*[!0-9]*) return 1;; esac
+        done
+    done
+    case "$state" in
+        rolled-back)
+            if [ -d "$BOOTGUARD" ]; then
+                rm -rf "$BOOTGUARD" || return 1
+                sync
+            fi
+            mv "$previous" "$BOOTGUARD" || return 1
+            sync ;;
+        committed)
+            [ -d "$BOOTGUARD" ] && [ ! -L "$BOOTGUARD" ] || return 1
+            rm -rf "$previous" || return 1
+            sync ;;
+        *) return 1 ;;
+    esac
 }
 finish() {
     bootguard_arm || {
@@ -215,10 +301,11 @@ finish() {
         return 1
     }
     set_state committed || {
-        rm -rf "$BOOTGUARD" 2>/dev/null || true
         rollback_transaction || report 'RECOVERY REQUIRED: commit state could not be written'
         return 1
     }
+    sync
+    rm -rf "$BOOTGUARD.previous" 2>/dev/null || report 'WARNING: previous boot guard retained'
     rm -f "$NOREBOOT"
     report 'COMMITTED: module hooks checked; vehicle audio/HUD/connection test pending'
     write_summary || echo '결과 문서를 USB에 저장하지 못했습니다. Manager 로그를 확인하세요.'
@@ -245,6 +332,11 @@ begin() {
                 ;;
         esac
     fi
+    state=$(cat "$TX/state" 2>/dev/null) || state=
+    bootguard_reconcile_previous "$state" || {
+        report 'REFUSED unresolved previous boot guard; preserve both generations for recovery'
+        return 1
+    }
     rm -f "$NOREBOOT" 2>/dev/null || true
     set_state capturing || return 1
     rm -rf "$TX/prior" || return 1
@@ -276,6 +368,10 @@ install_transaction() {
     case "$rc" in
         0) wireless_ready=yes; report 'PLAN wireless: supported';;
         77) wireless_ready=no; report 'PLAN wired-only: wireless unavailable; restore wireless changes first';;
+        78) [ ! -e "$WIRELESS_OFF" ] && [ ! -L "$WIRELESS_OFF" ] || {
+                result gen5w.kr.wireless failed; report 'FAILED inconsistent wireless mode'; rollback_transaction; return 1;
+            }
+            wireless_ready=preserve; report 'PLAN wireless: detection inconclusive; preserve verified existing configuration';;
         *) result gen5w.kr.wireless failed
            report "FAILED wireless preflight rc=$rc"
            rollback_transaction; return 1;;
@@ -320,6 +416,16 @@ install_transaction() {
     fi
     for id in $IDS; do
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.
+        if [ "$wireless_ready" = preserve ]; then
+            case "$id" in gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot)
+                if [ -f "$APPS/$id/NEMESIS.data" ] && [ ! -L "$APPS/$id/NEMESIS.data" ] &&
+                   [ ! -L "$APPS/$id" ] && [ "$(meta "$APPS/$id/NEMESIS.data" id)" = "$id" ]; then
+                    result "$id" preserved; report "PRESERVED $id: wireless detection inconclusive"
+                else
+                    result "$id" skipped; report "SKIPPED $id: no registered prior package; existing files retained"
+                fi
+                continue;; esac
+        fi
         if [ -f "$WIRELESS_OFF" ]; then
             case "$id" in gen5w.kr.audio|gen5w.kr.hotspot)
                 result "$id" skipped; report "SKIPPED $id: wired-only mode"; continue;; esac

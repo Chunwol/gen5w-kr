@@ -13,6 +13,30 @@ fail() { echo "bootguard: $*" >&2; exit 1; }
 [ ! -e "$STATE_DIR/recovery-required" ] || fail 'recovery is already required'
 [ ! -e "$STATE_DIR/recovered" ] || fail 'guard has already recovered'
 
+# Without a kernel boot id, a NEMESIS restart of service.sh within one boot
+# would count as another failed boot. Fall back to an id kept in tmpfs (/dev),
+# which is empty again after every real boot. If even that cannot be kept,
+# keep the old behaviour: over-counting only restores stock, it never bricks.
+RUNTIME_ID=${BOOTGUARD_RUNTIME_ID:-/dev/.gen5wkr-boot-id}
+runtime_boot_id() {
+    [ ! -L "$RUNTIME_ID" ] || return 1
+    _id=$(cat "$RUNTIME_ID" 2>/dev/null)
+    case "$_id" in
+        local-*[!a-zA-Z0-9-]*) ;;
+        local-?*) printf '%s' "$_id"; return 0 ;;
+    esac
+    _up=$(cat /proc/uptime 2>/dev/null)
+    _up=${_up%% *}
+    _id="local-$$-${RANDOM:-0}-${_up%%.*}-${_up#*.}"
+    case "$_id" in *[!a-zA-Z0-9-]*) _id="local-$$-${RANDOM:-0}";; esac
+    _tmp="$RUNTIME_ID.tmp.$$"
+    printf '%s
+' "$_id" > "$_tmp" 2>/dev/null && mv -f "$_tmp" "$RUNTIME_ID" 2>/dev/null         || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    [ "$(cat "$RUNTIME_ID" 2>/dev/null)" = "$_id" ] || return 1
+    printf '%s' "$_id"
+}
+[ -n "$BOOT_ID" ] || BOOT_ID=$(runtime_boot_id) || BOOT_ID=
+
 atomic_write() {
     _name=$1
     _value=$2
@@ -35,15 +59,34 @@ read_uint() {
 begin() {
     _count=$(read_uint "$STATE_DIR/count") || fail 'invalid count'
     _max=$(read_uint "$STATE_DIR/max") || fail 'invalid max'
-    if [ -n "$BOOT_ID" ]; then
-        [ ! -L "$STATE_DIR/boot-id" ] || fail 'boot-id marker is a symlink'
-        if [ -f "$STATE_DIR/boot-id" ] && [ "$(cat "$STATE_DIR/boot-id" 2>/dev/null)" = "$BOOT_ID" ]; then
-            return 0
+    _attempt_id=
+    if [ -e "$STATE_DIR/attempt" ] || [ -L "$STATE_DIR/attempt" ]; then
+        [ -f "$STATE_DIR/attempt" ] && [ ! -L "$STATE_DIR/attempt" ] || fail 'invalid attempt journal'
+        set -- $(cat "$STATE_DIR/attempt" 2>/dev/null)
+        [ "$#" -eq 2 ] || fail 'invalid attempt journal'
+        case "$1" in ''|*[!a-zA-Z0-9-]*) fail 'invalid attempt boot id';; esac
+        case "$2" in ''|*[!0-9]*) fail 'invalid attempt count';; esac
+        _attempt_id=$1
+        if [ "$_count" != "$2" ]; then
+            atomic_write count "$2" || fail 'cannot recover attempt count'
+            _count=$2
         fi
-        atomic_write boot-id "$BOOT_ID" || fail 'cannot record boot id'
+    fi
+    if [ -n "$BOOT_ID" ]; then
+        case "$BOOT_ID" in *[!a-zA-Z0-9-]*) fail 'invalid boot id';; esac
+        [ ! -L "$STATE_DIR/boot-id" ] || fail 'boot-id marker is a symlink'
+        if [ "$_attempt_id" = "$BOOT_ID" ] || { [ -z "$_attempt_id" ] && [ -f "$STATE_DIR/boot-id" ] && [ "$(cat "$STATE_DIR/boot-id" 2>/dev/null)" = "$BOOT_ID" ]; }; then
+            [ "$_count" -le "$_max" ] && return 0
+            return 2
+        fi
     fi
     _next=$((_count + 1))
+    atomic_write attempt "${BOOT_ID:--} $_next" || fail 'cannot persist attempt journal'
+    sync
     atomic_write count "$_next" || fail 'cannot persist count'
+    if [ -n "$BOOT_ID" ]; then
+        atomic_write boot-id "$BOOT_ID" || fail 'cannot record boot id'
+    fi
     atomic_write phase booting || fail 'cannot persist phase'
     sync
     [ "$_next" -le "$_max" ] && return 0
@@ -52,6 +95,9 @@ begin() {
 
 mark_ok() {
     atomic_write boot-ok boot-ok || fail 'cannot persist boot-ok'
+    case "$BOOT_ID" in *[!a-zA-Z0-9-]*) fail 'invalid boot id';; esac
+    atomic_write attempt "${BOOT_ID:--} 0" || fail 'cannot persist completed boot'
+    sync
     atomic_write count 0 || fail 'cannot reset count'
     atomic_write phase stable || fail 'cannot persist stable phase'
     sync

@@ -37,6 +37,18 @@ public final class OwnershipTest {
         check(out.writes()==count,"disconnect clears must never erase stock guidance");
         session.setOutputAllowed(true); session.retryOutput();
         check(out.frame.length==2 && out.icon==0,"resume after CarPlay ended clears old CarPlay data");
+        AaRouteCache aa = new AaRouteCache();
+        aa.setOutputAllowed(true);
+        aa.update(0x41, 0, 300, "AA");
+        session.setOutputAllowed(aa.allowCarPlay(true));
+        count=out.writes();
+        session.disconnect(); session.retryOutput();
+        check(out.writes()==count,"CarPlay disconnect must not clear active auxiliary AA");
+        aa.clear();
+        session.setOutputAllowed(aa.allowCarPlay(true));
+        session.retryOutput();
+        check(out.writes()>count,"CarPlay cleanup can resume after auxiliary AA ends");
+        check(!aa.allowCarPlay(false),"unknown or active stock guidance must still block CarPlay");
         System.out.println("ownership transitions passed");
     }
     static void warningCapabilities() {

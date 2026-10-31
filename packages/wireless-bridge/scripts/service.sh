@@ -9,6 +9,9 @@ DATA=${BRIDGE_TEST_DATA:-/data}
 # cold-boot. Runs before any bridge-specific check so a patch that broke the
 # bridge still gets recovered. Skipped under the mock harness (BRIDGE_TEST_SYS).
 _bg=$DATA/nemesis/gen5wkr.bootguard
+if [ ! -e "$_bg" ] && [ ! -L "$_bg" ] && [ -d "$_bg.previous" ] && [ ! -L "$_bg.previous" ]; then
+    _bg=$_bg.previous
+fi
 _bg_state=$SERVICE_DIR/scripts/bootguard-state.sh
 if [ -z "$BRIDGE_TEST_SYS" ] && [ -f "$_bg/recovery-required" ]; then
     exit 1

@@ -22,9 +22,11 @@ import com.tcc.iap2.Iap2ListenerInfo;
 import com.tcc.iap2.Iap2NotiMsg;
 import java.util.List;
 import kr.gen5w.hud.ClusterIcon;
+import kr.gen5w.hud.AaRouteCache;
 import kr.gen5w.hud.GuidanceParser;
 import kr.gen5w.hud.GuidanceSession;
 import kr.gen5w.hud.GuidanceRequest;
+import kr.gen5w.hud.HudVariant;
 import kr.gen5w.hud.LaneFrame;
 import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.NotificationEpoch;
@@ -40,8 +42,6 @@ import kr.gen5w.probe.Item;
  */
 public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
-    private static final String ACTION_GPM_FINISH = "com.telechips.android.gpm.finish";
-    private static final String ACTION_USB_STATE = "android.hardware.usb.action.USB_STATE";
     private static final String PERM_HUD_INPUT = "kr.gen5w.permission.HUD_INPUT";
     private static final long RETRY_MS = 5000;
     private static final int AA_SOCKET_TIMEOUT_MS = 1000;
@@ -55,7 +55,8 @@ public final class CoreService extends Service {
     private GuidanceSession session;
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
-    private int stockState = -2; // worker thread only
+    private final AaRouteCache aaRoute = new AaRouteCache();
+    private String ownerState; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
@@ -69,6 +70,7 @@ public final class CoreService extends Service {
             public void run() {
                 purgeLegacyDebugLogs();
                 recordWarningCapability();
+                recordHudVariant();
             }
         });
         stockGuidance = new StockGuidance();
@@ -133,8 +135,7 @@ public final class CoreService extends Service {
         registerReceiver(mediaReceiver, mediaFilter);
 
         IntentFilter sysFilter = new IntentFilter();
-        sysFilter.addAction(ACTION_USB_STATE);
-        sysFilter.addAction(ACTION_GPM_FINISH);
+        sysFilter.addAction(AaRouteCache.GPM_FINISH);
         registerReceiver(systemReceiver, sysFilter);
 
         startAaSocketServer();
@@ -144,6 +145,7 @@ public final class CoreService extends Service {
         if (intent != null && (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())
                 || "com.hkmc.intent.action.SYSTEM_POWERON".equals(intent.getAction()))) {
             disconnected();
+            io.post(new Runnable() { public void run() { recordHudVariant(); } });
             main.removeCallbacks(registerRetry); register();
         }
         return START_STICKY;
@@ -172,11 +174,15 @@ public final class CoreService extends Service {
     private boolean refreshOwnership() {
         int next = stockGuidance.read();
         boolean allowed = (next == StockGuidance.IDLE);
-        session.setOutputAllowed(allowed);
-        if (next != stockState) {
-            stockState = next;
-            String owner = next == StockGuidance.IDLE ? "CARPLAY"
-                    : next == StockGuidance.ACTIVE ? "STOCK" : "UNKNOWN";
+        // AA updates are intentionally not accepted while stock ownership is
+        // active or unknown. Do not let an older cached turn reappear through
+        // media OSD restoration after a newer, suppressed update was dropped.
+        aaRoute.setOutputAllowed(allowed);
+        session.setOutputAllowed(aaRoute.allowCarPlay(allowed));
+        String owner = next == StockGuidance.IDLE ? (aaRoute.isActive() ? "AA" : "CARPLAY")
+                : next == StockGuidance.ACTIVE ? "STOCK" : "UNKNOWN";
+        if (!owner.equals(ownerState)) {
+            ownerState = owner;
             Log.i(TAG, "HUD owner=" + owner);
             try {
                 java.io.FileOutputStream out = openFileOutput("hud-owner.status", MODE_PRIVATE);
@@ -210,6 +216,19 @@ public final class CoreService extends Service {
             try { out.write((status + "\n").getBytes("US-ASCII")); }
             finally { out.close(); }
         } catch (java.io.IOException e) { Log.w(TAG, "native warning status unavailable"); }
+    }
+    private void recordHudVariant() {
+        String status = "UNKNOWN";
+        try {
+            status = HudVariant.inspect(Class.forName("com.hkmc.device.VariantCoding"),
+                    Class.forName("com.hkmc.device.VariantCoding$HUD_CODES"));
+        } catch (Exception e) { Log.w(TAG, "HUD configuration unavailable"); }
+          catch (LinkageError e) { Log.w(TAG, "HUD configuration API unavailable"); }
+        try {
+            java.io.FileOutputStream out = openFileOutput("hud-variant.status", MODE_PRIVATE);
+            try { out.write((status + "\n").getBytes("US-ASCII")); }
+            finally { out.close(); }
+        } catch (java.io.IOException e) { Log.w(TAG, "HUD configuration status unavailable"); }
     }
     private final Runnable outputRetry = new Runnable() { public void run() {
         if (stopping) return;
@@ -365,21 +384,15 @@ public final class CoreService extends Service {
         });
     }
 
-    private String currentRoadName = null;
-    private int currentIcon1 = 0, currentIcon2 = 0;
-    private long currentDist = -1;
     private volatile boolean mediaOsdActive = false;
     private boolean aaClearPending; // io thread: keep a clear until stock guidance yields
 
     private boolean isAaGuidanceActive() {
-        return currentDist >= 0 && currentIcon1 > 0;
+        return aaRoute.isActive();
     }
 
     private void resetAaState() {
-        currentIcon1 = 0;
-        currentIcon2 = 0;
-        currentDist = -1;
-        currentRoadName = null;
+        aaRoute.clear();
     }
 
     private static NavigationCluster.CrossroadName crossroadName(String name) {
@@ -415,8 +428,8 @@ public final class CoreService extends Service {
                     mediaOsdActive = true;
                     boolean cpActive = session != null && session.hasActiveGuidance();
                     boolean aaActive = !cpActive && isAaGuidanceActive();
-                    int icon = aaActive ? currentIcon1 : 0x41;
-                    int second = aaActive ? currentIcon2 : 0;
+                    int icon = aaActive ? aaRoute.icon() : 0x41;
+                    int second = aaActive ? aaRoute.secondIcon() : 0;
                     cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, second}, line));
                     cluster.updateTPCrossroadName(crossroadName(line));
                     writeDebugLog("MEDIA_OSD: shown");
@@ -439,8 +452,8 @@ public final class CoreService extends Service {
                     session.invalidateOutput();
                     session.retryOutput();
                 } else if (isAaGuidanceActive()) {
-                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{currentIcon1, currentIcon2}, currentRoadName));
-                    cluster.updateTPCrossroadName(crossroadName(currentRoadName));
+                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{aaRoute.icon(), aaRoute.secondIcon()}, aaRoute.road()));
+                    cluster.updateTPCrossroadName(crossroadName(aaRoute.road()));
                 } else {
                     cluster.updateTPTurnListNew(TurnFrame.clear());
                     cluster.updateTPCrossroadName(crossroadName(""));
@@ -454,13 +467,8 @@ public final class CoreService extends Service {
         @Override public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             String action = intent.getAction();
-            if (ACTION_GPM_FINISH.equals(action)) {
+            if (AaRouteCache.endsGuidance(action)) {
                 renderAaTbt(0, 0, -1, null);
-            } else if (ACTION_USB_STATE.equals(action)) {
-                boolean connected = intent.getBooleanExtra("connected", true);
-                if (!connected) {
-                    renderAaTbt(0, 0, -1, null);
-                }
             }
         }
     };
@@ -483,6 +491,7 @@ public final class CoreService extends Service {
         io.post(new Runnable() {
             public void run() {
                 if (!refreshOwnership()) return;
+                if (session != null && session.hasActiveGuidance()) return;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     cluster.updateLaneInfo(frame != null ? frame : LaneFrame.clear());
@@ -522,13 +531,12 @@ public final class CoreService extends Service {
                     return;
                 }
                 if (!refreshOwnership()) return;
+                if (session != null && session.hasActiveGuidance()) return;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     aaClearPending = false;
-                    currentIcon1 = icon;
-                    currentIcon2 = secondIcon;
-                    currentDist = dist;
-                    currentRoadName = road;
+                    aaRoute.update(icon, secondIcon, dist, road);
+                    session.setOutputAllowed(false);
                     cluster.updateTBTInfo(
                             icon,
                             secondIcon,
@@ -593,7 +601,7 @@ public final class CoreService extends Service {
                     int laneCount = intent.getIntExtra("lane_count", 0);
                     int[] dirs = intent.getIntArrayExtra("lane_dirs");
                     boolean[] rec = intent.getBooleanArrayExtra("lane_rec");
-                    byte[] laneFrame = LaneFrame.encodeSimple(laneCount, dirs, rec, currentIcon1);
+                    byte[] laneFrame = LaneFrame.encodeSimple(laneCount, dirs, rec, aaRoute.icon());
                     renderAaLane(laneFrame);
                 }
             }
@@ -675,7 +683,7 @@ public final class CoreService extends Service {
                 renderMediaOsd(mediaTrack, mediaArtist);
             }
             if (laneCount > 0) {
-                byte[] lf = LaneFrame.encodeSimple(laneCount, laneDirs, laneRec, icon > 0 ? icon : currentIcon1);
+                byte[] lf = LaneFrame.encodeSimple(laneCount, laneDirs, laneRec, icon > 0 ? icon : aaRoute.icon());
                 renderAaLane(lf);
             }
             if (clear || dist < 0) {
