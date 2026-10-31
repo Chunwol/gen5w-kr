@@ -161,6 +161,30 @@ check 'safe edition refuses when SystemUI is not recognised stock' eval '! run u
 check 'refused safe edition keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 check 'refused safe edition reports the reason' grep -q 'SystemUI.odex is not a recognised stock file' "$W/data/nemesis/gen5w-kr-integrated/report"
 echo stock > "$W/sys/priv-app/SystemUI.odex"
+# Safe-wireless edition: wireless CarPlay/AA kept, SystemUI (consent screen) stock, guard at 2.
+echo safe-wireless > "$W/usb/GEN5W-VARIANT"
+: > "$W/usb/GEN5W-WIFI-CLIENT"
+check 'safe-wireless refuses the Wi-Fi client opt-in' eval '! run update'
+check 'safe-wireless refusal reports the reason' grep -q 'does not enable the Wi-Fi client' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'safe-wireless refusal keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+rm -f "$W/usb/GEN5W-WIFI-CLIENT"
+check 'safe-wireless edition installs' run update
+check 'safe-wireless keeps five modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
+for m in wireless audio hotspot bridge core; do
+    check "safe-wireless registers $m" test -f "$W/data/nemesis/apps/gen5w.kr.$m/NEMESIS.data"
+done
+check 'safe-wireless removes the notice timer' test ! -e "$W/data/nemesis/apps/gen5w.kr.notice"
+check 'safe-wireless keeps wireless enabled' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
+check 'safe-wireless plans wireless' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wireless: supported"'
+check 'safe-wireless arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
+check 'safe-wireless commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
+check 'rollback from safe-wireless restores six modules' run rollback
+check 'six modules back after safe-wireless rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+echo patched > "$W/sys/priv-app/SystemUI.odex"
+check 'safe-wireless refuses when SystemUI is not recognised stock' eval '! run update'
+check 'refused safe-wireless keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+echo stock > "$W/sys/priv-app/SystemUI.odex"
+rm -f "$W/usb/GEN5W-VARIANT"
 check 'standard boot guard limit stays 3' eval 'rm -f "$W/usb/GEN5W-VARIANT"; run update && grep -qx 3 "$W/data/nemesis/gen5wkr.bootguard/max"'
 export IT_PRE_FAIL=gen5w.kr.audio
 check 'explicit preinstall refusal reported' eval '! run update'

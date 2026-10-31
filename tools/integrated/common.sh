@@ -17,7 +17,7 @@ if [ -f GEN5W-VARIANT ]; then
     IFS= read -r VARIANT < GEN5W-VARIANT
     VARIANT=${VARIANT%$'\r'}
     case "$VARIANT" in
-        standard|safe) ;;
+        standard|safe|safe-wireless) ;;
         dongle) ;;
         *) echo 'REFUSED unknown bundle variant'; exit 1;;
     esac
@@ -32,6 +32,8 @@ if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
     ALL_IDS="$IDS gen5w.kr.consent"
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
+# Safe editions leave SystemUI (the boot-critical consent screen) stock.
+keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
 REVERSE='gen5w.kr.notice gen5w.kr.consent gen5w.kr.core gen5w.kr.bridge gen5w.kr.hotspot gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
 . ./hotspot-repair.sh
@@ -218,7 +220,7 @@ cold_reboot() {
 bootguard_arm() {
     local stage=$BOOTGUARD.tmp.$$ previous=$BOOTGUARD.previous max item id source name sum path extra found
     # Safe edition: recover after 2 failed boots instead of 3 (reinforcement R1).
-    if [ "$VARIANT" = safe ]; then max=${IT_BOOTGUARD_MAX:-2}; else max=${IT_BOOTGUARD_MAX:-3}; fi
+    if keeps_systemui; then max=${IT_BOOTGUARD_MAX:-2}; else max=${IT_BOOTGUARD_MAX:-3}; fi
     case "$max" in ''|*[!0-9]*|0) return 1;; esac
     [ ! -L "$BOOTGUARD" ] || return 1
     [ ! -e "$BOOTGUARD" ] || [ -d "$BOOTGUARD" ] || return 1
@@ -379,6 +381,10 @@ install_transaction() {
         echo "$info" | grep -qx "id=$id" || { result "$id" failed; report "REFUSED wrong package identity $id"; return 1; }
         check_stage "$id" || { result "$id" failed; report "REFUSED staged payload integrity $id"; return 1; }
     done
+    # android.hardware.wifi.xml (Wi-Fi client) was added on the bricked V039 unit; never in safe-wireless.
+    if [ "$VARIANT" = safe-wireless ] && { [ -e GEN5W-WIFI-CLIENT ] || [ -L GEN5W-WIFI-CLIENT ]; }; then
+        report 'REFUSED safe-wireless edition does not enable the Wi-Fi client; remove GEN5W-WIFI-CLIENT'; return 1
+    fi
     begin || return 1
     # Choose the branch before removing any installed package.
     # The safe edition never touches Wi-Fi/hotspot (prime suspect of the V039 boot loop).
@@ -435,7 +441,7 @@ install_transaction() {
     fi
     for id in $IDS; do
         # The safe edition leaves SystemUI (boot-critical) stock: remove any prior notice timer.
-        if [ "$VARIANT" = safe ] && [ "$id" = gen5w.kr.notice ]; then
+        if keeps_systemui && [ "$id" = gen5w.kr.notice ]; then
             : > "$TX/attempt.$id"; sync
             safe_remove "$id" || { result "$id" failed; report "FAILED restoring $id for safe edition"; rollback_transaction; return 1; }
             result "$id" skipped

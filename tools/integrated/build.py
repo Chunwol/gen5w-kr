@@ -42,7 +42,7 @@ def native():
 
 
 def build(dist, output, variant='standard'):
-    if variant not in ('standard', 'dongle', 'safe'):
+    if variant not in ('standard', 'dongle', 'safe', 'safe-wireless'):
         raise SystemExit('Unsupported edition variant: ' + variant)
     if output.exists():
         raise SystemExit('Output already exists: ' + str(output))
@@ -178,7 +178,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path)
     parser.add_argument('--native-only', action='store_true')
     parser.add_argument('--skip-native', action='store_true')
-    parser.add_argument('--variant', choices=('standard', 'dongle', 'safe'), default='standard')
+    parser.add_argument('--variant', choices=('standard', 'dongle', 'safe', 'safe-wireless'), default='standard')
     args = parser.parse_args()
     if not args.skip_native:
         native()

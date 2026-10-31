@@ -10,6 +10,7 @@ USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전�
 |---|---|---|
 | `gen5w-kr-standard.zip` | wireless·audio·hotspot·bridge·core·notice | 순정 화면 유지, 지원 타이머 3초 |
 | `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
+| `gen5w-kr-safe-wireless.zip` | wireless·audio·hotspot·bridge·core (무선 유지) | 순정 그대로 (SystemUI 미변경) |
 
 설치본과 소스는 같은 커밋에서 만듭니다. 이전 개인용 설정을 해제하는 복원 전용 검사 자료를 포함하며, 해당 기능을 새로 설치하는 파일은 포함하지 않습니다. `GEN5W-VARIANT=standard`, `GEN5W-BACKEND=builtin`만 허용합니다. 동글용 구성을 표시한 파일만 넣어도 설치되지는 않습니다. 이전 개인용 패키지의 등록이 사라진 상태라면 개인 로컬 번들로 먼저 복원해야 합니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
 
@@ -25,6 +26,16 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 - 부트가드는 2회 연속 부팅 실패에서 복구합니다(기본형은 3회).
 - 설치하지 않은 모듈의 대상 파일(`services.odex`·`libCarPlayAudio.so`·`SystemUI.odex`)이 확인 도구로 순정임이 확인되지 않으면 설치를 끝내지 않고 원래대로 되돌립니다. 그래야 부트가드가 실제로 복구할 수 있습니다.
 - 무선 CarPlay·Android Auto, 무선 오디오, 3초 자동 전환은 제공하지 않습니다.
+
+## 무선 안전판 (safe-wireless)
+
+`gen5w-kr-safe-wireless.zip`은 시동 동의 화면(SystemUI)은 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다.
+
+- 설치: 무선 기능 선언·무선 오디오·핫스팟 이름 맞춤(`services.odex`)·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
+- 설치 안 함, 이미 있으면 순정 복원: 시동 안내 타이머(`SystemUI.odex`)와 이전 개인용 동의 안내 패키지.
+- Wi-Fi 클라이언트(`android.hardware.wifi.xml`)는 켜지 않습니다. USB에 `GEN5W-WIFI-CLIENT`가 있으면 설치를 거부합니다. 이 파일은 벽돌이 난 V039 차량에 추가됐던 파일입니다.
+- 부트가드는 2회 연속 부팅 실패에서 복구합니다. `SystemUI.odex`가 순정으로 확인되지 않으면 설치를 끝내지 않고 되돌립니다.
+- 위험: 한국 펌웨어에서 꺼 둔 핫스팟 기능 선언(`com.hkmc.software.wifihotspot.xml`)은 다시 켭니다. 이전 부트루프의 유력 후보와 일부 겹치므로 유선 전용 안전판보다 위험합니다.
 
 ## 작업 선택
 

@@ -44,6 +44,7 @@ cp app/build/gen5w-core.apk packages/core/app/gen5w-core.apk
 "$PY" -I tools/integrated/build.py --skip-native --variant standard --dist dist --output dist/gen5w-kr-standard
 "$PY" -I tools/integrated/build.py --skip-native --variant dongle --dist dist --output dist/gen5w-kr-dongle
 "$PY" -I tools/integrated/build.py --skip-native --variant safe --dist dist --output dist/gen5w-kr-safe
+"$PY" -I tools/integrated/build.py --skip-native --variant safe-wireless --dist dist --output dist/gen5w-kr-safe-wireless
 
 # USB folders: copy the contents of one of these to the root of a USB drive
 mkdir -p dist/usb-probe-install/packages dist/usb-probe-collect dist/usb-detect
