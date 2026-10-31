@@ -135,7 +135,7 @@ wireless_preflight() {
 }
 recovery_roots_valid && wireless_preflight &&
 preflight_optional_pair "$SYS/etc/gen5w-kr-backup/hotspot/original" "$SYS/framework/services.odex" gen5w.kr.hotspot hotspot "$_apps/gen5w.kr.hotspot/bin/hotspot-patch-v039" "$_apps/gen5w.kr.hotspot/bin/hotspot-patch-v035" &&
-preflight_pair "$SYS/etc/gen5w-kr-backup/notice/original" "$SYS/priv-app/SystemUI.odex" "$_apps/gen5w.kr.notice/bin/notice-patch-v039" "$_apps/gen5w.kr.notice/bin/notice-patch-v035" &&
+preflight_optional_pair "$SYS/etc/gen5w-kr-backup/notice/original" "$SYS/priv-app/SystemUI.odex" gen5w.kr.notice notice "$_apps/gen5w.kr.notice/bin/notice-patch-v039" "$_apps/gen5w.kr.notice/bin/notice-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v039" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v035" &&

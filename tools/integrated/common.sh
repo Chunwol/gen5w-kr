@@ -17,7 +17,7 @@ if [ -f GEN5W-VARIANT ]; then
     IFS= read -r VARIANT < GEN5W-VARIANT
     VARIANT=${VARIANT%$'\r'}
     case "$VARIANT" in
-        standard) ;;
+        standard|safe) ;;
         dongle) ;;
         *) echo 'REFUSED unknown bundle variant'; exit 1;;
     esac
@@ -126,7 +126,7 @@ snapshot() {
             report 'REFUSED consent transition: installed package is missing; recovery requires review'
             return 1
         fi
-        if [ "$id" = gen5w.kr.dongle ] && [ "$VARIANT" = standard ] && [ "$BACKEND" = builtin ]; then
+        if [ "$id" = gen5w.kr.dongle ] && [ "$VARIANT" != dongle ] && [ "$BACKEND" = builtin ]; then
             report 'REFUSED dongle transition: installed package is missing; restore with the matching bundle first'
             return 1
         fi
@@ -216,7 +216,9 @@ cold_reboot() {
 # backups (etc/gen5w-kr-backup/*/original) and cold-boots. Uses only data already
 # on the unit, so no USB bundle is required to self-heal.
 bootguard_arm() {
-    local stage=$BOOTGUARD.tmp.$$ previous=$BOOTGUARD.previous max=${IT_BOOTGUARD_MAX:-3} item id source name sum path extra found
+    local stage=$BOOTGUARD.tmp.$$ previous=$BOOTGUARD.previous max item id source name sum path extra found
+    # Safe edition: recover after 2 failed boots instead of 3 (reinforcement R1).
+    if [ "$VARIANT" = safe ]; then max=${IT_BOOTGUARD_MAX:-2}; else max=${IT_BOOTGUARD_MAX:-3}; fi
     case "$max" in ''|*[!0-9]*|0) return 1;; esac
     [ ! -L "$BOOTGUARD" ] || return 1
     [ ! -e "$BOOTGUARD" ] || [ -d "$BOOTGUARD" ] || return 1
@@ -225,7 +227,7 @@ bootguard_arm() {
     rm -rf "$stage" 2>/dev/null || return 1
     mkdir -p "$stage" || return 1
     mkdir "$stage/verifiers" || { rm -rf "$stage"; return 1; }
-    for item in 'gen5w.kr.hotspot hotspot-patch-v039 hotspot-v039' 'gen5w.kr.hotspot hotspot-patch-v035 hotspot-v035' 'gen5w.kr.audio audio-patch audio-v039' 'gen5w.kr.audio audio-patch-v035 audio-v035'; do
+    for item in 'gen5w.kr.hotspot hotspot-patch-v039 hotspot-v039' 'gen5w.kr.hotspot hotspot-patch-v035 hotspot-v035' 'gen5w.kr.audio audio-patch audio-v039' 'gen5w.kr.audio audio-patch-v035 audio-v035' 'gen5w.kr.notice notice-patch-v039 notice-v039' 'gen5w.kr.notice notice-patch-v035 notice-v035'; do
         set -- $item; id=$1; source="checks/$1/bin/$2"; name=$3
         [ -e "$source" ] || [ -L "$source" ] || continue
         [ -f "$source" ] && [ ! -L "$source" ] && check_stage_tree "$id" || { rm -rf "$stage"; return 1; }
@@ -241,6 +243,22 @@ bootguard_arm() {
         digest "$source" > "$stage/verifiers/$name.md5" &&
         [ -s "$stage/verifiers/$name.md5" ] &&
         [ "$(digest "$stage/verifiers/$name")" = "$(cat "$stage/verifiers/$name.md5")" ] || { rm -rf "$stage"; return 1; }
+    done
+    # A module that is not installed is recovered by proving its target is still
+    # stock with the retained verifier. Check that now, so an install never commits
+    # behind a guard that would refuse to recover.
+    for item in 'hotspot gen5w.kr.hotspot framework/services.odex' 'audio gen5w.kr.audio lib/libCarPlayAudio.so' 'notice gen5w.kr.notice priv-app/SystemUI.odex'; do
+        set -- $item
+        if [ -e "$APPS/$2" ] || [ -L "$APPS/$2" ] || [ -e "$SYS/etc/gen5w-kr-backup/$1" ] || [ -L "$SYS/etc/gen5w-kr-backup/$1" ]; then
+            continue
+        fi
+        found=none
+        for source in "$stage/verifiers/$1-v039" "$stage/verifiers/$1-v035"; do
+            [ -f "$source" ] || continue
+            found=no
+            "$source" original "$SYS/$3" >/dev/null 2>&1 && { found=yes; break; }
+        done
+        [ "$found" != no ] || { report "FAILED boot-loop guard: $3 is not a recognised stock file"; rm -rf "$stage"; return 1; }
     done
     printf '0\n' > "$stage/count" || { rm -rf "$stage"; return 1; }
     printf '%s\n' "$max" > "$stage/max" || { rm -rf "$stage"; return 1; }
@@ -363,7 +381,8 @@ install_transaction() {
     done
     begin || return 1
     # Choose the branch before removing any installed package.
-    if [ "${IT_FORCE_WIRED:-0}" = 1 ]; then rc=77
+    # The safe edition never touches Wi-Fi/hotspot (prime suspect of the V039 boot loop).
+    if [ "$VARIANT" = safe ] || [ "${IT_FORCE_WIRED:-0}" = 1 ]; then rc=77
     else gate "$(pwd)/checks/gen5w.kr.wireless" preinstall; rc=$?; fi
     case "$rc" in
         0) wireless_ready=yes; report 'PLAN wireless: supported';;
@@ -387,7 +406,7 @@ install_transaction() {
         fi
     fi
     # Restore any previous local notice-disabling or dongle installation before applying standard.
-    if [ "$VARIANT" = standard ]; then
+    if [ "$VARIANT" != dongle ]; then
         id=gen5w.kr.consent
         if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
             : > "$TX/attempt.$id"; sync
@@ -415,6 +434,14 @@ install_transaction() {
         fi
     fi
     for id in $IDS; do
+        # The safe edition leaves SystemUI (boot-critical) stock: remove any prior notice timer.
+        if [ "$VARIANT" = safe ] && [ "$id" = gen5w.kr.notice ]; then
+            : > "$TX/attempt.$id"; sync
+            safe_remove "$id" || { result "$id" failed; report "FAILED restoring $id for safe edition"; rollback_transaction; return 1; }
+            result "$id" skipped
+            report "SKIPPED $id: safe edition keeps SystemUI stock"
+            continue
+        fi
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.
         if [ "$wireless_ready" = preserve ]; then
             case "$id" in gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot)

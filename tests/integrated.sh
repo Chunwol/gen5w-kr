@@ -35,6 +35,7 @@ for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
   z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
   z.writestr('scripts/post.sh','[ "$IT_POST_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\nexit 0\n')
   if m=='hotspot': z.writestr('app/match.dex',b'own-test-helper')
+  if m=='notice': z.writestr('bin/notice-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; *) exit 1;; esac\n')
  package=pathlib.Path(sys.argv[1])/('gen5w.kr.'+m+'.zip')
  stage=package.parent.parent/'checks'/('gen5w.kr.'+m);stage.mkdir(parents=True)
  sums=[]
@@ -137,6 +138,30 @@ check 'standard variant retains six modules' test "$(find "$W/data/nemesis/apps"
 check 'rollback after dongle to standard transition restores dongle' run rollback
 check 'dongle registration restored after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
 check 'return to standard variant again' run update
+# Safe edition: wired HUD only. Wi-Fi/hotspot/audio and the SystemUI notice timer
+# are restored to stock, and the boot guard recovers after 2 failed boots.
+mkdir -p "$W/sys/priv-app"; echo stock > "$W/sys/priv-app/SystemUI.odex"
+echo safe > "$W/usb/GEN5W-VARIANT"
+check 'safe edition installs' run update
+check 'safe edition keeps only bridge and core' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 2
+check 'safe edition registers bridge' test -f "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
+check 'safe edition registers core' test -f "$W/data/nemesis/apps/gen5w.kr.core/NEMESIS.data"
+for m in wireless audio hotspot notice; do
+    check "safe edition removes $m" test ! -e "$W/data/nemesis/apps/gen5w.kr.$m"
+done
+check 'safe edition marks wireless disabled' test -f "$W/data/nemesis/gen5wkr.wireless-disabled"
+check 'safe edition plans wired-only without the wireless preflight' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wired-only"'
+check 'safe edition arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
+check 'safe edition commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
+check 'safe edition retains the SystemUI verifier' test -x "$W/data/nemesis/gen5wkr.bootguard/verifiers/notice-v039"
+check 'rollback from safe edition restores six modules' run rollback
+check 'six modules back after safe rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+echo patched > "$W/sys/priv-app/SystemUI.odex"
+check 'safe edition refuses when SystemUI is not recognised stock' eval '! run update'
+check 'refused safe edition keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'refused safe edition reports the reason' grep -q 'SystemUI.odex is not a recognised stock file' "$W/data/nemesis/gen5w-kr-integrated/report"
+echo stock > "$W/sys/priv-app/SystemUI.odex"
+check 'standard boot guard limit stays 3' eval 'rm -f "$W/usb/GEN5W-VARIANT"; run update && grep -qx 3 "$W/data/nemesis/gen5wkr.bootguard/max"'
 export IT_PRE_FAIL=gen5w.kr.audio
 check 'explicit preinstall refusal reported' eval '! run update'
 unset IT_PRE_FAIL

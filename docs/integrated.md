@@ -9,10 +9,22 @@ USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전�
 | ZIP | 설치 구성 | 시동 동의 안내 |
 |---|---|---|
 | `gen5w-kr-standard.zip` | wireless·audio·hotspot·bridge·core·notice | 순정 화면 유지, 지원 타이머 3초 |
+| `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
 
 설치본과 소스는 같은 커밋에서 만듭니다. 이전 개인용 설정을 해제하는 복원 전용 검사 자료를 포함하며, 해당 기능을 새로 설치하는 파일은 포함하지 않습니다. `GEN5W-VARIANT=standard`, `GEN5W-BACKEND=builtin`만 허용합니다. 동글용 구성을 표시한 파일만 넣어도 설치되지는 않습니다. 이전 개인용 패키지의 등록이 사라진 상태라면 개인 로컬 번들로 먼저 복원해야 합니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
 
 USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열고, **Run USB NEMESIS.sh**를 선택하면 실행합니다.
+
+## 안전판 (safe)
+
+`gen5w-kr-safe.zip`은 부팅에 꼭 필요한 시스템 파일을 건드리지 않는 최소 구성입니다. 이전 코나 V039 부트루프의 가장 유력한 원인(한국 펌웨어에서 꺼 둔 Wi-Fi·핫스팟 기능을 다시 켬)을 설치 경로에서 뺐습니다.
+
+- 설치: `gen5w.kr.bridge`(Iap2ServerApp·HKMC_DiPO·HKMC_GPM ODEX의 경로 정보 API)와 `gen5w.kr.core`(HUD 앱)만.
+- 설치 안 함, 이미 있으면 순정 복원: 무선 기능 선언·핫스팟(`services.odex`, system_server)·무선 오디오(`libCarPlayAudio.so`)·시동 안내 타이머(`SystemUI.odex`).
+- 무선 지원 검사를 아예 실행하지 않고 유선 전용으로 설치합니다.
+- 부트가드는 2회 연속 부팅 실패에서 복구합니다(기본형은 3회).
+- 설치하지 않은 모듈의 대상 파일(`services.odex`·`libCarPlayAudio.so`·`SystemUI.odex`)이 확인 도구로 순정임이 확인되지 않으면 설치를 끝내지 않고 원래대로 되돌립니다. 그래야 부트가드가 실제로 복구할 수 있습니다.
+- 무선 CarPlay·Android Auto, 무선 오디오, 3초 자동 전환은 제공하지 않습니다.
 
 ## 작업 선택
 

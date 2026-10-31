@@ -42,7 +42,7 @@ def native():
 
 
 def build(dist, output, variant='standard'):
-    if variant not in ('standard', 'dongle'):
+    if variant not in ('standard', 'dongle', 'safe'):
         raise SystemExit('Unsupported edition variant: ' + variant)
     if output.exists():
         raise SystemExit('Output already exists: ' + str(output))
@@ -98,7 +98,7 @@ def build(dist, output, variant='standard'):
     sums = [hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(stage).as_posix()
             for p in sorted(stage.rglob('*')) if p.is_file()]
     (stage / 'FILES.md5').write_text('\n'.join(sums) + '\n', encoding='ascii', newline='\n')
-    if variant == 'standard':
+    if variant != 'dongle':
         stage = output / 'checks/gen5w.kr.dongle'
         source = HERE.parents[1] / 'tools/usb-wifi/package'
         (stage / 'scripts').mkdir(parents=True)
@@ -178,7 +178,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path)
     parser.add_argument('--native-only', action='store_true')
     parser.add_argument('--skip-native', action='store_true')
-    parser.add_argument('--variant', choices=('standard', 'dongle'), default='standard')
+    parser.add_argument('--variant', choices=('standard', 'dongle', 'safe'), default='standard')
     args = parser.parse_args()
     if not args.skip_native:
         native()

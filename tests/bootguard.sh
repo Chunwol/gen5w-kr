@@ -81,6 +81,9 @@ check 'failed arm leaves no guard directory' test ! -e "$W/integrated-data/nemes
 
 # A verifier must itself be present in the checked package manifest. A valid
 # manifest for some unrelated file must not authenticate an injected verifier.
+# Hotspot is not installed here, so arming must prove services.odex is stock.
+mkdir -p "$W/integrated-system/framework"
+printf 'stock-services\n' > "$W/integrated-system/framework/services.odex"
 mkdir -p "$W/integrated/checks/gen5w.kr.hotspot/bin"
 cp "$DATA/nemesis/apps/gen5w.kr.hotspot/bin/hotspot-patch-v039" "$W/integrated/checks/gen5w.kr.hotspot/bin/hotspot-patch-v039"
 printf 'unrelated\n' > "$W/integrated/checks/gen5w.kr.hotspot/unrelated"
@@ -368,4 +371,33 @@ else
 fi
 check 'modified verifier prevents other restoration' test "$(cat "$SYS/priv-app/SystemUI.odex")" = patched-again
 check 'modified verifier never records recovery success' test ! -e "$BG/recovered"
+# Safe edition: hotspot, audio AND notice are absent. SystemUI must be proven stock
+# with the retained verifier, then the bridge ODEX files are restored.
+cp "$DATA/nemesis/apps/gen5w.kr.hotspot/bin/hotspot-patch-v039" "$BG/verifiers/hotspot-v039" 2>/dev/null ||
+    cp "$BG/verifiers/audio-v039" "$BG/verifiers/hotspot-v039"
+md5sum "$BG/verifiers/hotspot-v039" | cut -d ' ' -f 1 > "$BG/verifiers/hotspot-v039.md5"
+cp "$DATA/nemesis/apps/gen5w.kr.notice/bin/notice-patch-v039" "$BG/verifiers/notice-v039"
+md5sum "$BG/verifiers/notice-v039" | cut -d ' ' -f 1 > "$BG/verifiers/notice-v039.md5"
+rm -rf "$SYS/etc/gen5w-kr-backup/notice" "$DATA/nemesis/apps/gen5w.kr.notice"
+printf 'stock-systemui\n' > "$SYS/priv-app/SystemUI.odex"
+printf 'patched-iap2\n' > "$SYS/app/Iap2ServerApp.odex"
+rm -f "$BG/recovered" "$BG/recovery-required"
+if PATH="$W/bin:$PATH" BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" \
+    mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh" > "$W/safe-guard.out" 2>&1; then
+    ok 'safe edition recovery accepts verified stock SystemUI without notice package'
+else
+    bad 'safe edition recovery accepts verified stock SystemUI without notice package'
+fi
+check 'safe edition recovery restores bridge ODEX' cmp -s "$SYS/app/Iap2ServerApp.odex" "$SYS/etc/gen5w-kr-backup/bridge/original"
+check 'safe edition recovery records success' test -f "$BG/recovered"
+printf 'patched-systemui\n' > "$SYS/priv-app/SystemUI.odex"
+printf 'patched-iap2\n' > "$SYS/app/Iap2ServerApp.odex"
+rm -f "$BG/recovered" "$BG/recovery-required"
+if PATH="$W/bin:$PATH" BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" \
+    mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh" > "$W/safe-unknown.out" 2>&1; then
+    bad 'safe edition recovery refuses an unowned modified SystemUI'
+else
+    ok 'safe edition recovery refuses an unowned modified SystemUI'
+fi
+check 'unowned SystemUI leaves recovery to the user' test -f "$BG/recovery-required"
 done_tests bootguard
