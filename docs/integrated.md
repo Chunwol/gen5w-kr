@@ -11,7 +11,7 @@ USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전�
 | `gen5w-kr-standard.zip` | wireless·audio·hotspot·bridge·core·notice | 순정 화면 유지, 지원 타이머 3초 |
 | `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
 | `gen5w-kr-check.zip` | 설치 없음 (읽기 전용 사전 점검) | 변경 없음 |
-| `gen5w-kr-safe-wireless.zip` | wireless·audio·hotspot·bridge·core (무선 유지) | 순정 그대로 (SystemUI 미변경) |
+| `gen5w-kr-safe-wireless.zip` | wireless·audio·bridge·core (무선 유지, `services.odex` 순정) | 순정 그대로 (SystemUI 미변경) |
 
 설치본과 소스는 같은 커밋에서 만듭니다. 이전 개인용 설정을 해제하는 복원 전용 검사 자료를 포함하며, 해당 기능을 새로 설치하는 파일은 포함하지 않습니다. `GEN5W-VARIANT=standard`, `GEN5W-BACKEND=builtin`만 허용합니다. 동글용 구성을 표시한 파일만 넣어도 설치되지는 않습니다. 이전 개인용 패키지의 등록이 사라진 상태라면 개인 로컬 번들로 먼저 복원해야 합니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
 
@@ -55,13 +55,16 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 
 ## 무선 안전판 (safe-wireless)
 
-`gen5w-kr-safe-wireless.zip`은 시동 동의 화면(SystemUI)은 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다.
+`gen5w-kr-safe-wireless.zip`은 부팅에 꼭 필요한 시스템 파일(시동 동의 화면 `SystemUI.odex`, system_server의 `services.odex`)을 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다. system_server가 순정이면 Android가 올라오므로 부트가드·USB 복구 경로가 살아 있습니다.
 
-- 설치: 무선 기능 선언·무선 오디오·핫스팟 프로필 분리(일반 핫스팟과 CarPlay 접속 정보를 따로 쓰도록 Wi-Fi 서비스에 CarPlay 프로필 선택 추가, `services.odex`)·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
+- 설치: 무선 CarPlay·Android Auto 기능 선언 2개·무선 오디오·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
+- 핫스팟 모듈(`services.odex` 프로필 패치)은 설치하지 않습니다. 대신 맞춤 모드(`/data/nemesis/gen5wkr.ap-match`)를 씁니다. 무선 연결을 시작할 때 bridge가 순정 Wi-Fi 서비스로 핫스팟을 켜면서 CarPlay용 이름·암호를 넣습니다. 순정 서비스가 이 값을 저장하므로 차 일반 핫스팟의 이름·암호가 CarPlay용 값으로 바뀝니다.
+- 핫스팟 기능 선언(`com.hkmc.software.wifihotspot.xml`)도 넣지 않습니다. V039 정적 분석에서 이 기능은 상태표시줄 아이콘·핫스팟 메뉴·텔레매틱스 앱과 핫스팟이 이미 켜진 뒤의 Wi-Fi 처리에만 쓰였고, 무선 CarPlay·AA 앱과 부팅 중 핫스팟 복원은 무선 CarPlay·AA 기능만 확인했습니다.
+- 이전 `services.odex` 핫스팟 패치가 설치돼 있으면 되돌리지 않고 설치를 거부합니다. 공식 업데이트로 순정 복구한 뒤 설치합니다.
 - 설치 안 함, 이미 있으면 순정 복원: 시동 안내 타이머(`SystemUI.odex`)와 이전 개인용 동의 안내 패키지.
-- Wi-Fi 클라이언트(`android.hardware.wifi.xml`)는 켜지 않습니다. USB에 `GEN5W-WIFI-CLIENT`가 있으면 설치를 거부합니다. 이 파일은 벽돌이 난 V039 차량에 추가됐던 파일입니다.
-- 부트가드는 2회 연속 부팅 실패에서 복구합니다. `SystemUI.odex`가 순정으로 확인되지 않으면 설치를 끝내지 않고 되돌립니다.
-- 위험: 한국 펌웨어에서 꺼 둔 핫스팟 기능 선언(`com.hkmc.software.wifihotspot.xml`)은 다시 켭니다. 이전 부트루프의 유력 후보와 일부 겹치므로 유선 전용 안전판보다 위험합니다.
+- Wi-Fi 클라이언트(`android.hardware.wifi.xml`)는 켜지 않습니다. USB에 `GEN5W-WIFI-CLIENT`가 있으면 설치를 거부합니다. 이 파일은 벽돌이 난 V039 차량에 추가됐던 파일이고, 부팅 중 Wi-Fi를 켜는 경로를 엽니다.
+- 부트가드는 2회 연속 부팅 실패에서 복구합니다. `SystemUI.odex`·`services.odex`가 순정으로 확인되지 않으면 설치하지 않습니다.
+- 미검증: 맞춤 모드의 실제 무선 연결은 실차에서 확인되지 않았습니다.
 
 ## 작업 선택
 

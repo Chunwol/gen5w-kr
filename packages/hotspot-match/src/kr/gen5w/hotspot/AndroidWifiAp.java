@@ -57,12 +57,37 @@ public final class AndroidWifiAp implements ApProfiles.Port {
             ApProfiles.Profile fresh = profile(latest);
             if (!same(fresh.carplaySsid, desired.carplaySsid) || !same(fresh.carplayKey, desired.carplayKey))
                 throw new Exception("CarPlay settings changed");
-            // Never replace ordinary credentials. OEM sets mode 2; the paired
-            // native implementation selects CP fields in command-local values.
-            wifi.setWifiApEnabledForConnectivity(new WifiConfiguration(latest), true);
+            WifiConfiguration start = new WifiConfiguration(latest);
+            if (!profileReady()) {
+                // Match mode (services.odex stays stock): stock NetworkManagementService
+                // starts the AP with SSID/preSharedKey, so carry the CarPlay values
+                // there. The stock store may keep them as the ordinary hotspot values.
+                start.SSID = fresh.carplaySsid;
+                start.preSharedKey = fresh.carplayKey;
+            }
+            // Profile mode: OEM sets mode 2; the paired native implementation
+            // selects CP fields in command-local values, ordinary values untouched.
+            wifi.setWifiApEnabledForConnectivity(start, true);
         }
     }
+    /** Match mode: the installer chose to keep services.odex stock. */
+    static final String MATCH_MARKER = "/data/nemesis/gen5wkr.ap-match";
     private static void requireReady() throws Exception {
+        if (profileReady()) return;
+        if (matchMode()) return;
+        throw new Exception("AP control not ready");
+    }
+    private static boolean matchMode() {
+        try {
+            BufferedReader marker = new BufferedReader(new FileReader(MATCH_MARKER));
+            try { return "match".equals(marker.readLine()) && marker.readLine() == null; }
+            finally { marker.close(); }
+        } catch (Exception e) { return false; }
+    }
+    private static boolean profileReady() {
+        try { requireProfileReady(); return true; } catch (Exception e) { return false; }
+    }
+    private static void requireProfileReady() throws Exception {
         BufferedReader marker = new BufferedReader(new FileReader("/data/nemesis/gen5wkr.ap-profile-ready"));
         try {
             BufferedReader boot = new BufferedReader(new FileReader("/proc/sys/kernel/random/boot_id"));

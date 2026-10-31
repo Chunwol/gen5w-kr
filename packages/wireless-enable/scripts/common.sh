@@ -21,6 +21,7 @@ BP=$SYS/build.prop
 MARK=$DATA/nemesis/backup/gen5w.kr.wireless
 LOG=$DATA/nemesis/gen5w.kr.wireless.log
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
+AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 
 CP_XML=com.hkmc.software.connectivity.carplay_wireless.xml
 AA_XML=com.hkmc.software.connectivity.androidauto_wireless.xml
@@ -164,7 +165,10 @@ rewrite_featurexml() {
     while IFS= read -r _line || [ -n "$_line" ]; do
         case "$_line" in
             \#*) putline "$_line" >> "$_tmp" ;;
-            *carplay_wireless.xml*|*androidauto_wireless.xml*|*wifihotspot.xml*)
+            *wifihotspot.xml*)
+                if [ -f "$AP_MATCH" ]; then putline "$_line" >> "$_tmp"
+                else putline "#${_line}" >> "$_tmp"; _n=$((_n+1)); fi ;;
+            *carplay_wireless.xml*|*androidauto_wireless.xml*)
                 putline "#${_line}" >> "$_tmp"; _n=$((_n+1)) ;;
             *) putline "$_line" >> "$_tmp" ;;
         esac

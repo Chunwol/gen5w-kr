@@ -68,8 +68,14 @@ check 'unknown bridge target fails' eval '! run'
 check 'bridge reason names file' grep -q 'HKMC_GPM' "$U/GEN5W-REPORT/CHECK.md"
 
 stock; echo junk > "$S/framework/services.odex"
-check 'unknown services.odex still installable' run
-check 'unknown services.odex means wired-only' grep -q '유선 전용' "$U/GEN5W-REPORT/CHECK.md"
+check 'unknown services.odex blocks' eval '! run'
+check 'services.odex reason' grep -q 'services.odex' "$U/GEN5W-REPORT/CHECK.md"
+stock; echo patched > "$S/framework/services.odex"
+check 'patched services.odex without backup blocks' eval '! run'
+stock; mkdir -p "$D/nemesis/apps/gen5w.kr.hotspot"
+check 'prior hotspot package only warns' run
+check 'prior hotspot package warning' grep -q '핫스팟 패치가 설치돼' "$U/GEN5W-REPORT/CHECK.md"
+rm -rf "$D/nemesis/apps/gen5w.kr.hotspot"
 
 stock; echo stock > "$S/app/HKMC_DiPO.odex"
 check 'no wireless code still installable' run

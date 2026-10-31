@@ -12,4 +12,5 @@ for id in $REVERSE; do
     report "REMOVED $id"
 done
 [ ! -L "$WIRELESS_OFF" ] && rm -f "$WIRELESS_OFF" || { rollback_transaction; exit 1; }
+[ ! -L "$AP_MATCH" ] && rm -f "$AP_MATCH" || { rollback_transaction; exit 1; }
 finish

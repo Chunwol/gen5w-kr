@@ -34,7 +34,9 @@ for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+m+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
   z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
   z.writestr('scripts/post.sh','[ "$IT_POST_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\nexit 0\n')
-  if m=='hotspot': z.writestr('app/match.dex',b'own-test-helper')
+  if m=='hotspot':
+   z.writestr('app/match.dex',b'own-test-helper')
+   z.writestr('bin/hotspot-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; patched) grep -q "^patched" "$2";; *) exit 1;; esac\n')
   if m=='bridge':
    for t in ('iap2','dipo','gpm'): z.writestr('bin/'+t+'-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; patched) grep -q "^patched" "$2";; *) exit 1;; esac\n')
   if m=='notice': z.writestr('bin/notice-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; *) exit 1;; esac\n')
@@ -47,6 +49,7 @@ for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
  (stage/'FILES.md5').write_text('\n'.join(sums)+'\n')
  (stage/'PACKAGE.md5').write_text(hashlib.md5(package.read_bytes()).hexdigest()+'\n')
 PY
+mkdir -p "$W/sys/framework"; echo stock > "$W/sys/framework/services.odex"
 run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
 check 'integrated install all modules' run install
 check 'six registered module trees' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
@@ -186,32 +189,46 @@ check 'safe edition refuses when SystemUI is not recognised stock' eval '! run u
 check 'refused safe edition keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 check 'refused safe edition reports the reason' grep -q 'REFUSED pre-install check guard' "$W/data/nemesis/gen5w-kr-integrated/report"
 echo stock > "$W/sys/priv-app/SystemUI.odex"
-# Safe-wireless edition: wireless CarPlay/AA kept, SystemUI (consent screen) stock, guard at 2.
+# Safe-wireless edition: wireless CarPlay/AA kept, SystemUI and services.odex stock, guard at 2.
 echo safe-wireless > "$W/usb/GEN5W-VARIANT"
+run check
+check 'safe-wireless refuses while a services.odex hotspot package is present' eval '! run update'
+check 'hotspot refusal reason' grep -q 'services.odex hotspot patch is present' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'hotspot refusal keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'clean unit for safe-wireless' run remove
 run check
 : > "$W/usb/GEN5W-WIFI-CLIENT"
 check 'safe-wireless refuses the Wi-Fi client opt-in' eval '! run update'
 check 'safe-wireless refusal reports the reason' grep -q 'does not enable the Wi-Fi client' "$W/data/nemesis/gen5w-kr-integrated/report"
-check 'safe-wireless refusal keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'safe-wireless refusal installs nothing' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
 rm -f "$W/usb/GEN5W-WIFI-CLIENT"
-run check
 check 'safe-wireless edition installs' run update
-check 'safe-wireless keeps five modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
-for m in wireless audio hotspot bridge core; do
+check 'safe-wireless keeps four modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 4
+for m in wireless audio bridge core; do
     check "safe-wireless registers $m" test -f "$W/data/nemesis/apps/gen5w.kr.$m/NEMESIS.data"
 done
+check 'safe-wireless never installs the services.odex hotspot patch' test ! -e "$W/data/nemesis/apps/gen5w.kr.hotspot"
+check 'safe-wireless reports the hotspot skip' grep -q 'SKIPPED gen5w.kr.hotspot: safe-wireless keeps services.odex stock' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'safe-wireless leaves services.odex stock' grep -qx stock "$W/sys/framework/services.odex"
+check 'safe-wireless writes the match marker' grep -qx match "$W/data/nemesis/gen5wkr.ap-match"
 check 'safe-wireless removes the notice timer' test ! -e "$W/data/nemesis/apps/gen5w.kr.notice"
 check 'safe-wireless keeps wireless enabled' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'safe-wireless plans wireless' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wireless: supported"'
 check 'safe-wireless arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
+check 'safe-wireless retains the services.odex verifier' test -x "$W/data/nemesis/gen5wkr.bootguard/verifiers/hotspot-v039"
 check 'safe-wireless commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
-check 'rollback from safe-wireless restores six modules' run rollback
-check 'six modules back after safe-wireless rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'rollback from safe-wireless returns to the clean unit' run rollback
+check 'no modules after safe-wireless rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
 echo patched > "$W/sys/priv-app/SystemUI.odex"
 run check
 check 'safe-wireless refuses when SystemUI is not recognised stock' eval '! run update'
-check 'refused safe-wireless keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'refused safe-wireless installs nothing' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
 echo stock > "$W/sys/priv-app/SystemUI.odex"
+echo junk > "$W/sys/framework/services.odex"
+check 'check blocks an unrecognised services.odex' eval '! run check'
+check 'safe-wireless refuses an unrecognised services.odex' eval '! run update'
+echo stock > "$W/sys/framework/services.odex"
+check 'remove clears the match marker' eval 'run check; run update; run remove; test ! -e "$W/data/nemesis/gen5wkr.ap-match"'
 rm -f "$W/usb/GEN5W-VARIANT"
 check 'standard boot guard limit stays 3' eval 'rm -f "$W/usb/GEN5W-VARIANT"; run update && grep -qx 3 "$W/data/nemesis/gen5wkr.bootguard/max"'
 export IT_PRE_FAIL=gen5w.kr.audio

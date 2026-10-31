@@ -14,6 +14,8 @@
 ### 무선 안전판 `gen5w-kr-safe-wireless.zip`
 - 시동 동의 화면(SystemUI)은 순정 유지, 무선 CarPlay·Android Auto는 유지
 - Wi-Fi 클라이언트 켜기(`GEN5W-WIFI-CLIENT`) 거부, 부트가드 한도 2회
+- `services.odex`(system_server) 순정 유지: 핫스팟은 연결 시 순정 Wi-Fi 서비스로 CarPlay 이름·암호를 넣어 켜는 맞춤 모드. 차 일반 핫스팟 이름·암호가 CarPlay용 값으로 바뀜
+- 핫스팟 기능 선언(`wifihotspot.xml`)은 넣지 않음. 이전 `services.odex` 패치가 있으면 설치 거부
 
 ### 부트가드
 - 안내 타이머가 설치되지 않은 구성(유선 전용·안전판)에서도 SystemUI를 확인 도구로 검증하고 복구하도록 수정. 이전에는 이 구성에서 복구가 거부되어 부트가드가 동작하지 않았음

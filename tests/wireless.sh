@@ -88,6 +88,19 @@ check "featurexml keeps unrelated + lines" grep -q '^+ /system/etc/permissions/c
 check "uninstall" run preun.sh
 check "uninstall -> /system byte-identical to stock" same
 
+# Match mode (safe-wireless): projection features only, hotspot feature and its featurexml line untouched.
+setup korean
+mkdir -p "$W/data/nemesis"; echo match > "$W/data/nemesis/gen5wkr.ap-match"
+check "install (match mode)" eval 'run pre.sh && run post.sh'
+check "match mode adds carplay feature" perm $CP
+check "match mode does not add the hotspot feature" eval '! perm $HOT'
+check "match mode keeps the hotspot featurexml line" eval 'grep -q "^- .*wifihotspot" "$W/sys/onebin/oshev_kr/featurexml.cfg"'
+check "match mode comments the projection line" grep -q "^#- .*carplay_wireless" "$W/sys/onebin/oshev_kr/featurexml.cfg"
+check "match mode uninstall" run preun.sh
+check "match mode uninstall -> /system byte-identical" same
+rm -f "$W/data/nemesis/gen5wkr.ap-match"
+setup korean
+
 # Reinstall must keep the first install's ownership records for added files.
 check "install before reinstall" eval 'run pre.sh && run post.sh'
 check "reinstall" eval 'run pre.sh && run post.sh'

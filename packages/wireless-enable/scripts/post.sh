@@ -23,7 +23,11 @@ else
     if [ -n "$fx" ]; then
         cp "$fx" "$MARK/desired.fx" && rewrite_featurexml "$MARK/desired.fx" && state_plan "$fx" "$MARK/desired.fx" || rc=1
     fi
-    for name in "$CP_XML" "$AA_XML" "$HOTSPOT_XML"; do
+    # Match mode (safe-wireless): only the two projection features. The hotspot
+    # feature drives the hotspot menu/telematics, not wireless projection.
+    names="$CP_XML $AA_XML"
+    [ -f "$AP_MATCH" ] || names="$names $HOTSPOT_XML"
+    for name in $names; do
         [ -e "$PERM/$name" ] || state_plan "$PERM/$name" "files/permissions/$name" || rc=1
     done
     if wifi_client_wanted; then

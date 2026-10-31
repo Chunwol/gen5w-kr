@@ -9,6 +9,7 @@ TX=$DATA/nemesis/gen5w-kr-integrated
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 WIRELESS_OFF=$DATA/nemesis/gen5wkr.wireless-disabled
 BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
+AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
 ALL_IDS="$IDS gen5w.kr.consent"
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS gen5w.kr.consent"
@@ -393,6 +394,11 @@ install_transaction() {
     if [ "$VARIANT" = safe-wireless ] && { [ -e GEN5W-WIFI-CLIENT ] || [ -L GEN5W-WIFI-CLIENT ]; }; then
         report 'REFUSED safe-wireless edition does not enable the Wi-Fi client; remove GEN5W-WIFI-CLIENT'; return 1
     fi
+    # safe-wireless never touches services.odex and has no restore path for it.
+    if [ "$VARIANT" = safe-wireless ] && { [ -e "$APPS/gen5w.kr.hotspot" ] || [ -L "$APPS/gen5w.kr.hotspot" ] ||
+            [ -e "$SYS/etc/gen5w-kr-backup/hotspot" ] || [ -L "$SYS/etc/gen5w-kr-backup/hotspot" ]; }; then
+        report 'REFUSED safe-wireless edition: a services.odex hotspot patch is present; restore stock with the official update first'; return 1
+    fi
     begin || return 1
     # Choose the branch before removing any installed package.
     # The safe edition never touches Wi-Fi/hotspot (prime suspect of the V039 boot loop).
@@ -410,6 +416,14 @@ install_transaction() {
            rollback_transaction; return 1;;
     esac
     set_state applying || return 1
+    # Match mode marker: the bridge carries CarPlay credentials in the stock AP
+    # start and the wireless module skips the hotspot feature declaration.
+    [ ! -L "$AP_MATCH" ] || { rollback_transaction; return 1; }
+    if [ "$VARIANT" = safe-wireless ]; then
+        echo match > "$AP_MATCH" || { rollback_transaction; return 1; }
+    else
+        rm -f "$AP_MATCH" || { rollback_transaction; return 1; }
+    fi
     if [ -e "$APPS/wireless.carplay.aa" ]; then
         if [ -f "$APPS/wireless.carplay.aa/NEMESIS.data" ]; then
             : > "$TX/attempt.wireless.carplay.aa"; sync
@@ -454,6 +468,11 @@ install_transaction() {
             safe_remove "$id" || { result "$id" failed; report "FAILED restoring $id for safe edition"; rollback_transaction; return 1; }
             result "$id" skipped
             report "SKIPPED $id: safe edition keeps SystemUI stock"
+            continue
+        fi
+        if [ "$VARIANT" = safe-wireless ] && [ "$id" = gen5w.kr.hotspot ]; then
+            result "$id" skipped
+            report "SKIPPED $id: safe-wireless keeps services.odex stock (hotspot set at connection time)"
             continue
         fi
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.

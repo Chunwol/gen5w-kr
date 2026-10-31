@@ -173,6 +173,15 @@ case "$S_SYSUI" in
     *-v035) ;;
     *) block "SystemUI(시동 동의 화면)를 순정으로 확인하지 못했습니다($S_SYSUI). 부트가드가 복구할 수 없어 설치하면 안 됩니다.";;
 esac
+HOTSPOT_PKG=no
+for n in $PKGS; do [ "$n" = gen5w.kr.hotspot ] && HOTSPOT_PKG=yes; done
+owned hotspot && HOTSPOT_PKG=yes
+case "$S_HOTSPOT" in
+    stock-v039|stock-v035) ;;
+    patched-v039) [ "$HOTSPOT_PKG" = yes ] || block "services.odex(시스템 핵심)가 바뀌어 있는데 이 도구의 백업이 없습니다. 공식 업데이트로 순정 복구 후 다시 점검하세요.";;
+    *) block "services.odex(시스템 핵심)를 순정으로 확인하지 못했습니다($S_HOTSPOT). 공식 업데이트로 순정 복구 후 다시 점검하세요.";;
+esac
+[ "$HOTSPOT_PKG" = yes ] && warn '이전 services.odex 핫스팟 패치가 설치돼 있습니다. 무선 안전판은 이를 되돌리지 않으므로 설치를 거부합니다. 공식 업데이트로 순정 복구 후 다시 점검하세요.'
 [ "$GUARD" = recovery-required ] && block '이전 부트가드가 복구 필요 상태입니다. 공식 V039 업데이트를 먼저 하세요.'
 case "$TXSTATE" in none|committed|rolled-back|hotspot-repaired) ;;
     *) warn "이전 설치 작업이 끝나지 않은 흔적이 있습니다(state=$TXSTATE). 설치하면 먼저 이 작업을 복구합니다.";; esac
@@ -182,10 +191,6 @@ case "$TXSTATE" in none|committed|rolled-back|hotspot-repaired) ;;
 if [ "$W_CODE" != yes ]; then
     WL='무선 안전판을 설치해도 무선은 켜지지 않고 유선 전용으로 설치됩니다(순정 앱에서 무선 코드를 찾지 못함).'
 else
-    case "$S_HOTSPOT" in
-        stock-v039|patched-v039) ;;
-        *) WL="services.odex를 지원 원본으로 확인하지 못해($S_HOTSPOT) 핫스팟 프로필 분리를 못 합니다. 설치하면 유선 전용으로 설치됩니다.";;
-    esac
     if [ -z "$WL" ]; then
         case "$S_AUDIO" in stock-v039|patched-v039) ;;
             *) warn "libCarPlayAudio.so를 확인하지 못했습니다($S_AUDIO). 무선 오디오 보정은 건너뜁니다.";; esac
@@ -233,7 +238,8 @@ fi
     else
         echo '## 판정: 설치 가능'
         echo
-        echo "- 권장: \`gen5w-kr-safe-wireless.zip\` (동의 화면 순정, 무선 유지)"
+        echo "- 권장: \`gen5w-kr-safe-wireless.zip\` (동의 화면·services.odex 순정, 무선 유지)"
+        echo "- 무선 연결 때 차 일반 핫스팟 이름·암호가 CarPlay용 값으로 바뀝니다."
         echo "- 무선: $WL"
     fi
     if [ -n "$WARN" ]; then
@@ -246,7 +252,7 @@ fi
     echo
     echo "| 파일 | 상태 |"
     echo "|---|---|"
-    echo "| services.odex (핫스팟 프로필) | $S_HOTSPOT |"
+    echo "| services.odex (시스템 핵심, 순정 유지) | $S_HOTSPOT |"
     echo "| SystemUI.odex (시동 동의 화면) | $S_SYSUI |"
     echo "| libCarPlayAudio.so (무선 오디오) | $S_AUDIO |"
     echo "| Iap2ServerApp.odex | $S_IAP2 |"
