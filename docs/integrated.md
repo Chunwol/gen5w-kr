@@ -31,7 +31,7 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 
 `gen5w-kr-safe-wireless.zip`은 시동 동의 화면(SystemUI)은 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다.
 
-- 설치: 무선 기능 선언·무선 오디오·핫스팟 이름 맞춤(`services.odex`)·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
+- 설치: 무선 기능 선언·무선 오디오·핫스팟 프로필 분리(일반 핫스팟과 CarPlay 접속 정보를 따로 쓰도록 Wi-Fi 서비스에 CarPlay 프로필 선택 추가, `services.odex`)·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
 - 설치 안 함, 이미 있으면 순정 복원: 시동 안내 타이머(`SystemUI.odex`)와 이전 개인용 동의 안내 패키지.
 - Wi-Fi 클라이언트(`android.hardware.wifi.xml`)는 켜지 않습니다. USB에 `GEN5W-WIFI-CLIENT`가 있으면 설치를 거부합니다. 이 파일은 벽돌이 난 V039 차량에 추가됐던 파일입니다.
 - 부트가드는 2회 연속 부팅 실패에서 복구합니다. `SystemUI.odex`가 순정으로 확인되지 않으면 설치를 끝내지 않고 되돌립니다.
