@@ -7,6 +7,9 @@
 - 부트가드 한도 2회
 - 설치하지 않은 모듈의 대상 파일이 순정으로 확인되지 않으면 설치를 끝내지 않음
 
+### 설치 전 점검 `gen5w-kr-check.zip`
+- 읽기 전용: 대상 파일 순정 여부, 무선 조건, 이전 설치·부트가드 상태를 USB에 기록하고 설치 가능 여부를 판정
+
 ### 무선 안전판 `gen5w-kr-safe-wireless.zip`
 - 시동 동의 화면(SystemUI)은 순정 유지, 무선 CarPlay·Android Auto는 유지
 - Wi-Fi 클라이언트 켜기(`GEN5W-WIFI-CLIENT`) 거부, 부트가드 한도 2회

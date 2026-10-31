@@ -1,0 +1,95 @@
+#!/bin/bash
+# Read-only pre-install check: verdicts from fake verifiers, and nothing on the unit changes.
+cd "$(dirname "$0")/.."
+SH=${MOCK_SH:-mksh}
+command -v "$SH" >/dev/null 2>&1 || SH=sh
+W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+pass=0; fail=0
+check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else echo "FAIL $name"; fail=$((fail+1)); fi; }
+
+U=$W/usb; S=$W/sys; D=$W/data; B=$W/stub
+mkdir -p "$U" "$S/framework" "$S/priv-app" "$S/lib" "$S/app" "$S/etc/permissions" "$D/nemesis/apps" "$B"
+cp tools/integrated/check.sh "$U/"
+echo 0123456789abcdef > "$U/BUILD-REVISION"
+tool() { # checks/<id>/bin/<name>: original if first line "stock", patched if "patched"
+    mkdir -p "$U/checks/$1/bin"
+    cat > "$U/checks/$1/bin/$2" <<'EOF'
+#!/bin/sh
+case "$1" in original) grep -q '^stock' "$2";; patched) grep -q '^patched' "$2";; *) exit 2;; esac
+EOF
+    chmod 755 "$U/checks/$1/bin/$2"
+}
+tool gen5w.kr.hotspot hotspot-patch-v039
+tool gen5w.kr.notice notice-patch-v039
+tool gen5w.kr.audio audio-patch
+for t in iap2 dipo gpm; do tool gen5w.kr.bridge $t-patch-v039; done
+cat > "$B/getprop" <<'EOF'
+#!/bin/sh
+case "$1" in ro.build.product) echo OSHEV.KOR;; ro.build.display.id) echo V039.001.260902;; *) echo;; esac
+EOF
+printf '#!/bin/sh\necho 0\n' > "$B/settings"
+printf '#!/bin/sh\nexit 0\n' > "$B/am"
+printf '#!/bin/sh\nexit 0\n' > "$B/dmesg"
+chmod 755 "$B"/*
+stock() {
+    for f in framework/services.odex priv-app/SystemUI.odex lib/libCarPlayAudio.so app/Iap2ServerApp.odex app/HKMC_GPM.odex; do echo stock > "$S/$f"; done
+    printf 'stock\ncarplay_wireless\n' > "$S/app/HKMC_DiPO.odex"
+}
+run() {
+    rm -rf "$U/GEN5W-REPORT"
+    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
+}
+snapshot() { (cd "$W" && find sys data -type f -exec md5sum {} + | sort); }
+
+stock
+before=$(snapshot)
+check 'stock V039 passes' run
+check 'verdict says install' grep -q '판정: 설치 가능' "$U/GEN5W-REPORT/CHECK.md"
+check 'recommends safe-wireless' grep -q 'gen5w-kr-safe-wireless.zip' "$U/GEN5W-REPORT/CHECK.md"
+check 'records SystemUI stock' grep -qx 'systemui_odex=stock-v039' "$U/GEN5W-REPORT/CHECK.txt"
+check 'records services stock' grep -qx 'services_odex=stock-v039' "$U/GEN5W-REPORT/CHECK.txt"
+check 'records firmware' grep -qx 'firmware=OSHEV.KOR' "$U/GEN5W-REPORT/CHECK.txt"
+check 'wireless code found' grep -qx 'wireless_code=yes' "$U/GEN5W-REPORT/CHECK.txt"
+check 'nothing on the unit changed' test "$before" = "$(snapshot)"
+
+echo junk > "$S/priv-app/SystemUI.odex"
+check 'unknown SystemUI fails' eval '! run'
+check 'unknown SystemUI says do not install' grep -q '판정: 설치하지 마세요' "$U/GEN5W-REPORT/CHECK.md"
+check 'unknown SystemUI reason' grep -q 'SystemUI' "$U/GEN5W-REPORT/CHECK.md"
+
+stock; echo patched > "$S/priv-app/SystemUI.odex"
+check 'patched SystemUI without backup fails' eval '! run'
+mkdir -p "$S/etc/gen5w-kr-backup/notice"
+check 'patched SystemUI with our backup passes' run
+rm -rf "$S/etc/gen5w-kr-backup"
+
+stock; echo junk > "$S/app/HKMC_GPM.odex"
+check 'unknown bridge target fails' eval '! run'
+check 'bridge reason names file' grep -q 'HKMC_GPM' "$U/GEN5W-REPORT/CHECK.md"
+
+stock; echo junk > "$S/framework/services.odex"
+check 'unknown services.odex still installable' run
+check 'unknown services.odex means wired-only' grep -q '유선 전용' "$U/GEN5W-REPORT/CHECK.md"
+
+stock; echo stock > "$S/app/HKMC_DiPO.odex"
+check 'no wireless code still installable' run
+check 'no wireless code means wired-only' grep -q '유선 전용' "$U/GEN5W-REPORT/CHECK.md"
+
+stock; mkdir -p "$D/nemesis/apps/wireless.carplay.aa"
+check 'other package passes with warning' run
+check 'other package listed' grep -q 'wireless.carplay.aa' "$U/GEN5W-REPORT/CHECK.md"
+rm -rf "$D/nemesis/apps/wireless.carplay.aa"
+
+mkdir -p "$D/nemesis/gen5wkr.bootguard"; : > "$D/nemesis/gen5wkr.bootguard/recovery-required"
+check 'recovery-required fails' eval '! run'
+rm -rf "$D/nemesis/gen5wkr.bootguard"
+
+mkdir -p "$D/nemesis/gen5w-kr-integrated"; echo applying > "$D/nemesis/gen5w-kr-integrated/state"
+check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/GEN5W-REPORT/CHECK.md"'
+
+ln -s "$W/elsewhere" "$U/GEN5W-REPORT.tmp" 2>/dev/null; rm -rf "$U/GEN5W-REPORT"; ln -s "$W" "$U/GEN5W-REPORT"
+check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
+rm -f "$U/GEN5W-REPORT" "$U/GEN5W-REPORT.tmp"
+
+echo "== check: $pass passed, $fail failed"
+[ "$fail" = 0 ]

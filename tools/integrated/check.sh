@@ -1,0 +1,227 @@
+#!/system/bin/sh
+# Read-only pre-install check. Changes nothing on the unit: no remount, no
+# package install, no Wi-Fi toggle, no setprop. Writes GEN5W-REPORT/CHECK.txt
+# (facts) and CHECK.md (verdict) to the USB only. Fixed allowlist: properties,
+# file hashes, verifier verdicts, package ids. No VIN, serials, phone data,
+# hotspot credentials, keys or /data file contents.
+case "$0" in */*) cd "${0%/*}" || exit 1;; esac
+export PATH=${CK_TEST_PATH:-/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin}
+DATA=${IT_DATA:-/data}
+SYS=${IT_SYSTEM:-/system}
+APPS=$DATA/nemesis/apps
+TX=$DATA/nemesis/gen5w-kr-integrated
+BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
+OUT=GEN5W-REPORT
+[ ! -L "$OUT" ] || exit 1
+mkdir -p "$OUT" || exit 1
+for f in CHECK.txt CHECK.md; do [ ! -L "$OUT/$f" ] || exit 1; done
+FACTS=$OUT/CHECK.txt
+: > "$FACTS" || exit 1
+
+fact() { echo "$1=$2" >> "$FACTS"; }
+clean() { tr -d '\r\n' | cut -c1-96 | sed 's/[^a-zA-Z0-9_.:/ -]/?/g'; }
+prop() { getprop "$1" 2>/dev/null | clean; }
+digest() { local v; v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
+
+# Verdict of the bundled verifiers for one target: stock-v039, patched-v039,
+# stock-v035, patched-v035, unknown or missing.
+verify() {
+    local file=$SYS/$1 dir=checks/$2/bin v39=$3 v35=$4 tool
+    [ -f "$file" ] && [ ! -L "$file" ] || { echo missing; return; }
+    for tool in "$dir/$v39" "$dir/$v35"; do
+        [ -f "$tool" ] && [ ! -L "$tool" ] && chmod 755 "$tool" 2>/dev/null
+    done
+    if [ -f "$dir/$v39" ]; then
+        "$dir/$v39" original "$file" >/dev/null 2>&1 && { echo stock-v039; return; }
+        "$dir/$v39" patched "$file" >/dev/null 2>&1 && { echo patched-v039; return; }
+    fi
+    if [ -f "$dir/$v35" ]; then
+        "$dir/$v35" original "$file" >/dev/null 2>&1 && { echo stock-v035; return; }
+        "$dir/$v35" patched "$file" >/dev/null 2>&1 && { echo patched-v035; return; }
+    fi
+    echo unknown
+}
+# Passive only: the installer may briefly turn Wi-Fi on to look; this check never does.
+wifi_seen() {
+    local entry class
+    for entry in /sys/class/net/wlan*; do [ -e "$entry" ] && { echo yes; return; }; done
+    for entry in /sys/bus/sdio/devices/*/class; do
+        [ -r "$entry" ] || continue
+        IFS= read -r class < "$entry"
+        [ "$class" = 0x07 ] && { echo yes; return; }
+    done
+    case "$(dmesg 2>/dev/null)" in *'Firmware up'*) echo yes;; *) echo unknown;; esac
+}
+wireless_code() {
+    local a
+    for a in "$SYS/app/HKMC_DiPO.odex" "$SYS/app/PhoneProjection.odex" "$SYS/app/Iap2ServerApp.odex"; do
+        [ -f "$a" ] || continue
+        grep -aqE "carplay_wireless|androidauto_wireless|ConnectivitySSID" "$a" 2>/dev/null && { echo yes; return; }
+    done
+    echo no
+}
+
+# --- facts -----------------------------------------------------------------
+fact bundle_revision "$(head -n 1 BUILD-REVISION 2>/dev/null | clean)"
+fact firmware "$(prop ro.build.product)"
+fact display_id "$(prop ro.build.display.id)"
+fact incremental "$(prop ro.build.version.incremental)"
+fact targetdir "$(prop ro.mobis.targetdir)"
+fact hardware "$(prop ro.hardware)"
+fact android "$(prop ro.build.version.release)"
+[ -x "$SYS/xbin/nemesis" ] && fact nemesis yes || fact nemesis no
+
+S_HOTSPOT=$(verify framework/services.odex gen5w.kr.hotspot hotspot-patch-v039 hotspot-patch-v035)
+S_SYSUI=$(verify priv-app/SystemUI.odex gen5w.kr.notice notice-patch-v039 notice-patch-v035)
+S_AUDIO=$(verify lib/libCarPlayAudio.so gen5w.kr.audio audio-patch audio-patch-v035)
+S_IAP2=$(verify app/Iap2ServerApp.odex gen5w.kr.bridge iap2-patch-v039 iap2-patch-v035)
+S_DIPO=$(verify app/HKMC_DiPO.odex gen5w.kr.bridge dipo-patch-v039 dipo-patch-v035)
+S_GPM=$(verify app/HKMC_GPM.odex gen5w.kr.bridge gpm-patch-v039 gpm-patch-v035)
+fact services_odex "$S_HOTSPOT"
+fact systemui_odex "$S_SYSUI"
+fact carplay_audio_so "$S_AUDIO"
+fact iap2_odex "$S_IAP2"
+fact dipo_odex "$S_DIPO"
+fact gpm_odex "$S_GPM"
+for f in framework/services.odex priv-app/SystemUI.odex lib/libCarPlayAudio.so app/Iap2ServerApp.odex app/HKMC_DiPO.odex app/HKMC_GPM.odex; do
+    [ -f "$SYS/$f" ] && fact "md5:$f" "$(digest "$SYS/$f")"
+done
+
+W_CODE=$(wireless_code)
+W_HW=$(wifi_seen)
+fact wireless_code "$W_CODE"
+fact wifi_hardware_seen "$W_HW"
+fact wifi_on "$(settings get global wifi_on 2>/dev/null | clean)"
+fact ium_support "$(prop persist.ium.support)"
+for x in com.hkmc.software.connectivity.carplay_wireless.xml com.hkmc.software.connectivity.androidauto_wireless.xml com.hkmc.software.wifihotspot.xml android.hardware.wifi.xml; do
+    [ -e "$SYS/etc/permissions/$x" ] && fact "perm:$x" present || fact "perm:$x" absent
+done
+FX=$(prop ro.mobis.targetdir)
+if [ -n "$FX" ] && [ -f "$FX/featurexml.cfg" ]; then
+    fact featurexml_strip_lines "$(grep -v '^#' "$FX/featurexml.cfg" 2>/dev/null | grep -cE 'carplay_wireless.xml|androidauto_wireless.xml|wifihotspot.xml')"
+else
+    fact featurexml_strip_lines unknown
+fi
+
+PKGS=
+if [ -d "$APPS" ]; then
+    for d in "$APPS"/*; do
+        [ -e "$d" ] || continue
+        n=${d##*/}
+        case "$n" in *[!a-zA-Z0-9._-]*) n='?';; esac
+        PKGS="$PKGS $n"
+    done
+fi
+fact nemesis_packages "${PKGS# }"
+OTHER=
+for n in $PKGS; do
+    case "$n" in gen5w.kr.*) ;; *) OTHER="$OTHER $n";; esac
+done
+BACKUPS=
+for d in "$SYS"/etc/gen5w-kr-backup/*; do [ -e "$d" ] && BACKUPS="$BACKUPS ${d##*/}"; done
+fact gen5w_backups "${BACKUPS# }"
+TXSTATE=none
+[ -f "$TX/state" ] && TXSTATE=$(head -n 1 "$TX/state" | clean)
+fact transaction "$TXSTATE"
+GUARD=none
+if [ -d "$BOOTGUARD" ]; then
+    GUARD=present
+    [ -f "$BOOTGUARD/armed" ] && GUARD=armed
+    [ -e "$BOOTGUARD/recovery-required" ] && GUARD=recovery-required
+    fact bootguard_count "$(head -n 1 "$BOOTGUARD/count" 2>/dev/null | clean)"
+    fact bootguard_max "$(head -n 1 "$BOOTGUARD/max" 2>/dev/null | clean)"
+fi
+fact bootguard "$GUARD"
+[ -e "$DATA/nemesis/gen5wkr.wireless-disabled" ] && fact wireless_disabled_marker yes || fact wireless_disabled_marker no
+df "$SYS" "$DATA" /cache 2>/dev/null | while IFS= read -r line; do echo "df=$(echo "$line" | clean)" >> "$FACTS"; done
+
+# --- verdict ---------------------------------------------------------------
+BLOCK=; WARN=; WL=
+block() { BLOCK="$BLOCK
+- $1"; }
+warn() { WARN="$WARN
+- $1"; }
+owned() { [ -e "$SYS/etc/gen5w-kr-backup/$1" ]; }
+is_v035() { case "$1" in *-v035) return 0;; esac; return 1; }
+
+for s in "$S_IAP2" "$S_DIPO" "$S_GPM" "$S_SYSUI"; do
+    is_v035 "$s" && { block '펌웨어가 V035로 보입니다. 공식 V039로 먼저 업데이트하세요.'; break; }
+done
+for pair in "Iap2ServerApp:$S_IAP2" "HKMC_DiPO:$S_DIPO" "HKMC_GPM:$S_GPM"; do
+    case "${pair#*:}" in
+        stock-v039) ;;
+        patched-v039) owned bridge || block "${pair%%:*} 파일이 이미 바뀌어 있는데 이 도구의 백업이 없습니다. 공식 V039 업데이트로 순정 복구 후 다시 점검하세요.";;
+        *-v035) ;;
+        *) if owned bridge; then warn "${pair%%:*} 파일이 이전 버전 패치 상태로 보입니다(${pair#*:}). 설치기가 백업으로 판단합니다."
+           else block "${pair%%:*} 파일을 순정 V039로 확인하지 못했습니다(${pair#*:}). 공식 V039 업데이트로 순정 복구 후 다시 점검하세요."; fi;;
+    esac
+done
+case "$S_SYSUI" in
+    stock-v039) ;;
+    patched-v039) owned notice || block 'SystemUI(시동 동의 화면)가 순정이 아니고 이 도구의 백업도 없습니다. 이 상태로는 부트가드가 복구할 수 없습니다.';;
+    *-v035) ;;
+    *) block "SystemUI(시동 동의 화면)를 순정으로 확인하지 못했습니다($S_SYSUI). 부트가드가 복구할 수 없어 설치하면 안 됩니다.";;
+esac
+[ "$GUARD" = recovery-required ] && block '이전 부트가드가 복구 필요 상태입니다. 공식 V039 업데이트를 먼저 하세요.'
+case "$TXSTATE" in none|committed|rolled-back|hotspot-repaired) ;;
+    *) warn "이전 설치 작업이 끝나지 않은 흔적이 있습니다(state=$TXSTATE). 설치하면 먼저 이 작업을 복구합니다.";; esac
+[ -n "$OTHER" ] && warn "다른 NEMESIS 패키지가 있습니다:$OTHER. 이전 Leafia 패키지(wireless.carplay.aa)는 설치 중 백업 후 제거됩니다. 그 외는 그대로 둡니다."
+[ -e "$SYS/etc/permissions/android.hardware.wifi.xml" ] && warn 'Wi-Fi 클라이언트 선언(android.hardware.wifi.xml)이 이미 있습니다. 순정에 원래 있던 것인지 확인이 필요합니다. 벽돌 차량에 추가됐던 파일입니다.'
+
+if [ "$W_CODE" != yes ]; then
+    WL='무선 안전판을 설치해도 무선은 켜지지 않고 유선 전용으로 설치됩니다(순정 앱에서 무선 코드를 찾지 못함).'
+else
+    case "$S_HOTSPOT" in
+        stock-v039|patched-v039) ;;
+        *) WL="services.odex를 지원 원본으로 확인하지 못해($S_HOTSPOT) 핫스팟 프로필 분리를 못 합니다. 설치하면 유선 전용으로 설치됩니다.";;
+    esac
+    if [ -z "$WL" ]; then
+        case "$S_AUDIO" in stock-v039|patched-v039) ;;
+            *) warn "libCarPlayAudio.so를 확인하지 못했습니다($S_AUDIO). 무선 오디오 보정은 건너뜁니다.";; esac
+        if [ "$W_HW" = yes ]; then
+            WL='무선 조건 충족: 무선 코드와 Wi-Fi 장치가 확인됐습니다.'
+        else
+            WL='무선 코드는 있으나 Wi-Fi 장치가 지금은 꺼져 있어 확인되지 않았습니다. 설치기가 Wi-Fi를 잠깐 켜서 확인하고, 안 되면 유선 전용으로 설치합니다.'
+        fi
+    fi
+fi
+
+{
+    echo '# 설치 전 점검 결과'
+    echo
+    echo "- 펌웨어: $(prop ro.build.product) / $(prop ro.build.display.id)"
+    echo "- 점검 도구 버전: $(head -n 1 BUILD-REVISION 2>/dev/null | cut -c1-7)"
+    echo
+    if [ -n "$BLOCK" ]; then
+        echo '## 판정: 설치하지 마세요'
+        echo "$BLOCK"
+    else
+        echo '## 판정: 설치 가능'
+        echo
+        echo "- 권장: \`gen5w-kr-safe-wireless.zip\` (동의 화면 순정, 무선 유지)"
+        echo "- 무선: $WL"
+    fi
+    if [ -n "$WARN" ]; then
+        echo
+        echo '## 확인할 점'
+        echo "$WARN"
+    fi
+    echo
+    echo '## 파일 상태'
+    echo
+    echo "| 파일 | 상태 |"
+    echo "|---|---|"
+    echo "| services.odex (핫스팟 프로필) | $S_HOTSPOT |"
+    echo "| SystemUI.odex (시동 동의 화면) | $S_SYSUI |"
+    echo "| libCarPlayAudio.so (무선 오디오) | $S_AUDIO |"
+    echo "| Iap2ServerApp.odex | $S_IAP2 |"
+    echo "| HKMC_DiPO.odex | $S_DIPO |"
+    echo "| HKMC_GPM.odex | $S_GPM |"
+    echo
+    echo '이 점검은 차량에 아무것도 쓰지 않았습니다. 세부 값은 CHECK.txt에 있습니다.'
+} > "$OUT/CHECK.md"
+sync
+am broadcast -a com.hkmc.intent.action.TOAST \
+    -e com.hkmc.intent.extra.TOAST_MESSAGE "점검 완료: USB의 GEN5W-REPORT/CHECK.md" \
+    --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1
+[ -z "$BLOCK" ]

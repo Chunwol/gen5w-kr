@@ -10,6 +10,7 @@ USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전�
 |---|---|---|
 | `gen5w-kr-standard.zip` | wireless·audio·hotspot·bridge·core·notice | 순정 화면 유지, 지원 타이머 3초 |
 | `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
+| `gen5w-kr-check.zip` | 설치 없음 (읽기 전용 사전 점검) | 변경 없음 |
 | `gen5w-kr-safe-wireless.zip` | wireless·audio·hotspot·bridge·core (무선 유지) | 순정 그대로 (SystemUI 미변경) |
 
 설치본과 소스는 같은 커밋에서 만듭니다. 이전 개인용 설정을 해제하는 복원 전용 검사 자료를 포함하며, 해당 기능을 새로 설치하는 파일은 포함하지 않습니다. `GEN5W-VARIANT=standard`, `GEN5W-BACKEND=builtin`만 허용합니다. 동글용 구성을 표시한 파일만 넣어도 설치되지는 않습니다. 이전 개인용 패키지의 등록이 사라진 상태라면 개인 로컬 번들로 먼저 복원해야 합니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
@@ -26,6 +27,18 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 - 부트가드는 2회 연속 부팅 실패에서 복구합니다(기본형은 3회).
 - 설치하지 않은 모듈의 대상 파일(`services.odex`·`libCarPlayAudio.so`·`SystemUI.odex`)이 확인 도구로 순정임이 확인되지 않으면 설치를 끝내지 않고 원래대로 되돌립니다. 그래야 부트가드가 실제로 복구할 수 있습니다.
 - 무선 CarPlay·Android Auto, 무선 오디오, 3초 자동 전환은 제공하지 않습니다.
+
+## 설치 전 점검 (check)
+
+`gen5w-kr-check.zip`은 설치 파일이 들어 있지 않은 읽기 전용 점검 USB입니다. 설치 전에 먼저 실행합니다.
+
+- 차량에 아무것도 쓰지 않습니다. 시스템 재마운트·패키지 설치·Wi-Fi 켜기·속성 변경을 하지 않습니다.
+- 설치기와 같은 확인 도구로 대상 파일 6개(`services.odex`, `SystemUI.odex`, `libCarPlayAudio.so`, `Iap2ServerApp.odex`, `HKMC_DiPO.odex`, `HKMC_GPM.odex`)가 순정 V039인지 확인합니다.
+- 무선 코드·Wi-Fi 장치(켜져 있을 때만)·기능 선언 파일, 기존 NEMESIS 패키지 ID, 이전 설치·부트가드 상태, 저장 공간을 기록합니다.
+- 결과: `GEN5W-REPORT/CHECK.md`(판정과 이유), `GEN5W-REPORT/CHECK.txt`(세부 값). 대상 파일을 확인하지 못했거나 부트가드가 복구할 수 없는 상태이면 "설치하지 마세요"로 판정합니다.
+- 차대번호·일련번호·전화번호·핫스팟 암호·키·`/data` 파일 내용은 기록하지 않습니다.
+
+다른 설치 ZIP에서도 `GEN5W-ACTION`에 `check`를 적으면 같은 점검을 실행합니다.
 
 ## 무선 안전판 (safe-wireless)
 

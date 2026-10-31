@@ -10,7 +10,7 @@ feature_name() {
         gen5w.kr.dongle) echo 'USB Wi-Fi 동글 드라이버·HAL';;
         gen5w.kr.wireless) echo '무선 연결·핫스팟 설정';;
         gen5w.kr.audio) echo '무선 음악·안내 음성';;
-        gen5w.kr.hotspot) echo '핫스팟 이름·접속 정보 맞춤';;
+        gen5w.kr.hotspot) echo 'CarPlay 핫스팟 프로필 분리';;
         gen5w.kr.bridge) echo 'Bluetooth 자동 연결·유선 HUD 기반';;
         gen5w.kr.core) echo 'CarPlay 계기판·HUD 길안내';;
         gen5w.kr.notice) echo '시동 주의 안내 3초 자동 전환';;

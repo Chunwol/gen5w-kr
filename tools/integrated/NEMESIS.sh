@@ -5,7 +5,7 @@ if [ -f GEN5W-ACTION ]; then
     IFS= read -r action < GEN5W-ACTION || [ -n "$action" ] || exit 1
     action=${action%$'\r'}
 fi
-case "$action" in install|update|rollback|remove|status|repair-hotspot|wired-only) ;;
+case "$action" in install|update|rollback|remove|status|repair-hotspot|wired-only|check) ;;
     *) echo 'REFUSED unknown GEN5W-ACTION'; exit 1;; esac
 # Only fixed phase names and exit codes; never copy subprocess output or secrets.
 [ ! -L GEN5W-REPORT ] || exit 1

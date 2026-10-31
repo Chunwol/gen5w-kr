@@ -42,7 +42,7 @@ def native():
 
 
 def build(dist, output, variant='standard'):
-    if variant not in ('standard', 'dongle', 'safe', 'safe-wireless'):
+    if variant not in ('standard', 'dongle', 'safe', 'safe-wireless', 'check'):
         raise SystemExit('Unsupported edition variant: ' + variant)
     if output.exists():
         raise SystemExit('Output already exists: ' + str(output))
@@ -137,15 +137,15 @@ def build(dist, output, variant='standard'):
         ['git','rev-parse','HEAD'], cwd=HERE.parents[1], text=True).strip()+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-VARIANT').write_text(variant+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-BACKEND').write_text(('dongle' if variant == 'dongle' else 'builtin')+'\n', encoding='ascii', newline='\n')
-    (output / 'NEMESIS.data').write_text('[nemesis]\nversion=1.0\ntype=open\nid=gen5w.kr.integrated\nname=Gen5W KR integrated installer\ncompat=gen5w\n', encoding='ascii', newline='\n')
-    (output / 'NEMESIS.sh').write_text('''#!/system/bin/sh
+    (output / 'NEMESIS.data').write_text('[nemesis]\nversion=1.0\ntype=open\nid=gen5w.kr.integrated\nname=' + ('Gen5W KR pre-install check (read-only)' if variant == 'check' else 'Gen5W KR integrated installer') + '\ncompat=gen5w\n', encoding='ascii', newline='\n')
+    nemesis_sh = '''#!/system/bin/sh
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 action=install
 if [ -f GEN5W-ACTION ]; then
     IFS= read -r action < GEN5W-ACTION || [ -n "$action" ] || exit 1
     action=${action%$'\\r'}
 fi
-case "$action" in install|update|rollback|remove|status|repair-hotspot|wired-only) ;;
+case "$action" in install|update|rollback|remove|status|repair-hotspot|wired-only|check) ;;
     *) echo 'REFUSED unknown GEN5W-ACTION'; exit 1;; esac
 # Only fixed phase names and exit codes; never copy subprocess output or secrets.
 [ ! -L GEN5W-REPORT ] || exit 1
@@ -158,7 +158,16 @@ cat GEN5W-REPORT/EXEC_LOG.txt 2>/dev/null
 echo "exit=$status" >> GEN5W-REPORT/STARTUP.txt
 sync
 exit "$status"
-''', encoding='ascii', newline='\n')
+'''
+    if variant == 'check':
+        # Read-only check bundle: no installable payloads, and the only action is check.
+        for p in (output / 'packages').glob('*.zip'):
+            p.unlink()
+        (output / 'packages').rmdir()
+        nemesis_sh = nemesis_sh.replace('action=install\n', 'action=check\n', 1).replace(
+            'if [ -f GEN5W-ACTION ]; then', 'if false; then', 1)
+        (output / 'GEN5W-CHECK-ONLY').write_text('check\n', encoding='ascii', newline='\n')
+    (output / 'NEMESIS.sh').write_text(nemesis_sh, encoding='ascii', newline='\n')
     (output / 'NEMESIS.sh').chmod(0o755)
     archive = output.with_suffix('.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -178,7 +187,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path)
     parser.add_argument('--native-only', action='store_true')
     parser.add_argument('--skip-native', action='store_true')
-    parser.add_argument('--variant', choices=('standard', 'dongle', 'safe', 'safe-wireless'), default='standard')
+    parser.add_argument('--variant', choices=('standard', 'dongle', 'safe', 'safe-wireless', 'check'), default='standard')
     args = parser.parse_args()
     if not args.skip_native:
         native()
