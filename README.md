@@ -15,6 +15,8 @@
 | **기본형 (내장 Wi-Fi)** | 지원 사양에서 버튼 활성화 즉시 자동 전환 | [기본형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 릴리스 |
 | 동글형 (USB Wi-Fi) | 지원 사양에서 버튼 활성화 즉시 자동 전환 | [동글형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 실차 미확인 |
 
+**옵션: 블루링크 월간 가입 안내 숨기기** — 블루링크 미가입 차에서 한 달마다 뜨는 "서비스 가입 안내"를 다시 띄우지 않습니다. 기본형·동글형과 따로 설치합니다(USB를 꽂으면 설치 확인 창이 뜸). `/system` 파일은 바꾸지 않고 가입·서비스 기능에는 영향이 없습니다. 실차 미확인. [블루링크 옵션 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-bluelink.zip) · [안내](docs/bluelink.md)
+
 동글형은 **내장 Wi-Fi가 없는 차**용입니다. 순정 Wi-Fi HAL(`libhardware_legacy.so`)은 바꾸지 않고, 순정이 Wi-Fi를 켤 때 올리는 `/system/wifi/bcmdhd.ko`만 동글 연결용 작은 모듈로 바꿉니다(부팅 중에는 쓰이지 않는 파일). 그래서 동글형을 설치한 동안에는 내장 Wi-Fi 대신 동글을 씁니다. V039 원본 `bcmdhd.ko`와 지원되는 `ath9k_htc`(AR9271/AR7010) 장치가 필요합니다. 모든 USB Wi-Fi 동글을 지원하지 않습니다. 동글형에서 기본형으로 바꾸면 동글용 변경을 제거하고 순정 구성을 복원합니다. 동글을 계속 사용하려면 동글형으로 업데이트하세요.
 
 [차종·연식별 확인표](docs/porting.md)에서 지원 대상을 먼저 확인하세요. [전체 릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 변경 사항과 체크섬, 대응 소스 파일도 받을 수 있습니다.
