@@ -22,6 +22,9 @@ MARK=$DATA/nemesis/backup/gen5w.kr.wireless
 LOG=$DATA/nemesis/gen5w.kr.wireless.log
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
+AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
+# Declare the stock hotspot feature unless match mode asked to leave it out.
+hotspot_feature_wanted() { [ ! -f "$AP_MATCH" ] || [ -f "$AP_FEATURE" ]; }
 
 CP_XML=com.hkmc.software.connectivity.carplay_wireless.xml
 AA_XML=com.hkmc.software.connectivity.androidauto_wireless.xml
@@ -166,7 +169,7 @@ rewrite_featurexml() {
         case "$_line" in
             \#*) putline "$_line" >> "$_tmp" ;;
             *wifihotspot.xml*)
-                if [ -f "$AP_MATCH" ]; then putline "$_line" >> "$_tmp"
+                if ! hotspot_feature_wanted; then putline "$_line" >> "$_tmp"
                 else putline "#${_line}" >> "$_tmp"; _n=$((_n+1)); fi ;;
             *carplay_wireless.xml*|*androidauto_wireless.xml*)
                 putline "#${_line}" >> "$_tmp"; _n=$((_n+1)) ;;

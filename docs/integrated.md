@@ -8,7 +8,7 @@ USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전�
 
 | ZIP | 설치 구성 | 시동 동의 안내 |
 |---|---|---|
-| `gen5w-kr-standard.zip` | wireless·audio·hotspot·bridge·core·notice | 순정 화면 유지, 지원 타이머 3초 |
+| `gen5w-kr-standard.zip` | wireless·audio·bridge·core·notice (핫스팟은 맞춤 모드, `services.odex` 순정) | 순정 화면 유지, 지원 타이머 3초 |
 | `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
 | `gen5w-kr-check.zip` | 설치 없음 (읽기 전용 사전 점검) | 변경 없음 |
 | `gen5w-kr-safe-wireless.zip` | wireless·audio·bridge·core (무선 유지, `services.odex` 순정) | 순정 그대로 (SystemUI 미변경) |
@@ -58,7 +58,8 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 `gen5w-kr-safe-wireless.zip`은 부팅에 꼭 필요한 시스템 파일(시동 동의 화면 `SystemUI.odex`, system_server의 `services.odex`)을 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다. system_server가 순정이면 Android가 올라오므로 부트가드·USB 복구 경로가 살아 있습니다.
 
 - 설치: 무선 CarPlay·Android Auto 기능 선언 2개·무선 오디오·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
-- 핫스팟 모듈(`services.odex` 프로필 패치)은 설치하지 않습니다. 대신 맞춤 모드(`/data/nemesis/gen5wkr.ap-match`)를 씁니다. 무선 연결을 시작할 때 bridge가 순정 Wi-Fi 서비스로 핫스팟을 켜면서 CarPlay용 이름·암호를 넣습니다. 순정 서비스가 이 값을 저장하므로 차 일반 핫스팟의 이름·암호가 CarPlay용 값으로 바뀝니다.
+- 핫스팟 모듈(`services.odex` 프로필 패치)은 설치하지 않습니다. 대신 맞춤 모드(`/data/nemesis/gen5wkr.ap-match`)를 씁니다. 무선 연결을 시작할 때 bridge가 순정 Wi-Fi 서비스로 핫스팟을 켜면서 CarPlay용 이름·암호를 넣습니다. 순정 서비스가 켤 때 이 값을 일반 핫스팟 설정으로도 저장하므로, bridge는 핫스팟이 켜진 직후(또는 깨끗하게 실패한 직후) 원래 일반 이름·암호를 순정 저장 기능(`setWifiApConfiguration`)으로 다시 저장합니다. 켜진 핫스팟은 CarPlay 값을 그대로 씁니다. 그 사이 다른 쪽이 설정을 바꿨으면 되돌리지 않습니다. 켜는 도중 전원이 꺼지면 일반 핫스팟 이름·암호가 CarPlay 값으로 남을 수 있습니다.
+- 기본형·동글형도 같은 맞춤 모드를 씁니다(2026-11-01부터 `services.odex` 패치 모듈을 설치하지 않음). 이전 핫스팟 모듈이 있으면 그 모듈의 제거 절차로 `services.odex`를 순정으로 되돌립니다. 기본형·동글형은 일반 핫스팟 메뉴를 위해 핫스팟 기능 선언(`gen5wkr.ap-hotspot-feature` 표시)을 유지합니다.
 - 핫스팟 기능 선언(`com.hkmc.software.wifihotspot.xml`)도 넣지 않습니다. V039 정적 분석에서 이 기능은 상태표시줄 아이콘·핫스팟 메뉴·텔레매틱스 앱과 핫스팟이 이미 켜진 뒤의 Wi-Fi 처리에만 쓰였고, 무선 CarPlay·AA 앱과 부팅 중 핫스팟 복원은 무선 CarPlay·AA 기능만 확인했습니다.
 - 이전 `services.odex` 핫스팟 패치가 설치돼 있으면 되돌리지 않고 설치를 거부합니다. 공식 업데이트로 순정 복구한 뒤 설치합니다.
 - 설치 안 함, 이미 있으면 순정 복원: 시동 안내 타이머(`SystemUI.odex`)와 이전 개인용 동의 안내 패키지.

@@ -26,7 +26,7 @@ else
     # Match mode (safe-wireless): only the two projection features. The hotspot
     # feature drives the hotspot menu/telematics, not wireless projection.
     names="$CP_XML $AA_XML"
-    [ -f "$AP_MATCH" ] || names="$names $HOTSPOT_XML"
+    ! hotspot_feature_wanted || names="$names $HOTSPOT_XML"
     for name in $names; do
         [ -e "$PERM/$name" ] || state_plan "$PERM/$name" "files/permissions/$name" || rc=1
     done

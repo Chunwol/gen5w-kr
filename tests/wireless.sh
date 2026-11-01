@@ -98,7 +98,17 @@ check "match mode keeps the hotspot featurexml line" eval 'grep -q "^- .*wifihot
 check "match mode comments the projection line" grep -q "^#- .*carplay_wireless" "$W/sys/onebin/oshev_kr/featurexml.cfg"
 check "match mode uninstall" run preun.sh
 check "match mode uninstall -> /system byte-identical" same
-rm -f "$W/data/nemesis/gen5wkr.ap-match"
+# Match mode with the hotspot feature (standard/dongle): services.odex stays stock
+# but the stock hotspot menu is still declared.
+setup korean
+echo feature > "$W/data/nemesis/gen5wkr.ap-hotspot-feature"
+check "install (match mode + hotspot feature)" eval 'run pre.sh && run post.sh'
+check "match+feature adds carplay feature" perm $CP
+check "match+feature adds the hotspot feature" perm $HOT
+check "match+feature comments the hotspot featurexml line" grep -q "^#- .*wifihotspot" "$W/sys/onebin/oshev_kr/featurexml.cfg"
+check "match+feature uninstall" run preun.sh
+check "match+feature uninstall -> /system byte-identical" same
+rm -f "$W/data/nemesis/gen5wkr.ap-match" "$W/data/nemesis/gen5wkr.ap-hotspot-feature"
 setup korean
 
 # Reinstall must keep the first install's ownership records for added files.

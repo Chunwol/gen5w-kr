@@ -10,6 +10,8 @@ NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 WIRELESS_OFF=$DATA/nemesis/gen5wkr.wireless-disabled
 BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
+# Present with the match marker: still declare the stock hotspot feature (menu).
+AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
 ALL_IDS="$IDS gen5w.kr.consent"
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS gen5w.kr.consent"
@@ -370,6 +372,8 @@ begin() {
     done
     [ ! -L "$WIRELESS_OFF" ] || return 1
     if [ -f "$WIRELESS_OFF" ]; then echo disabled; else echo enabled; fi > "$TX/prior/wireless-mode" || return 1
+    [ ! -L "$AP_MATCH" ] && [ ! -L "$AP_FEATURE" ] || return 1
+    { [ -f "$AP_MATCH" ] && echo match; [ -f "$AP_FEATURE" ] && echo feature; :; } > "$TX/prior/ap-markers" || return 1
     echo 1 > "$TX/prior/complete" && sync
 }
 install_transaction() {
@@ -416,13 +420,17 @@ install_transaction() {
            rollback_transaction; return 1;;
     esac
     set_state applying || return 1
-    # Match mode marker: the bridge carries CarPlay credentials in the stock AP
-    # start and the wireless module skips the hotspot feature declaration.
-    [ ! -L "$AP_MATCH" ] || { rollback_transaction; return 1; }
-    if [ "$VARIANT" = safe-wireless ]; then
-        echo match > "$AP_MATCH" || { rollback_transaction; return 1; }
+    # Match mode: every wireless edition keeps services.odex stock. The bridge
+    # starts the AP through the stock Wi-Fi service with the CarPlay name and key,
+    # then saves the ordinary hotspot name and key back. standard/dongle still
+    # declare the stock hotspot feature (hotspot menu); safe-wireless does not.
+    [ ! -L "$AP_MATCH" ] && [ ! -L "$AP_FEATURE" ] || { rollback_transaction; return 1; }
+    if [ "$VARIANT" = safe ]; then
+        rm -f "$AP_MATCH" "$AP_FEATURE" || { rollback_transaction; return 1; }
     else
-        rm -f "$AP_MATCH" || { rollback_transaction; return 1; }
+        echo match > "$AP_MATCH" || { rollback_transaction; return 1; }
+        if [ "$VARIANT" = safe-wireless ]; then rm -f "$AP_FEATURE"; else echo feature > "$AP_FEATURE"; fi ||
+            { rollback_transaction; return 1; }
     fi
     if [ -e "$APPS/wireless.carplay.aa" ]; then
         if [ -f "$APPS/wireless.carplay.aa/NEMESIS.data" ]; then
@@ -473,6 +481,20 @@ install_transaction() {
         if [ "$VARIANT" = safe-wireless ] && [ "$id" = gen5w.kr.hotspot ]; then
             result "$id" skipped
             report "SKIPPED $id: safe-wireless keeps services.odex stock (hotspot set at connection time)"
+            continue
+        fi
+        # No edition installs the services.odex hotspot patch any more. An earlier
+        # one is removed through its own verified uninstall (stock bytes restored),
+        # unless wireless detection is inconclusive and the prior setup is kept.
+        if [ "$id" = gen5w.kr.hotspot ] && [ "$wireless_ready" != preserve ]; then
+            if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
+                : > "$TX/attempt.$id"; sync
+                safe_remove "$id" || { result "$id" failed; report "FAILED restoring stock services.odex ($id)"; rollback_transaction; return 1; }
+                report "RESTORED $id: services.odex back to stock; hotspot set at connection time"
+            else
+                report "SKIPPED $id: services.odex stays stock (hotspot set at connection time)"
+            fi
+            result "$id" skipped
             continue
         fi
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.
@@ -553,7 +575,15 @@ disable_wireless() {
     report 'WIRED ONLY: wireless settings restored; independent features continue'
 }
 
+restore_ap_markers() {
+    [ -f "$TX/prior/ap-markers" ] || return 0
+    [ ! -L "$AP_MATCH" ] && [ ! -L "$AP_FEATURE" ] || return 1
+    rm -f "$AP_MATCH" "$AP_FEATURE" || return 1
+    ! grep -qx match "$TX/prior/ap-markers" || echo match > "$AP_MATCH" || return 1
+    ! grep -qx feature "$TX/prior/ap-markers" || echo feature > "$AP_FEATURE" || return 1
+}
 restore_wireless_mode() {
+    restore_ap_markers || return 1
     [ -f "$TX/prior/wireless-mode" ] || return 0
     [ ! -L "$WIRELESS_OFF" ] || return 1
     case "$(cat "$TX/prior/wireless-mode")" in

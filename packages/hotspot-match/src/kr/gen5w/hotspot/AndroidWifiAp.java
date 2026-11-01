@@ -58,10 +58,17 @@ public final class AndroidWifiAp implements ApProfiles.Port {
             if (!same(fresh.carplaySsid, desired.carplaySsid) || !same(fresh.carplayKey, desired.carplayKey))
                 throw new Exception("CarPlay settings changed");
             WifiConfiguration start = new WifiConfiguration(latest);
+            ordinarySsid = null; ordinaryKey = null;
             if (!profileReady()) {
                 // Match mode (services.odex stays stock): stock NetworkManagementService
                 // starts the AP with SSID/preSharedKey, so carry the CarPlay values
-                // there. The stock store may keep them as the ordinary hotspot values.
+                // there. The stock start also saves them as the ordinary hotspot
+                // values; remember the ordinary pair to save it back afterwards.
+                if (latest.SSID != null && latest.preSharedKey != null
+                        && !(latest.SSID.equals(fresh.carplaySsid) && latest.preSharedKey.equals(fresh.carplayKey))) {
+                    ordinarySsid = latest.SSID; ordinaryKey = latest.preSharedKey;
+                    carplaySsid = fresh.carplaySsid; carplayKey = fresh.carplayKey;
+                }
                 start.SSID = fresh.carplaySsid;
                 start.preSharedKey = fresh.carplayKey;
             }
@@ -88,6 +95,7 @@ public final class AndroidWifiAp implements ApProfiles.Port {
         writeSync(GUARD_DIR + "/attempt", boot);
     }
     public void transitionDone(boolean ok) {
+        restoreOrdinary();
         final int generation;
         synchronized (AndroidWifiAp.class) { generation = attemptGeneration; }
         if (!ok) { clearAttempt(generation, false); return; }
@@ -125,6 +133,28 @@ public final class AndroidWifiAp implements ApProfiles.Port {
             try { out.write((value + "\n").getBytes("UTF-8")); out.getFD().sync(); } finally { out.close(); }
             if (!tmp.renameTo(new java.io.File(path))) tmp.delete();
         } catch (Exception e) { tmp.delete(); }
+    }
+    /** Match mode: the stock AP start stored the CarPlay name and key as the
+     * ordinary hotspot values. Once the start has finished (the store write
+     * happens before the AP comes up), save the user's ordinary pair back. Only
+     * the stored values change; the running AP keeps the CarPlay values. Skipped
+     * if anything else changed the stored settings meanwhile. Never throws: a
+     * failure here must not stop the CarPlay AP. */
+    private String ordinarySsid, ordinaryKey, carplaySsid, carplayKey;
+    private void restoreOrdinary() {
+        synchronized (mutationLock) {
+            String ssid = ordinarySsid, key = ordinaryKey;
+            ordinarySsid = null; ordinaryKey = null;
+            if (ssid == null || key == null) return;
+            try {
+                WifiConfiguration now = wifi.getWifiApConfiguration();
+                if (now == null || !carplaySsid.equals(now.SSID) || !carplayKey.equals(now.preSharedKey)
+                        || !carplaySsid.equals(now.ConnectivitySSID) || !carplayKey.equals(now.ConnectivityPSK)) return;
+                WifiConfiguration saved = new WifiConfiguration(now);
+                saved.SSID = ssid; saved.preSharedKey = key;
+                wifi.setWifiApConfiguration(saved);
+            } catch (Exception ignored) { }
+        }
     }
     /** Stock WifiService saves "AP on" (Settings.Global wifi_ap_on) and, with the
      * wireless features present, starts the AP from system_server during the next

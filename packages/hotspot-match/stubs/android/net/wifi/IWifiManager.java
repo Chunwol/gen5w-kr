@@ -6,6 +6,7 @@ public interface IWifiManager {
     int getWifiApEnabledState() throws Exception;
     int getWifiApMode() throws Exception;
     void setWifiApEnabledForConnectivity(WifiConfiguration c, boolean enabled) throws Exception;
+    void setWifiApConfiguration(WifiConfiguration c) throws Exception;
     abstract class Stub {
         public static IWifiManager asInterface(IBinder b) { throw new RuntimeException("stub"); }
     }
