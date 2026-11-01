@@ -15,7 +15,7 @@ if [ ! -f "$ORIG" ]; then
             if reminder_line "$line"; then print -r -- "$line"; fi
         done < "$PREFS" > "$ORIG.tmp" || exit 1
     fi
-    chmod 644 "$ORIG.tmp" && mv -f "$ORIG.tmp" "$ORIG" || exit 1
+    chmod 644 "$ORIG.tmp" && mv "$ORIG.tmp" "$ORIG" || exit 1
 fi
 log 'INSTALLED bluelink: original reminder values saved; the service hides the reminder after boot'
 exit 0

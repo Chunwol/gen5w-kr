@@ -33,10 +33,19 @@ result_label() {
 }
 safe_prop() {
     local value
-    value=$(getprop "$1" 2>/dev/null | tr -d '\r\n' | cut -c1-128)
+    local cr=$'\r' nl=$'\n'
+    value=$(getprop "$1" 2>/dev/null)
+    value=${value//"$cr"/}; value=${value//"$nl"/}; value=${value:0:128}
     case "$value" in ''|*[!a-zA-Z0-9_.:/\ -]*) echo '확인 불가';; *) echo "$value";; esac
 }
-html_escape() { sed 's/\&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
+# Shell builtins only: the head unit has no sed.
+html_escape() {
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line//\&/\&amp;}; line=${line//</\&lt;}; line=${line//>/\&gt;}; line=${line//\"/\&quot;}
+        print -r -- "$line"
+    done
+}
 wifi_support() {
     local entry class messages
     for entry in /sys/class/net/wlan*; do [ -e "$entry" ] && { echo 'Wi-Fi 인터페이스 확인'; return; }; done

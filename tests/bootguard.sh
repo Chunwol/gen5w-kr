@@ -69,9 +69,9 @@ check 'unarmed recovery leaves no success marker' test ! -e "$DATA/nemesis/gen5w
 
 mkdir -p "$W/integrated" "$W/integrated-data" "$W/integrated-system"
 cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$W/integrated/"
-check 'bootguard arm creates an atomic armed marker' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"
+check 'bootguard arm creates an atomic armed marker' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"
 rm -rf "$W/integrated-data/nemesis/gen5wkr.bootguard"
-check 'bootguard arm failure is fail-closed' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" IT_BOOTGUARD_FAIL=1 bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
+check 'bootguard arm failure is fail-closed' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" IT_BOOTGUARD_FAIL=1 mksh -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
 check 'failed arm leaves no guard directory' test ! -e "$W/integrated-data/nemesis/gen5wkr.bootguard.tmp" -a ! -e "$W/integrated-data/nemesis/gen5wkr.bootguard"
 
 # A verifier must itself be present in the checked package manifest. A valid
@@ -83,12 +83,12 @@ mkdir -p "$W/integrated/checks/gen5w.kr.audio/bin"
 cp "$DATA/nemesis/apps/gen5w.kr.audio/bin/audio-patch" "$W/integrated/checks/gen5w.kr.audio/bin/audio-patch"
 printf 'unrelated\n' > "$W/integrated/checks/gen5w.kr.audio/unrelated"
 (cd "$W/integrated/checks/gen5w.kr.audio" && md5sum unrelated > FILES.md5)
-check 'bootguard arm rejects unlisted verifier' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
+check 'bootguard arm rejects unlisted verifier' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
 (cd "$W/integrated/checks/gen5w.kr.audio" && md5sum bin/audio-patch >> FILES.md5)
 printf 'junk\n' > "$W/integrated-system/lib/libCarPlayAudio.so"
-check 'bootguard arm refuses an unrecognised stock target' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
+check 'bootguard arm refuses an unrecognised stock target' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
 printf 'stock-audio\n' > "$W/integrated-system/lib/libCarPlayAudio.so"
-check 'bootguard arm retains listed verifier' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"
+check 'bootguard arm retains listed verifier' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"
 check 'retained verifier matches package' cmp -s "$W/integrated/checks/gen5w.kr.audio/bin/audio-patch" "$W/integrated-data/nemesis/gen5wkr.bootguard/verifiers/audio-v039"
 
 # Simulate a failed final rename during re-arm. The previous guard must still
@@ -101,7 +101,7 @@ exec /bin/mv "$@"
 SH
 chmod +x "$W/fail-mv/mv"
 printf 'prior-state\n' > "$W/integrated-data/nemesis/gen5wkr.bootguard/sentinel"
-check 'failed replacement refuses rearm' env PATH="$W/fail-mv:$PATH" IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
+check 'failed replacement refuses rearm' env PATH="$W/fail-mv:$PATH" IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"
 check 'failed replacement retains previous guard' test -f "$W/integrated-data/nemesis/gen5wkr.bootguard/sentinel" -o -f "$W/integrated-data/nemesis/gen5wkr.bootguard.previous/sentinel"
 
 # The next transaction must reconcile a retained generation before it mutates
@@ -112,17 +112,17 @@ mkdir -p "$IG.previous"
 cp "$IG/armed" "$IG/count" "$IG/max" "$IG.previous/"
 printf old > "$IG.previous/sentinel"
 printf new > "$IG/sentinel"
-check 'rolled-back rearm reconciles previous generation' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && bootguard_reconcile_previous rolled-back"
+check 'rolled-back rearm reconciles previous generation' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && bootguard_reconcile_previous rolled-back"
 check 'rollback keeps old guard' grep -qx old "$IG/sentinel"
 check 'rollback reconciliation removes previous path' test ! -e "$IG.previous"
 mkdir -p "$IG.previous"
 cp "$IG/armed" "$IG/count" "$IG/max" "$IG.previous/"
 printf new > "$IG/sentinel"
-check 'committed rearm reconciles previous generation' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && bootguard_reconcile_previous committed"
+check 'committed rearm reconciles previous generation' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && bootguard_reconcile_previous committed"
 check 'committed reconciliation keeps new guard' grep -qx new "$IG/sentinel"
 check 'committed reconciliation removes previous path' test ! -e "$IG.previous"
 mkdir -p "$IG.previous"
-check 'ambiguous rearm preserves both generations' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && ! bootguard_reconcile_previous capturing"
+check 'ambiguous rearm preserves both generations' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && ! bootguard_reconcile_previous capturing"
 check 'ambiguous previous remains' test -d "$IG.previous"
 rm -rf "$IG.previous"
 
@@ -134,7 +134,7 @@ printf old > "$IG.previous/sentinel"
 printf new > "$IG/sentinel"
 printf applying > "$W/integrated-data/nemesis/gen5w-kr-integrated/state"
 touch "$W/integrated-data/nemesis/gen5w-kr-integrated/prior/complete"
-check 'interrupted transaction reconciles guard before new snapshot' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" bash -c "cd '$W/integrated' && . ./common.sh && rollback_transaction() { set_state rolled-back; } && snapshot() { test \"\$(cat \"\$BOOTGUARD/sentinel\")\" = old; } && begin"
+check 'interrupted transaction reconciles guard before new snapshot' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && rollback_transaction() { set_state rolled-back; } && snapshot() { test \"\$(cat \"\$BOOTGUARD/sentinel\")\" = old; } && begin"
 check 'interrupted transaction restores prior guard' grep -qx old "$IG/sentinel"
 check 'interrupted transaction leaves a complete new snapshot' test -f "$W/integrated-data/nemesis/gen5w-kr-integrated/prior/complete"
 

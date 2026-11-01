@@ -39,7 +39,7 @@ fi
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
 REVERSE='gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
-digest() { local v; v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
+digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 report() {
     echo "$1"; echo "$1" >> "$TX/report"
     case "$1" in FAILED*|REFUSED*|MISSING*|RECOVERY*) echo "$1" >> "$TX/failure";; esac
@@ -312,9 +312,9 @@ bootguard_arm() {
         done
         [ "$found" != no ] || { report "FAILED boot-loop guard: $3 is not a recognised stock file"; rm -rf "$stage"; return 1; }
     done
-    printf '0\n' > "$stage/count" || { rm -rf "$stage"; return 1; }
-    printf '%s\n' "$max" > "$stage/max" || { rm -rf "$stage"; return 1; }
-    printf 'armed\n' > "$stage/armed" || { rm -rf "$stage"; return 1; }
+    echo 0 > "$stage/count" || { rm -rf "$stage"; return 1; }
+    print -r -- "$max" > "$stage/max" || { rm -rf "$stage"; return 1; }
+    echo armed > "$stage/armed" || { rm -rf "$stage"; return 1; }
     sync
     if [ -d "$BOOTGUARD" ]; then
         mv "$BOOTGUARD" "$previous" || { rm -rf "$stage"; return 1; }

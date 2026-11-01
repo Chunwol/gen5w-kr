@@ -20,13 +20,13 @@ done
 cat > "$W/work/exercise.sh" <<'SH'
 . ./common.sh
 reset_results() { :; }
-result() { printf '%s %s\n' "$1" "$2" >> "$IT_DATA/results"; }
+result() { print -r -- "$1 $2" >> "$IT_DATA/results"; }
 report() { :; }
 check_stage() { :; }
 begin() { mkdir -p "$TX"; }
 set_state() { :; }
 gate() { case "$1" in */gen5w.kr.wireless) return 78;; *) return 0;; esac; }
-safe_remove() { printf '%s\n' "$1" >> "$IT_DATA/removed"; }
+safe_remove() { print -r -- "$1" >> "$IT_DATA/removed"; }
 hook() { :; }
 finish() { :; }
 rollback_transaction() { :; }

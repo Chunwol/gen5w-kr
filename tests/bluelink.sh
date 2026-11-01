@@ -6,7 +6,9 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 pass=0; fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL $name"; fi; }
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+. "$ROOT/tests/unit/shim.sh"
+unit_shim_setup || exit 1
+W=$(mktemp -d); trap 'rm -rf "$W"; unit_shim_cleanup' EXIT
 PKG=$W/pkg; mkdir -p "$PKG" "$W/bin" "$W/sys/app"
 cp -r "$ROOT/packages/bluelink-quiet/scripts" "$ROOT/packages/bluelink-quiet/NEMESIS.data" "$PKG/"
 printf '#!/bin/sh\nexit 0\n' > "$W/bin/chown"
@@ -96,5 +98,6 @@ check 'stopping service writes nothing' has 'value="1761955200000"'
 rm -rf "$W/data"; mkdir -p "$W/data"; run post; run quiet
 check 'no app data dir: nothing created' test ! -e "$W/data/data"
 
+unit_shim_report || fail=$((fail+1))
 echo "== bluelink: $pass passed, $fail failed"
 [ $fail = 0 ]

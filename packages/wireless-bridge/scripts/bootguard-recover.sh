@@ -29,7 +29,7 @@ restore_one() {
     [ -e "$src" ] || return 0
     [ -f "$src" ] && [ ! -L "$src" ] && [ ! -L "$dst" ] || { log "FAIL bootguard: bad restore path $dst"; return 1; }
     [ ! -L "$tmp" ] || rm -f "$tmp" || return 1
-    if cp -p "$src" "$tmp" && mv "$tmp" "$dst" && cmp -s "$src" "$dst" &&
+    if cp -p "$src" "$tmp" && mv "$tmp" "$dst" && cmp "$src" "$dst" >/dev/null 2>&1 &&
        { [ -n "$BG_TEST_SYS" ] || [ ! -x /system/bin/restorecon ] || /system/bin/restorecon "$dst"; }; then
         log "RESTORED stock: $dst"
         return 0
@@ -73,7 +73,7 @@ preflight_pair() {
 }
 guard_digest() {
     local value
-    value=$(md5 "$1" 2>/dev/null) || value=$(md5sum "$1" 2>/dev/null) || return 1
+    value=$(md5 "$1" 2>/dev/null) || return 1
     set -- $value; echo "$1"
 }
 preflight_optional_pair() {

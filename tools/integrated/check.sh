@@ -30,9 +30,18 @@ fi
 : > "$FACTS" || exit 1
 
 fact() { echo "$1=$2" >> "$FACTS"; }
-clean() { tr -d '\r\n' | cut -c1-96 | sed 's/[^a-zA-Z0-9_.:/ -]/?/g'; }
+# Shell builtins only: the head unit has no tr, cut, sed or head.
+CR=$'\r'
+clean() {
+    local all= line
+    while IFS= read -r line || [ -n "$line" ]; do all=$all$line; done
+    all=${all//"$CR"/}
+    all=${all:0:96}
+    print -r -- "${all//[!a-zA-Z0-9_.:\/ -]/?}"
+}
+first_line() { local line=; IFS= read -r line < "$1" || [ -n "$line" ] || return 1; print -r -- "$line"; }
 prop() { getprop "$1" 2>/dev/null | clean; }
-digest() { local v; v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
+digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 
 # Verdict of the bundled verifiers for one target: stock-v039, patched-v039,
 # stock-v035, patched-v035, unknown or missing.
@@ -82,7 +91,7 @@ wireless_code() {
 }
 
 # --- facts -----------------------------------------------------------------
-fact bundle_revision "$(head -n 1 BUILD-REVISION 2>/dev/null | clean)"
+fact bundle_revision "$(first_line BUILD-REVISION 2>/dev/null | clean)"
 fact firmware "$(prop ro.build.product)"
 fact display_id "$(prop ro.build.display.id)"
 fact incremental "$(prop ro.build.version.incremental)"
@@ -141,15 +150,15 @@ BACKUPS=
 for d in "$SYS"/etc/gen5w-kr-backup/*; do [ -e "$d" ] && BACKUPS="$BACKUPS ${d##*/}"; done
 fact gen5w_backups "${BACKUPS# }"
 TXSTATE=none
-[ -f "$TX/state" ] && TXSTATE=$(head -n 1 "$TX/state" | clean)
+[ -f "$TX/state" ] && TXSTATE=$(first_line "$TX/state" | clean)
 fact transaction "$TXSTATE"
 GUARD=none
 if [ -d "$BOOTGUARD" ]; then
     GUARD=present
     [ -f "$BOOTGUARD/armed" ] && GUARD=armed
     [ -e "$BOOTGUARD/recovery-required" ] && GUARD=recovery-required
-    fact bootguard_count "$(head -n 1 "$BOOTGUARD/count" 2>/dev/null | clean)"
-    fact bootguard_max "$(head -n 1 "$BOOTGUARD/max" 2>/dev/null | clean)"
+    fact bootguard_count "$(first_line "$BOOTGUARD/count" 2>/dev/null | clean)"
+    fact bootguard_max "$(first_line "$BOOTGUARD/max" 2>/dev/null | clean)"
 fi
 fact bootguard "$GUARD"
 [ -e "$DATA/nemesis/gen5wkr.wireless-disabled" ] && fact wireless_disabled_marker yes || fact wireless_disabled_marker no
@@ -236,7 +245,8 @@ fi
     echo '# 설치 전 점검 결과'
     echo
     echo "- 펌웨어: $(prop ro.build.product) / $(prop ro.build.display.id)"
-    echo "- 점검 도구 버전: $(head -n 1 BUILD-REVISION 2>/dev/null | cut -c1-7)"
+    REV=$(first_line BUILD-REVISION 2>/dev/null)
+    echo "- 점검 도구 버전: ${REV:0:7}"
     echo
     if [ -n "$BLOCK" ]; then
         echo '## 판정: 설치하지 마세요'

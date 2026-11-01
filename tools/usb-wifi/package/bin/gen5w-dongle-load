@@ -23,7 +23,7 @@ log() {
         local sz
         # Rotate conservatively if file size cannot be read.
         sz=$(log_size "$LOG_FILE") || sz=32769
-        [ "$sz" -le 32768 ] || mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || return 0
+        [ "$sz" -le 32768 ] || mv "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || return 0
     fi
     echo "$1" >> "$LOG_FILE" 2>/dev/null || true
 }

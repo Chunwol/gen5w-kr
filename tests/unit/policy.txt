@@ -1,0 +1,63 @@
+# What the head unit accepts, checked against its own toolbox and mksh R43.
+#
+#   <command> <option> ...     a toolbox applet and the exact option words it accepts
+#   !<command> <reason>        never use this command in on-unit scripts
+#
+# A toolbox applet (marked in commands.txt) with no line here takes no options.
+# Other programs in commands.txt (am, pm, settings, logcat, ...) are not checked.
+# mksh R43 builtins (print, echo, read, test, cat, sleep, kill, realpath, ...) are fine.
+#
+# Verified on the unit's toolbox:
+#   mv     takes no options: "mv -f a b" fails on '-f'. Plain mv already replaces
+#          an existing target (rename()), and moves into an existing directory.
+#   cmp    has no -s; "cmp a b >/dev/null 2>&1" gives 0 same / 1 different or missing
+#   id     ignores -u and prints the full id line
+#   printf, head, tail, cut, sed, tr, awk, wc, sort, find, stat, md5sum, basename,
+#   dirname, mktemp, seq, expr, xargs, tee, timeout, env do not exist
+
+mv
+cmp
+cp -p -R
+rm -f -r -rf
+mkdir -p
+grep +aqxFEcvnoi
+ls -l -n -ln
+ln -s
+id
+
+!busybox NEMESIS hooks must not rely on the unit's busybox (old 1.8.1, not on every unit)
+!printf not a builtin in mksh R43 and not on the unit: use print -r -- or echo
+!head not on the unit: IFS= read -r line < file
+!tail not on the unit
+!cut not on the unit: ${var:0:N}
+!sed not on the unit: ${var//pattern/replacement}
+!tr not on the unit: ${var//"$cr"/}
+!awk not on the unit
+!wc not on the unit
+!sort not on the unit
+!uniq not on the unit
+!find not on the unit: use a for loop over a glob
+!stat not on the unit
+!md5sum not on the unit: md5
+!sha1sum not on the unit
+!sha256sum not on the unit
+!basename not on the unit: ${path##*/}
+!dirname not on the unit: ${path%/*}
+!mktemp not on the unit
+!seq not on the unit
+!expr not on the unit: $(( ))
+!xargs not on the unit
+!tee not on the unit
+!timeout not on the unit
+!env not on the unit: VAR=value command
+!which not on the unit: command -v
+!diff not on the unit: cmp
+!od not on the unit
+!unzip not on the unit
+!nohup not on the unit
+!install not on the unit
+!truncate not on the unit: : > file
+!bash not on the unit
+!dash not on the unit
+!python3 not on the unit
+!perl not on the unit

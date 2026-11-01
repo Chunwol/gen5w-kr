@@ -111,7 +111,7 @@ featurexml_path() {
 }
 
 # --- helpers ---------------------------------------------------------------
-file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || _l=$(md5sum "$1" 2>/dev/null) || return 1; set -- $_l; echo "$1"; }
+file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || return 1; set -- $_l; echo "$1"; }
 sys_rw() { "$NEM" remount rw >/dev/null 2>&1; }
 sys_ro() { "$NEM" remount ro >/dev/null 2>&1 || true; }
 
@@ -125,7 +125,7 @@ replace_file() {
     cat "$_src" > "$_tmp" &&
     chmod 644 "$_tmp" &&
     { chown 0:0 "$_tmp" 2>/dev/null || chown 0.0 "$_tmp" 2>/dev/null || true; } &&
-    sync && mv -f "$_tmp" "$_dst" || { rm -f "$_tmp"; return 1; }
+    sync && mv "$_tmp" "$_dst" || { rm -f "$_tmp"; return 1; }
     [ -x /system/bin/restorecon ] && restorecon "$_dst" 2>/dev/null
     sync
     return 0

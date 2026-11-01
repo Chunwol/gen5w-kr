@@ -2,8 +2,9 @@
 # Read-only pre-install check: verdicts from fake verifiers, and nothing on the unit changes.
 cd "$(dirname "$0")/.."
 SH=${MOCK_SH:-mksh}
-command -v "$SH" >/dev/null 2>&1 || SH=sh
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+. tests/unit/shim.sh
+unit_shim_setup || exit 1
+W=$(mktemp -d); trap 'rm -rf "$W"; unit_shim_cleanup' EXIT
 pass=0; fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else echo "FAIL $name"; fail=$((fail+1)); fi; }
 
@@ -42,7 +43,7 @@ stock() {
 }
 run() {
     rm -rf "$U/GEN5W-REPORT"
-    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
+    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
 }
 snapshot() { (cd "$W" && find sys data -type f -exec md5sum {} + | sort); }
 
@@ -98,8 +99,9 @@ mkdir -p "$D/nemesis/gen5w-kr-integrated"; echo applying > "$D/nemesis/gen5w-kr-
 check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/GEN5W-REPORT/CHECK.md"'
 
 ln -s "$W/elsewhere" "$U/GEN5W-REPORT.tmp" 2>/dev/null; rm -rf "$U/GEN5W-REPORT"; ln -s "$W" "$U/GEN5W-REPORT"
-check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
+check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
 rm -f "$U/GEN5W-REPORT" "$U/GEN5W-REPORT.tmp"
 
+unit_shim_report || fail=$((fail+1))
 echo "== check: $pass passed, $fail failed"
 [ "$fail" = 0 ]

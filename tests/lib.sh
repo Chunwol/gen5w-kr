@@ -13,4 +13,11 @@ stubs() {
     printf '#!/bin/sh\necho "nemesis $*" >> %s/calls\nexit ${NEMFAIL:-0}\n' "$W" > "$W/nemesis"
     chmod +x "$W/bin/"* "$W/nemesis"; : > "$W/calls"
 }
-done_tests() { echo "== $1: $PASS passed, $FAIL failed"; [ $FAIL = 0 ]; }
+done_tests() {
+    unit_shim_report || FAIL=$((FAIL+1))
+    unit_shim_cleanup
+    echo "== $1: $PASS passed, $FAIL failed"; [ $FAIL = 0 ]
+}
+# Scripts under test see only the head unit's commands and toolbox options.
+. "$(dirname "${BASH_SOURCE[0]}")/unit/shim.sh"
+unit_shim_setup || { echo "FAIL could not set up head-unit command wrappers"; exit 1; }

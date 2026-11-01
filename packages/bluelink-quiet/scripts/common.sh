@@ -23,7 +23,7 @@ FAR=4102444800000
 VRM_V039=${BL_TEST_VRM_MD5:-b1c36d37f705073c96666a9985d3ba0c}
 SERVICE_V039=${BL_TEST_SERVICE_MD5:-150edee377c86d2c47298197b0c4da7a}
 log() { echo "$1"; }
-file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || _l=$(md5sum "$1" 2>/dev/null) || return 1; set -- $_l; echo "$1"; }
+file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || return 1; set -- $_l; echo "$1"; }
 # The reminder logic above was read from these exact stock builds only.
 stock_apps() {
     [ "$(file_md5 "$SYS/app/HKMC_TAppVRM.odex")" = "$VRM_V039" ] &&
@@ -71,5 +71,5 @@ write_prefs() {
     } > "$TMP" || { rm -f "$TMP"; return 1; }
     chmod 660 "$TMP" &&
     { chown 1000:1000 "$TMP" 2>/dev/null || chown 1000.1000 "$TMP" 2>/dev/null; } &&
-    mv -f "$TMP" "$PREFS" || { rm -f "$TMP"; return 1; }
+    mv "$TMP" "$PREFS" || { rm -f "$TMP"; return 1; }
 }

@@ -8,13 +8,13 @@ cat > "$W/common.sh" <<'SH'
 TX=$CASE_DIR/transaction
 NOREBOOT=$CASE_DIR/no-reboot
 acquire() { :; }
-report() { printf '%s\n' "$1" >> "$CASE_DIR/report"; }
+report() { print -r -- "$1" >> "$CASE_DIR/report"; }
 rollback_transaction() {
     [ "$KEEP_NOREBOOT" = 1 ] || rm -f "$NOREBOOT"
     : > "$CASE_DIR/restored"
 }
 bootguard_reconcile_previous() {
-    printf '%s\n' "$1" > "$CASE_DIR/reconciled"
+    print -r -- "$1" > "$CASE_DIR/reconciled"
     [ -f "$NOREBOOT" ] || return 1
     [ "$RECONCILE_FAIL" != 1 ]
 }

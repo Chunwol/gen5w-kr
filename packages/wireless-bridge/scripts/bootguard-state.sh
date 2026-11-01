@@ -23,17 +23,16 @@ runtime_boot_id() {
     _id=$(cat "$RUNTIME_ID" 2>/dev/null)
     case "$_id" in
         local-*[!a-zA-Z0-9-]*) ;;
-        local-?*) printf '%s' "$_id"; return 0 ;;
+        local-?*) print -rn -- "$_id"; return 0 ;;
     esac
     _up=$(cat /proc/uptime 2>/dev/null)
     _up=${_up%% *}
     _id="local-$$-${RANDOM:-0}-${_up%%.*}-${_up#*.}"
     case "$_id" in *[!a-zA-Z0-9-]*) _id="local-$$-${RANDOM:-0}";; esac
     _tmp="$RUNTIME_ID.tmp.$$"
-    printf '%s
-' "$_id" > "$_tmp" 2>/dev/null && mv -f "$_tmp" "$RUNTIME_ID" 2>/dev/null         || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    print -r -- "$_id" > "$_tmp" 2>/dev/null && mv "$_tmp" "$RUNTIME_ID" 2>/dev/null         || { rm -f "$_tmp" 2>/dev/null; return 1; }
     [ "$(cat "$RUNTIME_ID" 2>/dev/null)" = "$_id" ] || return 1
-    printf '%s' "$_id"
+    print -rn -- "$_id"
 }
 [ -n "$BOOT_ID" ] || BOOT_ID=$(runtime_boot_id) || BOOT_ID=
 
@@ -42,9 +41,9 @@ atomic_write() {
     _value=$2
     _tmp="$STATE_DIR/.${_name}.tmp.$$"
     [ ! -e "$_tmp" ] && [ ! -L "$_tmp" ] || rm -f "$_tmp" || return 1
-    printf '%s\n' "$_value" > "$_tmp" || { rm -f "$_tmp"; return 1; }
+    print -r -- "$_value" > "$_tmp" || { rm -f "$_tmp"; return 1; }
     [ ! -L "$STATE_DIR/$_name" ] || { rm -f "$_tmp"; return 1; }
-    mv -f "$_tmp" "$STATE_DIR/$_name" || { rm -f "$_tmp"; return 1; }
+    mv "$_tmp" "$STATE_DIR/$_name" || { rm -f "$_tmp"; return 1; }
     return 0
 }
 
@@ -53,7 +52,7 @@ read_uint() {
     case "$_value" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    printf '%s' "$_value"
+    print -rn -- "$_value"
 }
 
 begin() {

@@ -1,0 +1,207 @@
+# Command names in /system/bin and /system/xbin of a Gen5W head unit
+# (V035 image with NEMESIS; V039 uses the same KitKat toolbox). Names only.
+# Lines marked 'toolbox' are toolbox applets: their options are limited by policy.txt.
+adb
+akmd8975
+am
+app_process
+applypatch
+atrace
+bg_rb_ua
+blkid
+bmgr
+bootanimation
+bootmovie
+bootsound
+bsdtar
+bu
+bugreport
+busybox
+cat toolbox
+cdda_player
+chcon toolbox
+chmod toolbox
+chown toolbox
+clatd
+clear toolbox
+cmp toolbox
+content
+copyfile
+cp toolbox
+cpulimit
+d_audio
+dalvikvm
+date toolbox
+dd toolbox
+debuggerd
+dexdump
+dexopt
+df toolbox
+dhcpcd
+dmesg toolbox
+dnsmasq
+drmserver
+dropCaches.sh
+dspcopy
+du toolbox
+dumpmobis
+dumpstate
+dumpsys
+e2fsck
+earlycamlog.sh
+export_log
+ext2simg
+factoryd
+fastdumpstate
+fsck_msdos
+getenforce toolbox
+getevent toolbox
+getprop toolbox
+getsebool toolbox
+grep toolbox
+gzip
+hd toolbox
+hostapd
+hscand
+i2c_test
+iapserver
+id toolbox
+ifconfig toolbox
+iftop toolbox
+ime
+input
+insmod toolbox
+installd
+ioctl toolbox
+ionice toolbox
+iozone
+ip
+ip6tables
+iperf
+iptables
+keystore
+kill toolbox
+klogd toolbox
+LCD_status_checker
+linker
+ln toolbox
+load_policy toolbox
+log toolbox
+log_summary
+logcat
+logcatdump_oneshot
+logwrapper
+ls toolbox
+lsmod toolbox
+lsof toolbox
+make_ext4fs
+md5 toolbox
+mdnsd
+media
+mediaserver
+mem
+memtester_android_tcc897x
+micomd
+micomlog
+mkdir toolbox
+mksh
+mkswap toolbox
+mmdumpstr
+monkey
+mount toolbox
+mqtt_mosquitto
+mtpd
+mv toolbox
+nandread toolbox
+ndc
+nemesis
+netcfg
+netd
+netstat toolbox
+newfs_msdos toolbox
+normal_boot.sh
+notify toolbox
+otaagentd
+pcm2wav
+ping
+ping6
+pm
+pppd
+printenv toolbox
+procrank
+ps toolbox
+qb_img_make.sh
+qb_kmsg toolbox
+quickboot_image_export
+racoon
+readlink toolbox
+reboot
+reload_prop toolbox
+renice toolbox
+requestsync
+restorecon toolbox
+rild
+rm toolbox
+rmdir toolbox
+rmmod toolbox
+route toolbox
+run-as
+runcon toolbox
+schedinit
+schedtest
+schedtop toolbox
+screencap
+screenrecord
+screenshot
+sdcard
+sendevent toolbox
+sensorservice
+ser2net
+ser2net.conf
+service
+servicemanager
+setconsole toolbox
+setenforce toolbox
+setprop toolbox
+setsebool toolbox
+settings
+setup_fs
+sh
+simg2img
+sleep toolbox
+smd toolbox
+smond
+spi_test
+start toolbox
+stop toolbox
+surfaceflinger
+svc
+swapoff toolbox
+swapon toolbox
+sync toolbox
+tc
+tcc_dxb_service
+tcc_klog
+tcc_logd
+tdmbtpeg
+testlog
+timeinfo
+tinyplay
+toolbox
+top toolbox
+touch toolbox
+troubleShooter
+uagentd
+uart_test
+uiautomator
+umount toolbox
+uptime toolbox
+vdc
+vmstackdump
+vmstat toolbox
+vold
+watchprops toolbox
+wipe toolbox
+wl
+wm
+wpa_supplicant
