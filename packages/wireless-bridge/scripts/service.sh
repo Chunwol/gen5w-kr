@@ -37,6 +37,7 @@ STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 DEX=$SERVICE_DIR/app/bridge.dex
 PROFILE_READY=${BRIDGE_TEST_PROFILE_READY:-$DATA/nemesis/apps/gen5w.kr.hotspot/scripts/profile-ready.sh}
 PROFILE_SHELL=${BRIDGE_TEST_SHELL:-/system/bin/sh}
+AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 case "$DEX" in *[!a-zA-Z0-9_./-]*) echo 'FAIL bridge: unsupported package path'; exit 1;; esac
 [ -f "$DEX" ] && [ ! -L "$DEX" ] && [ -x "$NEM" ] || exit 1
 trap 'exit 0' HUP INT TERM
@@ -62,8 +63,16 @@ while [ ! -f "$STOPPING" ]; do
     fi
     # A patched system_server file cannot take effect in its existing process.
     # Wait for the native profile module's verified post-reboot readiness.
-    if [ -e "$DATA/nemesis/gen5wkr.noreboot" ] || [ -L "$PROFILE_READY" ] ||
-       [ ! -f "$PROFILE_READY" ] || ! "$PROFILE_SHELL" "$PROFILE_READY"; then
+    # Match mode (safe-wireless) keeps services.odex stock and needs no profile
+    # module; the installer's reboot is still required for the feature files.
+    if [ -e "$DATA/nemesis/gen5wkr.noreboot" ]; then
+        [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
+        sleep 2
+        continue
+    fi
+    if [ -f "$AP_MATCH" ] && [ ! -L "$AP_MATCH" ] && [ "$(cat "$AP_MATCH" 2>/dev/null)" = match ]; then
+        :
+    elif [ -L "$PROFILE_READY" ] || [ ! -f "$PROFILE_READY" ] || ! "$PROFILE_SHELL" "$PROFILE_READY"; then
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         sleep 2
         continue

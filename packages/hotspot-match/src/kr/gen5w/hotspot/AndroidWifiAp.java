@@ -68,7 +68,27 @@ public final class AndroidWifiAp implements ApProfiles.Port {
             // Profile mode: OEM sets mode 2; the paired native implementation
             // selects CP fields in command-local values, ordinary values untouched.
             wifi.setWifiApEnabledForConnectivity(start, true);
+            clearBootRestore();
         }
+    }
+    /** Stock WifiService saves "AP on" (Settings.Global wifi_ap_on) and, with the
+     * wireless features present, starts the AP from system_server during the next
+     * boot. Clear it so the AP only starts from this bridge, after boot completes.
+     * Nothing else reads the value. Best effort; runs off the caller's thread. */
+    private static void clearBootRestore() {
+        Thread t = new Thread(new Runnable() { public void run() {
+            try {
+                Process p = new ProcessBuilder("/system/bin/settings", "put", "global", "wifi_ap_on", "0")
+                        .redirectErrorStream(true).start();
+                p.getOutputStream().close();
+                java.io.InputStream out = p.getInputStream();
+                byte[] buf = new byte[256];
+                while (out.read(buf) >= 0) { }
+                p.waitFor();
+            } catch (Exception ignored) { }
+        } }, "gen5wkr-ap-boot-clear");
+        t.setDaemon(true);
+        t.start();
     }
     /** Match mode: the installer chose to keep services.odex stock. */
     static final String MATCH_MARKER = "/data/nemesis/gen5wkr.ap-match";

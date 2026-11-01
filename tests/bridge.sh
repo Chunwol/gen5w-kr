@@ -202,6 +202,23 @@ rm "$W/data/nemesis/gen5wkr.noreboot"
 printf '#!/bin/sh\nexit 1\n' > "$BRIDGE_TEST_PROFILE_READY"
 check 'bridge waits until native profile patch is ready' run service
 check 'unready profile launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+rm -f "$BRIDGE_TEST_PROFILE_READY"
+echo match > "$W/data/nemesis/gen5wkr.ap-match"
+check 'match mode starts without the profile module' run service
+check 'match mode launches the daemon' test "$(wc -l < "$W/fixture/calls")" -gt "$before"
+before=$(wc -l < "$W/fixture/calls")
+touch "$W/data/nemesis/gen5wkr.noreboot"
+check 'match mode still waits for the reboot' run service
+check 'match mode pending reboot launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+rm "$W/data/nemesis/gen5wkr.noreboot"
+echo other > "$W/data/nemesis/gen5wkr.ap-match"
+check 'wrong match marker waits' run service
+check 'wrong match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+rm -f "$W/data/nemesis/gen5wkr.ap-match"
+echo match > "$W/match-src"; ln -s "$W/match-src" "$W/data/nemesis/gen5wkr.ap-match"
+check 'symlinked match marker waits' run service
+check 'symlinked match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+rm -f "$W/data/nemesis/gen5wkr.ap-match" "$W/match-src"
 printf '#!/bin/sh\nexit 0\n' > "$BRIDGE_TEST_PROFILE_READY"
 touch "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'wired-only supervisor stays available without wireless daemon' run service
