@@ -1,6 +1,6 @@
 # USB Wi-Fi 실험 빌드
 
-2026-10-27 PC에서 V039 설정을 기준으로 `ath9k_htc` 계열과 의존 모듈 9개의 컴파일에 성공했고, 아래 도구로 새 디렉터리에서 재현했다. 현재 동글형 설치 ZIP에는 직접 빌드한 HAL 어댑터와 모듈 9개, ath9k_htc용 펌웨어 2개가 포함된다. 이는 실차 동작이나 모든 동글 지원을 뜻하지 않는다. 순정 HAL은 포함하지 않는다.
+2026-10-27 PC에서 V039 설정을 기준으로 `ath9k_htc` 계열과 의존 모듈 9개의 컴파일에 성공했고, 아래 도구로 새 디렉터리에서 재현했다. 현재 동글형 설치 ZIP에는 모듈 9개, ath9k_htc용 펌웨어 2개, `bcmdhd` 이름의 대리 모듈 1개가 포함된다. 이는 실차 동작이나 모든 동글 지원을 뜻하지 않는다. 순정 HAL은 포함하지도 바꾸지도 않는다(2026-11-01부터, 이전 HAL 어댑터 방식은 제거).
 
 ## 확인한 자료
 
@@ -39,7 +39,9 @@ python3 tools/usb-wifi/experiment.py \
 
 순정 `libhardware_legacy.so`는 `wifi_load_driver`에서 `/system/wifi/bcmdhd.ko`와 Broadcom 전용 인자를 사용한다. `wifi_get_fw_path`/`wifi_change_fw_path`는 netd의 AP/STA 전환 경로에도 연결된다. 모듈 로딩 우회만으로 순정 Wi-Fi 상태·언로드·모드 전환을 해결할 수 없다.
 
-순정 hostapd에는 nl80211이 있지만 Broadcom private 초기화와 명령 처리도 함께 빌드되어 있다. nl80211 지원 문자열만으로 일반 동글 AP 호환을 판정하지 않는다. 순정 라이브러리 전체를 교체하면 다른 하드웨어 기능까지 영향을 줄 수 있어 Wi-Fi 호출만 다루는 어댑터와 정확한 원본 게이트·복원 처리가 필요하다.
+2026-11-01부터 순정 `libhardware_legacy.so`(zygote·system_server가 올리는 라이브러리)는 바꾸지 않는다. V039 순정 `wifi_load_driver`를 분석한 결과, 이 함수가 드라이버 쪽에 요구하는 것은 다음뿐이다: `/system/wifi/bcmdhd.ko` insmod 성공, `/proc/modules`의 `bcmdhd` 항목, `/sys/module/bcmdhd/parameters/mac_address_read`. `wifi_change_fw_path`는 `/data/misc/wifi/firmware_path` 파일에 쓰고, 언로드는 `bcmdhd` 모듈 제거다. 그래서 `tools/usb-wifi/bcmdhd_shim/bcmdhd.c`(대리 모듈)를 순정 `bcmdhd.ko` 자리에 둔다. 이 모듈은 하드웨어를 다루지 않고, 동글 서비스가 올린 `ath9k_htc`의 `wlan0`이 생길 때까지 최대 15초 기다린 뒤 성공한다. 언로드해도 동글 드라이버는 그대로 둔다. 빌드는 `bcmdhd_shim/build.sh <실험 출력 디렉터리>`로 재현하며 vermagic이 순정과 같고, 쓰는 커널 심볼 7개가 V039 export 목록에 모두 있음을 확인했다. 순정 `bcmdhd.ko`(md5 `c19ed2e2d065c6c406d0ba95945caebf`)는 `/system/etc/gen5w-kr-backup/dongle/original`과 `/data` 백업에 두고 제거 시 그대로 되돌린다. KR 순정은 부팅 중 이 모듈을 올리지 않으므로 부팅 경로 밖이다. 설치한 동안 내장 Wi-Fi는 쓰지 않는다.
+
+순정 hostapd에는 nl80211이 있지만 Broadcom private 초기화와 명령 처리도 함께 빌드되어 있다. nl80211 지원 문자열만으로 일반 동글 AP 호환을 판정하지 않는다. 순정 라이브러리를 교체하면 다른 하드웨어 기능과 부팅까지 영향을 줄 수 있어, 현재 방식은 라이브러리를 그대로 두고 드라이버 모듈 자리만 바꾼다.
 
 남은 실차 확인 항목은 실제 커널 ABI와 모듈 로딩, AP/STA 전환과 hostapd 호환, 동글 탈착, 휴대폰 연결이다. 같은 vermagic과 PC 컴파일 성공만으로 차량 지원을 확정하지 않는다. 펌웨어와 모듈의 출처·배포 조건은 별도로 확인해야 한다.
 
@@ -47,4 +49,4 @@ python3 tools/usb-wifi/experiment.py \
 
 ## 로딩 대기와 로그
 
-HAL은 root 서비스의 처리 결과를 최대 30초 기다린다. root 서비스는 같은 USB 연결 또는 새 로드 요청마다 최대 3회 시도하며, 로더의 인터페이스 대기는 회당 5초다. 로그는 `wc` 없이 파일 크기를 확인해 32KB를 넘으면 이전 파일 하나로 교체한다. PC 테스트는 이 대기·재시도·로그 회전을 확인하며 실제 동글 연결 시험을 대신하지 않는다.
+root 서비스는 부팅과 동글 연결 때 모듈을 미리 올리고, 대리 모듈은 `wlan0`을 최대 15초 기다린다. root 서비스는 같은 USB 연결마다 최대 3회 시도하며, 로더의 인터페이스 대기는 회당 5초다. 로그는 `wc` 없이 파일 크기를 확인해 32KB를 넘으면 이전 파일 하나로 교체한다. PC 테스트는 이 대기·재시도·로그 회전을 확인하며 실제 동글 연결 시험을 대신하지 않는다.

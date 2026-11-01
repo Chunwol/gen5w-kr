@@ -8,13 +8,16 @@ import stat
 def build_dongle_zip(pkg_dir: Path, out_zip: Path):
     # Verify required driver payloads exist before packaging
     required = [
-        pkg_dir / 'files' / 'libhardware_legacy.so',
+        pkg_dir / 'files' / 'bcmdhd.ko',
         pkg_dir / 'files' / 'modules' / 'ath9k_htc.ko',
         pkg_dir / 'files' / 'firmware' / 'htc_9271.fw',
     ]
     for req in required:
         if not req.is_file():
             raise SystemExit(f'Refused to build dongle package: missing required payload {req}')
+    # The stock Wi-Fi HAL is never replaced any more; refuse a stale adapter build.
+    if (pkg_dir / 'files' / 'libhardware_legacy.so').exists():
+        raise SystemExit('Refused to build dongle package: stale libhardware_legacy.so adapter in payload')
 
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     if out_zip.exists():

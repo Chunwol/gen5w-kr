@@ -6,15 +6,20 @@ DATA=${DONGLE_TEST_DATA:-/data}
 NEM=${DONGLE_TEST_NEM:-/system/xbin/nemesis}
 LOG_FILE=$DATA/nemesis/gen5w.kr.dongle.log
 
-TARGET_HAL=$SYS/lib/libhardware_legacy.so
-STOCK_HAL=$SYS/lib/libhardware_legacy_stock.so
+# The stock Wi-Fi HAL (libhardware_legacy.so) is never changed. Only the stock
+# Broadcom module it loads is swapped for a small stand-in (files/bcmdhd.ko) that
+# succeeds once the USB dongle interface exists. Not loaded during boot.
+TARGET=$SYS/wifi/bcmdhd.ko
 LOADER_BIN=$SYS/bin/gen5w-dongle-load
 MOD_DIR=$SYS/wifi/dongle
 FW_DIR=$SYS/etc/firmware
 
 BACKUP_DURABLE=$SYS/etc/gen5w-kr-backup/dongle
 BACKUP_RUNTIME=$DATA/nemesis/backup/gen5w.kr.dongle
-OWNER="gen5w.kr.dongle:1.0"
+OWNER="gen5w.kr.dongle:2.0"
+# Earlier installs replaced libhardware_legacy.so; they are only ever removed
+# through their own registered uninstall before this version is applied.
+LEGACY_OWNER="gen5w.kr.dongle:1.0"
 
 log_size() {
     # GNU ls includes a link-count field; Android toolbox ls does not.
@@ -66,9 +71,9 @@ has_dongle_hw() {
     return 1
 }
 
-# Supported stock HAL library hashes (V039 Gen5W):
-STOCK_HAL_MD5_V039="5491a1a37e2c252dc55fc3e2036f0f6b"
-STOCK_HAL_SHA256_V039="e173ce9c465ba8df9201372caa761809e70a82ba0098f14421f9032957c8803f"
+# Supported stock Broadcom module hashes (V039 Gen5W /system/wifi/bcmdhd.ko):
+STOCK_KO_MD5_V039="c19ed2e2d065c6c406d0ba95945caebf"
+STOCK_KO_SHA256_V039="ef79d002fd2a59e775ab7167f6adf4ecbdac0f2e2a9a2463fd5cc96b12de50c0"
 
 digest() {
     local v
@@ -94,29 +99,29 @@ verify_stock_hash() {
         return 0
     fi
     case "$d" in
-        "$STOCK_HAL_MD5_V039") return 0 ;;
+        "$STOCK_KO_MD5_V039") return 0 ;;
         *) return 1 ;;
     esac
 }
 
+legacy_owned() {
+    [ -f "$BACKUP_DURABLE/owner" ] && [ ! -L "$BACKUP_DURABLE/owner" ] &&
+    [ "$(cat "$BACKUP_DURABLE/owner" 2>/dev/null)" = "$LEGACY_OWNER" ]
+}
+
 verify_stock_target() {
-    [ -f "$TARGET_HAL" ] && [ ! -L "$TARGET_HAL" ] || return 1
-    # Check if this is a reinstall / update on an already owned system
-    if [ -f "$STOCK_HAL" ] || is_owned; then
-        is_owned || { log "FAIL dongle: stock copy present without valid owner"; return 1; }
+    [ -f "$TARGET" ] && [ ! -L "$TARGET" ] || return 1
+    # Reinstall / update on an already owned system
+    if is_owned; then
         [ -f "$BACKUP_DURABLE/original" ] && [ ! -L "$BACKUP_DURABLE/original" ] || {
             log "FAIL dongle: missing or invalid durable backup"; return 1;
         }
         verify_stock_hash "$BACKUP_DURABLE/original" || { log "FAIL dongle: corrupted or modified durable backup"; return 1; }
-        if [ -e "$STOCK_HAL" ] || [ -L "$STOCK_HAL" ]; then
-            verify_stock_hash "$STOCK_HAL" || { log "FAIL dongle: corrupted or modified stock copy"; return 1; }
-        else
-            aux_manifest_valid || { log 'FAIL dongle: missing stock copy without a valid journal'; return 1; }
-        fi
+        aux_manifest_valid || { log 'FAIL dongle: missing or changed file ownership journal'; return 1; }
         return 0
     fi
-    verify_stock_hash "$TARGET_HAL" || {
-        log "FAIL dongle: unsupported or modified target HAL hash $(digest "$TARGET_HAL" 2>/dev/null)"
+    verify_stock_hash "$TARGET" || {
+        log "FAIL dongle: unsupported or modified bcmdhd.ko hash $(digest "$TARGET" 2>/dev/null)"
         return 1
     }
     return 0
@@ -159,16 +164,16 @@ aux_payload_manifest() {
         echo "$sum|etc/firmware/$name"; count=$((count+1))
     done
     [ "$count" -gt 0 ] || return 1
-    for src in "$SCRIPT_DIR/../bin/gen5w-dongle-load" "$SCRIPT_DIR/../files/libhardware_legacy.so"; do
+    for src in "$SCRIPT_DIR/../bin/gen5w-dongle-load" "$SCRIPT_DIR/../files/bcmdhd.ko"; do
         [ -f "$src" ] && [ ! -L "$src" ] || return 1
         sum=$(digest "$src") || return 1
-        case "${src##*/}" in gen5w-dongle-load) name=bin/gen5w-dongle-load;; *) name=lib/libhardware_legacy.so;; esac
+        case "${src##*/}" in gen5w-dongle-load) name=bin/gen5w-dongle-load;; *) name=wifi/bcmdhd.ko;; esac
         echo "$sum|$name"
     done
 }
 aux_safe_dirs() {
     local dir
-    for dir in "$SYS" "$SYS/lib" "$SYS/wifi" "$MOD_DIR" "$SYS/etc" "$FW_DIR" "$SYS/bin" "$SYS/etc/gen5w-kr-backup" "$BACKUP_DURABLE" "$DATA" "$DATA/nemesis" "$DATA/nemesis/backup" "$BACKUP_RUNTIME"; do
+    for dir in "$SYS" "$SYS/wifi" "$MOD_DIR" "$SYS/etc" "$FW_DIR" "$SYS/bin" "$SYS/etc/gen5w-kr-backup" "$BACKUP_DURABLE" "$DATA" "$DATA/nemesis" "$DATA/nemesis/backup" "$BACKUP_RUNTIME"; do
         [ ! -L "$dir" ] && { [ ! -e "$dir" ] || [ -d "$dir" ]; } || return 1
     done
     for dir in "$BACKUP_RUNTIME/original" "$BACKUP_RUNTIME/owner"; do
@@ -191,14 +196,14 @@ aux_manifest_valid() {
     while IFS='|' read -r sum rel extra; do
         case "$sum" in ''|*[!a-fA-F0-9]*) return 1;; esac
         [ ${#sum} -eq 32 ] && [ -z "$extra" ] || return 1
-        case "$rel" in wifi/dongle/gen5w-average.ko|wifi/dongle/ccm.ko|wifi/dongle/ctr.ko|wifi/dongle/seqiv.ko|wifi/dongle/mac80211.ko|wifi/dongle/ath.ko|wifi/dongle/ath9k_hw.ko|wifi/dongle/ath9k_common.ko|wifi/dongle/ath9k_htc.ko|etc/firmware/htc_9271.fw|etc/firmware/htc_7010.fw|bin/gen5w-dongle-load|lib/libhardware_legacy.so) ;; *) return 1;; esac
+        case "$rel" in wifi/dongle/gen5w-average.ko|wifi/dongle/ccm.ko|wifi/dongle/ctr.ko|wifi/dongle/seqiv.ko|wifi/dongle/mac80211.ko|wifi/dongle/ath.ko|wifi/dongle/ath9k_hw.ko|wifi/dongle/ath9k_common.ko|wifi/dongle/ath9k_htc.ko|etc/firmware/htc_9271.fw|etc/firmware/htc_7010.fw|bin/gen5w-dongle-load|wifi/bcmdhd.ko) ;; *) return 1;; esac
         case "$rel" in *..*|*[!a-zA-Z0-9_./-]*) return 1;; esac
         case "$seen" in *"|$rel|"*) return 1;; esac
         seen="$seen$rel|"; path=$SYS/$rel
         [ ! -L "$path" ] || return 1
         if [ -e "$path" ]; then
             [ -f "$path" ] || return 1
-            [ "$(digest "$path")" = "$sum" ] || { [ "$rel" = lib/libhardware_legacy.so ] && verify_stock_hash "$path"; } || return 1
+            [ "$(digest "$path")" = "$sum" ] || { [ "$rel" = wifi/bcmdhd.ko ] && verify_stock_hash "$path"; } || return 1
         fi
     done < "$BACKUP_DURABLE/files"
 }
@@ -214,9 +219,9 @@ aux_install_check() {
         original=$(cat "$BACKUP_DURABLE/backend.original") || return 1
         [ "$current" = dongle ] || [ "$current" = "$original" ] || return 1
     else
-        [ ! -e "$BACKUP_DURABLE" ] && [ ! -L "$BACKUP_DURABLE" ] && [ ! -e "$STOCK_HAL" ] && [ ! -L "$STOCK_HAL" ] || return 1
+        [ ! -e "$BACKUP_DURABLE" ] && [ ! -L "$BACKUP_DURABLE" ] || return 1
         while IFS='|' read -r sum rel extra; do
-            [ "$rel" = lib/libhardware_legacy.so ] && continue
+            [ "$rel" = wifi/bcmdhd.ko ] && continue
             [ ! -e "$SYS/$rel" ] && [ ! -L "$SYS/$rel" ] || { log "FAIL dongle: pre-existing target $rel"; return 1; }
         done <<EOF
 $listing

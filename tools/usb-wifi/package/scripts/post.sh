@@ -15,7 +15,8 @@ mkdir -p "${BACKUP_DURABLE%/*}" "${BACKUP_RUNTIME%/*}" || exit 1
 if [ ! -e "$BACKUP_DURABLE" ]; then
     stage="$BACKUP_DURABLE.tmp.$$"
     [ ! -e "$stage" ] && [ ! -L "$stage" ] && mkdir "$stage" || exit 1
-    cp -p "$TARGET_HAL" "$stage/original" || exit 1
+    cp -p "$TARGET" "$stage/original" || exit 1
+    verify_stock_hash "$stage/original" || exit 1
     echo "$OWNER" > "$stage/owner" || exit 1
     chmod 600 "$stage/owner" || exit 1
     aux_payload_manifest > "$stage/files" || exit 1
@@ -37,15 +38,10 @@ if [ ! -e "$BACKUP_RUNTIME" ]; then
     sync
 fi
 
-# 2. Place stock HAL at STOCK_HAL path so adapter can dlopen it
-if [ ! -f "$STOCK_HAL" ]; then
-    install_owned_file "$BACKUP_DURABLE/original" "$STOCK_HAL" 644 || exit 1
-fi
-
-# 3. Install adapter library as TARGET_HAL
-ADAPTER_SRC="$SCRIPT_DIR/../files/libhardware_legacy.so"
-[ -f "$ADAPTER_SRC" ] || { log "FAIL dongle: missing adapter library payload"; exit 1; }
-install_owned_file "$ADAPTER_SRC" "$TARGET_HAL" 644 || exit 1
+# 2. Put the stand-in module where the stock HAL loads the Broadcom driver
+SHIM_SRC="$SCRIPT_DIR/../files/bcmdhd.ko"
+[ -f "$SHIM_SRC" ] || { log "FAIL dongle: missing bcmdhd stand-in module payload"; exit 1; }
+install_owned_file "$SHIM_SRC" "$TARGET" 644 || exit 1
 
 # 4. Install kernel modules
 mkdir -p "$MOD_DIR" || exit 1
@@ -83,5 +79,5 @@ sync
 sys_ro || exit 1
 trap - EXIT
 
-log "APPLIED dongle: adapter and driver installed"
+log "APPLIED dongle: driver installed; stock Wi-Fi HAL unchanged"
 exit 0

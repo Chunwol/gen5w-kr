@@ -17,13 +17,14 @@ chmod +x "$W/bin/getprop" "$W/bin/setprop"
 # Copy package files
 cp tools/usb-wifi/package/scripts/*.sh "$W/pkg/scripts/"
 cp tools/usb-wifi/package/bin/status.sh "$W/pkg/bin/"
-echo "mock_adapter_lib" > "$W/pkg/files/libhardware_legacy.so"
+echo "mock_shim_module" > "$W/pkg/files/bcmdhd.ko"
 echo "mock_module" > "$W/pkg/files/modules/ath9k_htc.ko"
 echo "mock_firmware" > "$W/pkg/files/firmware/htc_9271.fw"
 echo "mock_loader" > "$W/pkg/bin/gen5w-dongle-load"
 
-echo "stock_original_hal" > "$W/fixture/stock_hal"
-cp "$W/fixture/stock_hal" "$W/sys/lib/libhardware_legacy.so"
+echo "stock_original_bcmdhd" > "$W/fixture/stock_hal"
+cp "$W/fixture/stock_hal" "$W/sys/wifi/bcmdhd.ko"
+echo "stock_wifi_hal" > "$W/sys/lib/libhardware_legacy.so"
 
 cat > "$W/bin/nemesis" <<'EOF'
 #!/bin/sh
@@ -38,8 +39,7 @@ export DONGLE_TEST_NEM="$W/bin/nemesis"
 export DONGLE_TEST_SYS_BUS="$W/sys/bus/usb/devices"
 export DONGLE_TEST_STOCK_MD5=$(md5sum "$W/fixture/stock_hal" | cut -d' ' -f1)
 
-TARGET=$W/sys/lib/libhardware_legacy.so
-STOCK_COPY=$W/sys/lib/libhardware_legacy_stock.so
+TARGET=$W/sys/wifi/bcmdhd.ko
 PERSIST=$W/sys/etc/gen5w-kr-backup/dongle
 MARK=$W/data/nemesis/backup/gen5w.kr.dongle
 
@@ -70,8 +70,9 @@ rm "$MARK"
 # 3. Postinstall
 check 'dongle postinstall succeeds' run post
 check 'dongle backend is selected' grep -qx dongle "$W/props/persist.gen5w.wifi.backend"
-check 'dongle target replaced with adapter' cmp -s "$TARGET" "$W/pkg/files/libhardware_legacy.so"
-check 'dongle stock HAL copy placed' cmp -s "$STOCK_COPY" "$W/fixture/stock_hal"
+check 'dongle bcmdhd.ko replaced with the stand-in' cmp -s "$TARGET" "$W/pkg/files/bcmdhd.ko"
+check 'dongle leaves the stock Wi-Fi HAL untouched' grep -qx stock_wifi_hal "$W/sys/lib/libhardware_legacy.so"
+check 'dongle keeps no extra stock copy' test ! -e "$W/sys/lib/libhardware_legacy_stock.so"
 check 'dongle durable backup created' cmp -s "$PERSIST/original" "$W/fixture/stock_hal"
 check 'dongle runtime backup created' cmp -s "$MARK/original" "$W/fixture/stock_hal"
 check 'dongle module installed' test -f "$W/sys/wifi/dongle/ath9k_htc.ko"
@@ -83,13 +84,12 @@ check 'dongle status executes' mksh "$W/pkg/bin/status.sh"
 
 # 5. Idempotent reinstall
 check 'dongle reinstall succeeds' run post
-check 'dongle reinstall preserves original' cmp -s "$STOCK_COPY" "$W/fixture/stock_hal"
-rm "$STOCK_COPY"
-echo partial > "$PERSIST/stage.libhardware_legacy_stock.so"
-check 'interrupted stock copy retries from durable original' run post
-check 'retried stock copy matches original' cmp -s "$STOCK_COPY" "$W/fixture/stock_hal"
-check 'stale stock copy stage is removed' test ! -e "$PERSIST/stage.libhardware_legacy_stock.so"
-[ -f "$STOCK_COPY" ] || cp "$W/fixture/stock_hal" "$STOCK_COPY"
+check 'dongle reinstall preserves original' cmp -s "$PERSIST/original" "$W/fixture/stock_hal"
+cp "$W/fixture/stock_hal" "$TARGET"
+echo partial > "$PERSIST/stage.bcmdhd.ko"
+check 'interrupted stand-in copy retries' run post
+check 'retried stand-in matches package' cmp -s "$TARGET" "$W/pkg/files/bcmdhd.ko"
+check 'stale stand-in stage is removed' test ! -e "$PERSIST/stage.bcmdhd.ko"
 rm "$W/sys/wifi/dongle/ath9k_htc.ko"
 echo partial > "$PERSIST/stage.ath9k_htc.ko"
 check 'interrupted module copy retries' run post
@@ -97,9 +97,10 @@ check 'retried module matches package' cmp -s "$W/sys/wifi/dongle/ath9k_htc.ko" 
 check 'stale module stage is removed' test ! -e "$PERSIST/stage.ath9k_htc.ko"
 
 # 5a. Tampered reinstall rejection
-echo "corrupted_stock" > "$STOCK_COPY"
-check 'dongle reinstall rejects corrupted stock copy' eval '! run post'
-cp "$W/fixture/stock_hal" "$STOCK_COPY"
+echo "foreign module" > "$TARGET"
+check 'dongle reinstall rejects a foreign bcmdhd.ko' eval '! run post'
+check 'foreign bcmdhd.ko is preserved' grep -qx 'foreign module' "$TARGET"
+cp "$W/pkg/files/bcmdhd.ko" "$TARGET"
 
 echo "corrupted_backup" > "$PERSIST/original"
 check 'dongle reinstall rejects corrupted durable backup' eval '! run post'
@@ -111,35 +112,30 @@ check 'dongle uninstall refuses an externally changed module' eval '! run preun'
 check 'foreign module content is preserved' grep -qx 'foreign change' "$W/sys/wifi/dongle/ath9k_htc.ko"
 check 'foreign module refusal preserves stock backup' test -f "$PERSIST/original"
 cp "$W/pkg/files/modules/ath9k_htc.ko" "$W/sys/wifi/dongle/ath9k_htc.ko"
-echo 'foreign stock copy' > "$STOCK_COPY"
-check 'dongle uninstall refuses an externally changed stock copy' eval '! run preun'
-check 'foreign stock copy content is preserved' grep -qx 'foreign stock copy' "$STOCK_COPY"
-cp "$W/fixture/stock_hal" "$STOCK_COPY"
 
 # 5b. Preuninstall refuses when all stock backups are missing or corrupted
 mv "$PERSIST/original" "$W/fixture/saved_persist"
 mv "$MARK/original" "$W/fixture/saved_mark"
-mv "$STOCK_COPY" "$W/fixture/saved_stock"
 check 'dongle uninstall refuses when no stock backup exists' eval '! run preun'
-check 'dongle adapter kept intact when uninstall refused' cmp -s "$TARGET" "$W/pkg/files/libhardware_legacy.so"
+check 'dongle stand-in kept intact when uninstall refused' cmp -s "$TARGET" "$W/pkg/files/bcmdhd.ko"
 mv "$W/fixture/saved_persist" "$PERSIST/original"
 mv "$W/fixture/saved_mark" "$MARK/original"
-mv "$W/fixture/saved_stock" "$STOCK_COPY"
 
 # 6. Preuninstall
 cat > "$W/bin/rm" <<EOF
 #!/bin/sh
-if [ "\$1" = -f ] && [ "\$2" = "$STOCK_COPY" ]; then exit 1; fi
+if [ "\$1" = -f ] && [ "\$2" = "$W/sys/bin/gen5w-dongle-load" ]; then exit 1; fi
 exec /bin/rm "\$@"
 EOF
 chmod +x "$W/bin/rm"
-check 'stock copy deletion failure refuses uninstall success' eval '! run preun'
-check 'stock copy deletion failure keeps recovery backup' test -f "$PERSIST/original"
+check 'file deletion failure refuses uninstall success' eval '! run preun'
+check 'file deletion failure keeps recovery backup' test -f "$PERSIST/original"
 /bin/rm "$W/bin/rm"
+cp "$W/pkg/files/bcmdhd.ko" "$TARGET"
 echo unrelated > "$W/sys/wifi/dongle/other-owner.dat"
 check 'dongle uninstall succeeds' run preun
-check 'dongle uninstall restores stock HAL byte-identical' cmp -s "$TARGET" "$W/fixture/stock_hal"
-check 'dongle uninstall removes stock copy' test ! -f "$STOCK_COPY"
+check 'dongle uninstall restores stock bcmdhd.ko byte-identical' cmp -s "$TARGET" "$W/fixture/stock_hal"
+check 'stock Wi-Fi HAL still untouched after uninstall' grep -qx stock_wifi_hal "$W/sys/lib/libhardware_legacy.so"
 check 'dongle uninstall removes own module' test ! -e "$W/sys/wifi/dongle/ath9k_htc.ko"
 check 'dongle uninstall preserves unrelated module directory content' grep -qx unrelated "$W/sys/wifi/dongle/other-owner.dat"
 check 'dongle uninstall removes firmware' test ! -f "$W/sys/etc/firmware/htc_9271.fw"
@@ -147,6 +143,14 @@ check 'dongle uninstall removes loader' test ! -f "$W/sys/bin/gen5w-dongle-load"
 check 'dongle uninstall cleans durable backup' test ! -d "$PERSIST"
 check 'dongle uninstall cleans runtime backup' test ! -d "$MARK"
 check 'dongle uninstall restores previous backend setting' grep -qx builtin "$W/props/persist.gen5w.wifi.backend"
+
+# 7. Earlier HAL-adapter install: accepted only for removal through its own package.
+mkdir -p "$PERSIST" && echo 'gen5w.kr.dongle:1.0' > "$PERSIST/owner"
+check 'earlier HAL adapter install without registered package is refused' eval '! run pre'
+mkdir -p "$W/data/nemesis/apps/gen5w.kr.dongle" && echo '[nemesis]' > "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
+check 'earlier HAL adapter install with registered package passes precheck' run pre
+check 'post refuses to apply over an earlier HAL adapter install' eval '! run post'
+check 'refused post leaves bcmdhd.ko stock' cmp -s "$TARGET" "$W/fixture/stock_hal"
 
 echo "== dongle: $PASS passed, $FAIL failed"
 exit $FAIL

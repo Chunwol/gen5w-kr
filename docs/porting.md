@@ -103,7 +103,7 @@ Gen5W 플랫폼을 공유하는 타 차종(K5 DL3 하이브리드, EV6 CV, 아�
 | `HKMC_GPM.odex` | Android Auto 순정 내비게이션 바인딩. `stepofspec == 999` 분기를 native helper로 우회하여 순정 TBT 엔진 직결. |
 | `HKMC_DiPO.odex` | CarPlay 순정 프로젝션 바인딩. iAP2 경로 안내 권한과 헤드유닛 통신 채널 연동. |
 | `Iap2ServerApp.odex` | Apple iAP2 RouteGuidance capability 선언 및 RFCOMM 무선 세션 연결 관리. |
-| `libhardware_legacy.so` | (동글형) 외장 USB Wi-Fi(RTL8188/RTL8821/Atheros) 핫플러그 및 HAL 어댑터 브리지. |
+| `wifi/bcmdhd.ko` | (동글형) 순정 Broadcom 모듈 자리에 두는 대리 모듈. 순정 Wi-Fi HAL은 바꾸지 않음. |
 
 ### 2. 차종별 원본 식별 체크섬 및 오프셋 매핑
 - **K5 하이브리드 (DL3 HEV)**:
@@ -147,7 +147,7 @@ ccNC(ccIC, 고급형 6세대 등)는 Gen5W와 완전히 다른 차세대 인포�
    - Atheros AR9271 (`ath9k_htc.ko` + `htc_9271.fw`)
 2. **동작 방식**:
    - 차량 부팅 시 `tools/usb-wifi/package/bin/gen5w-dongle-load`가 USB 버스를 스캔하여 동글 식별(`0cf3:9271`, `0bda:8179`, `0bda:c811` 등).
-   - 순정 `libhardware_legacy.so`를 가로채는 HAL 어댑터(`libhardware_legacy.so` wrapper)를 통해 내장 Wi-Fi인 것처럼 안드로이드 프레임워크에 wlan0 인터페이스를 노출.
+   - 순정 `libhardware_legacy.so`는 그대로 두고, 순정이 올리는 `/system/wifi/bcmdhd.ko` 자리에 대리 모듈을 둬서 동글의 wlan0을 순정 Wi-Fi 경로로 씀(내장 Wi-Fi 없는 차용).
    - 빌드 시 `--variant dongle` 옵션을 지정하면 동글 런타임이 포함된 `gen5w.kr.dongle.zip` 패키지가 통합 USB 번들에 포함되어 배포됩니다.
 
 ---
