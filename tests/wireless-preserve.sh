@@ -14,7 +14,7 @@ case "$1" in
 esac
 SH
 chmod +x "$W/nemesis"
-for name in wireless audio hotspot bridge core notice; do
+for name in wireless audio hotspot bridge core notice timer; do
     touch "$W/work/packages/gen5w.kr.$name.zip"
 done
 cat > "$W/work/exercise.sh" <<'SH'

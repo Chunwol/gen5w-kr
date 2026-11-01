@@ -28,16 +28,19 @@ bash tools/build-dex.sh packages/hotspot-match kr.gen5w.hotspot.HotspotMatch mat
 bash tools/build-dex.sh packages/wireless-bridge kr.gen5w.wireless.WirelessBridge bridge.dex
 "$PY" -I tools/mkpkg.py packages/wireless-bridge dist/gen5w.kr.bridge.zip
 
-# HUD core and native notice timer, then the public six-module USB bundle.
+# HUD core and stock-warning timer, then the public USB bundles.
 bash app/build.sh
 mkdir -p packages/core/app
 cp app/build/gen5w-core.apk packages/core/app/gen5w-core.apk
 "$PY" -I tools/mkpkg.py packages/core dist/gen5w.kr.core.zip
 "$PY" -I tools/notice/build.py --ndk "$NDK"
 "$PY" -I tools/mkpkg.py packages/notice-timer dist/gen5w.kr.notice.zip
+# Service-only 3 second close; carries the stock SystemUI verifiers, no patch.
+mkdir -p packages/consent-timer/bin
+cp packages/notice-timer/bin/notice-patch-v039 packages/notice-timer/bin/notice-patch-v035 packages/consent-timer/bin/
+"$PY" -I tools/mkpkg.py packages/consent-timer dist/gen5w.kr.timer.zip
 
-# USB Wi-Fi dongle adapter and package
-"$PY" -I tools/usb-wifi/hal_adapter/build.py --ndk "$NDK"
+# USB Wi-Fi dongle package (stock Wi-Fi HAL unchanged; bcmdhd stand-in module)
 "$PY" -I tools/usb-wifi/build_dongle_zip.py
 
 "$PY" -I tools/integrated/build.py --dist dist --output dist/usb-integrated

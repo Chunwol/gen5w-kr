@@ -1,6 +1,6 @@
 # Fixed allowlist only. No raw logs, phone identifiers or hotspot credentials.
 result() {
-    case "$1" in gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.notice|gen5w.kr.consent)
+    case "$1" in gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.notice|gen5w.kr.timer|gen5w.kr.consent)
         echo "$2" > "$TX/result.$1";;
     esac
 }
@@ -10,10 +10,11 @@ feature_name() {
         gen5w.kr.dongle) echo 'USB Wi-Fi 동글 드라이버·HAL';;
         gen5w.kr.wireless) echo '무선 연결·핫스팟 설정';;
         gen5w.kr.audio) echo '무선 음악·안내 음성';;
-        gen5w.kr.hotspot) echo 'CarPlay 핫스팟 프로필 분리';;
+        gen5w.kr.hotspot) echo '이전 핫스팟 services.odex 패치(순정 복원)';;
         gen5w.kr.bridge) echo 'Bluetooth 자동 연결·유선 HUD 기반';;
         gen5w.kr.core) echo 'CarPlay 계기판·HUD 길안내';;
-        gen5w.kr.notice) echo '시동 주의 안내 3초 자동 전환';;
+        gen5w.kr.notice) echo '이전 시동 안내 SystemUI 패치(순정 복원)';;
+        gen5w.kr.timer) echo '시동 주의 안내 3초 자동 전환';;
         gen5w.kr.consent) echo '이전 개인용 안내 설정 복원';;
     esac
 }

@@ -1,0 +1,13 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.timer
+name=Gen5W KR - stock warning 3 second close (no system file change)
+types=service
+preinstall=scripts/pre.sh
+
+[service.0]
+name=timer
+kind=sh
+path=scripts/timer.sh
+mode=background
+uid=root

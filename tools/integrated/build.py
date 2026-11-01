@@ -11,7 +11,7 @@ import sys
 import zipfile
 
 HERE = Path(__file__).resolve().parent
-IDS = ['gen5w.kr.' + x for x in ('wireless', 'audio', 'hotspot', 'bridge', 'core', 'notice')]
+IDS = ['gen5w.kr.' + x for x in ('wireless', 'audio', 'hotspot', 'bridge', 'core', 'notice', 'timer')]
 
 
 def compiler():

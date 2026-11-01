@@ -8,7 +8,7 @@ USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전�
 
 | ZIP | 설치 구성 | 시동 동의 안내 |
 |---|---|---|
-| `gen5w-kr-standard.zip` | wireless·audio·bridge·core·notice (핫스팟은 맞춤 모드, `services.odex` 순정) | 순정 화면 유지, 지원 타이머 3초 |
+| `gen5w-kr-standard.zip` | wireless·audio·bridge·core·timer (`services.odex`·`SystemUI.odex` 순정) | 순정 화면 유지, 서비스로 3초 자동 전환 |
 | `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
 | `gen5w-kr-check.zip` | 설치 없음 (읽기 전용 사전 점검) | 변경 없음 |
 | `gen5w-kr-safe-wireless.zip` | wireless·audio·bridge·core (무선 유지, `services.odex` 순정) | 순정 그대로 (SystemUI 미변경) |
@@ -54,6 +54,8 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 순서: `gen5w-kr-check.zip` 내용을 USB 최상위에 풀어 실행 → USB의 `GEN5W-REPORT` 폴더는 그대로 두고 설치 ZIP 내용을 같은 USB 최상위에 덮어 풀기 → 설치 실행.
 
 ## 무선 안전판 (safe-wireless)
+
+기본형·동글형도 2026-11-01부터 `SystemUI.odex`를 바꾸지 않습니다. 이전 시동 안내 패치(`gen5w.kr.notice`)가 있으면 그 모듈의 제거 절차로 순정 `SystemUI.odex`를 되돌리고, 3초 자동 전환은 서비스(`gen5w.kr.timer`)가 맡습니다. 이 서비스는 SystemUI의 타이머 판단 로그를 따라 순정 조건이 통과했을 때만 순정 닫기 요청을 보냅니다. 안전판 두 종류는 이 서비스도 설치하지 않습니다(순정 10초).
 
 `gen5w-kr-safe-wireless.zip`은 부팅에 꼭 필요한 시스템 파일(시동 동의 화면 `SystemUI.odex`, system_server의 `services.odex`)을 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다. system_server가 순정이면 Android가 올라오므로 부트가드·USB 복구 경로가 살아 있습니다.
 

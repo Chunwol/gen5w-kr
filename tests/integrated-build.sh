@@ -4,7 +4,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d); mkdir "$W/dist"
 python3 - "$W/dist" <<'PY'
 import pathlib,sys,zipfile
-for module in ['wireless','audio','hotspot','bridge','core','notice']:
+for module in ['wireless','audio','hotspot','bridge','core','notice','timer']:
  p=pathlib.Path(sys.argv[1])/('gen5w.kr.'+module+'.zip')
  with zipfile.ZipFile(p,'w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+module+'\n')
@@ -20,7 +20,8 @@ check 'deterministic archive bytes' cmp "$W/usb.zip" "$W/usb-second.zip"
 check 'build standard with consent restoration gates' python3 "$ROOT/tools/integrated/build.py" --skip-native --variant standard --dist "$W/dist" --output "$W/standard"
 check 'standard omits consent install package' test ! -e "$W/standard/packages/gen5w.kr.consent.zip"
 check 'standard retains consent restore metadata' test -f "$W/standard/checks/gen5w.kr.consent/FILES.md5"
-check 'standard includes native notice timer' test -f "$W/standard/packages/gen5w.kr.notice.zip"
+check 'standard includes the notice verifier package' test -f "$W/standard/packages/gen5w.kr.notice.zip"
+check 'standard includes the service-only timer' test -f "$W/standard/packages/gen5w.kr.timer.zip"
 check 'backend is explicitly builtin' grep -qx builtin "$W/standard/GEN5W-BACKEND"
 python3 - "$W/dist" <<'PY'
 import pathlib,sys,zipfile
