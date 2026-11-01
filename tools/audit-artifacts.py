@@ -79,7 +79,7 @@ def audit_dongle(path):
 
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
 packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.dongle.zip']
-assert len(packages)==6, f'expected 6 packages, got {len(packages)}: {[p.name for p in packages]}'
+assert len(packages)==7, f'expected 7 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 audit_dongle(root/'gen5w.kr.dongle.zip')
 with zipfile.ZipFile(root/'usb-integrated.zip') as z:
@@ -101,6 +101,15 @@ for variant,count in [('standard',5),('dongle',6)]:
             assert not any(n.startswith(('files/', 'system/')) for n in timer.namelist()), 'timer ships system files'
             assert b'CLOSE_CONSENTSCREEN_FORCE' in timer.read('scripts/timer.sh')
         assert z.read('BUILD-REVISION')==zipfile.ZipFile(root/'gen5w.kr.core.zip').read('BUILD-REVISION')
+with zipfile.ZipFile(root/'gen5w-kr-bluelink.zip') as z:
+    assert z.testzip() is None
+    assert b'type=install' in z.read('NEMESIS.data') and b'gen5w.kr.bluelink.zip' in z.read('NEMESIS.data')
+    assert [n for n in z.namelist() if n.endswith('.zip')]==['packages/gen5w.kr.bluelink.zip']
+    assert z.read('BUILD-REVISION')==zipfile.ZipFile(root/'gen5w.kr.core.zip').read('BUILD-REVISION')
+    with zipfile.ZipFile(BytesIO(z.read('packages/gen5w.kr.bluelink.zip'))) as pkg:
+        assert not any(n.startswith(('files/', 'system/', 'bin/')) for n in pkg.namelist()), 'bluelink ships files'
+        assert b'uid=system' in pkg.read('NEMESIS.data')
+print('AUDITED separate Bluelink reminder kit; no system file shipped')
 with zipfile.ZipFile(root/'gen5w-kr-source.zip') as z:
     assert all('gen5w-kr-source/'+p in z.namelist() for p in ['LICENSE','tools/build-all.sh','app/src/kr/gen5w/core/CoreService.java'])
     assert not any(Path(n).suffix in {'.odex','.so','.apk','.dex','.img','.keystore','.pass'} for n in z.namelist()), 'private/binary source content'
