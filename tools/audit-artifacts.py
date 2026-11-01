@@ -97,8 +97,7 @@ for variant,expected in [('safe',{'wireless','audio','bridge','core'}),
         shipped={n[len('packages/gen5w.kr.'):-4] for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')}
         assert shipped==expected, (variant, shipped)
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
-        assert z.read('GEN5W-BACKEND') == b'builtin
-'
+        assert z.read('GEN5W-BACKEND').strip() == b'builtin'
         assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
         assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','check.sh','docs/beginner-guide.md'])
         assert not any(n.endswith(('gen5w.kr.consent.zip','gen5w.kr.hotspot.zip','gen5w.kr.notice.zip','gen5w.kr.dongle.zip')) for n in z.namelist())
