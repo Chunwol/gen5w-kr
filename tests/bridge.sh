@@ -206,6 +206,16 @@ rm -f "$BRIDGE_TEST_PROFILE_READY"
 echo match > "$W/data/nemesis/gen5wkr.ap-match"
 check 'match mode starts without the profile module' run service
 check 'match mode launches the daemon' test "$(wc -l < "$W/fixture/calls")" -gt "$before"
+# Dongle edition: wired until the USB Wi-Fi interface exists.
+printf '#!/bin/sh\n[ "$1" = persist.gen5w.wifi.backend ] && echo dongle || echo 1\n' > "$W/bin/getprop"
+mkdir -p "$W/net"; export BRIDGE_TEST_NET=$W/net
+before=$(wc -l < "$W/fixture/calls")
+check 'dongle edition waits without wlan0' run service
+check 'no dongle interface launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+mkdir "$W/net/wlan0"
+check 'dongle edition starts once wlan0 exists' run service
+check 'dongle interface launches the daemon' test "$(wc -l < "$W/fixture/calls")" -gt "$before"
+printf '#!/bin/sh\necho 1\n' > "$W/bin/getprop"; unset BRIDGE_TEST_NET
 before=$(wc -l < "$W/fixture/calls")
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'match mode still waits for the reboot' run service

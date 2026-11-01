@@ -25,7 +25,13 @@ try_load() {
     return 0
 }
 
-# Initial boot check: if dongle backend is active and hardware is attached, load modules
+# Policy: the car boots as stock (wired). Driver modules are loaded only after
+# boot has completed and a supported dongle is attached.
+if [ -z "${DONGLE_TEST_NET_ROOT:-}" ]; then
+    while [ "$(getprop sys.boot_completed 2>/dev/null)" != 1 ]; do sleep 2; done
+fi
+
+# Initial check: if dongle backend is active and hardware is attached, load modules
 if is_dongle_backend && has_dongle_hw && [ ! -e "$NET_ROOT/wlan0" ]; then
     if try_load; then
         fail_count=0

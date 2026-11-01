@@ -85,6 +85,12 @@ while [ ! -f "$STOPPING" ]; do
         sleep 2
         continue
     fi
+    # Dongle edition: stay wired until the USB Wi-Fi interface exists.
+    if [ "$(getprop persist.gen5w.wifi.backend 2>/dev/null)" = dongle ] && [ ! -e "${BRIDGE_TEST_NET:-/sys/class/net}/wlan0" ]; then
+        [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
+        sleep 2
+        continue
+    fi
     # A patched system_server file cannot take effect in its existing process.
     # Wait for the native profile module's verified post-reboot readiness.
     # Match mode (safe-wireless) keeps services.odex stock and needs no profile
