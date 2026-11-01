@@ -1,7 +1,7 @@
 [nemesis]
 version=1.0
 id=gen5w.kr.timer
-name=Gen5W KR - stock warning 3 second close (no system file change)
+name=Gen5W KR - close the stock warning when its button activates (no system file change)
 types=service
 preinstall=scripts/pre.sh
 

@@ -8,12 +8,12 @@
 
 ## 다운로드
 
-배포판은 **기본형(내장 Wi-Fi)**과 **동글형(USB Wi-Fi)**입니다. 지원되는 순정 자동 전환 타이머를 10초에서 3초로 조정합니다. 경고 화면과 순정 안전 조건은 유지하며, 자동 전환 조건이 맞지 않으면 수동 확인이 필요합니다. 화면을 완전히 생략하는 개인용 구성은 공개 소스·CI·릴리스에 포함하지 않습니다.
+배포판은 **기본형(내장 Wi-Fi)**과 **동글형(USB Wi-Fi)**입니다. 순정 주의 안내의 확인 버튼이 활성화되면 순정 자동 전환 조건을 확인해 10초를 기다리지 않고 바로 넘깁니다. 경고 화면과 순정 안전 조건은 유지하며, 자동 전환 조건이 맞지 않으면 수동 확인이 필요합니다. 화면을 완전히 생략하는 개인용 구성은 공개 소스·CI·릴리스에 포함하지 않습니다.
 
 | 버전 | 시동 주의 안내 | 다운로드 | 상태 |
 |---|---|---|---|
-| **기본형 (내장 Wi-Fi)** | 지원 사양에서 3초 자동 전환 | [기본형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 릴리스 |
-| 동글형 (USB Wi-Fi) | 지원 사양에서 3초 자동 전환 | [동글형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 실차 미확인 |
+| **기본형 (내장 Wi-Fi)** | 지원 사양에서 버튼 활성화 즉시 자동 전환 | [기본형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 릴리스 |
+| 동글형 (USB Wi-Fi) | 지원 사양에서 버튼 활성화 즉시 자동 전환 | [동글형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 실차 미확인 |
 
 동글형은 **내장 Wi-Fi가 없는 차**용입니다. 순정 Wi-Fi HAL(`libhardware_legacy.so`)은 바꾸지 않고, 순정이 Wi-Fi를 켤 때 올리는 `/system/wifi/bcmdhd.ko`만 동글 연결용 작은 모듈로 바꿉니다(부팅 중에는 쓰이지 않는 파일). 그래서 동글형을 설치한 동안에는 내장 Wi-Fi 대신 동글을 씁니다. V039 원본 `bcmdhd.ko`와 지원되는 `ath9k_htc`(AR9271/AR7010) 장치가 필요합니다. 모든 USB Wi-Fi 동글을 지원하지 않습니다. 동글형에서 기본형으로 바꾸면 동글용 변경을 제거하고 순정 구성을 복원합니다. 동글을 계속 사용하려면 동글형으로 업데이트하세요.
 

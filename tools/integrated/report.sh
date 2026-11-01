@@ -14,7 +14,7 @@ feature_name() {
         gen5w.kr.bridge) echo 'Bluetooth 자동 연결·유선 HUD 기반';;
         gen5w.kr.core) echo 'CarPlay 계기판·HUD 길안내';;
         gen5w.kr.notice) echo '이전 시동 안내 SystemUI 패치(순정 복원)';;
-        gen5w.kr.timer) echo '시동 주의 안내 3초 자동 전환';;
+        gen5w.kr.timer) echo '시동 주의 안내 즉시 자동 전환';;
         gen5w.kr.consent) echo '이전 개인용 안내 설정 복원';;
     esac
 }
@@ -111,7 +111,7 @@ write_summary() {
         echo '# Gen5W KR 적용 결과'
         echo
         if [ -f "$TX/recovery-mode" ]; then echo '**핫스팟 복구 경로로 진행했습니다. 전체 설치 완료가 아닙니다.**'; echo; fi
-        echo '- 기본형 · 순정 주의 안내 표시 후 3초 자동 전환 (지원 조건에 한함)'
+        echo '- 기본형 · 순정 주의 안내 버튼 활성화 즉시 자동 전환 (지원 조건에 한함)'
         echo
         echo "- HUD 설정: $(hud_variant)"
         echo '- 계기판 길안내 지원 여부: 확인되지 않음'

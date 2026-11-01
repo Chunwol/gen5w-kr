@@ -1,6 +1,8 @@
 #!/system/bin/sh
-# Closes the stock start-up warning after 3 seconds instead of 10, without
-# changing SystemUI. SystemUI logs its own timer decision (Slog, system buffer):
+# Closes the stock start-up warning as soon as its confirm button becomes
+# active (instead of the stock 10 seconds), without changing SystemUI.
+# SystemUI enables the screen and button in enableScreen(), which ends by
+# running its timer check; that check writes the state line below. SystemUI logs its own timer decision (Slog, system buffer):
 #   "mScreenEnabled : ..."   state line, written each time it (re)arms the timer
 #   "ConsentScreenTimeout is not executed ..."   the check failed, timer cancelled
 #   "Locale Setting Button pressed ..."          timer cancelled
@@ -12,7 +14,7 @@
 SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
-DELAY=${TIMER_TEST_DELAY:-3}
+DELAY=${TIMER_TEST_DELAY:-0}
 LOGCAT=${TIMER_TEST_LOGCAT:-logcat}
 AM=${TIMER_TEST_AM:-am}
 RUN=$PKG/run
@@ -36,12 +38,21 @@ passes() {
     done
     case "$1" in
         *'mIsPowerOn : true,'*|*'mIsCalling : true,'*|*'mIsBtCalling : true,'*|\
-        *'mIsEmergency : true,'*|*'mIsDipoCalling : true'*) return 0;;
+        *'mIsEmergency : true,'*|*'mIsDipoCalling : true'*) ;;
+        *) return 1;;
     esac
-    return 1
+    # SystemUI also refuses while no driver profile is chosen (index -1) on units
+    # with user profiles. Its failure line comes after the state line, too late
+    # for an immediate close, so refuse here on -1 regardless.
+    case "$1" in *'mInitDriverIdx : -1,'*) return 1;; esac
+    return 0
 }
 arm() {
     bump
+    if [ "$DELAY" = 0 ]; then
+        "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
+        return
+    fi
     (
         mine=$gen
         sleep "$DELAY"

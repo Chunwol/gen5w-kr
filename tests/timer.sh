@@ -43,6 +43,8 @@ DIPO=${OK/mIsPowerOn : true/mIsPowerOn : false}; feed "${DIPO/mIsDipoCalling : f
 check 'CarPlay call with power off arms like stock' closed
 feed "$OK|0.3" 'D/ConsentScreen(  1): Locale Setting Button pressed or refresh dialog|2'; run
 check 'language button cancels' eval '! closed'
+feed "${OK/mInitDriverIdx : 0,/mInitDriverIdx : -1,}|2"; run
+check 'no driver profile chosen never arms' eval '! closed'
 feed "$OK|0.3" 'D/ConsentScreen(  1): confirm() : ConsentScreen is going to close|2'; run
 check 'user agree before the delay sends nothing' eval '! closed'
 feed "$OK|0.6" "$OK|0.6" "$OK|2"; run
@@ -55,5 +57,12 @@ check 'preinstall refuses non-stock SystemUI' eval '! TIMER_TEST_SYS=$W/sys mksh
 echo stock > "$W/sys/priv-app/SystemUI.odex"
 check 'preinstall accepts stock SystemUI' eval 'TIMER_TEST_SYS=$W/sys mksh "$PKG/scripts/pre.sh" >/dev/null'
 check 'no system file changed' grep -qx stock "$W/sys/priv-app/SystemUI.odex"
+# Default: close right when the button activates (no added wait).
+feed "$OK|0"; rm -rf "$PKG/run"; : > "$W/am.log"
+TIMER_TEST_SYS=$W/sys TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" >/dev/null 2>&1
+check 'default closes immediately on a passing state line' closed
+feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|0"; rm -rf "$PKG/run"; : > "$W/am.log"
+TIMER_TEST_SYS=$W/sys TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" >/dev/null 2>&1
+check 'default never closes while reversing' eval '! closed'
 echo "== timer: $pass passed, $fail failed"
 [ "$fail" = 0 ]

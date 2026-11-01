@@ -6,7 +6,7 @@
 
 NEMESIS가 설치된 Gen5W용입니다. V035/V039 순정 파일의 정확한 해시와 Wi-Fi 하드웨어를 검사하며, 맞지 않으면 적용을 거부합니다. 제조사 파일은 이 압축파일에 없습니다.
 
-1. [릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 기본형 ZIP(`gen5w-kr-standard.zip`)을 받아 풀고 그 **내용**을 USB 루트에 복사합니다. 순정 화면·안전 조건을 유지하고 지원되는 자동 전환 타이머만 3초로 조정합니다.
+1. [릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 기본형 ZIP(`gen5w-kr-standard.zip`)을 받아 풀고 그 **내용**을 USB 루트에 복사합니다. 순정 화면·안전 조건을 유지하고 확인 버튼이 활성화되면 순정 조건을 확인해 바로 넘깁니다.
 2. 정차 상태에서 USB를 꽂아 Manager를 열고 **Run USB NEMESIS.sh**를 선택합니다. 삽입만으로 설치하지 않습니다. 정상 설치 후 한 번 재부팅합니다. 제한 복구만 수행한 경우에는 재부팅하지 않습니다.
 3. iPhone에서 차량과 Bluetooth 페어링을 합니다. 이미 페어링했다면 다시 연결합니다. 무선 CarPlay 연결 요청을 허용합니다.
 4. 지도 앱의 길안내를 시작하고 회전·거리·차선 표시와 음악·안내 음성을 확인합니다. 유선 CarPlay도 사용할 수 있습니다.
