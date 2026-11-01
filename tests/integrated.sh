@@ -51,6 +51,22 @@ for m in ['dongle','wireless','audio','hotspot','bridge','core','notice']:
 PY
 mkdir -p "$W/sys/framework"; echo stock > "$W/sys/framework/services.odex"
 run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
+# Car rule: without the lab switch the installer refuses every edition that
+# changes boot-critical files, before touching anything.
+carrun() { (cd "$W/usb" && env -u IT_LAB_EDITIONS IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
+check 'car run refuses a bundle without an edition marker' eval '! carrun install'
+check 'missing marker refusal names boot-critical files' grep -q 'boot-critical' "$W/out"
+for v in standard dongle; do
+    echo $v > "$W/usb/GEN5W-VARIANT"
+    check "car run refuses the $v edition" eval '! carrun install'
+done
+echo safe-wireless > "$W/usb/GEN5W-VARIANT"; echo dongle > "$W/usb/GEN5W-BACKEND"
+check 'car run refuses the dongle backend in a safe edition' eval '! carrun install'
+check 'dongle backend refusal reason' grep -q 'boot-critical library' "$W/out"
+rm -f "$W/usb/GEN5W-VARIANT" "$W/usb/GEN5W-BACKEND"
+check 'refused car runs installed nothing' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data 2>/dev/null | wc -l)" = 0
+check 'refused car runs left no transaction' test ! -e "$W/data/nemesis/gen5w-kr-integrated/state"
+check 'refused car runs left services.odex stock' grep -qx stock "$W/sys/framework/services.odex"
 check 'integrated install all modules' run install
 check 'six registered module trees' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 check 'transaction committed' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
@@ -179,6 +195,7 @@ check 'safe edition marks wireless disabled' test -f "$W/data/nemesis/gen5wkr.wi
 check 'safe edition plans wired-only without the wireless preflight' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wired-only"'
 check 'safe edition arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
 check 'safe edition commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
+check 'safe edition refuses hotspot repair' eval '! run repair-hotspot && grep -q "safe edition is wired-only" "$W/data/nemesis/gen5w-kr-integrated/report"'
 check 'safe edition retains the SystemUI verifier' test -x "$W/data/nemesis/gen5wkr.bootguard/verifiers/notice-v039"
 check 'rollback from safe edition restores six modules' run rollback
 check 'six modules back after safe rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
@@ -217,6 +234,9 @@ check 'safe-wireless plans wireless' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-
 check 'safe-wireless arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
 check 'safe-wireless retains the services.odex verifier' test -x "$W/data/nemesis/gen5wkr.bootguard/verifiers/hotspot-v039"
 check 'safe-wireless commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
+: > "$W/data/nemesis/gen5wkr.apguard.off"
+check 'hotspot repair refused after the AP start guard turned wireless off' eval '! run repair-hotspot && grep -q "wireless is turned off" "$W/data/nemesis/gen5w-kr-integrated/report"'
+rm -f "$W/data/nemesis/gen5wkr.apguard.off"
 check 'rollback from safe-wireless returns to the clean unit' run rollback
 check 'no modules after safe-wireless rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
 echo patched > "$W/sys/priv-app/SystemUI.odex"

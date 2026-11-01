@@ -17,7 +17,7 @@ check 'USB insertion opens Manager without automatic installation' grep -qx 'typ
 check 'bundle includes ARM snapshot helper' cmp "$ROOT/tools/integrated/bin/zipstore" "$W/usb/zipstore"
 check 'build second deterministic bundle' python3 "$ROOT/tools/integrated/build.py" --skip-native --dist "$W/dist" --output "$W/usb-second"
 check 'deterministic archive bytes' cmp "$W/usb.zip" "$W/usb-second.zip"
-check 'build standard with consent restoration gates' python3 "$ROOT/tools/integrated/build.py" --skip-native --variant standard --dist "$W/dist" --output "$W/standard"
+check 'build standard with consent restoration gates' python3 "$ROOT/tools/integrated/build.py" --skip-native --variant standard --lab --dist "$W/dist" --output "$W/standard"
 check 'standard omits consent install package' test ! -e "$W/standard/packages/gen5w.kr.consent.zip"
 check 'standard retains consent restore metadata' test -f "$W/standard/checks/gen5w.kr.consent/FILES.md5"
 check 'standard includes native notice timer' test -f "$W/standard/packages/gen5w.kr.notice.zip"
@@ -29,9 +29,20 @@ with zipfile.ZipFile(p,'w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.dongle\n')
   z.writestr('scripts/pre.sh','exit 0\n')
 PY
-check 'build dongle variant' python3 "$ROOT/tools/integrated/build.py" --skip-native --variant dongle --dist "$W/dist" --output "$W/dongle"
+check 'build dongle variant' python3 "$ROOT/tools/integrated/build.py" --skip-native --variant dongle --lab --dist "$W/dist" --output "$W/dongle"
 check 'dongle includes dongle package' test -f "$W/dongle/packages/gen5w.kr.dongle.zip"
 check 'dongle backend is explicitly dongle' grep -qx dongle "$W/dongle/GEN5W-BACKEND"
+check 'default build is the safe-wireless car edition' grep -qx safe-wireless "$W/usb/GEN5W-VARIANT"
+for m in hotspot notice; do
+    check "car edition does not ship the $m patch package" test ! -e "$W/usb/packages/gen5w.kr.$m.zip"
+    check "car edition keeps the $m verifier for checks" test -f "$W/usb/checks/gen5w.kr.$m/FILES.md5"
+done
+for m in wireless audio bridge core; do
+    check "car edition ships $m" test -f "$W/usb/packages/gen5w.kr.$m.zip"
+done
+check 'standard needs --lab' eval '! python3 "$ROOT/tools/integrated/build.py" --skip-native --variant standard --dist "$W/dist" --output "$W/standard-refused"'
+check 'dongle needs --lab' eval '! python3 "$ROOT/tools/integrated/build.py" --skip-native --variant dongle --dist "$W/dist" --output "$W/dongle-refused"'
+check 'refused lab builds create no files' eval 'test ! -e "$W/standard-refused" && test ! -e "$W/dongle-refused"'
 check 'local edition cannot be built by public tool' eval '! python3 "$ROOT/tools/integrated/build.py" --skip-native --variant skip-consent --dist "$W/dist" --output "$W/local-refused"'
 check 'refused edition creates no files' test ! -e "$W/local-refused"
 sed "s#/system/bin/sh#$(command -v mksh)#g" "$W/usb/NEMESIS.sh" > "$W/usb/entry.sh"

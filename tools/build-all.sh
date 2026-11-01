@@ -40,9 +40,9 @@ cp app/build/gen5w-core.apk packages/core/app/gen5w-core.apk
 "$PY" -I tools/usb-wifi/hal_adapter/build.py --ndk "$NDK"
 "$PY" -I tools/usb-wifi/build_dongle_zip.py
 
-"$PY" -I tools/integrated/build.py --dist dist --output dist/usb-integrated
-"$PY" -I tools/integrated/build.py --skip-native --variant standard --dist dist --output dist/gen5w-kr-standard
-"$PY" -I tools/integrated/build.py --skip-native --variant dongle --dist dist --output dist/gen5w-kr-dongle
+# Car editions only. standard/dongle change boot-critical files and are not built
+# for release (tools/integrated/build.py --lab makes them for bench work).
+"$PY" -I tools/integrated/build.py --native-only
 "$PY" -I tools/integrated/build.py --skip-native --variant safe --dist dist --output dist/gen5w-kr-safe
 "$PY" -I tools/integrated/build.py --skip-native --variant safe-wireless --dist dist --output dist/gen5w-kr-safe-wireless
 "$PY" -I tools/integrated/build.py --skip-native --variant check --dist dist --output dist/gen5w-kr-check

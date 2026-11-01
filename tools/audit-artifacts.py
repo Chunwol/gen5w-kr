@@ -85,25 +85,28 @@ packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.
 assert len(packages)==7, f'expected 7 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 audit_dongle(root/'gen5w.kr.dongle.zip')
-with zipfile.ZipFile(root/'usb-integrated.zip') as z:
-    assert z.testzip() is None
-    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==6
-print('AUDITED six-module integrated installer; no OEM/private inputs required')
 assert not (root/'gen5w.kr.consent.zip').exists(), 'local notice-disabling package in distribution'
 assert not (root/'gen5w-kr-skip-consent.zip').exists(), 'local edition in distribution'
-for variant,count in [('standard',6),('dongle',7)]:
+# Only car editions are built; none may carry a boot-critical patch package.
+for name in ['usb-integrated.zip', 'gen5w-kr-standard.zip', 'gen5w-kr-dongle.zip']:
+    assert not (root/name).exists(), 'lab-only edition in distribution: ' + name
+for variant,expected in [('safe',{'wireless','audio','bridge','core'}),
+                         ('safe-wireless',{'wireless','audio','bridge','core'}),('check',set())]:
     with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
-        assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
+        assert z.testzip() is None
+        shipped={n[len('packages/gen5w.kr.'):-4] for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')}
+        assert shipped==expected, (variant, shipped)
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
+        assert z.read('GEN5W-BACKEND') == b'builtin
+'
         assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
-        assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','repair-hotspot.sh','docs/beginner-guide.md'])
-        assert z.read('GEN5W-BACKEND') == (b'dongle\n' if variant == 'dongle' else b'builtin\n')
-        with zipfile.ZipFile(BytesIO(z.read('packages/gen5w.kr.notice.zip'))) as notice:
-            assert not any(n.endswith(('remove_consentscreen.xml', 'agree.sh')) for n in notice.namelist()), 'full skip in public notice package'
-        assert not any(n.endswith('gen5w.kr.consent.zip') for n in z.namelist())
+        assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','check.sh','docs/beginner-guide.md'])
+        assert not any(n.endswith(('gen5w.kr.consent.zip','gen5w.kr.hotspot.zip','gen5w.kr.notice.zip','gen5w.kr.dongle.zip')) for n in z.namelist())
+        assert not any(n.endswith('libhardware_legacy.so') or n.endswith('.ko') for n in z.namelist()), 'dongle payload in car edition'
         assert z.read('BUILD-REVISION')==zipfile.ZipFile(root/'gen5w.kr.core.zip').read('BUILD-REVISION')
+print('AUDITED car editions: no boot-critical patch packages')
 with zipfile.ZipFile(root/'gen5w-kr-source.zip') as z:
     assert all('gen5w-kr-source/'+p in z.namelist() for p in ['LICENSE','tools/build-all.sh','app/src/kr/gen5w/core/CoreService.java'])
     assert not any(Path(n).suffix in {'.odex','.so','.apk','.dex','.img','.keystore','.pass'} for n in z.namelist()), 'private/binary source content'
     assert not any('/consent-skip/' in n for n in z.namelist()), 'local notice-disabling source in public archive'
-print('AUDITED both installer editions and corresponding source; local edition excluded')
+print('AUDITED car editions and corresponding source; local and lab editions excluded')

@@ -2,18 +2,20 @@
 
 사용자 설치 방법은 [설치 가이드](beginner-guide.md), 평소 사용은 [사용 안내](vehicle-use.md)를 참고하세요.
 
-## 공개 기본형
+## 설치본
 
-USB 동글판과 기존 개인용 구성의 전환 기준은 [버전 사이 전환](edition-transitions.md)에 정리했습니다. 동글판은 아직 배포 전입니다.
+차에 올리는 설치본은 **점검(check)·유선 안전판(safe)·무선 안전판(safe-wireless)** 세 가지뿐입니다. 셋 다 부팅 필수 파일 `services.odex`(system_server)·`SystemUI.odex`(시동 동의 화면)·`libhardware_legacy.so`(zygote·system_server가 읽는 라이브러리)를 바꾸지 않습니다.
 
 | ZIP | 설치 구성 | 시동 동의 안내 |
 |---|---|---|
-| `gen5w-kr-standard.zip` | wireless·audio·hotspot·bridge·core·notice | 순정 화면 유지, 지원 타이머 3초 |
-| `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 (SystemUI 미변경) |
 | `gen5w-kr-check.zip` | 설치 없음 (읽기 전용 사전 점검) | 변경 없음 |
-| `gen5w-kr-safe-wireless.zip` | wireless·audio·bridge·core (무선 유지, `services.odex` 순정) | 순정 그대로 (SystemUI 미변경) |
+| `gen5w-kr-safe-wireless.zip` | wireless·audio·bridge·core (무선 유지, `services.odex` 순정) | 순정 그대로 |
+| `gen5w-kr-safe.zip` | bridge·core (유선 CarPlay·Android Auto HUD만) | 순정 그대로 |
 
-설치본과 소스는 같은 커밋에서 만듭니다. 이전 개인용 설정을 해제하는 복원 전용 검사 자료를 포함하며, 해당 기능을 새로 설치하는 파일은 포함하지 않습니다. `GEN5W-VARIANT=standard`, `GEN5W-BACKEND=builtin`만 허용합니다. 동글용 구성을 표시한 파일만 넣어도 설치되지는 않습니다. 이전 개인용 패키지의 등록이 사라진 상태라면 개인 로컬 번들로 먼저 복원해야 합니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
+- 안전판 ZIP에는 `services.odex`·`SystemUI.odex`를 고치는 패키지(`gen5w.kr.hotspot`·`gen5w.kr.notice`)가 아예 들어 있지 않습니다. 점검용 확인 도구만 `checks/`에 있습니다.
+- **기본형(standard)과 동글형(dongle)은 실험실 전용입니다.** 기본형은 `services.odex`와 `SystemUI.odex`를 고치고, 동글형은 여기에 `libhardware_legacy.so` 교체와 직접 빌드한 커널 모듈까지 더합니다. 부트가드는 `libhardware_legacy.so`와 동글 모듈을 복원하지 못합니다. 설치기는 이 두 구성(그리고 구성 표시가 없는 번들)을 아무것도 바꾸기 전에 거부합니다. `build.py --lab`으로만 만들 수 있고 릴리스에 넣지 않습니다. 모의 시험만 `IT_LAB_EDITIONS=1`로 실행합니다.
+- 이전 개인용 구성(안내 생략)이나 동글 설치가 남아 있으면 안전판이 먼저 복원합니다. `services.odex` 핫스팟 패치가 남아 있으면 무선 안전판은 설치를 거부합니다(공식 업데이트로 순정 복귀 후 설치).
+- 핫스팟 수동 복구(`GEN5W-ACTION`=`repair-hotspot`)는 유선 안전판이나 무선이 꺼진 상태(유선 전용 전환, 핫스팟 시작 가드 작동)에서는 거부합니다.
 
 USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열고, **Run USB NEMESIS.sh**를 선택하면 실행합니다.
 
