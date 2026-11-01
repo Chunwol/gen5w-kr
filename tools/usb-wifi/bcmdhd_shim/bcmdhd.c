@@ -1,4 +1,4 @@
-/*
+/* SPDX-License-Identifier: GPL-2.0-only  Copyright (C) 2026 Chunwol
  * Stand-in for the stock Broadcom module name on Gen5W (Korean V039).
  *
  * The stock Wi-Fi HAL (libhardware_legacy.so, left unchanged) loads Wi-Fi by

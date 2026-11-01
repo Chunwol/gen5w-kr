@@ -1,5 +1,6 @@
 """Check distribution contents without proprietary/private test inputs."""
 import configparser
+import hashlib
 from io import BytesIO
 from pathlib import Path
 import struct
@@ -53,7 +54,16 @@ def audit_dongle(path):
                     'files/firmware/htc_9271.fw', 'bin/gen5w-dongle-load',
                     'scripts/service.sh', 'scripts/pre.sh', 'scripts/preun.sh'}
         required.update('files/modules/'+name+'.ko' for name in modules)
+        # GPL-2.0 notices, written source offer and firmware licence travel with the binaries.
+        required.update({'licenses/GPL-SOURCE.md', 'licenses/GPL-2.0.txt',
+                         'licenses/ath9k-htc-firmware.txt'})
         assert required <= names, 'missing dongle payload: '+str(required-names)
+        assert b'gen5w-kr-dongle-gpl-source.tar.xz' in z.read('licenses/GPL-SOURCE.md'), 'GPL source pointer missing'
+        assert b'GNU GENERAL PUBLIC LICENSE' in z.read('licenses/GPL-2.0.txt') and b'Version 2' in z.read('licenses/GPL-2.0.txt'), 'GPL-2.0 text missing'
+        firmware = {'files/firmware/htc_9271.fw': '6ce17132c3dda25fa509ac57259d97241137f2a79335b3b23137034442f0aa4e',
+                    'files/firmware/htc_7010.fw': '3c6515e34e6d622ed195adf359a75a6154946419f7322dadd1771a540b3a8171'}
+        for name, digest in firmware.items():
+            assert hashlib.sha256(z.read(name)).hexdigest() == digest, 'firmware is not the recorded Debian build: '+name
         assert not any('libcutils' in n for n in names), 'link-only stub shipped'
         assert not any(n.endswith('libhardware_legacy.so') for n in names), 'stock Wi-Fi HAL replacement shipped'
         for name in required:

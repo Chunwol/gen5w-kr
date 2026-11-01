@@ -8,6 +8,20 @@
 
 설치 ZIP에는 `LICENSE`, `SOURCE.md`, `BUILD-REVISION`이 있습니다. 같은 릴리스의 `gen5w-kr-source.zip`이 해당 커밋의 대응 소스입니다. 바이너리를 재배포할 때 소스 ZIP도 함께 제공합니다. 접근할 수 없는 비공개 저장소 주소만 안내하지 않습니다.
 
+## 동글판의 GPL-2.0 바이너리
+
+동글판에는 다른 라이선스의 바이너리가 함께 들어 있습니다.
+
+- 커널 모듈 9개(`files/modules/*.ko`): Linux 3.18.24와 현대모비스가 공개한 Gen5W 커널 소스(STD_G5_WIDE R7)를 V039 커널 설정으로 빌드했습니다. **GPL-2.0**.
+- 대리 모듈 `files/bcmdhd.ko`: 이 프로젝트가 작성했습니다(`tools/usb-wifi/bcmdhd_shim`). 커널과 맞추기 위해 이 부분만 **GPL-2.0-only**입니다.
+- 펌웨어 `htc_9271.fw`, `htc_7010.fw`: Debian `open-ath9k-htc-firmware` 1.4.0-108-gd856466+dfsg1-1.3+deb12u1의 1.4.0 파일 그대로입니다. 주로 BSD-3-Clause-Clear입니다.
+
+이 바이너리들의 대응 소스(커널 소스, 쓴 모비스 커널 소스, 커널 설정, 빌드 스크립트, 펌웨어 소스)는 같은 릴리스의 `gen5w-kr-dongle-gpl-source.tar.xz`입니다. 이 소스로 다시 빌드하면 모듈 9개가 배포 파일과 바이트 단위로 같습니다. 동글 패키지 안의 `licenses/`에 GPL 2판 전문, 펌웨어 라이선스, 서면 소스 제공 약속(`GPL-SOURCE.md`)이 있습니다. 동글판을 다른 사람에게 줄 때는 이 소스 파일도 함께 줍니다.
+
+## 상표
+
+현대·기아·제네시스·블루링크·현대모비스, Apple CarPlay, Android Auto 등은 각 회사의 상표이며 호환 대상을 설명하는 데만 씁니다. 이 프로젝트는 비공식이며 해당 회사들과 관계가 없습니다.
+
 공식 배포는 깨끗한 checkout에서 빌드한 CI 산출물을 사용합니다. 개발 중인 변경이 남은 상태로 전체 배포 빌드를 실행하면 중단합니다.
 
 NEMESIS는 별도 AGPL-3.0 프로그램이며 설치 ZIP에 포함하지 않습니다. NEMESIS의 사용·수정·배포는 [해당 라이선스](https://github.com/xwtk/hmg_nemesis/blob/main/LICENSE)를 따릅니다.

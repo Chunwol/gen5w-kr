@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
 # Rebuilds files/bcmdhd.ko (the stand-in for the stock module name) against the
 # prepared V039 kernel tree that tools/usb-wifi/experiment.py creates.
 # Usage: build.sh <experiment output dir>   (contains linux-3.18.24/ and toolchain/)
