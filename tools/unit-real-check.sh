@@ -46,10 +46,11 @@ tb() { unit "$ROOTFS/system/bin/toolbox" "$@"; }
 echo "== 1. scripts parse with the unit's mksh"
 echo "   $(unit "$ROOTFS/system/bin/mksh" -c 'echo $KSH_VERSION')"
 n=0
+python3 tests/unit_commands.py --list > "$W/scripts" || { echo "could not list on-unit scripts"; exit 2; }
 while read -r f; do
     n=$((n+1))
     out=$(unit "$ROOTFS/system/bin/mksh" -n "$f") && [ -z "$out" ] && ok || bad "unit mksh -n $f: $out"
-done < <(python3 tests/unit_commands.py --list)
+done < "$W/scripts"
 echo "   $n scripts"
 
 echo "== 2. command lists match this unit"
