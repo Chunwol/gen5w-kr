@@ -85,10 +85,37 @@ check_stage_tree() {
         [ "$(digest "checks/$id/$path")" = "$sum" ] || return 1
     done < "checks/$id/FILES.md5"
 }
+# Old wireless layouts kept their only backup in /data; never discard those.
 orphaned_wireless_backup() {
     [ "$1" = gen5w.kr.wireless ] || return 1
-    { [ -e "$DATA/nemesis/backup/$1" ] || [ -L "$DATA/nemesis/backup/$1" ]; } || return 1
+    [ -e "$DATA/nemesis/backup/$1/saved" ] || [ -L "$DATA/nemesis/backup/$1/saved" ] ||
+    [ -e "$DATA/nemesis/backup/$1/installed" ] || [ -L "$DATA/nemesis/backup/$1/installed" ] || return 1
     ! durable "$1"
+}
+# Our /data state that outlives /system: after a firmware reinstall /system is
+# stock again but these remain (runtime copies, persist properties, Bluelink).
+leftover() {
+    case "$1" in
+        gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.dongle)
+            [ -e "$DATA/nemesis/backup/$1" ] || [ -L "$DATA/nemesis/backup/$1" ];;
+        gen5w.kr.bluelink)
+            [ -e "$DATA/nemesis/gen5wkr.bluelink" ] || [ -L "$DATA/nemesis/gen5wkr.bluelink" ];;
+        *) return 1;;
+    esac
+}
+bundle_has() { [ -f "checks/$1/NEMESIS.data" ] && check_stage_tree "$1"; }
+bundle_remove_hook() { bundle_has "$1" && gate "$(pwd)/checks/$1" preuninstall; }
+# Clear what a module left in /data once nothing of it is installed. The hook
+# itself refuses while any of its changes is still live on /system.
+sweep() {
+    local id=$1
+    leftover "$id" || return 0
+    if ! bundle_has "$id"; then
+        report "LEFTOVER $id: remove it with the bundle that installed it"
+        return 0
+    fi
+    bundle_remove_hook "$id" || { report "REFUSED $id: leftover data while its changes are live"; return 1; }
+    report "CLEARED $id: leftovers of an earlier installation"
 }
 safe_remove() {
     local id=$1
@@ -97,19 +124,27 @@ safe_remove() {
             report 'REFUSED wireless removal: legacy backup has no registered recovery package or durable journal'
             return 1
         fi
-        durable "$id" || return 0
-        check_stage_tree "$id" || return 1
-        gate "$(pwd)/checks/$id" preuninstall || return 1
-        report "RESTORED $id: recovered durable ownership after data reset"
-        return 0
+        if durable "$id"; then
+            check_stage_tree "$id" || return 1
+            gate "$(pwd)/checks/$id" preuninstall || return 1
+            report "RESTORED $id: recovered durable ownership after data reset"
+            return 0
+        fi
+        sweep "$id"
+        return
     fi
     # Native NEMESIS ignores this hook's return value. Check it ourselves first.
-    hook "$id" preuninstall || return 1
+    # An earlier build's hook may not know a firmware reinstall; this bundle's
+    # verified hook then decides, with the same refusal rules.
+    if ! hook "$id" preuninstall; then
+        bundle_remove_hook "$id" || return 1
+        report "RECOVERED $id: removed with this bundle's check after the installed one refused"
+    fi
     "$NEM" uninstall "$id" || return 1
     if [ -e "$APPS/$id" ]; then
         rm -rf "$APPS/$id" || return 1
     fi
-    return 0
+    sweep "$id"
 }
 snapshot() {
     local id=$1 info tree=$APPS/$1

@@ -1,6 +1,7 @@
 #!/system/bin/sh
 . ./scripts/common.sh
 state_load || exit 1
+state_discard_stale || exit 1
 [ -e "$STATE" ] || { log 'No owned system changes'; exit 0; }
 "$NEM" remount rw >/dev/null 2>&1 || exit 1
 state_restore

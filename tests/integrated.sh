@@ -269,7 +269,7 @@ check 'no module trees after remove' test "$(find "$W/data/nemesis/apps" -name N
 # A reset removes registrations; the bundle's declared recovery hook restores owned system state.
 mkdir -p "$W/sys/etc/gen5w-kr-backup/wireless"
 echo 'preuninstall=scripts/preun.sh' >> "$W/usb/checks/gen5w.kr.wireless/NEMESIS.data"
-echo 'rmdir "$IT_SYSTEM/etc/gen5w-kr-backup/wireless"' > "$W/usb/checks/gen5w.kr.wireless/scripts/preun.sh"
+echo '[ ! -d "$IT_SYSTEM/etc/gen5w-kr-backup/wireless" ] || rmdir "$IT_SYSTEM/etc/gen5w-kr-backup/wireless"' > "$W/usb/checks/gen5w.kr.wireless/scripts/preun.sh"
 python3 - "$W/usb/checks/gen5w.kr.wireless" <<'PYRESET'
 import pathlib,sys,hashlib,zipfile
 p=pathlib.Path(sys.argv[1]); names=['NEMESIS.data','scripts/pre.sh','scripts/post.sh','scripts/preun.sh']
@@ -281,6 +281,41 @@ with zipfile.ZipFile(package,'w') as z:
 PYRESET
 check 'removal after data reset uses declared durable hook' run remove
 check 'durable state restored after registration loss' test ! -d "$W/sys/etc/gen5w-kr-backup/wireless"
+# Firmware reinstall: /system is stock again but /data keeps a module's
+# leftovers. The bundle's own removal hook clears them, refusing when told to.
+mkdir -p "$W/data/nemesis/gen5wkr.bluelink"
+echo 'preuninstall=scripts/preun.sh' >> "$W/usb/checks/gen5w.kr.bluelink/NEMESIS.data"
+printf '[ ! -e "$IT_DATA/refuse" ] || exit 1\nrm -rf "$IT_DATA/nemesis/gen5wkr.bluelink"\n' > "$W/usb/checks/gen5w.kr.bluelink/scripts/preun.sh"
+python3 - "$W/usb/checks/gen5w.kr.bluelink" <<'PYBL'
+import pathlib,sys,hashlib,zipfile
+p=pathlib.Path(sys.argv[1]); names=['NEMESIS.data','scripts/pre.sh','scripts/post.sh','scripts/preun.sh']
+(p/'FILES.md5').write_text('\n'.join(hashlib.md5((p/n).read_bytes()).hexdigest()+'  '+n for n in names)+'\n')
+package=p.parent.parent/'packages'/(p.name+'.zip')
+with zipfile.ZipFile(package,'w') as z:
+ for n in names:z.writestr(n,(p/n).read_bytes())
+(p/'PACKAGE.md5').write_text(hashlib.md5(package.read_bytes()).hexdigest()+'\n')
+PYBL
+check 'removal clears leftovers after a system reinstall' run remove
+check 'leftover Bluelink state cleared' test ! -e "$W/data/nemesis/gen5wkr.bluelink"
+check 'cleared leftovers are reported' grep -q 'CLEARED gen5w.kr.bluelink' "$W/data/nemesis/gen5w-kr-integrated/report"
+# An earlier build's removal check may not know this case; the bundle's decides.
+check 'reinstall after a system reinstall' run install
+printf '[nemesis]\nid=gen5w.kr.timer\npreuninstall=scripts/old.sh\n' > "$W/data/nemesis/apps/gen5w.kr.timer/NEMESIS.data"
+echo 'exit 1' > "$W/data/nemesis/apps/gen5w.kr.timer/scripts/old.sh"
+check 'refused earlier removal check falls back to the bundle' run remove
+check 'fallback is reported' grep -q 'RECOVERED gen5w.kr.timer' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'fallback removal unregisters the module' test ! -e "$W/data/nemesis/apps/gen5w.kr.timer"
+check 'install again' run install
+: > "$W/data/refuse"
+check 'removal stops when both checks refuse' eval '! run remove'
+check 'refused module stays registered' test -f "$W/data/nemesis/apps/gen5w.kr.bluelink/NEMESIS.data"
+check 'refusal is held for manual recovery' grep -qx recovery-required "$W/data/nemesis/gen5w-kr-integrated/state"
+rm -f "$W/data/refuse"; echo committed > "$W/data/nemesis/gen5w-kr-integrated/state"; rm -f "$W/data/nemesis/gen5wkr.noreboot"
+check 'remove after refusal cleared' run remove
+mkdir -p "$W/data/nemesis/backup/gen5w.kr.wireless"; echo legacy > "$W/data/nemesis/backup/gen5w.kr.wireless/saved"
+check 'old wireless backup layout is never discarded' eval '! run remove'
+check 'old wireless backup kept' test -f "$W/data/nemesis/backup/gen5w.kr.wireless/saved"
+rm -rf "$W/data/nemesis/backup/gen5w.kr.wireless"
 # A corrupt new package is refused before touching installed state.
 echo corrupt >> "$W/usb/packages/gen5w.kr.wireless.zip"
 check 'rejects bundle package corruption' eval '! run install'

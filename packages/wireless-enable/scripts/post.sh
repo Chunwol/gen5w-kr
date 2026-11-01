@@ -1,6 +1,7 @@
 #!/system/bin/sh
 . ./scripts/common.sh
 state_load || exit 1
+state_discard_stale || exit 1
 sys_rw || exit 1
 if state_unsealed; then state_discard_plan || exit 1; fi
 if [ -e "$STATE" ]; then

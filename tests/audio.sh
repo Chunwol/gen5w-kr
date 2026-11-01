@@ -137,4 +137,25 @@ rm -rf "$MARK"
 check 'audio V035 reinstall after reset' run post
 check 'audio V035 uninstall selected profile' run preun
 check 'audio V035 exact original restored' cmp -s "$TARGET" "$W/fixture/original35"
+# Firmware reinstall: the stock library and no system journal, but our runtime
+# copy still in /data. Removal drops it; reinstall works; a patched library
+# without its journal is never touched.
+cp "$W/fixture/original" "$TARGET"
+check 'audio install before system reinstall' run post
+cp "$W/fixture/original" "$TARGET"; rm -rf "$PERSIST"
+check 'audio removal after system reinstall' run preun
+check 'audio removal clears the runtime copy' test ! -e "$MARK"
+check 'audio removal leaves stock library' cmp -s "$TARGET" "$W/fixture/original"
+run post; cp "$W/fixture/original" "$TARGET"; rm -rf "$PERSIST"
+check 'audio reinstall after system reinstall' run post
+check 'audio reinstall applies' cmp -s "$TARGET" "$W/fixture/patched"
+check 'audio removal after that reinstall' run preun
+check 'audio removal restores stock' cmp -s "$TARGET" "$W/fixture/original"
+run post; echo unknown-firmware > "$TARGET"; rm -rf "$PERSIST"
+check 'audio removal on other firmware clears our copy' run preun
+check 'audio other firmware library untouched' test "$(cat "$TARGET")" = unknown-firmware
+check 'audio other firmware runtime copy cleared' test ! -e "$MARK"
+cp "$W/fixture/original" "$TARGET"; run post; rm -rf "$PERSIST"
+if run preun; then bad 'audio patched library without journal refused'; else ok 'audio patched library without journal refused'; fi
+check 'audio refusal keeps runtime copy' cmp -s "$MARK/original" "$W/fixture/original"
 done_tests audio

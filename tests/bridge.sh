@@ -327,4 +327,31 @@ cp "$W/fixture/dipo-v039-previous" "$DIPO"
 if run post; then bad 'unowned previous DiPO refused'; else ok 'unowned previous DiPO refused'; fi
 check 'unowned previous creates no backup' test ! -d "$PERSIST"
 
+# Firmware reinstall: stock ODEX files and no system journal, but our runtime
+# copies and start-guard state still in /data.
+reinstall_system() {
+    cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/dipo-v039-original" "$DIPO"
+    [ ! -f "$W/pkg/bin/gpm-patch-v039" ] || cp "$W/fixture/gpm-v039-original" "$GPM"
+    rm -rf "$PERSIST"
+}
+cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+check 'install before system reinstall' run post
+reinstall_system; mkdir -p "$W/data/nemesis/gen5wkr.apguard"; echo 2 > "$W/data/nemesis/gen5wkr.apguard.count"
+check 'removal after system reinstall' run preun
+check 'removal clears runtime copies' test ! -e "$MARK"
+check 'removal clears the start guard' eval 'test ! -e "$W/data/nemesis/gen5wkr.apguard" && test ! -e "$W/data/nemesis/gen5wkr.apguard.count"'
+check 'removal leaves stock ODEX' cmp -s "$TARGET" "$W/fixture/v039-original"
+run post; reinstall_system
+check 'reinstall after system reinstall' run post
+check 'reinstall patches again' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'removal after that reinstall restores stock' eval 'run preun && cmp -s "$TARGET" "$W/fixture/v039-original"'
+run post; reinstall_system; echo other-firmware > "$TARGET"
+check 'removal on other firmware clears our copies' run preun
+check 'other firmware ODEX untouched' test "$(cat "$TARGET")" = other-firmware
+check 'other firmware runtime copies cleared' test ! -e "$MARK"
+cp "$W/fixture/v039-original" "$TARGET"; run post; rm -rf "$PERSIST"
+if run preun; then bad 'patched ODEX without journal refused'; else ok 'patched ODEX without journal refused'; fi
+check 'refusal keeps runtime copies' cmp -s "$MARK/original" "$W/fixture/v039-original"
+
 done_tests bridge

@@ -3,6 +3,9 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 
+if [ ! -e "$BACKUP_DURABLE" ] && [ ! -L "$BACKUP_DURABLE" ] && [ -e "$BACKUP_RUNTIME" ]; then
+    clear_stale_runtime || { log 'FAIL dongle: our files are live without their system journal'; exit 1; }
+fi
 verify_stock_target || exit 1
 aux_install_check || { log 'FAIL dongle: file collision or unknown ownership'; exit 1; }
 

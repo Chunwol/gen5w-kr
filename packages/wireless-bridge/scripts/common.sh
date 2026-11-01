@@ -261,3 +261,20 @@ cleanup_owned() {
     fi
     rmdir "$SYS/etc/gen5w-kr-backup" 2>/dev/null || true
 }
+# Runtime copies without a system journal: left by a firmware reinstall. Only
+# our own fixed files are removed, and never while a patched file is live.
+clear_runtime_copy() {
+    [ ! -e "$STATE" ] && [ ! -L "$STATE" ] || return 1
+    [ -e "$MARK" ] || [ -L "$MARK" ] || return 0
+    [ -d "$MARK" ] && [ ! -L "$MARK" ] || return 1
+    case "$(cat "$MARK/owner" 2>/dev/null)" in gen5w.kr.bridge:*) ;; *) return 1;; esac
+    if [ -n "$TOOL" ]; then ! patched "$TARGET" || return 1; fi
+    if [ -n "$DIPO_TOOL" ]; then ! dipo_patched "$DIPO_TARGET" || return 1; fi
+    if [ -n "$GPM_TOOL" ]; then ! gpm_patched "$GPM_TARGET" || return 1; fi
+    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp gpmoriginal gpmoriginal.tmp owner; do
+        [ ! -L "$MARK/$bridge_file" ] || return 1
+    done
+    rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" &&
+        rmdir "$MARK" || return 1
+    log 'CLEARED bridge: runtime copies left by a system reinstall'
+}

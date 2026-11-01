@@ -62,6 +62,7 @@ state_discard_plan() {
     rm -rf "$STATE" "$MARK" || return 1
 }
 state_load() {
+    STALE=no
     if [ -e "$STATE" ]; then
         # A planning journal cannot have modified targets: applying requires a seal.
         state_unsealed && return 0
@@ -71,7 +72,51 @@ state_load() {
     elif [ -e "$MARK/saved" ] || [ -e "$MARK/installed" ]; then
         log 'FAIL: legacy backup needs reviewed migration; no durable ownership'
         return 1
+    elif [ -e "$MARK" ] || [ -L "$MARK" ]; then
+        state_stale || { log 'FAIL: wireless changes are live without their system journal'; return 1; }
+        STALE=yes
     fi
+}
+# Firmware reinstall: /system (with our journal in it) is stock again, but /data
+# still holds our runtime copy and the persist properties we set. The copy may be
+# discarded only when none of our applied bytes is live. An unsealed copy never
+# applied anything.
+state_stale() {
+    local journal=$STATE n p old new extra actual rc=0
+    [ ! -L "$MARK" ] && [ -d "$MARK" ] && [ ! -e "$STATE" ] && [ ! -L "$STATE" ] || return 1
+    # Older layouts kept the only backup here; never treat them as leftovers.
+    [ ! -e "$MARK/saved" ] && [ ! -L "$MARK/saved" ] && [ ! -e "$MARK/installed" ] && [ ! -L "$MARK/installed" ] || return 1
+    [ -e "$MARK/manifest.md5" ] || [ -L "$MARK/manifest.md5" ] || return 0
+    STATE=$MARK
+    if state_valid; then
+        while IFS='|' read -r n p old new extra; do
+            actual=absent
+            [ ! -e "$p" ] || actual=$(file_md5 "$p") || { rc=1; break; }
+            [ "$actual" = "$old" ] || [ "$actual" != "$new" ] || { rc=1; break; }
+        done < "$MARK/manifest"
+    else
+        rc=1
+    fi
+    STATE=$journal
+    return "$rc"
+}
+# Put back the persist properties recorded before the first install, then drop
+# the runtime copy. Only after state_load set STALE=yes.
+state_discard_stale() {
+    [ "$STALE" = yes ] || return 0
+    if [ -f "$MARK/manifest.md5" ]; then
+        if [ -f "$MARK/runtime.ium" ]; then
+            setprop persist.ium.support "$(cat "$MARK/runtime.ium")" || return 1
+            [ "$(getprop persist.ium.support)" = "$(cat "$MARK/runtime.ium")" ] || return 1
+        fi
+        if [ -f "$MARK/runtime.wifi" ]; then
+            setprop persist.wifi.state "$(cat "$MARK/runtime.wifi")" || return 1
+            [ "$(getprop persist.wifi.state)" = "$(cat "$MARK/runtime.wifi")" ] || return 1
+        fi
+    fi
+    rm -rf "$MARK" || return 1
+    STALE=no
+    log 'CLEARED: leftovers of an install whose system files were reinstalled; properties restored'
 }
 state_begin() {
     [ ! -e "$STATE" ] || return 1

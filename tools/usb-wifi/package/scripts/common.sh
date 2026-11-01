@@ -220,3 +220,27 @@ $listing
 EOF
     fi
 }
+# No system journal but /data still says "dongle": a firmware reinstall put
+# /system back to stock. Drop the runtime copy and the backend setting, but only
+# when none of our files is live (the stand-in or any added module/firmware).
+clear_stale_runtime() {
+    local listing sum rel extra
+    [ ! -e "$BACKUP_DURABLE" ] && [ ! -L "$BACKUP_DURABLE" ] || return 1
+    aux_safe_dirs || return 1
+    listing=$(aux_payload_manifest) || return 1
+    while IFS='|' read -r sum rel extra; do
+        [ ! -L "$SYS/$rel" ] || return 1
+        [ ! -e "$SYS/$rel" ] || [ "$(digest "$SYS/$rel")" != "$sum" ] || return 1
+    done <<EOF2
+$listing
+EOF2
+    command -v getprop >/dev/null 2>&1 && command -v setprop >/dev/null 2>&1 || return 1
+    if [ "$(getprop persist.gen5w.wifi.backend)" = dongle ]; then
+        setprop persist.gen5w.wifi.backend '' &&
+        [ -z "$(getprop persist.gen5w.wifi.backend)" ] || return 1
+    fi
+    if [ -e "$BACKUP_RUNTIME" ]; then
+        rm -f "$BACKUP_RUNTIME/original" "$BACKUP_RUNTIME/owner" && rmdir "$BACKUP_RUNTIME" || return 1
+        log 'CLEARED dongle: runtime copy left by a system reinstall'
+    fi
+}

@@ -3,6 +3,11 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 
+# No system journal at all: nothing on /system is ours to restore.
+if [ ! -e "$BACKUP_DURABLE" ] && [ ! -L "$BACKUP_DURABLE" ]; then
+    clear_stale_runtime || { log 'FAIL dongle: our files are live without their system journal'; exit 1; }
+    exit 0
+fi
 is_owned && aux_manifest_valid || { log 'FAIL dongle: missing or changed file ownership journal'; exit 1; }
 command -v getprop >/dev/null 2>&1 && command -v setprop >/dev/null 2>&1 || exit 1
 backend_original=$(cat "$BACKUP_DURABLE/backend.original") || exit 1

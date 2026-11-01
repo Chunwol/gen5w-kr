@@ -3,7 +3,14 @@
 log "=== preinstall gen5w.kr.wireless $(date 2>/dev/null) firmware=$(getprop ro.build.product 2>/dev/null)"
 preserve_existing_or_skip() {
     _installed=$DATA/nemesis/apps/gen5w.kr.wireless
-    if [ -e "$STATE" ] || [ -L "$STATE" ] || [ -e "$_installed" ] || [ -L "$_installed" ] || [ -e "$MARK" ] || [ -L "$MARK" ]; then
+    _mark=no
+    if [ -e "$MARK" ] || [ -L "$MARK" ]; then
+        # Leftovers of a firmware reinstall hold nothing to preserve.
+        if [ -e "$STATE" ] || [ -L "$STATE" ] || ! state_stale; then _mark=yes; fi
+    fi
+    # A registration alone, with /system stock after a firmware reinstall, has
+    # nothing on the system to preserve either.
+    if [ -e "$STATE" ] || [ -L "$STATE" ] || [ "$_mark" = yes ]; then
         [ -d "$_installed" ] && [ ! -L "$_installed" ] &&
         [ -f "$_installed/NEMESIS.data" ] && [ ! -L "$_installed/NEMESIS.data" ] &&
         grep -q '^id=gen5w\.kr\.wireless$' "$_installed/NEMESIS.data" &&

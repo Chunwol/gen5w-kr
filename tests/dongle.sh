@@ -144,5 +144,29 @@ check 'dongle uninstall cleans durable backup' test ! -d "$PERSIST"
 check 'dongle uninstall cleans runtime backup' test ! -d "$MARK"
 check 'dongle uninstall restores previous backend setting' grep -qx builtin "$W/props/persist.gen5w.wifi.backend"
 
+# Firmware reinstall: stock bcmdhd.ko, none of our files and no system journal,
+# but the runtime copy and backend setting still in /data.
+reinstall_system() {
+    cp "$W/fixture/stock_hal" "$TARGET"
+    /bin/rm -f "$W/sys/wifi/dongle/ath9k_htc.ko" "$W/sys/etc/firmware/htc_9271.fw" "$W/sys/bin/gen5w-dongle-load"
+    /bin/rm -rf "$PERSIST"
+}
+check 'install before system reinstall' run post
+reinstall_system
+check 'removal after system reinstall' run preun
+check 'removal clears the runtime copy' test ! -e "$MARK"
+check 'removal clears the dongle backend setting' test -z "$(cat "$W/props/persist.gen5w.wifi.backend")"
+check 'removal leaves stock bcmdhd.ko' cmp -s "$TARGET" "$W/fixture/stock_hal"
+run post; reinstall_system
+check 'reinstall after system reinstall' run post
+check 'reinstall records the cleared backend as original' test -z "$(cat "$PERSIST/backend.original")"
+check 'removal after that reinstall' run preun
+check 'removal after that reinstall is stock' cmp -s "$TARGET" "$W/fixture/stock_hal"
+run post; reinstall_system; cp "$W/pkg/files/bcmdhd.ko" "$TARGET"
+check 'stand-in without journal refused' eval '! run preun'
+check 'refusal keeps the runtime copy' test -f "$MARK/original"
+check 'refusal keeps the stand-in' cmp -s "$TARGET" "$W/pkg/files/bcmdhd.ko"
+check 'refused state is not reinstalled over' eval '! run post'
+
 echo "== dongle: $PASS passed, $FAIL failed"
 exit $FAIL

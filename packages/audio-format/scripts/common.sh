@@ -121,3 +121,14 @@ cleanup_owned() {
     fi
     rmdir "$SYS/etc/gen5w-kr-backup" 2>/dev/null || true
 }
+# Runtime copy without a system journal: left by a firmware reinstall. Only our
+# own fixed files are removed, and never while the patched library is live.
+clear_runtime_copy() {
+    [ ! -e "$STATE" ] && [ ! -L "$STATE" ] || return 1
+    [ -e "$MARK" ] || [ -L "$MARK" ] || return 0
+    [ -d "$MARK" ] && [ ! -L "$MARK" ] && [ ! -L "$MARK/original" ] && [ ! -L "$MARK/owner" ] || return 1
+    ! patched "$TARGET" || return 1
+    case "$(cat "$MARK/owner" 2>/dev/null)" in gen5w.kr.audio:*) ;; *) return 1;; esac
+    rm -f "$MARK/original" "$MARK/owner" && rmdir "$MARK" || return 1
+    log 'CLEARED audio: runtime copy left by a system reinstall'
+}

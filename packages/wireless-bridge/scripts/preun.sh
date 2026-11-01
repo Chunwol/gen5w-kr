@@ -2,8 +2,15 @@
 SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
-inspect || exit $?
-[ "$BRIDGE_OWNED" = yes ] || exit 0
+inspect
+rc=$?
+# Not ours (no system journal): nothing to restore. A firmware reinstall may have
+# left our runtime copies and start-guard state in /data; drop them.
+if [ "$rc" = 77 ] || { [ "$rc" = 0 ] && [ "$BRIDGE_OWNED" = no ]; }; then
+    clear_runtime_copy && apguard_reset || exit 1
+    exit 0
+fi
+[ "$rc" = 0 ] || exit "$rc"
 [ ! -L "$STOPPING" ] || exit 1
 echo "$OWNER" > "$STOPPING" || exit 1
 if [ -z "$BRIDGE_TEST_SYS" ]; then
