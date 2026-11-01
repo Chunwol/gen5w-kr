@@ -8,6 +8,8 @@
 | [사용 안내](vehicle-use.md) | 설치, 업데이트, 상태 확인, 제거 |
 | [지원 차량](porting.md) | 한국 내수 지원 범위와 차종 추가 요청 |
 | [사용 전 안내](notices.md) | 시스템 변경, 사용 시 주의사항과 권리 안내 |
+| [설치 전 복구 준비](pre-install-recovery-checklist.md) | 설치 전에 마칠 복구 준비 체크리스트 |
+| [블루링크 안내 숨기기](bluelink.md) | 월간 가입 안내를 다시 띄우지 않는 방식과 제거 |
 | [연결 복구](wireless-recovery.md) | 기존 설치 이관과 자동 복구 |
 | [이슈로 참여하기](../CONTRIBUTING.md) | 오류·개선 의견과 진단 로그 첨부 |
 | [보안 제보](../SECURITY.md) | 민감한 문제를 제보할 때 |
@@ -21,13 +23,25 @@
 | [검증 범위](validation.md) | 자동 검증 항목과 확인이 남은 동작 |
 | [빌드·릴리스](ci.md) | 빌드 환경, CI, 릴리스 등록 |
 | [설치·복구 구조](integrated.md) | 패키지 구성과 설치 트랜잭션 |
-| [초기화 후 복구](recovery.md) | 원본 보관과 복구 조건 |
+| [초기화·재설치 후 복구](recovery.md) | 원본 보관, 공장초기화·시스템 재설치 뒤 제거·재설치 |
 | [부트 안전장치 비교](boot-safety.md) | NEMESIS·Leafia 및 다른 5W 프로그램의 검증·복구 기준 |
 | [부트로더 복구 경로](bootloader-recovery.md) | fastboot 읽기 확인과 외부 순정 이미지 복구 도구 |
 | [HUD](hud.md) · [iAP2](iap2-fields.md) | 길안내 수신·변환·출력 |
 | [순정 내비와 HUD 우선순위](hud-ownership.md) | 순정 내비 경로 안내와 HUD 출력 상태 제어 |
 | [Bluetooth](bt-wireless-start.md) · [설치 제어부](bridge-install.md) · [DiPO](dipo-control.md) | 무선 시작과 순정 서비스 연결 |
 | [오디오](audio.md) | 압축 오디오 형식과 원본 검사 |
+| [통화 버튼](wireless-call-button.md) | CarPlay 핸들 통화 버튼 보완 |
+| [USB Wi-Fi 동글](usb-wifi-experiment.md) | 동글형 드라이버 빌드와 대리 모듈 |
 | [버전 전환 기준](edition-transitions.md) | 하드웨어 및 버전 전환과 복구 기준 |
 | [라이선스](licensing.md) · [후원](sponsorship.md) | 소스 제공과 후원 연결 |
 | [공개 준비](public-release.md) | 배포 확인 결과와 공개 전 남은 설정 |
+
+## 개발 기록
+
+작업 당시의 분석과 계획입니다. 현재 동작은 위 문서와 [CHANGELOG](../CHANGELOG.md)를 기준으로 합니다.
+
+| 문서 | 내용 |
+|---|---|
+| [부트 안전장치 보강 계획](boot-safety-reinforcements.md) | 부트가드 보강 항목 검토 |
+| [V039 HUD 코드 대조](v039-cluster-review.md) | 순정 클러스터·내비 수신 코드 대조 |
+| [작업 계획](superpowers/plans/) | HUD 로드맵, 부트 안전장치, 런타임·fastboot 복구 구현 계획 |

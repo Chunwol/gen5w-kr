@@ -8,10 +8,11 @@
 |---|---|
 | wireless | 순정 무선 연결·핫스팟 기능 선언과 설정 |
 | audio | 알려진 원본의 AAC·Opus 형식 알림 수정 |
-| hotspot | 실제 핫스팟과 CarPlay 접속 정보 일치 |
 | bridge | Bluetooth 연결과 순정 iAP2·CarPlay 및 Android Auto TBT 서비스 연결 |
 | core | CarPlay 및 Android Auto 길안내 수신과 계기판·HUD 출력 |
-| consent | 선택한 버전에서 시동 동의 안내 생략 |
+| timer | 순정 조건 통과 시 시동 주의 안내를 버튼 활성화 즉시 닫는 서비스 |
+| bluelink | 블루링크 미가입 차의 월간 가입 안내 다시 보기 시각을 2100년으로 유지 |
+| dongle | 동글형 전용, `bcmdhd.ko` 자리에 USB 동글 연결용 대리 모듈 |
 
 제조사 구현은 배포하지 않습니다. 원본 파일 전체 해시와 의존 파일 조합이 맞을 때만 수정하며, 원본은 기기 안에 보관합니다.
 
@@ -33,7 +34,7 @@ Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `s
 
 ## 시동 안내
 
-기본형은 SystemUI를 바꾸지 않고 서비스(`gen5w.kr.timer`)로 확인 버튼이 활성화되자마자 자동 전환합니다. 버튼을 활성화하는 순정 `enableScreen()`이 끝에서 타이머 판단을 하며 상태 줄을 남기므로, 그 줄이 순정 조건을 통과하면 바로 닫습니다(운전자 프로필 미선택 `mInitDriverIdx : -1`은 직접 거부). SystemUI가 시스템 로그에 남기는 자기 타이머 판단(`mScreenEnabled : …` 상태 줄, 실패 줄, 언어 버튼, 확인 줄)을 따라가서, 순정 조건을 통과했고 취소되지 않았을 때만 즉시 순정 닫기 요청(`CLOSE_CONSENTSCREEN_FORCE`, 순정 타이머와 같은 `confirm()` 실행)을 보냅니다. 확인된 순정 SystemUI(V039·V035)에서만 동작하고, 로그 형식이 다르거나 서비스가 멈추면 순정 10초 타이머가 그대로 적용됩니다. 개인용으로 설치했던 이전 안내 설정은 소유권을 확인한 뒤 복원합니다.
+기본형은 SystemUI를 바꾸지 않고 서비스(`gen5w.kr.timer`)로 확인 버튼이 활성화되자마자 자동 전환합니다. 버튼을 활성화하는 순정 `enableScreen()`이 끝에서 타이머 판단을 하며 상태 줄을 남기므로, 그 줄이 순정 조건을 통과하면 바로 닫습니다(운전자 프로필 미선택 `mInitDriverIdx : -1`은 직접 거부). SystemUI가 시스템 로그에 남기는 자기 타이머 판단(`mScreenEnabled : …` 상태 줄, 실패 줄, 언어 버튼, 확인 줄)을 따라가서, 순정 조건을 통과했고 취소되지 않았을 때만 즉시 순정 닫기 요청(`CLOSE_CONSENTSCREEN_FORCE`, 순정 타이머와 같은 `confirm()` 실행)을 보냅니다. 확인된 순정 SystemUI(V039·V035)에서만 동작하고, 로그 형식이 다르거나 서비스가 멈추면 순정 10초 타이머가 그대로 적용됩니다.
 
 ## 설치와 복구
 

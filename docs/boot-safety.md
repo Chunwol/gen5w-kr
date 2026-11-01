@@ -52,7 +52,7 @@ gen5w-kr의 기존 표는 “Leafia와 안전장치가 동일하다”고 표현
 
 | 항목 | 실제 상태 |
 |---|---|
-| 패키징 | 둘 다 NEMESIS 기반이지만, Leafia의 1~5 파트와 gen5w-kr의 wireless/audio/hotspot/bridge/core/notice/dongle 구조는 다름 |
+| 패키징 | 둘 다 NEMESIS 기반이지만, Leafia의 1~5 파트와 gen5w-kr의 wireless/audio/bridge/core/timer/bluelink/dongle 구조는 다름 |
 | 백업·복구 | gen5w-kr은 트랜잭션 롤백을 갖지만, 이번 보강 전 부트가드가 일부 파일만 복구했음 |
 | 테스트 | Leafia의 mock harness를 상속한 것이 아니라 gen5w-kr 자체 `tests/` 스위트를 사용함 |
 | dexopt | Leafia처럼 앱을 재생성하는 패키지에는 의미가 있지만, gen5w-kr의 기존 ODEX 바이트 패치에는 무조건 실행하면 패치를 덮을 수 있음 |

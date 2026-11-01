@@ -1,6 +1,6 @@
 # 빌드와 릴리스
 
-사용자는 [Releases](https://github.com/Chunwol/gen5w-kr/releases)에서 기본형 ZIP을 받습니다.
+사용자는 [Releases](https://github.com/Chunwol/gen5w-kr/releases)에서 기본형·동글형 ZIP을 받습니다.
 
 ## 빌드 환경
 
@@ -12,7 +12,7 @@ JDK 17, Python 3.12, Android SDK 36, build-tools 36.0.0, NDK 27.2.12479018, mksh
 bash tools/build-all.sh
 ```
 
-기본형 설치 ZIP, 대응 소스와 체크섬은 `dist/`에 생성됩니다. 개별 개발 빌드는 각 도구의 도움말을 참고하세요.
+설치 ZIP(기본형·동글형, 릴리스에 올리지 않는 안전판·무선 안전판·점검판), 대응 소스와 체크섬은 `dist/`에 생성됩니다. 개별 개발 빌드는 각 도구의 도움말을 참고하세요.
 
 ## CI
 
@@ -24,7 +24,7 @@ CI에는 제조사 파일, 개인 차량 정보나 영구 서명 키를 넣지 �
 
 1. **Build and verify**가 성공한 실행 번호를 확인합니다.
 2. **Publish release**를 수동 실행하고 태그와 CI 실행 번호를 입력합니다.
-3. 등록된 기본형 ZIP과 소스, `RELEASE-SHA256SUMS`를 확인합니다.
+3. 등록된 기본형·동글형 ZIP과 소스, `RELEASE-SHA256SUMS`를 확인합니다.
 
 릴리스 작업은 성공한 main 빌드인지, 파일 체크섬과 설치본과 대응 소스의 코드 커밋이 일치하는지 검사합니다. 검증한 빌드를 다시 컴파일하거나 전체 시험을 반복하지 않습니다. 기존 태그는 덮어쓰지 않습니다.
 

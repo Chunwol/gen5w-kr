@@ -64,7 +64,7 @@ compat=gen5w
 ## 5. Gen5W KR 설치 ZIP 받기
 
 1. [다운로드 페이지](https://github.com/Chunwol/gen5w-kr/releases)에서 **기본형 `gen5w-kr-standard.zip`**을 받습니다.
-2. 기본형은 순정의 10초 자동 전환 타이머가 있는 지원 사양에서 확인 버튼이 활성화되자마자 넘깁니다. 주의 안내 화면과 순정 안전 조건은 유지하며, 수동 동의가 필요한 사양은 그대로입니다. 화면을 완전히 생략하는 개인용 구성은 공개 배포하지 않습니다. USB Wi-Fi 동글형은 개발 중입니다.
+2. 기본형은 순정의 10초 자동 전환 타이머가 있는 지원 사양에서 확인 버튼이 활성화되자마자 넘깁니다. 주의 안내 화면과 순정 안전 조건은 유지하며, 수동 동의가 필요한 사양은 그대로입니다. 화면을 완전히 생략하는 개인용 구성은 공개 배포하지 않습니다. USB Wi-Fi 동글형은 내장 Wi-Fi가 없는 차용이며 실차 동작은 아직 확인하지 않았습니다.
 3. 같은 릴리스의 `RELEASE-SHA256SUMS`도 받습니다. `Get-FileHash`로 내려받은 설치 ZIP의 SHA256을 구하고 해당 파일 줄과 비교합니다. `gen5w-kr-source.zip`은 개발용 소스이며 설치할 파일이 아닙니다.
 4. 받은 설치 ZIP의 압축을 풀고, **그 안의 내용 전체**를 USB 맨 바깥으로 복사합니다. 이전의 NEMESIS 설치 tar와 이전 실행 스크립트는 섞지 않습니다.
 
@@ -126,6 +126,6 @@ NEMESIS까지 제거하려면 **Gen5W KR 제거가 성공한 뒤** NEMESIS 공�
 | recovery-required | 원본 백업 보존, 같은 호환 번들로 복구. 추가 설치/삭제를 반복하지 않음 |
 | HUD가 없음 | CarPlay인지, 실제 안내 중인지, 지도 앱이 해당 정보를 보내는지, core/bridge 설치 여부 |
 
-다른 차종이나 펌웨어에서 실패하면 **GEN5W-REPORT/ISSUE.md**를 확인한 뒤 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)에 첨부합니다. 모델·연식·사용한 배포판·릴리스 버전·재현 순서를 추가해 주세요. 원시 로그·VIN·전화번호·SSID/비밀번호·키·인증서·제조사 파일은 첨부하지 않습니다. 내장 Wi-Fi 모듈이 없는 차량은 USB Wi-Fi 동글판을 시도해 주세요. 동글판은 개발 중이며 배포 후 시도할 수 있습니다. 동글과 차량 드라이버의 호환 확인이 필요합니다.
+다른 차종이나 펌웨어에서 실패하면 **GEN5W-REPORT/ISSUE.md**를 확인한 뒤 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)에 첨부합니다. 모델·연식·사용한 배포판·릴리스 버전·재현 순서를 추가해 주세요. 원시 로그·VIN·전화번호·SSID/비밀번호·키·인증서·제조사 파일은 첨부하지 않습니다. 내장 Wi-Fi 모듈이 없는 차량은 USB Wi-Fi 동글형을 사용할 수 있습니다. 동글형은 배포 중이지만 실차 동작은 아직 확인하지 않았고, 지원 동글(ath9k_htc)만 동작합니다.
 
 설치 기준: [NEMESIS 공식 안내](https://github.com/xwtk/hmg_nemesis), [Manager 사용법](https://github.com/xwtk/hmg_nemesis/blob/main/02-Debugging-Execution-Interface.md). 엔지니어링 모드 진입 순서는 한국 코나 사용자의 확인을 반영했습니다.
