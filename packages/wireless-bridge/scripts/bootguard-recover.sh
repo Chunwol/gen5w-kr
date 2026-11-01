@@ -100,7 +100,7 @@ preflight_optional_pair() {
 _apps=$DATA/nemesis/apps
 recovery_roots_valid() {
     local dir
-    for dir in "$SYS" "$SYS/etc" "$SYS/etc/gen5w-kr-backup" "$SYS/framework" "$SYS/priv-app" "$SYS/app" "$SYS/lib" "$DATA" "$DATA/nemesis" "$_apps" "$DATA/nemesis/backup"; do
+    for dir in "$SYS" "$SYS/etc" "$SYS/etc/gen5w-kr-backup" "$SYS/framework" "$SYS/priv-app" "$SYS/app" "$SYS/lib" "$SYS/wifi" "$DATA" "$DATA/nemesis" "$_apps" "$DATA/nemesis/backup"; do
         [ ! -L "$dir" ] && { [ ! -e "$dir" ] || [ -d "$dir" ]; } || return 1
     done
 }
@@ -133,7 +133,23 @@ wireless_preflight() {
     wireless_call check || return 1
     WIRELESS_PLAN=yes
 }
-recovery_roots_valid && wireless_preflight &&
+# USB Wi-Fi dongle edition: the stock Wi-Fi start during boot loads
+# /system/wifi/bcmdhd.ko, which that edition replaces with a stand-in. Put the
+# stock module back from its durable backup, checked against the stock hash here
+# (not through the package scripts, which may be the damaged part).
+DONGLE_BACKUP=$SYS/etc/gen5w-kr-backup/dongle/original
+DONGLE_TARGET=$SYS/wifi/bcmdhd.ko
+DONGLE_STOCK_MD5=${BG_TEST_DONGLE_MD5:-c19ed2e2d065c6c406d0ba95945caebf}
+dongle_preflight() {
+    local dir=$SYS/etc/gen5w-kr-backup/dongle
+    DONGLE_PLAN=no
+    if [ ! -e "$dir" ] && [ ! -L "$dir" ] && [ ! -e "$_apps/gen5w.kr.dongle" ] && [ ! -L "$_apps/gen5w.kr.dongle" ]; then return 0; fi
+    [ -f "$DONGLE_BACKUP" ] && [ ! -L "$DONGLE_BACKUP" ] && [ ! -L "$dir" ] &&
+    [ -f "$DONGLE_TARGET" ] && [ ! -L "$DONGLE_TARGET" ] || return 1
+    [ "$(guard_digest "$DONGLE_BACKUP")" = "$DONGLE_STOCK_MD5" ] || return 1
+    DONGLE_PLAN=yes
+}
+recovery_roots_valid && wireless_preflight && dongle_preflight &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v039" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v035" &&
@@ -151,6 +167,7 @@ restore_one "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.o
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" || rc=1
+[ "$DONGLE_PLAN" != yes ] || restore_one "$DONGLE_BACKUP" "$DONGLE_TARGET" || rc=1
 [ "$rc" != 0 ] || [ "$WIRELESS_PLAN" != yes ] || wireless_call restore || rc=1
 [ "$rc" = 0 ] && wipe_dalvik || rc=1
 sync

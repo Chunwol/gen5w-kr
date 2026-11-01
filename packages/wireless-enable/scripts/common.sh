@@ -115,6 +115,22 @@ file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || _l=$(md5sum "$1" 2>/dev/nul
 sys_rw() { "$NEM" remount rw >/dev/null 2>&1; }
 sys_ro() { "$NEM" remount ro >/dev/null 2>&1 || true; }
 
+# Replace a /system file in one step: write a full copy next to it, then rename.
+# A power cut mid-write leaves either the old or the new file, never half of one.
+# Stock build.prop, featurexml.cfg and permission files are all 0644 root:root.
+replace_file() {
+    local _src=$1 _dst=$2 _tmp=$2.gen5w-tmp
+    [ -f "$_src" ] && [ ! -L "$_dst" ] && [ ! -L "$_tmp" ] || return 1
+    rm -f "$_tmp"
+    cat "$_src" > "$_tmp" &&
+    chmod 644 "$_tmp" &&
+    { chown 0:0 "$_tmp" 2>/dev/null || chown 0.0 "$_tmp" 2>/dev/null || true; } &&
+    sync && mv -f "$_tmp" "$_dst" || { rm -f "$_tmp"; return 1; }
+    [ -x /system/bin/restorecon ] && restorecon "$_dst" 2>/dev/null
+    sync
+    return 0
+}
+
 # add one feature file from files/permissions, note whether it was absent before
 add_perm() {
     local _name=$1
@@ -126,9 +142,7 @@ add_perm() {
         return 0
     fi
     putline absent > "$MARK/perm.$_name.was" || return 1
-    cat "files/permissions/$_name" > "$_dst" || return 1
-    chmod 644 "$_dst" 2>/dev/null; chown 0:0 "$_dst" 2>/dev/null || chown 0.0 "$_dst" 2>/dev/null || true
-    [ -x /system/bin/restorecon ] && restorecon "$_dst" 2>/dev/null
+    replace_file "files/permissions/$_name" "$_dst" || return 1
     log "added $_dst"
     return 0
 }
@@ -156,7 +170,7 @@ set_prop() {
         esac
     done < "$BP"
     [ "$_seen" = 1 ] || putline "$_key=$_val" >> "$_tmp"
-    cat "$_tmp" > "$BP" || return 1
+    replace_file "$_tmp" "$BP" || return 1
     rm -f "$_tmp"
     log "set $_key=$_val in build.prop"
 }
@@ -176,7 +190,7 @@ rewrite_featurexml() {
             *) putline "$_line" >> "$_tmp" ;;
         esac
     done < "$_fx"
-    cat "$_tmp" > "$_fx" || return 1
+    replace_file "$_tmp" "$_fx" || return 1
     rm -f "$_tmp"
     log "featurexml: commented $_n stripping line(s)"
 }
@@ -184,10 +198,10 @@ rewrite_featurexml() {
 # put everything back exactly as it was (used by uninstall and by a failed install)
 _restore_all() {
     local _rc=0
-    [ -s "$MARK/build.prop" ] && { cat "$MARK/build.prop" > "$BP" || _rc=1; }
+    [ -s "$MARK/build.prop" ] && { replace_file "$MARK/build.prop" "$BP" || _rc=1; }
     if [ -f "$MARK/featurexml.path" ] && [ -s "$MARK/featurexml.cfg" ]; then
         IFS= read -r _fx < "$MARK/featurexml.path"
-        [ -n "$_fx" ] && { cat "$MARK/featurexml.cfg" > "$_fx" || _rc=1; }
+        [ -n "$_fx" ] && { replace_file "$MARK/featurexml.cfg" "$_fx" || _rc=1; }
     fi
     del_perm "$CP_XML" || _rc=1
     del_perm "$AA_XML" || _rc=1
