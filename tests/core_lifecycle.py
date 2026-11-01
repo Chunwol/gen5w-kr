@@ -26,6 +26,9 @@ methods = '\n'.join(method(sig) for sig in [
     'private boolean isAaGuidanceActive()', 'private void resetAaState()',
     'private static NavigationCluster.CrossroadName crossroadName(',
     'private void flushAaClear()', 'private void renderAaTbt('])
+# The production route cache, nested so the harness stays a single file.
+cache = (root/'app/src/kr/gen5w/hud/AaRouteCache.java').read_text(encoding='utf-8')
+cache = cache[cache.index('public final class AaRouteCache'):].replace('public final class', 'static final class', 1)
 harness = r'''
 import java.util.*;
 public class CoreLifecycleTest {
@@ -52,8 +55,11 @@ public class CoreLifecycleTest {
         boolean hasActiveGuidance() { return active; }
         void invalidateOutput() {}
         void retryOutput() { retries++; }
+        void setOutputAllowed(boolean value) {}
     }
     Handler io = new Handler(); Session session = new Session();
+    AaRouteCache aaRoute = new AaRouteCache();
+    { aaRoute.setOutputAllowed(true); }
     NavigationCluster cluster = new NavigationCluster(null);
     boolean allowed=true, aaClearPending, mediaOsdActive;
     int currentIcon1, currentIcon2;
@@ -77,12 +83,12 @@ public class CoreLifecycleTest {
         check(c.cluster.clears==1, "unrelated finish must not clear native HUD");
         c.renderAaTbt(65,0,1000,"old"); c.allowed=false; c.renderAaTbt(0,0,-1,null);
         c.allowed=true; c.renderAaTbt(66,0,2000,"new"); c.flushAaClear();
-        check(c.cluster.clears==1 && c.currentIcon1==66 && !c.aaClearPending, "new route replaces pending clear");
+        check(c.cluster.clears==1 && c.aaRoute.icon()==66 && !c.aaClearPending, "new route replaces pending clear");
         System.out.println("PASS Core lifecycle: stock ownership, deferred AA clear, CarPlay preservation");
     }
 '''
 with tempfile.TemporaryDirectory(prefix='gen5w-core-lifecycle-') as tmp:
     path = Path(tmp)/'CoreLifecycleTest.java'
-    path.write_text(harness+'\n'+methods+'\n}\n', encoding='utf-8')
+    path.write_text(harness+'\n'+cache+'\n'+methods+'\n}\n', encoding='utf-8')
     subprocess.run(['javac','--release','8','-d',tmp,str(path)], check=True)
     subprocess.run(['java','-cp',tmp,'CoreLifecycleTest'], check=True)
