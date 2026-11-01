@@ -13,7 +13,7 @@ fi
 "$NEM" remount rw >/dev/null 2>&1 || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
-restore_target && stage_clear && cleanup_owned || exit 1
+restore_target && stage_clear && cleanup_owned && apguard_reset || exit 1
 sync
 sys_ro || exit 1
 trap - EXIT

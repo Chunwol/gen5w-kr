@@ -15,6 +15,9 @@ public final class ApProfiles {
         int mode() throws Exception;
         void disable() throws Exception;
         void enable(Profile desired) throws Exception;
+        /** The AP start that enable() began has finished: ok after the AP is up
+         * in connectivity mode, !ok after a clean failure. */
+        void transitionDone(boolean ok) throws Exception;
         long now();
         void pause() throws Exception;
     }
@@ -26,9 +29,27 @@ public final class ApProfiles {
             this.carplayKey = carplayKey; this.mode = mode;
         }
         public boolean carplayReady() {
-            return carplaySsid != null && carplaySsid.length() > 0 && carplayKey != null
-                    && carplayKey.length() >= 8 && carplayKey.length() <= 63;
+            return ssidSafe(carplaySsid) && keySafe(carplayKey);
         }
+    }
+    /** netd writes the SSID into hostapd.conf as "ssid=%s": 1 to 32 bytes, and no
+     * control characters, so a value can never add or break a config line. */
+    static boolean ssidSafe(String ssid) {
+        if (ssid == null || ssid.length() == 0) return false;
+        for (int i = 0; i < ssid.length(); i++) {
+            char c = ssid.charAt(i);
+            if (c < 0x20 || c == 0x7f) return false;
+        }
+        try { return ssid.getBytes("UTF-8").length <= 32; } catch (java.io.UnsupportedEncodingException e) { return false; }
+    }
+    /** WPA2 passphrase: 8 to 63 printable ASCII characters. */
+    static boolean keySafe(String key) {
+        if (key == null || key.length() < 8 || key.length() > 63) return false;
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (c < 0x20 || c > 0x7e) return false;
+        }
+        return true;
     }
     private String liveSsid, liveKey;
 
@@ -64,7 +85,9 @@ public final class ApProfiles {
                 waitState(port, guard, ENABLED, 20000);
                 guard.check();
                 if (port.mode() != CONNECTIVITY) throw new Exception("CarPlay AP mode unavailable");
+                port.transitionDone(true);
             } catch (Exception failure) {
+                if (attempted) try { port.transitionDone(false); } catch (Exception ignored) { }
                 // Cleanup is another guarded radio operation. An expired
                 // generation must never stop the AP of its replacement.
                 if (attempted) try {

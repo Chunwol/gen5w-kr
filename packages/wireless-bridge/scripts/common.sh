@@ -17,6 +17,16 @@ MARK=$DATA/nemesis/backup/gen5w.kr.bridge
 STAGE=$TARGET.gen5w-kr-bridge.tmp
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
+# AP start guard state (service.sh, AndroidWifiAp). Install and uninstall start it fresh.
+APG=$DATA/nemesis/gen5wkr.apguard
+APG_COUNT=$DATA/nemesis/gen5wkr.apguard.count
+APG_OFF=$DATA/nemesis/gen5wkr.apguard.off
+apguard_reset() {
+    for _p in "$APG" "$APG_COUNT" "$APG_OFF"; do [ ! -L "$_p" ] || return 1; done
+    rm -f "$APG_COUNT" "$APG_OFF" || return 1
+    [ ! -d "$APG" ] || rm -rf "$APG" || return 1
+    [ ! -e "$APG" ] && [ ! -e "$APG_COUNT" ] && [ ! -e "$APG_OFF" ]
+}
 log() { echo "$1"; }
 # Drop any stale optimized copies so the newly written /system ODEX files are the
 # ones the next boot loads. A mismatched dalvik-cache entry can fail class load.

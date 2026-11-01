@@ -67,9 +67,64 @@ public final class AndroidWifiAp implements ApProfiles.Port {
             }
             // Profile mode: OEM sets mode 2; the paired native implementation
             // selects CP fields in command-local values, ordinary values untouched.
+            markAttempt();
             wifi.setWifiApEnabledForConnectivity(start, true);
             clearBootRestore();
         }
+    }
+    /** AP start guard. Stock Korean firmware never loads the Wi-Fi driver, so the
+     * first AP start is also the first driver load on the car. Before each start,
+     * record this boot's id; clear it after a clean failure, or once the AP has
+     * stayed up for STABLE_MS. A record left from an earlier boot means the unit
+     * restarted during an AP start; the root supervisor counts those and turns
+     * wireless off after several in a row (service.sh). Best effort only. */
+    static final String GUARD_DIR = "/data/nemesis/gen5wkr.apguard";
+    static final long STABLE_MS = 45000;
+    private static int attemptGeneration;
+    private static synchronized void markAttempt() {
+        attemptGeneration++;
+        String boot = bootId();
+        if (boot == null || !guardDir()) return;
+        writeSync(GUARD_DIR + "/attempt", boot);
+    }
+    public void transitionDone(boolean ok) {
+        final int generation;
+        synchronized (AndroidWifiAp.class) { generation = attemptGeneration; }
+        if (!ok) { clearAttempt(generation, false); return; }
+        Thread t = new Thread(new Runnable() { public void run() {
+            try { Thread.sleep(STABLE_MS); } catch (InterruptedException e) { return; }
+            clearAttempt(generation, true);
+        } }, "gen5wkr-ap-guard");
+        t.setDaemon(true);
+        t.start();
+    }
+    private static synchronized void clearAttempt(int generation, boolean ok) {
+        if (generation != attemptGeneration || !guardDir()) return;
+        if (ok) writeSync(GUARD_DIR + "/ok", "ok");
+        new java.io.File(GUARD_DIR + "/attempt").delete();
+    }
+    private static boolean guardDir() {
+        try {
+            java.io.File dir = new java.io.File(GUARD_DIR);
+            return dir.isDirectory() && dir.getCanonicalPath().equals(GUARD_DIR);
+        } catch (java.io.IOException e) { return false; }
+    }
+    private static String bootId() {
+        try {
+            BufferedReader r = new BufferedReader(new FileReader("/proc/sys/kernel/random/boot_id"));
+            try {
+                String id = r.readLine();
+                return id != null && id.matches("[0-9a-f-]{8,64}") ? id : null;
+            } finally { r.close(); }
+        } catch (Exception e) { return null; }
+    }
+    private static void writeSync(String path, String value) {
+        java.io.File tmp = new java.io.File(path + ".tmp");
+        try {
+            java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
+            try { out.write((value + "\n").getBytes("UTF-8")); out.getFD().sync(); } finally { out.close(); }
+            if (!tmp.renameTo(new java.io.File(path))) tmp.delete();
+        } catch (Exception e) { tmp.delete(); }
     }
     /** Stock WifiService saves "AP on" (Settings.Global wifi_ap_on) and, with the
      * wireless features present, starts the AP from system_server during the next

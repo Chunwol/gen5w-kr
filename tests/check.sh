@@ -86,6 +86,12 @@ check 'other package passes with warning' run
 check 'other package listed' grep -q 'wireless.carplay.aa' "$U/GEN5W-REPORT/CHECK.md"
 rm -rf "$D/nemesis/apps/wireless.carplay.aa"
 
+stock; echo off > "$D/nemesis/gen5wkr.apguard.off"
+check 'AP guard off still installable' run
+check 'AP guard off recorded' grep -qx 'apguard_off=yes' "$U/GEN5W-REPORT/CHECK.txt"
+check 'AP guard off warned' grep -q '무선이 자동으로 꺼져' "$U/GEN5W-REPORT/CHECK.md"
+rm -f "$D/nemesis/gen5wkr.apguard.off"
+
 mkdir -p "$D/nemesis/gen5wkr.bootguard"; : > "$D/nemesis/gen5wkr.bootguard/recovery-required"
 check 'recovery-required fails' eval '! run'
 rm -rf "$D/nemesis/gen5wkr.bootguard"

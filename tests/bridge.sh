@@ -219,6 +219,36 @@ echo match > "$W/match-src"; ln -s "$W/match-src" "$W/data/nemesis/gen5wkr.ap-ma
 check 'symlinked match marker waits' run service
 check 'symlinked match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
 rm -f "$W/data/nemesis/gen5wkr.ap-match" "$W/match-src"
+# AP start guard: an attempt left from an earlier boot counts; three in a row turn wireless off.
+echo match > "$W/data/nemesis/gen5wkr.ap-match"
+APG=$W/data/nemesis/gen5wkr.apguard
+export BRIDGE_TEST_BOOT_ID=boot-now
+launches() { wc -l < "$W/fixture/calls"; }
+before=$(launches)
+check 'guard dir created on first run' eval 'run service && test -d "$APG" && test "$(cat "$APG.count")" = 0'
+check 'clean boot launches the daemon' test "$(launches)" -gt "$before"
+echo boot-now > "$APG/attempt"
+check 'attempt from this boot is not counted' eval 'run service && test "$(cat "$APG.count")" = 0 && test -f "$APG/attempt"'
+for n in 1 2; do
+    echo boot-old > "$APG/attempt"
+    check "restart during AP start counted ($n)" eval 'run service && test "$(cat "$APG.count")" = '$n' && test ! -e "$APG/attempt" && test ! -e "$APG.off"'
+done
+echo ok > "$APG/ok"; echo boot-old > "$APG/attempt"
+check 'a later success resets the count before the new attempt' eval 'run service && test "$(cat "$APG.count")" = 1 && test ! -e "$APG/ok"'
+echo 2 > "$APG.count"; echo boot-old > "$APG/attempt"
+before=$(launches)
+check 'third restart in a row turns wireless off' eval 'run service && test "$(cat "$APG.count")" = 3 && test -f "$APG.off"'
+check 'guard off launches no daemon' test "$(launches)" = "$before"
+check 'guard off stays off on later boots' eval 'run service && test "$(launches)" = "$before"'
+rm -f "$APG.off"; echo 0 > "$APG.count"
+ln -s "$W/elsewhere" "$APG/attempt"
+check 'symlinked attempt keeps the unit wired-only' eval 'run service && test "$(launches)" = "$before"'
+rm -f "$APG/attempt"
+echo 2 > "$APG.count"; touch "$APG.off"
+check 'reinstall clears the guard' eval 'run post && test ! -e "$APG" && test ! -e "$APG.count" && test ! -e "$APG.off"'
+unset BRIDGE_TEST_BOOT_ID
+rm -f "$W/data/nemesis/gen5wkr.ap-match"
+before=$(launches)
 printf '#!/bin/sh\nexit 0\n' > "$BRIDGE_TEST_PROFILE_READY"
 touch "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'wired-only supervisor stays available without wireless daemon' run service

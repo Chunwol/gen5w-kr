@@ -3,6 +3,7 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 inspect || exit $?
+apguard_reset || exit 1
 "$NEM" remount rw >/dev/null 2>&1 || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM

@@ -38,6 +38,28 @@ DEX=$SERVICE_DIR/app/bridge.dex
 PROFILE_READY=${BRIDGE_TEST_PROFILE_READY:-$DATA/nemesis/apps/gen5w.kr.hotspot/scripts/profile-ready.sh}
 PROFILE_SHELL=${BRIDGE_TEST_SHELL:-/system/bin/sh}
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
+# AP start guard (see AndroidWifiAp): the bridge (uid 1000) leaves "attempt"
+# holding the boot id while an AP start is in progress, and "ok" after one stayed
+# up. An attempt from an earlier boot means the unit restarted mid-start.
+APG_MAX=3
+apguard_boot() {
+    for _p in "$APG" "$APG_COUNT" "$APG_OFF" "$APG/attempt" "$APG/ok"; do [ ! -L "$_p" ] || return 1; done
+    if [ ! -d "$APG" ]; then [ ! -e "$APG" ] && mkdir "$APG" || return 1; fi
+    if [ -z "$BRIDGE_TEST_SYS" ]; then
+        chown 1000:1000 "$APG" 2>/dev/null || chown 1000.1000 "$APG" || return 1
+    fi
+    chmod 700 "$APG" || return 1
+    _apg_boot=${BRIDGE_TEST_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)}
+    _n=$(cat "$APG_COUNT" 2>/dev/null)
+    case "$_n" in ''|*[!0-9]*) _n=0;; esac
+    if [ -f "$APG/ok" ]; then _n=0; rm -f "$APG/ok"; fi
+    if [ -f "$APG/attempt" ] && [ -n "$_apg_boot" ] && [ "$(cat "$APG/attempt" 2>/dev/null)" != "$_apg_boot" ]; then
+        _n=$((_n + 1)); rm -f "$APG/attempt"
+    fi
+    echo "$_n" > "$APG_COUNT" || return 1
+    [ "$_n" -lt "$APG_MAX" ] || echo off > "$APG_OFF" || return 1
+    return 0
+}
 case "$DEX" in *[!a-zA-Z0-9_./-]*) echo 'FAIL bridge: unsupported package path'; exit 1;; esac
 [ -f "$DEX" ] && [ ! -L "$DEX" ] && [ -x "$NEM" ] || exit 1
 trap 'exit 0' HUP INT TERM
@@ -54,9 +76,11 @@ while [ ! -f "$STOPPING" ]; do
     fi
     sleep 2
 done
+# Wireless runs only on a working guard; if it cannot be kept, stay wired-only.
+apguard_boot || { [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
 bridge_backoff=2
 while [ ! -f "$STOPPING" ]; do
-    if [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ]; then
+    if [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ] || [ -e "$APG_OFF" ]; then
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         sleep 2
         continue

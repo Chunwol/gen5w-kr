@@ -15,6 +15,8 @@ public final class ApProfilesTest {
         public ApProfiles.Profile configuration() { return config; }
         public int state() { return state; }
         public int mode() { return mode; }
+        int doneOk, doneFail;
+        public void transitionDone(boolean ok) { if (ok) doneOk++; else doneFail++; }
         public long now() { return time; }
         public void pause() { time += 250; }
         public void disable() {
@@ -78,6 +80,26 @@ public final class ApProfilesTest {
         f = new Fake(); f.config = new ApProfiles.Profile("ordinary", "ordinary-key", null, null, 1);
         try { new ApProfiles().ensure(f, f); throw new AssertionError("must reject missing CP settings"); } catch (Exception expected) { }
         check(f.enables == 0 && f.disables == 0 && !f.locked, "validate before any radio operation");
+        f = new Fake();
+        check(new ApProfiles().ensure(f, f) && f.doneOk == 1 && f.doneFail == 0, "successful start reports done once");
+        f = new Fake(); f.fail = true;
+        try { new ApProfiles().ensure(f, f); } catch (Exception expected) { }
+        check(f.doneOk == 0 && f.doneFail == 1, "failed start clears the start guard");
+        f = new Fake(); f.hang = true;
+        try { new ApProfiles().ensure(f, f); } catch (Exception expected) { }
+        check(f.doneOk == 0 && f.doneFail == 1, "timed-out start clears the start guard");
+        for (String bad : new String[] { "a\nb", "a\rb", "tab\there", "x\u007f", "123456789012345678901234567890123", "" }) {
+            f = new Fake(); f.config = new ApProfiles.Profile("ordinary", "ordinary-key", bad, "carplay-key", 1);
+            try { new ApProfiles().ensure(f, f); throw new AssertionError("must reject SSID"); } catch (Exception expected) { }
+            check(f.enables == 0 && f.doneFail == 0, "unsafe CarPlay SSID rejected before any radio operation");
+        }
+        for (String bad : new String[] { "short", "1234567\n", "키키키키키키키키", "1234567890123456789012345678901234567890123456789012345678901234" }) {
+            f = new Fake(); f.config = new ApProfiles.Profile("ordinary", "ordinary-key", "cp", bad, 1);
+            try { new ApProfiles().ensure(f, f); throw new AssertionError("must reject key"); } catch (Exception expected) { }
+            check(f.enables == 0, "unsafe CarPlay key rejected before any radio operation");
+        }
+        f = new Fake(); f.config = new ApProfiles.Profile("ordinary", "ordinary-key", "카플레이 1234567890123456789", "carplay-key", 1);
+        check(new ApProfiles().ensure(f, f), "32-byte UTF-8 SSID accepted");
         System.out.println("AP native selection/preservation/failure/cancel/edit/reuse passed");
     }
 }
