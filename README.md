@@ -8,17 +8,14 @@
 
 ## 다운로드
 
-어느 설치본도 부팅에 꼭 필요한 시스템 파일(`services.odex`, `SystemUI.odex`, `libhardware_legacy.so`)을 바꾸지 않습니다. 시동 동의 화면은 순정 그대로입니다.
+배포판은 **기본형(내장 Wi-Fi)**과 **동글형(USB Wi-Fi)**입니다. 지원되는 순정 자동 전환 타이머를 10초에서 3초로 조정합니다. 경고 화면과 순정 안전 조건은 유지하며, 자동 전환 조건이 맞지 않으면 수동 확인이 필요합니다. 화면을 완전히 생략하는 개인용 구성은 공개 소스·CI·릴리스에 포함하지 않습니다.
 
-| 순서 | 파일 | 하는 일 |
-|---|---|---|
-| 1 | [점검 `gen5w-kr-check.zip`](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-check.zip) | 차량에 아무것도 쓰지 않고 설치 가능 여부를 `GEN5W-REPORT/CHECK.md`에 적습니다. 반드시 먼저 실행합니다. |
-| 2 | [무선 안전판 `gen5w-kr-safe-wireless.zip`](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-safe-wireless.zip) | 무선 CarPlay·Android Auto + HUD 길안내 |
-| 2 | [유선 안전판 `gen5w-kr-safe.zip`](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-safe.zip) | 유선 CarPlay·Android Auto + HUD 길안내만 (Wi-Fi·핫스팟 안 씀) |
+| 버전 | 시동 주의 안내 | 다운로드 | 상태 |
+|---|---|---|---|
+| **기본형 (내장 Wi-Fi)** | 지원 사양에서 3초 자동 전환 | [기본형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 릴리스 |
+| 동글형 (USB Wi-Fi) | 지원 사양에서 3초 자동 전환 | [동글형 ZIP 받기](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 실차 미확인 |
 
-점검 결과(`GEN5W-REPORT`)를 그대로 둔 같은 USB에 설치본 하나를 풀어 실행합니다. 같은 빌드의 점검 보고서가 "설치"라고 판정했고 그 뒤로 차량 상태가 바뀌지 않았을 때만 설치합니다.
-
-예전의 기본형(3초 자동 전환)과 USB Wi-Fi 동글형은 부팅 필수 파일을 바꾸므로 배포하지 않고, 설치기도 거부합니다.
+동글형은 V039 원본 HAL과 지원되는 `ath9k_htc`(AR9271/AR7010) 장치가 필요합니다. 모든 USB Wi-Fi 동글을 지원하지 않습니다. 동글형에서 기본형으로 바꾸면 동글용 변경을 제거하고 순정 구성을 복원합니다. 동글을 계속 사용하려면 동글형으로 업데이트하세요.
 
 [차종·연식별 확인표](docs/porting.md)에서 지원 대상을 먼저 확인하세요. [전체 릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 변경 사항과 체크섬, 대응 소스 파일도 받을 수 있습니다.
 

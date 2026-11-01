@@ -41,19 +41,9 @@ def native():
         out.chmod(0o755)
 
 
-# Editions that change boot-critical files (services.odex, SystemUI.odex,
-# libhardware_legacy.so). Built only for bench/mock work; the installer refuses them.
-LAB_VARIANTS = ('standard', 'dongle')
-CAR_VARIANTS = ('safe', 'safe-wireless', 'check')
-# Never shipped in a car bundle: they patch services.odex / SystemUI.odex.
-BOOT_CRITICAL = ('gen5w.kr.hotspot', 'gen5w.kr.notice')
-
-
-def build(dist, output, variant='safe-wireless', lab=False):
-    if variant not in LAB_VARIANTS + CAR_VARIANTS:
+def build(dist, output, variant='standard'):
+    if variant not in ('standard', 'dongle', 'safe', 'safe-wireless', 'check'):
         raise SystemExit('Unsupported edition variant: ' + variant)
-    if variant in LAB_VARIANTS and not lab:
-        raise SystemExit(variant + ' changes boot-critical files; build it only with --lab')
     if output.exists():
         raise SystemExit('Output already exists: ' + str(output))
     pkg_ids = list(IDS)
@@ -89,8 +79,7 @@ def build(dist, output, variant='safe-wireless', lab=False):
     (output / 'packages').mkdir()
     for ident, entries in payloads.items():
         package = dist / (ident + '.zip')
-        if variant in LAB_VARIANTS or ident not in BOOT_CRITICAL:
-            shutil.copyfile(package, output / 'packages' / package.name)
+        shutil.copyfile(package, output / 'packages' / package.name)
         stage = output / 'checks' / ident
         stage.mkdir(parents=True)
         sums = []
@@ -198,11 +187,9 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path)
     parser.add_argument('--native-only', action='store_true')
     parser.add_argument('--skip-native', action='store_true')
-    parser.add_argument('--variant', choices=LAB_VARIANTS + CAR_VARIANTS, default='safe-wireless')
-    parser.add_argument('--lab', action='store_true', help='allow a lab-only edition (not for cars)')
+    parser.add_argument('--variant', choices=('standard', 'dongle', 'safe', 'safe-wireless', 'check'), default='standard')
     args = parser.parse_args()
     if not args.skip_native:
         native()
     if not args.native_only:
-        build(args.dist.resolve(), (args.output or args.dist / ('gen5w-kr-' + args.variant)).resolve(),
-              args.variant, args.lab)
+        build(args.dist.resolve(), (args.output or args.dist / 'usb-integrated').resolve(), args.variant)

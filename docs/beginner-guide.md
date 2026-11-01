@@ -63,10 +63,8 @@ compat=gen5w
 
 ## 5. Gen5W KR 설치 ZIP 받기
 
-1. [다운로드 페이지](https://github.com/Chunwol/gen5w-kr/releases)에서 **점검 `gen5w-kr-check.zip`**과 설치본 하나를 받습니다. 무선을 쓰려면 **`gen5w-kr-safe-wireless.zip`**, 유선만 쓰려면 **`gen5w-kr-safe.zip`**입니다.
-2. 어느 설치본도 부팅에 꼭 필요한 시스템 파일(`services.odex`, `SystemUI.odex`, `libhardware_legacy.so`)을 바꾸지 않습니다. 시동 동의 화면은 순정 그대로입니다. 예전 기본형(3초 자동 전환)과 USB Wi-Fi 동글형은 배포하지 않습니다.
-   - 먼저 점검 ZIP의 내용을 USB 맨 바깥에 복사해 실행합니다. 차량에 아무것도 쓰지 않고 `GEN5W-REPORT/CHECK.md`에 판정을 남깁니다.
-   - 판정이 "설치"이면 `GEN5W-REPORT` 폴더를 그대로 둔 채 같은 USB에 설치본 내용을 덮어 복사합니다. 설치기는 같은 빌드의 점검 보고서와 차량 상태가 정확히 일치할 때만 설치합니다.
+1. [다운로드 페이지](https://github.com/Chunwol/gen5w-kr/releases)에서 **기본형 `gen5w-kr-standard.zip`**을 받습니다.
+2. 기본형은 순정의 10초 자동 전환 타이머가 있는 지원 사양에서 대기 시간을 3초로 줄입니다. 주의 안내 화면과 순정 안전 조건은 유지하며, 수동 동의가 필요한 사양은 그대로입니다. 화면을 완전히 생략하는 개인용 구성은 공개 배포하지 않습니다. USB Wi-Fi 동글형은 개발 중입니다.
 3. 같은 릴리스의 `RELEASE-SHA256SUMS`도 받습니다. `Get-FileHash`로 내려받은 설치 ZIP의 SHA256을 구하고 해당 파일 줄과 비교합니다. `gen5w-kr-source.zip`은 개발용 소스이며 설치할 파일이 아닙니다.
 4. 받은 설치 ZIP의 압축을 풀고, **그 안의 내용 전체**를 USB 맨 바깥으로 복사합니다. 이전의 NEMESIS 설치 tar와 이전 실행 스크립트는 섞지 않습니다.
 
@@ -82,7 +80,7 @@ USB 드라이브
 └─ LICENSE / SOURCE.md / BUILD-REVISION
 ```
 
-`USB\gen5w-kr-safe-wireless\NEMESIS.data`처럼 폴더가 한 겹 더 들어가면 안 됩니다. ZIP 자체를 Manager의 단일 패키지 설치로 선택하는 방식도 아닙니다.
+`USB\gen5w-kr-standard\NEMESIS.data`처럼 폴더가 한 겹 더 들어가면 안 됩니다. ZIP 자체를 Manager의 단일 패키지 설치로 선택하는 방식도 아닙니다.
 
 ## 6. Gen5W KR 설치
 

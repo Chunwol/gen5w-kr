@@ -13,31 +13,21 @@ AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
 ALL_IDS="$IDS gen5w.kr.consent"
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS gen5w.kr.consent"
-# Car editions never change a boot-critical file: services.odex (system_server),
-# SystemUI.odex (consent screen) or libhardware_legacy.so (loaded by zygote and
-# system_server). standard patches the first two and dongle also replaces the
-# third, so both are lab-only (bench/mock tests set IT_LAB_EDITIONS=1).
-VARIANT=
+VARIANT=standard
 if [ -f GEN5W-VARIANT ]; then
     IFS= read -r VARIANT < GEN5W-VARIANT
     VARIANT=${VARIANT%$'\r'}
+    case "$VARIANT" in
+        standard|safe|safe-wireless) ;;
+        dongle) ;;
+        *) echo 'REFUSED unknown bundle variant'; exit 1;;
+    esac
 fi
 BACKEND=builtin
 if [ -f GEN5W-BACKEND ]; then
     IFS= read -r BACKEND < GEN5W-BACKEND
     BACKEND=${BACKEND%$'\r'}
 fi
-case "$VARIANT" in
-    safe|safe-wireless)
-        [ "$BACKEND" = builtin ] || [ "${IT_LAB_EDITIONS:-0}" = 1 ] ||
-            { echo 'REFUSED: the USB Wi-Fi dongle replaces a boot-critical library; not for cars'; exit 1; };;
-    standard|dongle|'')
-        [ "${IT_LAB_EDITIONS:-0}" = 1 ] || {
-            echo 'REFUSED: this edition changes boot-critical files (services.odex, SystemUI.odex, libhardware_legacy.so); use gen5w-kr-safe-wireless or gen5w-kr-safe'
-            exit 1; }
-        [ -n "$VARIANT" ] || VARIANT=standard;;
-    *) echo 'REFUSED unknown bundle variant'; exit 1;;
-esac
 if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
     IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice'
     ALL_IDS="$IDS gen5w.kr.consent"
@@ -395,8 +385,6 @@ install_transaction() {
     fi
     # Validate every input identity before the first installed package is removed.
     for id in $IDS; do
-        # Car bundles do not ship the boot-critical patch packages at all.
-        if keeps_systemui; then case "$id" in gen5w.kr.hotspot|gen5w.kr.notice) continue;; esac; fi
         [ -f "packages/$id.zip" ] || { result "$id" failed; report "MISSING $id"; return 1; }
         info=$("$NEM" pkg-info "packages/$id.zip") || { result "$id" failed; return 1; }
         echo "$info" | grep -qx "id=$id" || { result "$id" failed; report "REFUSED wrong package identity $id"; return 1; }

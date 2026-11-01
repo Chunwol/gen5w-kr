@@ -1,7 +1,5 @@
 # shared helpers for the mock tests (bash, run in WSL/Linux; scripts under test run in mksh)
 PASS=0; FAIL=0
-# Mock runs exercise every edition, including the lab-only ones the installer refuses on cars.
-export IT_LAB_EDITIONS=1
 ok()  { echo "PASS $1"; PASS=$((PASS+1)); }
 bad() { echo "FAIL $1"; FAIL=$((FAIL+1)); }
 check() { local name=$1; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
