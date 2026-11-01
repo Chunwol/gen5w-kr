@@ -144,13 +144,5 @@ check 'dongle uninstall cleans durable backup' test ! -d "$PERSIST"
 check 'dongle uninstall cleans runtime backup' test ! -d "$MARK"
 check 'dongle uninstall restores previous backend setting' grep -qx builtin "$W/props/persist.gen5w.wifi.backend"
 
-# 7. Earlier HAL-adapter install: accepted only for removal through its own package.
-mkdir -p "$PERSIST" && echo 'gen5w.kr.dongle:1.0' > "$PERSIST/owner"
-check 'earlier HAL adapter install without registered package is refused' eval '! run pre'
-mkdir -p "$W/data/nemesis/apps/gen5w.kr.dongle" && echo '[nemesis]' > "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
-check 'earlier HAL adapter install with registered package passes precheck' run pre
-check 'post refuses to apply over an earlier HAL adapter install' eval '! run post'
-check 'refused post leaves bcmdhd.ko stock' cmp -s "$TARGET" "$W/fixture/stock_hal"
-
 echo "== dongle: $PASS passed, $FAIL failed"
 exit $FAIL

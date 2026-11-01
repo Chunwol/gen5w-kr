@@ -43,7 +43,7 @@ wipe_dalvik() {
     local d f
     for d in $DALVIK_ROOTS; do
         [ -d "$d" ] || continue
-        for f in "$d"/*services* "$d"/*SystemUI* "$d"/*Iap2ServerApp* "$d"/*HKMC_DiPO* "$d"/*HKMC_GPM*; do
+        for f in "$d"/*Iap2ServerApp* "$d"/*HKMC_DiPO* "$d"/*HKMC_GPM*; do
             [ -e "$f" ] || continue
             rm -f "$f" || return 1
             [ ! -e "$f" ] || return 1
@@ -134,8 +134,6 @@ wireless_preflight() {
     WIRELESS_PLAN=yes
 }
 recovery_roots_valid && wireless_preflight &&
-preflight_optional_pair "$SYS/etc/gen5w-kr-backup/hotspot/original" "$SYS/framework/services.odex" gen5w.kr.hotspot hotspot "$_apps/gen5w.kr.hotspot/bin/hotspot-patch-v039" "$_apps/gen5w.kr.hotspot/bin/hotspot-patch-v035" &&
-preflight_optional_pair "$SYS/etc/gen5w-kr-backup/notice/original" "$SYS/priv-app/SystemUI.odex" gen5w.kr.notice notice "$_apps/gen5w.kr.notice/bin/notice-patch-v039" "$_apps/gen5w.kr.notice/bin/notice-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v039" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v035" &&
@@ -149,8 +147,6 @@ if [ -z "$BG_TEST_SYS" ]; then
     "$NEM" remount rw >/dev/null 2>&1 || { log 'FAIL bootguard: cannot remount system read-write'; exit 1; }
 fi
 rc=0
-restore_one "$SYS/etc/gen5w-kr-backup/hotspot/original" "$SYS/framework/services.odex" || rc=1
-restore_one "$SYS/etc/gen5w-kr-backup/notice/original"  "$SYS/priv-app/SystemUI.odex"  || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" || rc=1

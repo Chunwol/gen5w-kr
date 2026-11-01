@@ -4,7 +4,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/usb" "$W/data/nemesis/gen5w-kr-integrated/prior" "$W/system/etc/gen5w-kr-backup/dongle"
-cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$ROOT/tools/integrated/hotspot-repair.sh" "$W/usb/"
+cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$W/usb/"
 export IT_DATA="$W/data" IT_SYSTEM="$W/system"
 cd "$W/usb" || exit 1
 . ./common.sh
@@ -28,11 +28,4 @@ else
     ok 'registered legacy dongle without a file journal refuses transition'
 fi
 check 'registered legacy refusal does not invoke snapshot' test ! -e "$TX/prior/gen5w.kr.dongle.zip"
-mkdir -p "$SYS/etc/gen5w-kr-backup/consent"
-if snapshot gen5w.kr.consent; then
-    bad 'durable-only consent refuses transition without a restorable snapshot'
-else
-    ok 'durable-only consent refuses transition without a restorable snapshot'
-fi
-check 'durable-only consent backup is preserved' test -d "$SYS/etc/gen5w-kr-backup/consent"
 done_tests dongle-snapshot

@@ -19,8 +19,13 @@ case "$1" in original) grep -q '^stock' "$2";; patched) grep -q '^patched' "$2";
 EOF
     chmod 755 "$U/checks/$1/bin/$2"
 }
-tool gen5w.kr.hotspot hotspot-patch-v039
-tool gen5w.kr.notice notice-patch-v039
+# SHA-256 checker for the two boot-critical files (stock V039 hashes only).
+mkdir -p "$U/checks/gen5w.kr.timer/bin"
+cat > "$U/checks/gen5w.kr.timer/bin/sha256-check" <<'EOF'
+#!/bin/sh
+case "$1:$3" in verify:63cf*|verify:97e7*) grep -q '^stock' "$2";; *) exit 1;; esac
+EOF
+chmod 755 "$U/checks/gen5w.kr.timer/bin/sha256-check"
 tool gen5w.kr.audio audio-patch
 for t in iap2 dipo gpm; do tool gen5w.kr.bridge $t-patch-v039; done
 cat > "$B/getprop" <<'EOF'
@@ -58,10 +63,7 @@ check 'unknown SystemUI says do not install' grep -q '판정: 설치하지 마�
 check 'unknown SystemUI reason' grep -q 'SystemUI' "$U/GEN5W-REPORT/CHECK.md"
 
 stock; echo patched > "$S/priv-app/SystemUI.odex"
-check 'patched SystemUI without backup fails' eval '! run'
-mkdir -p "$S/etc/gen5w-kr-backup/notice"
-check 'patched SystemUI with our backup passes' run
-rm -rf "$S/etc/gen5w-kr-backup"
+check 'changed SystemUI fails' eval '! run'
 
 stock; echo junk > "$S/app/HKMC_GPM.odex"
 check 'unknown bridge target fails' eval '! run'
@@ -71,11 +73,7 @@ stock; echo junk > "$S/framework/services.odex"
 check 'unknown services.odex blocks' eval '! run'
 check 'services.odex reason' grep -q 'services.odex' "$U/GEN5W-REPORT/CHECK.md"
 stock; echo patched > "$S/framework/services.odex"
-check 'patched services.odex without backup blocks' eval '! run'
-stock; mkdir -p "$D/nemesis/apps/gen5w.kr.hotspot"
-check 'prior hotspot package only warns' run
-check 'prior hotspot package warning' grep -q '핫스팟 패치가 설치돼' "$U/GEN5W-REPORT/CHECK.md"
-rm -rf "$D/nemesis/apps/gen5w.kr.hotspot"
+check 'changed services.odex blocks' eval '! run'
 
 stock; echo stock > "$S/app/HKMC_DiPO.odex"
 check 'no wireless code still installable' run

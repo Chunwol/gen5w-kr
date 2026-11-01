@@ -12,9 +12,9 @@ BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 # Present with the match marker: still declare the stock hotspot feature (menu).
 AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
-IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice gen5w.kr.timer'
-ALL_IDS="$IDS gen5w.kr.consent"
-SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS gen5w.kr.consent"
+IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer'
+ALL_IDS=$IDS
+SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS"
 VARIANT=standard
 if [ -f GEN5W-VARIANT ]; then
     IFS= read -r VARIANT < GEN5W-VARIANT
@@ -31,15 +31,14 @@ if [ -f GEN5W-BACKEND ]; then
     BACKEND=${BACKEND%$'\r'}
 fi
 if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
-    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.hotspot gen5w.kr.bridge gen5w.kr.core gen5w.kr.notice gen5w.kr.timer'
-    ALL_IDS="$IDS gen5w.kr.consent"
+    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer'
+    ALL_IDS=$IDS
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
 # Safe editions leave SystemUI (the boot-critical consent screen) stock.
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
-REVERSE='gen5w.kr.timer gen5w.kr.notice gen5w.kr.consent gen5w.kr.core gen5w.kr.bridge gen5w.kr.hotspot gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
+REVERSE='gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
-. ./hotspot-repair.sh
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 report() {
     echo "$1"; echo "$1" >> "$TX/report"
@@ -67,8 +66,8 @@ gate() {
 }
 hook() { gate "$APPS/$1" "$2"; }
 durable() {
-    case "$1" in gen5w.kr.hotspot) [ -d "$SYS/etc/gen5w-kr-backup/hotspot" ];;
-        gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.notice|gen5w.kr.consent|gen5w.kr.dongle)
+    case "$1" in
+        gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.dongle)
         [ -d "$SYS/etc/gen5w-kr-backup/${1##*.}" ];; *) return 1;; esac
 }
 check_stage() {
@@ -127,10 +126,6 @@ snapshot() {
             return 1
         fi
         durable "$id" || return 0
-        if [ "$id" = gen5w.kr.consent ]; then
-            report 'REFUSED consent transition: installed package is missing; recovery requires review'
-            return 1
-        fi
         if [ "$id" = gen5w.kr.dongle ] && [ "$VARIANT" != dongle ] && [ "$BACKEND" = builtin ]; then
             report 'REFUSED dongle transition: installed package is missing; restore with the matching bundle first'
             return 1
@@ -144,6 +139,21 @@ snapshot() {
     echo "$info" | grep -qx "id=$id" || return 1
     digest "$TX/prior/$id.zip" > "$TX/prior/$id.md5" || return 1
     mkdir "$TX/prior/$id" && cp -R "$tree/." "$TX/prior/$id/" || return 1
+}
+# Reinstall one module's earlier build from this transaction's snapshot. It was
+# installed and verified on this unit before, so an "unsupported" (77) answer
+# from its own preinstall (e.g. dongle unplugged) does not stop it.
+restore_prior() {
+    local id=$1 rc
+    [ -f "$TX/prior/$id.zip" ] && [ -f "$TX/prior/$id.md5" ] || return 1
+    [ "$(digest "$TX/prior/$id.zip")" = "$(cat "$TX/prior/$id.md5")" ] || return 1
+    export GEN5W_REINSTALL=1
+    gate "$TX/prior/$id" preinstall; rc=$?
+    unset GEN5W_REINSTALL
+    [ "$rc" = 0 ] || [ "$rc" = 77 ] || return 1
+    "$NEM" install "$TX/prior/$id.zip" || return 1
+    [ -f "$APPS/$id/NEMESIS.data" ] || return 1
+    hook "$id" postinstall
 }
 rollback_transaction() {
     local id rc=0
@@ -163,7 +173,9 @@ rollback_transaction() {
         for id in $SNAPSHOT_IDS; do
             [ -f "$TX/attempt.$id" ] && [ -f "$TX/prior/$id.zip" ] || continue
             [ "$(digest "$TX/prior/$id.zip")" = "$(cat "$TX/prior/$id.md5")" ] || { rc=1; break; }
-            gate "$TX/prior/$id" preinstall || { rc=1; break; }
+            export GEN5W_REINSTALL=1
+            gate "$TX/prior/$id" preinstall || { unset GEN5W_REINSTALL; rc=1; break; }
+            unset GEN5W_REINSTALL
             "$NEM" install "$TX/prior/$id.zip" || { rc=1; break; }
             hook "$id" postinstall || { rc=1; break; }
             report "RESTORED $id"
@@ -232,7 +244,7 @@ bootguard_arm() {
     rm -rf "$stage" 2>/dev/null || return 1
     mkdir -p "$stage" || return 1
     mkdir "$stage/verifiers" || { rm -rf "$stage"; return 1; }
-    for item in 'gen5w.kr.hotspot hotspot-patch-v039 hotspot-v039' 'gen5w.kr.hotspot hotspot-patch-v035 hotspot-v035' 'gen5w.kr.audio audio-patch audio-v039' 'gen5w.kr.audio audio-patch-v035 audio-v035' 'gen5w.kr.notice notice-patch-v039 notice-v039' 'gen5w.kr.notice notice-patch-v035 notice-v035'; do
+    for item in 'gen5w.kr.audio audio-patch audio-v039' 'gen5w.kr.audio audio-patch-v035 audio-v035'; do
         set -- $item; id=$1; source="checks/$1/bin/$2"; name=$3
         [ -e "$source" ] || [ -L "$source" ] || continue
         [ -f "$source" ] && [ ! -L "$source" ] && check_stage_tree "$id" || { rm -rf "$stage"; return 1; }
@@ -252,7 +264,7 @@ bootguard_arm() {
     # A module that is not installed is recovered by proving its target is still
     # stock with the retained verifier. Check that now, so an install never commits
     # behind a guard that would refuse to recover.
-    for item in 'hotspot gen5w.kr.hotspot framework/services.odex' 'audio gen5w.kr.audio lib/libCarPlayAudio.so' 'notice gen5w.kr.notice priv-app/SystemUI.odex'; do
+    for item in 'audio gen5w.kr.audio lib/libCarPlayAudio.so'; do
         set -- $item
         if [ -e "$APPS/$2" ] || [ -L "$APPS/$2" ] || [ -e "$SYS/etc/gen5w-kr-backup/$1" ] || [ -L "$SYS/etc/gen5w-kr-backup/$1" ]; then
             continue
@@ -377,7 +389,7 @@ begin() {
     echo 1 > "$TX/prior/complete" && sync
 }
 install_transaction() {
-    local id info rc wireless_ready
+    local id info rc wireless_ready removed_prior
     reset_results
     # Safe editions install only onto the exact state a same-build pre-install
     # check (gen5w-kr-check) recorded and approved. Runs before any change.
@@ -397,11 +409,6 @@ install_transaction() {
     # android.hardware.wifi.xml (Wi-Fi client) was added on the bricked V039 unit; never in safe-wireless.
     if [ "$VARIANT" = safe-wireless ] && { [ -e GEN5W-WIFI-CLIENT ] || [ -L GEN5W-WIFI-CLIENT ]; }; then
         report 'REFUSED safe-wireless edition does not enable the Wi-Fi client; remove GEN5W-WIFI-CLIENT'; return 1
-    fi
-    # safe-wireless never touches services.odex and has no restore path for it.
-    if [ "$VARIANT" = safe-wireless ] && { [ -e "$APPS/gen5w.kr.hotspot" ] || [ -L "$APPS/gen5w.kr.hotspot" ] ||
-            [ -e "$SYS/etc/gen5w-kr-backup/hotspot" ] || [ -L "$SYS/etc/gen5w-kr-backup/hotspot" ]; }; then
-        report 'REFUSED safe-wireless edition: a services.odex hotspot patch is present; restore stock with the official update first'; return 1
     fi
     begin || return 1
     # Choose the branch before removing any installed package.
@@ -441,47 +448,23 @@ install_transaction() {
             report 'PRESERVED incomplete prior package; checking original files for normal installation'
         fi
     fi
-    # Restore any previous local notice-disabling or dongle installation before applying standard.
-    if [ "$VARIANT" != dongle ]; then
-        id=gen5w.kr.consent
+    # Switching from the dongle edition: its own uninstall restores stock first.
+    if [ "$VARIANT" != dongle ] && [ "$BACKEND" = builtin ]; then
+        id=gen5w.kr.dongle
         if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
             : > "$TX/attempt.$id"; sync
             safe_remove "$id" || {
                 result "$id" failed
-                report "FAILED restoring previous notice-disabling package $id"
+                report "FAILED restoring previous dongle package $id"
                 rollback_transaction
                 return 1
             }
-        fi
-        result "$id" disabled
-        if [ "$BACKEND" = builtin ]; then
-            id=gen5w.kr.dongle
-            if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
-                : > "$TX/attempt.$id"; sync
-                safe_remove "$id" || {
-                    result "$id" failed
-                    report "FAILED restoring previous dongle package $id"
-                    rollback_transaction
-                    return 1
-                }
-                result "$id" disabled
-                report "RESTORED $id: switched to standard built-in Wi-Fi mode"
-            fi
+            result "$id" disabled
+            report "RESTORED $id: switched to standard built-in Wi-Fi mode"
         fi
     fi
     for id in $IDS; do
-        # No edition patches SystemUI.odex any more: an earlier timer patch is removed
-        # through its own verified uninstall (stock bytes restored).
-        if [ "$id" = gen5w.kr.notice ]; then
-            if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
-                : > "$TX/attempt.$id"; sync
-                safe_remove "$id" || { result "$id" failed; report "FAILED restoring stock SystemUI.odex ($id)"; rollback_transaction; return 1; }
-                report "RESTORED $id: SystemUI.odex back to stock"
-            fi
-            result "$id" skipped
-            continue
-        fi
-        # The 3 second close is a service only. Safe editions keep the stock 10 seconds.
+        # The early close is a service only. Safe editions keep the stock 10 seconds.
         if keeps_systemui && [ "$id" = gen5w.kr.timer ]; then
             : > "$TX/attempt.$id"; sync
             safe_remove "$id" || { result "$id" failed; report "FAILED removing $id for safe edition"; rollback_transaction; return 1; }
@@ -489,28 +472,9 @@ install_transaction() {
             report "SKIPPED $id: safe edition keeps the stock 10 second warning"
             continue
         fi
-        if [ "$VARIANT" = safe-wireless ] && [ "$id" = gen5w.kr.hotspot ]; then
-            result "$id" skipped
-            report "SKIPPED $id: safe-wireless keeps services.odex stock (hotspot set at connection time)"
-            continue
-        fi
-        # No edition installs the services.odex hotspot patch any more. An earlier
-        # one is removed through its own verified uninstall (stock bytes restored),
-        # unless wireless detection is inconclusive and the prior setup is kept.
-        if [ "$id" = gen5w.kr.hotspot ] && [ "$wireless_ready" != preserve ]; then
-            if [ -f "$APPS/$id/NEMESIS.data" ] || durable "$id"; then
-                : > "$TX/attempt.$id"; sync
-                safe_remove "$id" || { result "$id" failed; report "FAILED restoring stock services.odex ($id)"; rollback_transaction; return 1; }
-                report "RESTORED $id: services.odex back to stock; hotspot set at connection time"
-            else
-                report "SKIPPED $id: services.odex stays stock (hotspot set at connection time)"
-            fi
-            result "$id" skipped
-            continue
-        fi
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.
         if [ "$wireless_ready" = preserve ]; then
-            case "$id" in gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.hotspot)
+            case "$id" in gen5w.kr.wireless|gen5w.kr.audio)
                 if [ -f "$APPS/$id/NEMESIS.data" ] && [ ! -L "$APPS/$id/NEMESIS.data" ] &&
                    [ ! -L "$APPS/$id" ] && [ "$(meta "$APPS/$id/NEMESIS.data" id)" = "$id" ]; then
                     result "$id" preserved; report "PRESERVED $id: wireless detection inconclusive"
@@ -520,22 +484,37 @@ install_transaction() {
                 continue;; esac
         fi
         if [ -f "$WIRELESS_OFF" ]; then
-            case "$id" in gen5w.kr.audio|gen5w.kr.hotspot)
+            case "$id" in gen5w.kr.audio)
                 result "$id" skipped; report "SKIPPED $id: wired-only mode"; continue;; esac
+        fi
+        # Update: an installed earlier build removes itself first through its own
+        # verified uninstall (stock bytes back), so the new build's checks see stock
+        # files instead of the older build's patches. Any later failure rolls back
+        # to the snapshot of the earlier build.
+        removed_prior=no
+        if [ "$id" != gen5w.kr.wireless ] && [ -f "$APPS/$id/NEMESIS.data" ]; then
+            : > "$TX/attempt.$id"; sync
+            safe_remove "$id" || { result "$id" failed; report "FAILED removing previous $id"; rollback_transaction; return 1; }
+            removed_prior=yes
         fi
         if [ "$id" = gen5w.kr.wireless ]; then
             if [ "$wireless_ready" = yes ]; then rc=0; else rc=77; fi
+        elif [ "$removed_prior" = yes ]; then
+            export GEN5W_REINSTALL=1; gate "$(pwd)/checks/$id" preinstall; rc=$?; unset GEN5W_REINSTALL
         else gate "$(pwd)/checks/$id" preinstall; rc=$?; fi
+        if [ "$rc" = 77 ] && [ "$removed_prior" = yes ]; then
+            restore_prior "$id" || {
+                result "$id" failed; report "FAILED restoring previous $id"; rollback_transaction; return 1;
+            }
+            result "$id" skipped
+            report "SKIPPED $id: the new build does not support this unit; previous build kept"
+            continue
+        fi
         if [ "$id" = gen5w.kr.wireless ] && [ "$rc" = 77 ]; then
             disable_wireless || { rollback_transaction; return 1; }
             continue
         fi
         if [ "$rc" = 77 ]; then
-            if [ "$id" = gen5w.kr.hotspot ]; then
-                disable_wireless || { rollback_transaction; return 1; }
-                report 'WIRED ONLY: native AP profile separation is not supported on this version'
-                continue
-            fi
             result "$id" skipped
             report "SKIPPED $id: unsupported preinstall; prior installation retained"
             continue
@@ -578,7 +557,7 @@ disable_wireless() {
     if [ -x /system/bin/am ]; then
         /system/bin/am broadcast -a kr.gen5w.wireless.STOP_BRIDGE >/dev/null 2>&1 || true
     fi
-    for item in gen5w.kr.hotspot gen5w.kr.audio gen5w.kr.wireless; do
+    for item in gen5w.kr.audio gen5w.kr.wireless; do
         : > "$TX/attempt.$item"; sync
         safe_remove "$item" || { result "$item" failed; report "FAILED wireless disable $item"; return 1; }
         result "$item" skipped

@@ -12,7 +12,7 @@ trap 'rm -rf "$work"' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     app/src/kr/gen5w/hud/*.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
-    packages/hotspot-match/src/kr/gen5w/hotspot/ApProfiles.java packages/hotspot-match/test/ApProfilesTest.java \
+    packages/wireless-bridge/src/kr/gen5w/hotspot/ApProfiles.java packages/wireless-bridge/test/ApProfilesTest.java \
     probe/src/kr/gen5w/probe/Item.java probe/src/kr/gen5w/probe/Dump.java probe/test/DumpTest.java
 java -cp "$work" HudTest
 java -cp "$work" HudVariantTest

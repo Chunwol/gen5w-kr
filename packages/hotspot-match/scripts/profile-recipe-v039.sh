@@ -1,2 +1,0 @@
-PROFILE_RECIPE=v039-memory-only-ap-profile
-PROFILE_FRAMEWORK_SHA=7e4ba5c4c517dd8ad1a284f4b97a45e741da4cb6abdb25b66f9cb1b4897986bd

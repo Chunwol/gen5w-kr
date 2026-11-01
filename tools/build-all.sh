@@ -16,10 +16,6 @@ mkdir -p probe/package/app
 cp probe/build/gen5w-probe.apk probe/package/app/gen5w-probe.apk
 "$PY" -I tools/mkpkg.py probe/package dist/gen5w.kr.probe.zip
 
-# hotspot-match: compile the Java program to a dex and put it in the package
-"$PY" -I tools/hotspot/build.py --ndk "$NDK"
-bash tools/build-dex.sh packages/hotspot-match kr.gen5w.hotspot.HotspotMatch match.dex
-"$PY" -I tools/mkpkg.py packages/hotspot-match dist/gen5w.kr.hotspot.zip
 "$PY" -I tools/mkpkg.py packages/wireless-enable dist/gen5w.kr.wireless.zip
 
 "$PY" -I tools/audio/build.py --ndk "$NDK"
@@ -33,11 +29,9 @@ bash app/build.sh
 mkdir -p packages/core/app
 cp app/build/gen5w-core.apk packages/core/app/gen5w-core.apk
 "$PY" -I tools/mkpkg.py packages/core dist/gen5w.kr.core.zip
-"$PY" -I tools/notice/build.py --ndk "$NDK"
-"$PY" -I tools/mkpkg.py packages/notice-timer dist/gen5w.kr.notice.zip
-# Service-only 3 second close; carries the stock SystemUI verifiers, no patch.
+# Service-only close; carries a SHA-256 checker (verify mode only) for the stock SystemUI check.
 mkdir -p packages/consent-timer/bin
-cp packages/notice-timer/bin/notice-patch-v039 packages/notice-timer/bin/notice-patch-v035 packages/consent-timer/bin/
+cp packages/audio-format/bin/audio-patch packages/consent-timer/bin/sha256-check
 "$PY" -I tools/mkpkg.py packages/consent-timer dist/gen5w.kr.timer.zip
 
 # USB Wi-Fi dongle package (stock Wi-Fi HAL unchanged; bcmdhd stand-in module)

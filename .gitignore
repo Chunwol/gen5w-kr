@@ -14,9 +14,6 @@ packages/*/app/*.apk
 packages/audio-format/bin/audio-patch*
 packages/wireless-bridge/bin/*-patch-v*
 tools/integrated/bin/zipstore*
-packages/notice-timer/bin/notice-patch-v*
-packages/hotspot-match/bin/hotspot-patch-v*
 local-only/
-tools/usb-wifi/hal_adapter/*.so
 tools/usb-wifi/package/files/libhardware_legacy.so
-packages/consent-timer/bin/notice-patch-v*
+packages/consent-timer/bin/sha256-check

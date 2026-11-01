@@ -79,24 +79,23 @@ def audit_dongle(path):
 
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
 packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.dongle.zip']
-assert len(packages)==8, f'expected 8 packages, got {len(packages)}: {[p.name for p in packages]}'
+assert len(packages)==6, f'expected 6 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 audit_dongle(root/'gen5w.kr.dongle.zip')
 with zipfile.ZipFile(root/'usb-integrated.zip') as z:
     assert z.testzip() is None
-    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==7
-print('AUDITED seven-module integrated installer; no OEM/private inputs required')
+    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==5
+print('AUDITED five-module integrated installer; no OEM/private inputs required')
 assert not (root/'gen5w.kr.consent.zip').exists(), 'local notice-disabling package in distribution'
 assert not (root/'gen5w-kr-skip-consent.zip').exists(), 'local edition in distribution'
-for variant,count in [('standard',7),('dongle',8)]:
+for variant,count in [('standard',5),('dongle',6)]:
     with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
         assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
         assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
-        assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','repair-hotspot.sh','docs/beginner-guide.md'])
+        assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','docs/beginner-guide.md'])
         assert z.read('GEN5W-BACKEND') == (b'dongle\n' if variant == 'dongle' else b'builtin\n')
-        with zipfile.ZipFile(BytesIO(z.read('packages/gen5w.kr.notice.zip'))) as notice:
-            assert not any(n.endswith(('remove_consentscreen.xml', 'agree.sh')) for n in notice.namelist()), 'full skip in public notice package'
+        assert not any(n.endswith(('gen5w.kr.notice.zip', 'gen5w.kr.hotspot.zip')) for n in z.namelist()), 'SystemUI/services.odex patch package shipped'
         assert not any(n.endswith('gen5w.kr.consent.zip') for n in z.namelist())
         with zipfile.ZipFile(BytesIO(z.read('packages/gen5w.kr.timer.zip'))) as timer:
             assert not any(n.startswith(('files/', 'system/')) for n in timer.namelist()), 'timer ships system files'

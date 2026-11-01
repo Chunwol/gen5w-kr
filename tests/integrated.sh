@@ -19,8 +19,7 @@ elif args[0]=='install':
   if os.environ.get('IT_FAIL')==id and '/packages/' in args[-1]: sys.exit(1)
 elif args[0]=='uninstall': shutil.rmtree(root+'/'+args[1],ignore_errors=True)
 elif args[0]=='root':
- print('RESULT error carplay-settings-missing' if os.environ.get('IT_REPAIR_FAIL') else 'RESULT applied')
- if os.environ.get('IT_REPAIR_FAIL'): sys.exit(3)
+ print('RESULT applied')
 else: sys.exit(1)
 PY
 chmod +x "$W/bin/nemesis"
@@ -29,17 +28,16 @@ echo 'exit 0' >> "$W/bin/sync"
 chmod +x "$W/bin/sync"
 python3 - "$W/usb/packages" <<'PY'
 import zipfile,sys,hashlib,pathlib
-for m in ['dongle','wireless','audio','hotspot','bridge','core','notice','timer']:
+for m in ['dongle','wireless','audio','bridge','core','timer']:
  with zipfile.ZipFile(sys.argv[1]+'/gen5w.kr.'+m+'.zip','w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+m+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
-  z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
+  # Injected failures belong to the incoming build (bundle checks/), never to an
+  # earlier build reinstalled from the transaction snapshot.
+  z.writestr('scripts/pre.sh','case "$PWD" in */checks/*) ;; *) exit 0;; esac\n[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\n[ "$IT_REFUSE_REGISTERED" != "gen5w.kr.'+m+'" ] || [ ! -e "$IT_DATA/nemesis/apps/gen5w.kr.'+m+'" ] || exit 1\nexit 0\n')
   z.writestr('scripts/post.sh','[ "$IT_POST_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\nexit 0\n')
-  if m=='hotspot':
-   z.writestr('app/match.dex',b'own-test-helper')
-   z.writestr('bin/hotspot-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; patched) grep -q "^patched" "$2";; *) exit 1;; esac\n')
   if m=='bridge':
    for t in ('iap2','dipo','gpm'): z.writestr('bin/'+t+'-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; patched) grep -q "^patched" "$2";; *) exit 1;; esac\n')
-  if m=='notice': z.writestr('bin/notice-patch-v039','#!/bin/sh\ncase "$1" in original) grep -q "^stock" "$2";; *) exit 1;; esac\n')
+  if m=='timer': z.writestr('bin/sha256-check','#!/bin/sh\ncase "$1:$3" in verify:63cf*|verify:97e7*) grep -q "^stock" "$2";; *) exit 1;; esac\n')
  package=pathlib.Path(sys.argv[1])/('gen5w.kr.'+m+'.zip')
  stage=package.parent.parent/'checks'/('gen5w.kr.'+m);stage.mkdir(parents=True)
  sums=[]
@@ -52,10 +50,8 @@ PY
 mkdir -p "$W/sys/framework" "$W/sys/priv-app"; echo stock > "$W/sys/framework/services.odex"; echo stock > "$W/sys/priv-app/SystemUI.odex"
 run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
 check 'integrated install all modules' run install
-check 'five registered module trees (no services.odex hotspot module)' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
-check 'standard never installs the services.odex hotspot patch' test ! -e "$W/data/nemesis/apps/gen5w.kr.hotspot"
+check 'five registered module trees' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 check 'standard leaves services.odex stock' grep -qx stock "$W/sys/framework/services.odex"
-check 'standard never installs the SystemUI.odex notice patch' test ! -e "$W/data/nemesis/apps/gen5w.kr.notice"
 check 'standard registers the service-only timer' test -f "$W/data/nemesis/apps/gen5w.kr.timer/NEMESIS.data"
 check 'standard leaves SystemUI.odex stock' grep -qx stock "$W/sys/priv-app/SystemUI.odex"
 check 'standard uses match mode' grep -qx match "$W/data/nemesis/gen5wkr.ap-match"
@@ -73,64 +69,31 @@ check 'wired fallback reports bridge route support' grep -q '유선 HUD 기반' 
 check 'rollback wired fallback' run rollback
 check 'rollback restores all five modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 check 'rollback restores prior wireless mode' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
-# An earlier services.odex hotspot module is removed through its own uninstall.
-mkdir -p "$W/data/nemesis/apps/gen5w.kr.hotspot"
-printf '[nemesis]
-id=gen5w.kr.hotspot
-' > "$W/data/nemesis/apps/gen5w.kr.hotspot/NEMESIS.data"
-echo hotspot_old > "$W/data/nemesis/apps/gen5w.kr.hotspot/old.txt"
-check 'update removes an earlier services.odex hotspot module' run update
-check 'earlier hotspot module unregistered' test ! -e "$W/data/nemesis/apps/gen5w.kr.hotspot"
-check 'hotspot restore is reported' grep -q 'RESTORED gen5w.kr.hotspot: services.odex back to stock' "$W/data/nemesis/gen5w-kr-integrated/report"
-check 'wireless stays enabled after the hotspot module is removed' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
-check 'rollback brings the earlier hotspot module back' eval 'run rollback && grep -qx hotspot_old "$W/data/nemesis/apps/gen5w.kr.hotspot/old.txt"'
-check 'rollback restores the earlier markers' eval 'grep -qx match "$W/data/nemesis/gen5wkr.ap-match" && grep -qx feature "$W/data/nemesis/gen5wkr.ap-hotspot-feature"'
-check 'update after rollback removes it again' eval 'run update && test ! -e "$W/data/nemesis/apps/gen5w.kr.hotspot"'
-# An earlier SystemUI.odex notice patch module is removed through its own uninstall.
-mkdir -p "$W/data/nemesis/apps/gen5w.kr.notice"
-printf '[nemesis]
-id=gen5w.kr.notice
-' > "$W/data/nemesis/apps/gen5w.kr.notice/NEMESIS.data"
-echo notice_old > "$W/data/nemesis/apps/gen5w.kr.notice/old.txt"
-check 'update removes an earlier SystemUI.odex notice module' run update
-check 'earlier notice module unregistered' test ! -e "$W/data/nemesis/apps/gen5w.kr.notice"
-check 'notice restore is reported' grep -q 'RESTORED gen5w.kr.notice: SystemUI.odex back to stock' "$W/data/nemesis/gen5w-kr-integrated/report"
-check 'timer replaces the notice patch' test -f "$W/data/nemesis/apps/gen5w.kr.timer/NEMESIS.data"
-check 'rollback brings the earlier notice module back' eval 'run rollback && grep -qx notice_old "$W/data/nemesis/apps/gen5w.kr.notice/old.txt"'
-check 'update after notice rollback removes it again' eval 'run update && test ! -e "$W/data/nemesis/apps/gen5w.kr.notice"'
+# Update to a next build whose checks do not recognise the earlier build's files:
+# the earlier build removes itself first, so the new checks see stock files.
+echo bridge_old > "$W/data/nemesis/apps/gen5w.kr.bridge/old.txt"
+export IT_REFUSE_REGISTERED=gen5w.kr.bridge
+check 'update over an earlier build succeeds' run update
+unset IT_REFUSE_REGISTERED
+check 'earlier bridge build replaced' test ! -e "$W/data/nemesis/apps/gen5w.kr.bridge/old.txt"
+check 'new bridge build registered' test -f "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
+check 'update commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
+echo core_old > "$W/data/nemesis/apps/gen5w.kr.core/old.txt"
+export IT_SKIP=gen5w.kr.core
+check 'new build unsupported for one module still updates the rest' run update
+unset IT_SKIP
+check 'earlier core build kept when the new one is unsupported' grep -qx core_old "$W/data/nemesis/apps/gen5w.kr.core/old.txt"
+check 'kept earlier build is reported' grep -q 'SKIPPED gen5w.kr.core: the new build does not support this unit; previous build kept' "$W/data/nemesis/gen5w-kr-integrated/report"
+rm -f "$W/data/nemesis/apps/gen5w.kr.core/old.txt"
 check 'explicit wired-only mode' run wired-only
 check 'explicit wired-only preserves HUD and timer' test -f "$W/data/nemesis/apps/gen5w.kr.timer/NEMESIS.data"
 check 'normal update enables wireless again' run update
 check 'wireless mode restored after normal update' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
 
-mkdir -p "$W/data/nemesis/apps/gen5w.kr.consent"
-printf '[nemesis]\nid=gen5w.kr.consent\n' > "$W/data/nemesis/apps/gen5w.kr.consent/NEMESIS.data"
-check 'public update removes registered previous local notice package' run update
-check 'standard has no consent registration' test ! -e "$W/data/nemesis/apps/gen5w.kr.consent"
-check 'failed switch can restore registered previous package' run rollback
-check 'prior consent registered after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.consent/NEMESIS.data"
-check 'successful public update retains only public modules' run update
-
-mkdir -p "$W/data/nemesis/apps/gen5w.kr.consent/scripts"
-printf '[nemesis]\nid=gen5w.kr.consent\npreuninstall=scripts/preun.sh\n' > "$W/data/nemesis/apps/gen5w.kr.consent/NEMESIS.data"
-echo 'exit 1' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
-check 'consent skip removal failure refuses transaction' eval '! run update'
-check 'consent skip removal failure reported' grep -q 'FAILED restoring previous notice-disabling package gen5w.kr.consent' "$W/out"
-echo 'exit 0' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
-check 'rollback after consent removal failure' run rollback
-echo 'exit 0' > "$W/data/nemesis/apps/gen5w.kr.consent/scripts/preun.sh"
-check 'clean update after fixing consent preuninstall removes consent' run update
-check 'five modules remain after consent cleanup' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 echo usb > "$W/usb/GEN5W-BACKEND"
 check 'unavailable USB backend is refused before transaction mutation' eval '! run update'
 check 'backend refusal preserves installed modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 rm "$W/usb/GEN5W-BACKEND"
-check 'isolated hotspot repair' run repair-hotspot
-check 'hotspot repair leaves other modules registered' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
-export IT_REPAIR_FAIL=1
-check 'missing CarPlay settings reported' eval '! run repair-hotspot'
-unset IT_REPAIR_FAIL
-check 'repair failure attachment gives reason' grep -q 'CarPlay settings unavailable' "$W/usb/GEN5W-REPORT/ISSUE.md"
 export IT_SKIP=gen5w.kr.audio
 check 'unsupported audio continues with supported modules' run update
 unset IT_SKIP
@@ -148,11 +111,11 @@ unset IT_FAIL
 check 'prior core retained after failure' grep -qx original "$W/data/nemesis/apps/gen5w.kr.core/old.txt"
 check 'failed update shown as restored' grep -q '실패 후 이전 상태로 원복' "$W/usb/GEN5W-REPORT/RESULT.md"
 check 'explicit rollback' run rollback
-check 'standard never registers the hotspot module after rollback and update' eval 'run update && test ! -e "$W/data/nemesis/apps/gen5w.kr.hotspot"'
+check 'update after explicit rollback' run update
 echo dongle > "$W/usb/GEN5W-VARIANT"
-check 'dongle variant installs seven modules' run update
+check 'dongle variant installs six modules' run update
 check 'dongle variant registers dongle module' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
-check 'dongle variant reports dongle feature' grep -q 'USB Wi-Fi 동글 드라이버·HAL' "$W/usb/GEN5W-REPORT/RESULT.md"
+check 'dongle variant reports dongle feature' grep -q 'USB Wi-Fi 동글 드라이버' "$W/usb/GEN5W-REPORT/RESULT.md"
 echo dongle_old > "$W/data/nemesis/apps/gen5w.kr.dongle/old.txt"
 export IT_FAIL=gen5w.kr.core
 check 'dongle variant update failure rolls back dongle' eval '! run update'
@@ -165,8 +128,8 @@ check 'standard variant retains five modules' test "$(find "$W/data/nemesis/apps
 check 'rollback after dongle to standard transition restores dongle' run rollback
 check 'dongle registration restored after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
 check 'return to standard variant again' run update
-# Safe edition: wired HUD only. Wi-Fi/hotspot/audio and the SystemUI notice timer
-# are restored to stock, and the boot guard recovers after 2 failed boots.
+# Safe edition: wired HUD only. Wi-Fi/hotspot/audio and the early-close service
+# are removed, and the boot guard recovers after 2 failed boots.
 mkdir -p "$W/sys/priv-app" "$W/sys/app"; echo stock > "$W/sys/priv-app/SystemUI.odex"
 for f in Iap2ServerApp HKMC_DiPO HKMC_GPM; do echo stock > "$W/sys/app/$f.odex"; done
 echo safe > "$W/usb/GEN5W-VARIANT"
@@ -194,14 +157,13 @@ check 'safe edition installs' run update
 check 'safe edition keeps only bridge and core' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 2
 check 'safe edition registers bridge' test -f "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
 check 'safe edition registers core' test -f "$W/data/nemesis/apps/gen5w.kr.core/NEMESIS.data"
-for m in wireless audio hotspot notice timer; do
+for m in wireless audio timer; do
     check "safe edition removes $m" test ! -e "$W/data/nemesis/apps/gen5w.kr.$m"
 done
 check 'safe edition marks wireless disabled' test -f "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'safe edition plans wired-only without the wireless preflight' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wired-only"'
 check 'safe edition arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
 check 'safe edition commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
-check 'safe edition retains the SystemUI verifier' test -x "$W/data/nemesis/gen5wkr.bootguard/verifiers/notice-v039"
 check 'rollback from safe edition restores five modules' run rollback
 check 'five modules back after safe rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 echo patched > "$W/sys/priv-app/SystemUI.odex"
@@ -213,14 +175,6 @@ check 'refused safe edition reports the reason' grep -q 'REFUSED pre-install che
 echo stock > "$W/sys/priv-app/SystemUI.odex"
 # Safe-wireless edition: wireless CarPlay/AA kept, SystemUI and services.odex stock, guard at 2.
 echo safe-wireless > "$W/usb/GEN5W-VARIANT"
-mkdir -p "$W/data/nemesis/apps/gen5w.kr.hotspot"
-printf '[nemesis]
-id=gen5w.kr.hotspot
-' > "$W/data/nemesis/apps/gen5w.kr.hotspot/NEMESIS.data"
-run check
-check 'safe-wireless refuses while a services.odex hotspot package is present' eval '! run update'
-check 'hotspot refusal reason' grep -q 'services.odex hotspot patch is present' "$W/data/nemesis/gen5w-kr-integrated/report"
-check 'hotspot refusal keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
 check 'clean unit for safe-wireless' run remove
 run check
 : > "$W/usb/GEN5W-WIFI-CLIENT"
@@ -233,17 +187,13 @@ check 'safe-wireless keeps four modules' test "$(find "$W/data/nemesis/apps" -na
 for m in wireless audio bridge core; do
     check "safe-wireless registers $m" test -f "$W/data/nemesis/apps/gen5w.kr.$m/NEMESIS.data"
 done
-check 'safe-wireless never installs the services.odex hotspot patch' test ! -e "$W/data/nemesis/apps/gen5w.kr.hotspot"
-check 'safe-wireless reports the hotspot skip' grep -q 'SKIPPED gen5w.kr.hotspot: safe-wireless keeps services.odex stock' "$W/data/nemesis/gen5w-kr-integrated/report"
 check 'safe-wireless leaves services.odex stock' grep -qx stock "$W/sys/framework/services.odex"
 check 'safe-wireless writes the match marker' grep -qx match "$W/data/nemesis/gen5wkr.ap-match"
 check 'safe-wireless leaves out the hotspot feature' test ! -e "$W/data/nemesis/gen5wkr.ap-hotspot-feature"
-check 'safe-wireless removes the notice patch' test ! -e "$W/data/nemesis/apps/gen5w.kr.notice"
 check 'safe-wireless removes the timer service' test ! -e "$W/data/nemesis/apps/gen5w.kr.timer"
 check 'safe-wireless keeps wireless enabled' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'safe-wireless plans wireless' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wireless: supported"'
 check 'safe-wireless arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
-check 'safe-wireless retains the services.odex verifier' test -x "$W/data/nemesis/gen5wkr.bootguard/verifiers/hotspot-v039"
 check 'safe-wireless commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
 check 'rollback from safe-wireless returns to the clean unit' run rollback
 check 'no modules after safe-wireless rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
@@ -346,6 +296,6 @@ check 'unrecognized private warning file is ignored' run status
 check 'unrecognized warning content does not leave vehicle' eval '! grep -q DO_NOT_COLLECT_PRIVATE_WARNING "$W/usb/GEN5W-REPORT/ISSUE.md"'
 echo recovery-required > "$W/data/nemesis/gen5w-kr-integrated/state"
 touch "$W/data/nemesis/gen5wkr.noreboot"
-check 'isolated repair refuses unresolved system recovery' eval '! run repair-hotspot'
-check 'repair refusal preserves recovery state' grep -qx recovery-required "$W/data/nemesis/gen5w-kr-integrated/state"
+check 'update refuses unresolved system recovery' eval '! run update'
+check 'refusal preserves recovery state' grep -qx recovery-required "$W/data/nemesis/gen5w-kr-integrated/state"
 done_tests integrated

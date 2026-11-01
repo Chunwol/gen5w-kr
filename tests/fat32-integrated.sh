@@ -68,12 +68,11 @@ chmod +x "$W/bin/sync"
 
 python3 - "$MNT/packages" <<'PY'
 import zipfile,sys,hashlib,pathlib
-for m in ['wireless','audio','hotspot','bridge','core','notice','timer']:
+for m in ['wireless','audio','bridge','core','timer']:
  with zipfile.ZipFile(sys.argv[1]+'/gen5w.kr.'+m+'.zip','w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+m+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
   z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
   z.writestr('scripts/post.sh','[ "$IT_POST_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\nexit 0\n')
-  if m=='hotspot': z.writestr('app/match.dex',b'own-test-helper')
  package=pathlib.Path(sys.argv[1])/('gen5w.kr.'+m+'.zip')
  stage=package.parent.parent/'checks'/('gen5w.kr.'+m);stage.mkdir(parents=True)
  sums=[]

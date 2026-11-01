@@ -8,7 +8,7 @@ check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fai
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 PKG=$W/pkg; mkdir -p "$PKG/bin" "$W/sys/priv-app"
 cp -r "$ROOT/packages/consent-timer/scripts" "$ROOT/packages/consent-timer/NEMESIS.data" "$PKG/"
-printf '#!/bin/sh\n[ "$1" = original ] && grep -qx stock "$2"\n' > "$PKG/bin/notice-patch-v039"
+printf '#!/bin/sh\n[ "$1" = verify ] && grep -qx stock "$2" && [ "$3" = 97e7e258df34d76ed61a714f83de4bf0fbc3d6b6188055c941ad2689f72595af ]\n' > "$PKG/bin/sha256-check"
 echo stock > "$W/sys/priv-app/SystemUI.odex"
 cat > "$W/am" <<'A'
 #!/bin/sh

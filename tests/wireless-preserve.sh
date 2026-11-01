@@ -14,7 +14,7 @@ case "$1" in
 esac
 SH
 chmod +x "$W/nemesis"
-for name in wireless audio hotspot bridge core notice timer; do
+for name in wireless audio bridge core timer; do
     touch "$W/work/packages/gen5w.kr.$name.zip"
 done
 cat > "$W/work/exercise.sh" <<'SH'
@@ -34,21 +34,19 @@ sync() { :; }
 install_transaction
 SH
 run_case() { (cd "$W/work" && IT_DATA="$W/data" IT_SYSTEM="$W/system" IT_NEM="$W/nemesis" mksh ./exercise.sh); }
-for name in wireless audio hotspot; do
+for name in wireless audio; do
     mkdir -p "$W/data/nemesis/apps/gen5w.kr.$name"
     printf '[nemesis]\nid=gen5w.kr.%s\n' "$name" > "$W/data/nemesis/apps/gen5w.kr.$name/NEMESIS.data"
 done
 check 'inconclusive detection continues independent modules' run_case
 check 'inconclusive detection preserves wireless module' grep -qx 'gen5w.kr.wireless preserved' "$W/data/results"
 check 'inconclusive detection preserves wireless audio' grep -qx 'gen5w.kr.audio preserved' "$W/data/results"
-check 'inconclusive detection preserves hotspot' grep -qx 'gen5w.kr.hotspot preserved' "$W/data/results"
-check 'preserved wireless modules are not removed' eval '! grep -Eq "gen5w.kr.(wireless|audio|hotspot)" "$W/data/removed"'
+check 'preserved wireless modules are not removed' eval '! grep -Eq "gen5w.kr.(wireless|audio)" "$W/data/removed"'
 check 'wired bridge still updates' grep -qx gen5w.kr.bridge "$W/data/removed"
-rm -rf "$W/data/nemesis/apps/gen5w.kr.audio" "$W/data/nemesis/apps/gen5w.kr.hotspot"
+rm -rf "$W/data/nemesis/apps/gen5w.kr.audio"
 : > "$W/data/results"
 check 'inconclusive detection accepts missing optional modules' run_case
 check 'absent audio is reported skipped' grep -qx 'gen5w.kr.audio skipped' "$W/data/results"
-check 'absent hotspot is reported skipped' grep -qx 'gen5w.kr.hotspot skipped' "$W/data/results"
 touch "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'inconsistent wired-only marker refuses preserve mode' eval '! run_case'
 done_tests wireless-preserve

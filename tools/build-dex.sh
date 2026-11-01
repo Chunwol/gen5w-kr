@@ -17,8 +17,7 @@ rm -rf "$PKG/.build"; mkdir -p "$PKG/.build/stubs" "$PKG/.build/classes" "$PKG/a
 stubpath="$PKG/stubs"
 extra_sources=()
 if [ "$PKG" = packages/wireless-bridge ]; then
-    stubpath="probe/stubs${sep}packages/hotspot-match/stubs"
-    extra_sources+=(packages/hotspot-match/src/kr/gen5w/hotspot/ApProfiles.java packages/hotspot-match/src/kr/gen5w/hotspot/AndroidWifiAp.java)
+    stubpath="probe/stubs${sep}packages/wireless-bridge/stubs"
 fi
 javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR" -sourcepath "$stubpath" -d "$PKG/.build/classes" $(find "$PKG/src" -name '*.java') "${extra_sources[@]}"
 [ -f "$PKG/.build/classes/${MAIN//.//}.class" ] || { echo "missing main class $MAIN" >&2; exit 1; }

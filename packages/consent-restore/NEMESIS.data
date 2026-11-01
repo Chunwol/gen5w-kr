@@ -1,6 +1,0 @@
-[nemesis]
-id=gen5w.kr.consent
-name=Restore previous local notice setting
-version=restore-only
-preinstall=scripts/pre.sh
-preuninstall=scripts/preun.sh

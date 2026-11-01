@@ -11,7 +11,7 @@ import sys
 import zipfile
 
 HERE = Path(__file__).resolve().parent
-IDS = ['gen5w.kr.' + x for x in ('wireless', 'audio', 'hotspot', 'bridge', 'core', 'notice', 'timer')]
+IDS = ['gen5w.kr.' + x for x in ('wireless', 'audio', 'bridge', 'core', 'timer')]
 
 
 def compiler():
@@ -91,13 +91,6 @@ def build(dist, output, variant='standard'):
             sums.append(hashlib.md5(data).hexdigest() + '  ' + name)
         (stage / 'FILES.md5').write_text('\n'.join(sums) + '\n', encoding='utf-8', newline='\n')
         (stage / 'PACKAGE.md5').write_text(hashlib.md5(package.read_bytes()).hexdigest() + '\n', encoding='ascii', newline='\n')
-    # Restore-only legacy migration code, never an installable skip payload.
-    stage = output / 'checks/gen5w.kr.consent'
-    source = HERE.parents[1] / 'packages/consent-restore'
-    shutil.copytree(source, stage)
-    sums = [hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(stage).as_posix()
-            for p in sorted(stage.rglob('*')) if p.is_file()]
-    (stage / 'FILES.md5').write_text('\n'.join(sums) + '\n', encoding='ascii', newline='\n')
     if variant != 'dongle':
         stage = output / 'checks/gen5w.kr.dongle'
         source = HERE.parents[1] / 'tools/usb-wifi/package'
@@ -145,7 +138,7 @@ if [ -f GEN5W-ACTION ]; then
     IFS= read -r action < GEN5W-ACTION || [ -n "$action" ] || exit 1
     action=${action%$'\\r'}
 fi
-case "$action" in install|update|rollback|remove|status|repair-hotspot|wired-only|check) ;;
+case "$action" in install|update|rollback|remove|status|wired-only|check) ;;
     *) echo 'REFUSED unknown GEN5W-ACTION'; exit 1;; esac
 # Only fixed phase names and exit codes; never copy subprocess output or secrets.
 [ ! -L GEN5W-REPORT ] || exit 1

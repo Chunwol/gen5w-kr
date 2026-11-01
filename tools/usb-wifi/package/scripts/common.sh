@@ -17,9 +17,6 @@ FW_DIR=$SYS/etc/firmware
 BACKUP_DURABLE=$SYS/etc/gen5w-kr-backup/dongle
 BACKUP_RUNTIME=$DATA/nemesis/backup/gen5w.kr.dongle
 OWNER="gen5w.kr.dongle:2.0"
-# Earlier installs replaced libhardware_legacy.so; they are only ever removed
-# through their own registered uninstall before this version is applied.
-LEGACY_OWNER="gen5w.kr.dongle:1.0"
 
 log_size() {
     # GNU ls includes a link-count field; Android toolbox ls does not.
@@ -102,11 +99,6 @@ verify_stock_hash() {
         "$STOCK_KO_MD5_V039") return 0 ;;
         *) return 1 ;;
     esac
-}
-
-legacy_owned() {
-    [ -f "$BACKUP_DURABLE/owner" ] && [ ! -L "$BACKUP_DURABLE/owner" ] &&
-    [ "$(cat "$BACKUP_DURABLE/owner" 2>/dev/null)" = "$LEGACY_OWNER" ]
 }
 
 verify_stock_target() {

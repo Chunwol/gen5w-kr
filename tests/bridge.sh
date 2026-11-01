@@ -189,9 +189,11 @@ check 'retry after stage symlink removed' run post
 check 'read-only remount issued' grep -q '^remount ro$' "$W/fixture/calls"
 touch "$W/pkg/app/bridge.dex"
 export BRIDGE_TEST_ONCE=1
-export BRIDGE_TEST_PROFILE_READY=$W/profile-ready.sh BRIDGE_TEST_SHELL=$(command -v mksh)
-printf '#!/bin/sh\nexit 0\n' > "$BRIDGE_TEST_PROFILE_READY"
 rm -f "$W/data/nemesis/gen5wkr.bridge.stopping"
+before=$(wc -l < "$W/fixture/calls")
+check 'bridge waits without the match marker' run service
+check 'no match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+echo match > "$W/data/nemesis/gen5wkr.ap-match"
 check 'service starts system-uid daemon' run service
 check 'daemon classpath and class exact' grep -q 'root 1000 -c CLASSPATH=.*/app/bridge.dex:/system/framework/com.tcc.iap2.jar app_process /system/bin kr.gen5w.wireless.WirelessBridge' "$W/fixture/calls"
 before=$(wc -l < "$W/fixture/calls")
@@ -199,12 +201,7 @@ touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'bridge waits while installation needs a reboot' run service
 check 'pending reboot launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
 rm "$W/data/nemesis/gen5wkr.noreboot"
-printf '#!/bin/sh\nexit 1\n' > "$BRIDGE_TEST_PROFILE_READY"
-check 'bridge waits until native profile patch is ready' run service
-check 'unready profile launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
-rm -f "$BRIDGE_TEST_PROFILE_READY"
-echo match > "$W/data/nemesis/gen5wkr.ap-match"
-check 'match mode starts without the profile module' run service
+check 'match mode starts the bridge' run service
 check 'match mode launches the daemon' test "$(wc -l < "$W/fixture/calls")" -gt "$before"
 # Dongle edition: wired until the USB Wi-Fi interface exists.
 printf '#!/bin/sh\n[ "$1" = persist.gen5w.wifi.backend ] && echo dongle || echo 1\n' > "$W/bin/getprop"
@@ -259,7 +256,6 @@ check 'reinstall clears the guard' eval 'run post && test ! -e "$APG" && test ! 
 unset BRIDGE_TEST_BOOT_ID
 rm -f "$W/data/nemesis/gen5wkr.ap-match"
 before=$(launches)
-printf '#!/bin/sh\nexit 0\n' > "$BRIDGE_TEST_PROFILE_READY"
 touch "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'wired-only supervisor stays available without wireless daemon' run service
 check 'wired-only launches no Bluetooth daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"

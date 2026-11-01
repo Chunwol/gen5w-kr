@@ -1,4 +1,4 @@
-"""Focused host tests of the actual HAL wait and root-service scripts."""
+"""Focused host tests of the dongle root-service scripts."""
 from pathlib import Path
 import os
 import shlex
@@ -19,48 +19,6 @@ def check(name, condition):
 
 with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
     work = Path(work)
-    # No sleeping or real device access: compile the production C with host IO
-    # substitutes. A five-second root startup used to outlast its three-second wait.
-    harness = work / 'wait.c'
-    harness.write_text(r'''
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-static unsigned long elapsed;
-static int timeout_case;
-int mock_access(const char *path, int mode) {
-    (void)mode;
-    return !strcmp(path, "/sys/class/net/wlan0") && !timeout_case
-        && elapsed >= 5000000UL ? 0 : -1;
-}
-int mock_usleep(unsigned int duration) { elapsed += duration; return 0; }
-uid_t mock_geteuid(void) { return 1000; }
-int property_get(const char *key, char *value, const char *fallback) {
-    const char *text = !strcmp(key, "persist.gen5w.wifi.backend") ? "dongle" : fallback;
-    strcpy(value, text ? text : ""); return strlen(value);
-}
-int property_set(const char *key, const char *value) { (void)key; (void)value; return 0; }
-int wifi_load_driver(void);
-int main(int argc, char **argv) {
-    (void)argv; timeout_case = argc > 1;
-    int result = wifi_load_driver();
-    if (!timeout_case) return result != 0 || elapsed < 5000000UL;
-    return result != -1 || elapsed < 5000000UL || elapsed > 30000000UL;
-}
-''')
-    binary = work / 'wait'
-    built = subprocess.run(['cc', '-include', 'sys/types.h', '-Daccess=mock_access',
-        '-Dusleep=mock_usleep', '-Dgeteuid=mock_geteuid',
-        str(ROOT/'tools/usb-wifi/hal_adapter/wifi_hal_adapter.c'), str(harness),
-        '-ldl', '-o', str(binary)], capture_output=True)
-    check('HAL host harness compiles', built.returncode == 0)
-    if built.returncode:
-        print(built.stderr.decode(errors='replace'))
-    else:
-        check('HAL waits for a five-second root load', subprocess.run([str(binary)]).returncode == 0)
-        check('HAL absence fails within a bounded deadline', subprocess.run([str(binary), 'timeout']).returncode == 0)
-
     for which in ('common', 'loader'):
         case = work / which
         case.mkdir()

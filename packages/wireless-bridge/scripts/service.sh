@@ -35,8 +35,6 @@ DATA=${BRIDGE_TEST_DATA:-/data}
 NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 DEX=$SERVICE_DIR/app/bridge.dex
-PROFILE_READY=${BRIDGE_TEST_PROFILE_READY:-$DATA/nemesis/apps/gen5w.kr.hotspot/scripts/profile-ready.sh}
-PROFILE_SHELL=${BRIDGE_TEST_SHELL:-/system/bin/sh}
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 # AP start guard (see AndroidWifiAp): the bridge (uid 1000) leaves "attempt"
 # holding the boot id while an AP start is in progress, and "ok" after one stayed
@@ -91,18 +89,10 @@ while [ ! -f "$STOPPING" ]; do
         sleep 2
         continue
     fi
-    # A patched system_server file cannot take effect in its existing process.
-    # Wait for the native profile module's verified post-reboot readiness.
-    # Match mode (safe-wireless) keeps services.odex stock and needs no profile
-    # module; the installer's reboot is still required for the feature files.
-    if [ -e "$DATA/nemesis/gen5wkr.noreboot" ]; then
-        [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
-        sleep 2
-        continue
-    fi
-    if [ -f "$AP_MATCH" ] && [ ! -L "$AP_MATCH" ] && [ "$(cat "$AP_MATCH" 2>/dev/null)" = match ]; then
-        :
-    elif [ -L "$PROFILE_READY" ] || [ ! -f "$PROFILE_READY" ] || ! "$PROFILE_SHELL" "$PROFILE_READY"; then
+    # The feature files take effect only after the installer's reboot. Wireless
+    # runs only in match mode (services.odex stays stock; the bridge sets the AP).
+    if [ -e "$DATA/nemesis/gen5wkr.noreboot" ] ||
+       [ ! -f "$AP_MATCH" ] || [ -L "$AP_MATCH" ] || [ "$(cat "$AP_MATCH" 2>/dev/null)" != match ]; then
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         sleep 2
         continue
