@@ -1,6 +1,8 @@
 # 변경 내역
 
-## 다음 버전 (미배포)
+## v0.3.0
+
+모든 판이 부팅에 쓰이는 시스템 파일(`services.odex`, `SystemUI.odex`, `libhardware_legacy.so`)을 바꾸지 않습니다. 기능은 유지합니다. 실차 미검증.
 
 ### 동글형: 순정 Wi-Fi HAL을 바꾸지 않음
 - `libhardware_legacy.so`(zygote·system_server가 올리는 라이브러리) 교체를 없앴습니다. 대신 순정이 Wi-Fi를 켤 때 올리는 `/system/wifi/bcmdhd.ko`를 동글 연결용 대리 모듈로 바꿉니다. 이 파일은 부팅 중에 쓰이지 않습니다.
