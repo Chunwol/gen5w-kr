@@ -34,9 +34,8 @@ mkdir -p packages/consent-timer/bin
 cp packages/audio-format/bin/audio-patch packages/consent-timer/bin/sha256-check
 "$PY" -I tools/mkpkg.py packages/consent-timer dist/gen5w.kr.timer.zip
 
-# Opt-in Bluelink monthly reminder hider: its own USB kit, not in the editions.
+# Bluelink monthly reminder hider (service only, part of standard and dongle).
 "$PY" -I tools/mkpkg.py packages/bluelink-quiet dist/gen5w.kr.bluelink.zip
-"$PY" -I tools/bluelink-kit.py dist/gen5w.kr.bluelink.zip dist/gen5w-kr-bluelink.zip
 
 # USB Wi-Fi dongle package (stock Wi-Fi HAL unchanged; bcmdhd stand-in module)
 "$PY" -I tools/usb-wifi/build_dongle_zip.py

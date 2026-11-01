@@ -12,7 +12,7 @@ BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 # Present with the match marker: still declare the stock hotspot feature (menu).
 AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
-IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer'
+IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink'
 ALL_IDS=$IDS
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS"
 VARIANT=standard
@@ -31,13 +31,13 @@ if [ -f GEN5W-BACKEND ]; then
     BACKEND=${BACKEND%$'\r'}
 fi
 if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
-    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer'
+    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink'
     ALL_IDS=$IDS
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
 # Safe editions leave SystemUI (the boot-critical consent screen) stock.
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
-REVERSE='gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
+REVERSE='gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || v=$(md5sum "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 report() {
@@ -470,6 +470,14 @@ install_transaction() {
             safe_remove "$id" || { result "$id" failed; report "FAILED removing $id for safe edition"; rollback_transaction; return 1; }
             result "$id" skipped
             report "SKIPPED $id: safe edition keeps the stock 10 second warning"
+            continue
+        fi
+        # Safe editions stay minimal: the Bluelink reminder stays stock too.
+        if keeps_systemui && [ "$id" = gen5w.kr.bluelink ]; then
+            : > "$TX/attempt.$id"; sync
+            safe_remove "$id" || { result "$id" failed; report "FAILED removing $id for safe edition"; rollback_transaction; return 1; }
+            result "$id" skipped
+            report "SKIPPED $id: safe edition keeps the stock Bluelink reminder"
             continue
         fi
         # Native NEMESIS ignores hook exit status. Gate before removing any old module.

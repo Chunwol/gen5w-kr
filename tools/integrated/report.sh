@@ -1,6 +1,6 @@
 # Fixed allowlist only. No raw logs, phone identifiers or hotspot credentials.
 result() {
-    case "$1" in gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.timer)
+    case "$1" in gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.timer|gen5w.kr.bluelink)
         echo "$2" > "$TX/result.$1";;
     esac
 }
@@ -13,6 +13,7 @@ feature_name() {
         gen5w.kr.bridge) echo 'Bluetooth 자동 연결·유선 HUD 기반';;
         gen5w.kr.core) echo 'CarPlay 계기판·HUD 길안내';;
         gen5w.kr.timer) echo '시동 주의 안내 즉시 자동 전환';;
+        gen5w.kr.bluelink) echo '블루링크 월간 가입 안내 숨기기';;
     esac
 }
 result_label() {
