@@ -112,6 +112,13 @@ export AUDIO_TEST_REMOUNT_FAIL=rw
 if run post; then bad 'audio remount failure rejected'; else ok 'audio remount failure rejected'; fi
 check 'audio remount failure original identity' cmp -s "$TARGET" "$W/fixture/original"
 unset AUDIO_TEST_REMOUNT_FAIL
+# A busy read-only remount (seen on real units) must not fail the install or removal.
+export AUDIO_TEST_REMOUNT_FAIL=ro
+check 'audio install succeeds when remount ro stays busy' run post
+check 'audio busy remount ro still patched' eval '! cmp -s "$TARGET" "$W/fixture/original"'
+check 'audio removal succeeds when remount ro stays busy' run preun
+check 'audio busy remount ro removal exact original' cmp -s "$TARGET" "$W/fixture/original"
+unset AUDIO_TEST_REMOUNT_FAIL
 mkdir -p "$MARK"
 echo foreign > "$MARK/owner"
 echo keep > "$MARK/original"

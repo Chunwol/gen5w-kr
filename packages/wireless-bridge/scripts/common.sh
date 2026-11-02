@@ -62,7 +62,18 @@ dipo_previous() {
 gpm_original() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" original "$1"; }
 gpm_patched() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" patched "$1"; }
 owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/owner")" = "$OWNER" ]; }
-sys_ro() { "$NEM" remount ro >/dev/null 2>&1; }
+# /system can stay busy for a moment after a change (EBUSY, also seen on a US
+# Ioniq 5). Changes are synced and the install reboots, which mounts /system
+# read-only again, so a busy remount is a warning, not a failure.
+sys_ro() {
+    local n=0
+    while [ $n -lt 3 ]; do
+        "$NEM" remount ro >/dev/null 2>&1 && return 0
+        n=$((n + 1)); sleep 1
+    done
+    echo 'WARN: /system stays writable until the next reboot (remount busy)'
+    return 0
+}
 inspect() {
     [ -x "$NEM" ] || return 1
     for bridge_path in "$SYS/etc/gen5w-kr-backup" "$DATA/nemesis/backup" "$STATE" "$MARK" "$TARGET" "$APK" "$DIPO_TARGET" "$DIPO_APK" "$GPM_TARGET" "$GPM_APK" "$STOPPING"; do

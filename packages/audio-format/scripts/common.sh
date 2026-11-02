@@ -75,7 +75,18 @@ dependencies() {
     [ "$AUDIO_OWNED" = no ] && return 77
     return 1
 }
-sys_ro() { "$NEM" remount ro >/dev/null 2>&1; }
+# /system can stay busy for a moment after a change (EBUSY, also seen on a US
+# Ioniq 5). Changes are synced and the install reboots, which mounts /system
+# read-only again, so a busy remount is a warning, not a failure.
+sys_ro() {
+    local n=0
+    while [ $n -lt 3 ]; do
+        "$NEM" remount ro >/dev/null 2>&1 && return 0
+        n=$((n + 1)); sleep 1
+    done
+    echo 'WARN: /system stays writable until the next reboot (remount busy)'
+    return 0
+}
 stage_clear() {
     if [ -e "$TARGET.gen5w-kr-audio.tmp" ] || [ -L "$TARGET.gen5w-kr-audio.tmp" ]; then
         original "$TARGET.gen5w-kr-audio.tmp" || patched "$TARGET.gen5w-kr-audio.tmp" || return 1
