@@ -47,18 +47,38 @@ html_escape() {
     done
 }
 wifi_support() {
-    local entry class messages
-    for entry in /sys/class/net/wlan*; do [ -e "$entry" ] && { echo 'Wi-Fi 인터페이스 확인'; return; }; done
-    for entry in /sys/bus/sdio/devices/*/class; do
+    local entry class messages root=${IT_SYSFS:-/sys}
+    for entry in "$root"/class/net/wlan*; do [ -e "$entry" ] && { echo 'Wi-Fi 인터페이스 확인'; return; }; done
+    for entry in "$root"/bus/sdio/devices/*/class; do
         [ -r "$entry" ] || continue
         IFS= read -r class < "$entry"
         [ "$class" = 0x07 ] && { echo 'Wi-Fi 하드웨어 확인'; return; }
     done
-    messages=$(dmesg 2>/dev/null)
+    [ -n "${IT_SYSFS:-}" ] || messages=$(dmesg 2>/dev/null)
     case "$messages" in
         *'Firmware up'*) echo 'Wi-Fi 펌웨어 응답 확인';;
         *) echo 'Wi-Fi 하드웨어 확인 필요';;
     esac
+}
+# Which download fits this car, from this run's own results. One line or nothing.
+edition_advice() {
+    local hint=$DATA/nemesis/gen5wkr.edition-hint value
+    if [ -f "$hint" ] && [ ! -L "$hint" ]; then
+        value=$(cat "$hint" 2>/dev/null)
+        if [ "$value" = standard ]; then
+            echo '내장 Wi-Fi가 확인돼 동글형 설치를 멈췄습니다(차는 바뀌지 않았습니다). 기본형 gen5w-kr-standard.zip을 설치하세요. 내장 대신 동글을 꼭 쓰려면 USB 맨 바깥에 빈 파일 GEN5W-FORCE-DONGLE을 두고 다시 실행하세요.'
+            return
+        fi
+    fi
+    # Only when the stock apps know wireless projection; a dongle cannot add it.
+    for value in "$SYS/app/HKMC_DiPO.odex" "$SYS/app/PhoneProjection.odex" "$SYS/app/Iap2ServerApp.odex" ''; do
+        [ -n "$value" ] || return 0
+        [ -f "$value" ] && grep -aqE 'carplay_wireless|androidauto_wireless|ConnectivitySSID' "$value" 2>/dev/null && break
+    done
+    if [ "$VARIANT" != dongle ] && [ "$(cat "$TX/result.gen5w.kr.wireless" 2>/dev/null)" = skipped ] &&
+        [ "$(wifi_support)" = 'Wi-Fi 하드웨어 확인 필요' ]; then
+        echo '내장 Wi-Fi를 찾지 못해 무선 연결은 빼고 설치했습니다. 내장 Wi-Fi가 없는 차라면 지원 USB Wi-Fi 동글(AR9271/AR7010)을 꽂고 동글형 gen5w-kr-dongle.zip으로 업데이트하세요.'
+    fi
 }
 hud_owner() {
     local file=$DATA/data/kr.gen5w.core/files/hud-owner.status value
@@ -94,7 +114,7 @@ native_warning() {
     esac
 }
 write_summary() {
-    local destination="$(pwd)/GEN5W-REPORT" file id value label installed state revision rows= name report_ids="$ALL_IDS"
+    local destination="$(pwd)/GEN5W-REPORT" file id value label installed state revision rows= name report_ids="$ALL_IDS" advice
     case " $report_ids " in
         *" gen5w.kr.dongle "*) ;;
         *)
@@ -110,6 +130,8 @@ write_summary() {
         [ ! -L "$destination/$file" ] && [ ! -L "$destination/$file.tmp" ] || return 1
         [ ! -e "$destination/$file" ] || [ -f "$destination/$file" ] || return 1
     done
+    advice=$(edition_advice)
+    rm -f "$DATA/nemesis/gen5wkr.edition-hint" 2>/dev/null
     state=$(cat "$TX/state" 2>/dev/null)
     case "$state" in committed|rolled-back|capturing|applying|removing|recovering|recovery-required) ;; *) state=none;; esac
     revision=$(cat BUILD-REVISION 2>/dev/null)
@@ -118,7 +140,9 @@ write_summary() {
         echo '# Gen5W KR 적용 결과'
         echo
         if [ -f "$TX/recovery-mode" ]; then echo '**핫스팟 복구 경로로 진행했습니다. 전체 설치 완료가 아닙니다.**'; echo; fi
-        echo '- 기본형 · 순정 주의 안내 버튼 활성화 즉시 자동 전환 (지원 조건에 한함)'
+        if [ -n "$advice" ]; then echo "**받을 버전 안내:** $advice"; echo; fi
+        if [ "$VARIANT" = dongle ]; then echo '- 동글형(USB Wi-Fi)'; else echo '- 기본형(내장 Wi-Fi)'; fi
+        echo '- 순정 주의 안내 버튼 활성화 즉시 자동 전환 (지원 조건에 한함)'
         echo
         echo "- HUD 설정: $(hud_variant)"
         echo '- 계기판 길안내 지원 여부: 확인되지 않음'
@@ -207,6 +231,11 @@ write_summary() {
         echo '<title>Gen5W KR 적용 결과</title><style>body{font:16px/1.6 sans-serif;max-width:960px;margin:32px auto;padding:0 16px;color:#17212b}table{border-collapse:collapse;width:100%}th,td{padding:12px;border:1px solid #ccd4dc;text-align:left}.applied,.wired-only{background:#e4f7eb}.failed,.recovery-required{background:#ffe5e5}.failed-restored,.restored,.skipped{background:#fff2cd}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#145ac4}</style>'
         echo '<h1>Gen5W KR 적용 결과</h1><p>설정·파일 적용 결과이며 실제 연결 성공과는 구분합니다.</p>'
         [ ! -f "$TX/recovery-mode" ] || echo '<p><strong>핫스팟 복구 경로입니다. 전체 설치 완료가 아닙니다.</strong></p>'
+        if [ -n "$advice" ]; then
+            echo '<p style="background:#fff2cd;padding:12px"><strong>받을 버전 안내:</strong> '
+            echo "$advice" | html_escape
+            echo '</p>'
+        fi
         echo '<table><thead><tr><th>기능</th><th>적용 결과</th><th>설치 등록</th></tr></thead><tbody>'
         for id in $report_ids; do
             name=$(feature_name "$id"); value=$(cat "$TX/result.$id" 2>/dev/null)
@@ -223,7 +252,9 @@ write_summary() {
     cat "$destination/RESULT.md"
     echo 'USB의 GEN5W-REPORT/RESULT.html에서 한눈에 확인하고, ISSUE.md를 검토 후 이슈에 첨부하세요.'
     if [ -x /system/bin/am ]; then
-        /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE 'Gen5W KR 작업 결과: USB의 GEN5W-REPORT에서 기능별 결과를 확인하세요.' --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || true
+        value='Gen5W KR 작업 결과: USB의 GEN5W-REPORT에서 기능별 결과를 확인하세요.'
+        [ -z "$advice" ] || value="$value 맞는 버전 안내가 있습니다."
+        /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "$value" --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || true
     fi
     return 0
 }

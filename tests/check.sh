@@ -8,7 +8,7 @@ W=$(mktemp -d); trap 'rm -rf "$W"; unit_shim_cleanup' EXIT
 pass=0; fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else echo "FAIL $name"; fail=$((fail+1)); fi; }
 
-U=$W/usb; S=$W/sys; D=$W/data; B=$W/stub
+U=$W/usb; S=$W/sys; D=$W/data; B=$W/stub; F=$W/sysfs
 mkdir -p "$U" "$S/framework" "$S/priv-app" "$S/lib" "$S/app" "$S/etc/permissions" "$D/nemesis/apps" "$B"
 cp tools/integrated/check.sh "$U/"
 echo 0123456789abcdef > "$U/BUILD-REVISION"
@@ -43,7 +43,7 @@ stock() {
 }
 run() {
     rm -rf "$U/GEN5W-REPORT"
-    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
+    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_SYSFS=$F CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
 }
 snapshot() { (cd "$W" && find sys data -type f -exec md5sum {} + | sort); }
 
@@ -51,7 +51,23 @@ stock
 before=$(snapshot)
 check 'stock V039 passes' run
 check 'verdict says install' grep -q '판정: 설치 가능' "$U/GEN5W-REPORT/CHECK.md"
-check 'recommends safe-wireless' grep -q 'gen5w-kr-safe-wireless.zip' "$U/GEN5W-REPORT/CHECK.md"
+check 'no unreleased edition is recommended' eval '! grep -q safe-wireless "$U/GEN5W-REPORT/CHECK.md"'
+check 'unknown Wi-Fi recommends the standard edition' grep -q '받을 파일: 기본형 `gen5w-kr-standard.zip`' "$U/GEN5W-REPORT/CHECK.md"
+check 'unknown Wi-Fi explains the installer re-check' grep -q '무선만 빼고 설치한 뒤 결과 화면에서 동글형을 안내' "$U/GEN5W-REPORT/CHECK.md"
+check 'records the recommendation' grep -qx 'recommend=standard' "$U/GEN5W-REPORT/CHECK.txt"
+mkdir -p "$F/bus/usb/devices/1-1"; echo 0cf3 > "$F/bus/usb/devices/1-1/idVendor"; echo 9271 > "$F/bus/usb/devices/1-1/idProduct"
+run
+check 'dongle without built-in Wi-Fi recommends the dongle edition' grep -q '받을 파일: 동글형 `gen5w-kr-dongle.zip`' "$U/GEN5W-REPORT/CHECK.md"
+check 'records the dongle' grep -qx 'dongle_seen=yes' "$U/GEN5W-REPORT/CHECK.txt"
+mkdir -p "$F/class/net/wlan0"
+run
+check 'built-in Wi-Fi recommends the standard edition even with a dongle' grep -qx 'recommend=standard' "$U/GEN5W-REPORT/CHECK.txt"
+check 'built-in Wi-Fi is explained' grep -q '내장 Wi-Fi가 확인됐습니다' "$U/GEN5W-REPORT/CHECK.md"
+mkdir -p "$D/nemesis/apps/gen5w.kr.dongle"; echo 'id=gen5w.kr.dongle' > "$D/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
+run
+check 'installed dongle edition keeps the dongle recommendation' grep -qx 'recommend=dongle' "$U/GEN5W-REPORT/CHECK.txt"
+rm -rf "$F" "$D/nemesis/apps/gen5w.kr.dongle"
+run
 check 'records SystemUI stock' grep -qx 'systemui_odex=stock-v039' "$U/GEN5W-REPORT/CHECK.txt"
 check 'records services stock' grep -qx 'services_odex=stock-v039' "$U/GEN5W-REPORT/CHECK.txt"
 check 'records firmware' grep -qx 'firmware=OSHEV.KOR' "$U/GEN5W-REPORT/CHECK.txt"
@@ -99,7 +115,7 @@ mkdir -p "$D/nemesis/gen5w-kr-integrated"; echo applying > "$D/nemesis/gen5w-kr-
 check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/GEN5W-REPORT/CHECK.md"'
 
 ln -s "$W/elsewhere" "$U/GEN5W-REPORT.tmp" 2>/dev/null; rm -rf "$U/GEN5W-REPORT"; ln -s "$W" "$U/GEN5W-REPORT"
-check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
+check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_SYSFS=$F CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
 rm -f "$U/GEN5W-REPORT" "$U/GEN5W-REPORT.tmp"
 
 unit_shim_report || fail=$((fail+1))

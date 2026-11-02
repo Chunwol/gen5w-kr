@@ -57,6 +57,42 @@ echo "0cf3" > "$W/sys/bus/usb/devices/1-1/idVendor"
 echo "9271" > "$W/sys/bus/usb/devices/1-1/idProduct"
 
 check 'dongle pre accepts 0cf3:9271 dongle' run pre
+
+# 2a. Built-in Wi-Fi: the dongle edition stops and points to the standard edition.
+F=$W/sysfs; export DONGLE_TEST_SYSFS=$F
+HINT=$W/data/nemesis/gen5wkr.edition-hint
+mkdir -p "$F/bus/sdio/devices/mmc1:0001:1"; echo 0x07 > "$F/bus/sdio/devices/mmc1:0001:1/class"
+check 'dongle pre refuses with built-in SDIO Wi-Fi' eval '! run pre'
+check 'refusal leaves the standard edition hint' grep -qx standard "$HINT"
+check 'refusal changes nothing in /system' cmp -s "$TARGET" "$W/fixture/stock_hal"
+rm -f "$HINT"
+check 'GEN5W-FORCE-DONGLE keeps the dongle on purpose' eval 'GEN5W_FORCE_DONGLE=1 run pre'
+check 'an update of the dongle edition is not re-checked' eval 'GEN5W_REINSTALL=1 run pre'
+check 'forced install leaves no hint' test ! -e "$HINT"
+rm -rf "$F/bus/sdio"
+echo 'dhd: Firmware up: op_mode=0x0005' > "$W/dmesg.txt"; export DONGLE_TEST_DMESG=$W/dmesg.txt
+check 'dongle pre refuses on the built-in firmware message' eval '! run pre'
+rm -f "$HINT" "$W/dmesg.txt"; unset DONGLE_TEST_DMESG
+# Wi-Fi off: turned on briefly with the stock driver, then off again.
+echo 0 > "$W/wifi_on"
+printf '#!/bin/sh\ncat "%s/wifi_on"\n' "$W" > "$W/bin/settings"
+cat > "$W/bin/svc" <<EOF
+#!/bin/sh
+case "\$2" in
+  enable) echo 1 > "$W/wifi_on"; [ ! -f "$W/has-builtin" ] || mkdir -p "$F/class/net/wlan0";;
+  disable) [ -f "$W/stuck-on" ] || echo 0 > "$W/wifi_on"; rm -rf "$F/class/net/wlan0";;
+esac
+EOF
+chmod +x "$W/bin/settings" "$W/bin/svc"
+: > "$W/has-builtin"
+check 'Wi-Fi probe finds built-in Wi-Fi that was off' eval '! run pre'
+check 'Wi-Fi is off again after the probe' grep -qx 0 "$W/wifi_on"
+rm -f "$HINT" "$W/has-builtin"
+check 'no built-in Wi-Fi after the probe: dongle install continues' run pre
+check 'Wi-Fi is off again after an empty probe' grep -qx 0 "$W/wifi_on"
+: > "$W/stuck-on"; echo 0 > "$W/wifi_on"
+check 'Wi-Fi that cannot be turned off stops the install' eval '! run pre'
+rm -f "$W/stuck-on" "$W/bin/settings" "$W/bin/svc" "$HINT"; rm -rf "$F"
 echo 'existing firmware' > "$W/sys/etc/firmware/htc_9271.fw"
 check 'dongle refuses to overwrite existing firmware without a backup' eval '! run pre'
 check 'existing firmware remains unchanged after refusal' grep -qx 'existing firmware' "$W/sys/etc/firmware/htc_9271.fw"

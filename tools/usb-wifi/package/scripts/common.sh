@@ -74,6 +74,51 @@ has_dongle_hw() {
     return 1
 }
 
+# Built-in (SDIO Broadcom) Wi-Fi, positive evidence only. A wlan interface
+# counts only while no dongle driver is loaded, because then it can only be
+# the built-in chip.
+builtin_wifi_observed() {
+    local root=/sys e class
+    # Tests: a fake sysfs and kernel log, never the build machine's own.
+    [ -z "${DONGLE_TEST_SYS:-}" ] || root=${DONGLE_TEST_SYSFS:-$DONGLE_TEST_SYS/no-sysfs}
+    for e in "$root"/bus/sdio/devices/*/class; do
+        [ -r "$e" ] || continue
+        IFS= read -r class < "$e"
+        [ "$class" = 0x07 ] && return 0
+    done
+    if ! grep -q ath9k_htc /proc/modules 2>/dev/null; then
+        for e in "$root"/class/net/wlan*; do [ -e "$e" ] && return 0; done
+    fi
+    if [ -n "${DONGLE_TEST_SYS:-}" ]; then
+        [ -n "${DONGLE_TEST_DMESG:-}" ] && grep -q 'Firmware up' "$DONGLE_TEST_DMESG" 2>/dev/null
+        return
+    fi
+    dmesg 2>/dev/null | grep -q 'Firmware up'
+}
+# yes / unknown. Turns Wi-Fi on for up to 8 s only when it was off, with the
+# stock bcmdhd.ko still in place, and turns it off again (as the standard
+# edition's installer does). Prints "error" if Wi-Fi could not be turned off.
+builtin_wifi() (
+    builtin_wifi_observed && { echo yes; exit 0; }
+    [ "$(settings get global wifi_on 2>/dev/null)" = 0 ] || { echo unknown; exit 0; }
+    seen=unknown
+    if svc wifi enable >/dev/null 2>&1; then
+        n=0
+        while [ $n -lt 8 ]; do
+            builtin_wifi_observed && { seen=yes; break; }
+            sleep 1; n=$((n+1))
+        done
+        svc wifi disable >/dev/null 2>&1
+        n=0
+        while [ "$(settings get global wifi_on 2>/dev/null)" != 0 ]; do
+            [ $n -lt 8 ] || { echo error; exit 0; }
+            sleep 1; n=$((n+1))
+        done
+    fi
+    echo "$seen"
+)
+EDITION_HINT=$DATA/nemesis/gen5wkr.edition-hint
+
 # Supported stock Broadcom module hashes (V039 Gen5W /system/wifi/bcmdhd.ko):
 STOCK_KO_MD5_V039="c19ed2e2d065c6c406d0ba95945caebf"
 STOCK_KO_SHA256_V039="ef79d002fd2a59e775ab7167f6adf4ecbdac0f2e2a9a2463fd5cc96b12de50c0"

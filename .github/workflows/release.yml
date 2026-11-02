@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           cd files
-          for file in gen5w-kr-standard.zip gen5w-kr-dongle.zip gen5w-kr-source.zip; do
+          for file in gen5w-kr-check.zip gen5w-kr-standard.zip gen5w-kr-dongle.zip gen5w-kr-source.zip; do
             grep -E "^[a-f0-9]{64}  $file$" SHA256SUMS >> RELEASE-SHA256SUMS
           done
           sha256sum -c RELEASE-SHA256SUMS
@@ -53,6 +53,10 @@ jobs:
             [ "$variant" != dongle ] || backend=dongle
             test "$(unzip -p "gen5w-kr-$variant.zip" GEN5W-BACKEND)" = "$backend"
           done
+          # The check ZIP is read-only: same build, check action only, no packages.
+          test "$(unzip -p gen5w-kr-check.zip BUILD-REVISION)" = "$SOURCE_SHA"
+          unzip -l gen5w-kr-check.zip GEN5W-CHECK-ONLY >/dev/null
+          if unzip -l gen5w-kr-check.zip | grep -q 'packages/.*\.zip'; then echo 'check ZIP carries packages'; exit 1; fi
       - name: Attach GPL source for the dongle binaries
         run: |
           set -euo pipefail
@@ -72,19 +76,26 @@ jobs:
         run: |
           set -euo pipefail
           cat > notes.md <<'NOTES'
-          사용할 Wi-Fi 장치에 맞는 설치 ZIP 하나를 받아 주세요.
+          ## 무엇을 받나요?
 
-          - **기본형** `gen5w-kr-standard.zip`: 순정 주의 안내를 표시하고, 확인 버튼이 활성화되고 순정 자동 전환 조건이 맞으면 10초를 기다리지 않고 바로 넘깁니다. SystemUI·services 같은 부팅용 시스템 파일은 바꾸지 않습니다. 조건이 맞지 않으면 순정처럼 수동 확인이 필요합니다.
+          | 순서 | 파일 | 설명 |
+          |---|---|---|
+          | **① 점검** | `gen5w-kr-check.zip` | 차에 아무것도 쓰지 않는 점검 USB입니다. 실행하면 USB의 `GEN5W-REPORT/CHECK.md`에 **받을 버전**(기본형/동글형)과 설치 가능 여부가 나옵니다. |
+          | **② 설치 (둘 중 하나)** | `gen5w-kr-standard.zip` | **기본형**: 내장 Wi-Fi가 있는 차 |
+          | | `gen5w-kr-dongle.zip` | **동글형**: 내장 Wi-Fi가 없는 차 + 지원 USB Wi-Fi 동글(AR9271/AR7010) |
 
-          - 두 판 모두 블루링크 미가입 차에서 한 달마다 뜨는 "서비스 가입 안내"를 다시 띄우지 않습니다(순정 V039 블루링크 앱에서만, `/system` 파일 변경 없음, 가입·서비스 기능 영향 없음, 제거하면 원래 값 복원). 실차 미확인입니다.
+          **나머지 파일은 받지 않아도 됩니다.** `gen5w-kr-source.zip`(이 버전의 소스), `gen5w-kr-dongle-gpl-source.tar.xz`(동글형 커널 모듈의 GPL 소스 안내, 동글형을 남에게 줄 때 함께 주세요), `RELEASE-SHA256SUMS`(파일 확인용 체크섬)입니다.
 
-          - **동글형** `gen5w-kr-dongle.zip`: 내장 Wi-Fi가 없는 차에서 지원 USB Wi-Fi 동글(ath9k_htc)을 쓰는 판입니다. 순정 Wi-Fi HAL은 바꾸지 않습니다. 부팅은 유선 상태로 하고, 부팅 후 동글이 확인되면 무선을 켭니다. 실차 동작은 미확인입니다.
-          - 동글형에서 기본형으로 바꾸면 동글 설정을 제거하고 순정 구성을 복원합니다. 동글을 계속 사용하려면 동글형으로 업데이트하세요.
+          ## 사용 방법
 
-          압축을 풀어 내용물을 USB 맨 바깥에 복사한 뒤 NEMESIS Manager의 **Run USB NEMESIS.sh**를 선택하세요. 작업 후 USB의 **GEN5W-REPORT/RESULT.html**에서 기능별 결과를 확인할 수 있습니다.
+          1. `gen5w-kr-check.zip`의 압축을 풀어 내용물을 USB 맨 바깥에 복사하고, NEMESIS Manager에서 **Run USB NEMESIS.sh**를 선택합니다.
+          2. USB의 `GEN5W-REPORT/CHECK.md`에서 판정과 **받을 파일**을 확인합니다. "설치하지 마세요"가 나오면 설치하지 마세요.
+          3. 같은 USB에 추천된 설치 ZIP의 내용물을 덮어 복사하고 다시 **Run USB NEMESIS.sh**를 선택합니다.
+          4. `GEN5W-REPORT/RESULT.html`에서 결과를 확인합니다. 내장 Wi-Fi를 찾지 못했거나 동글형이 내장 Wi-Fi를 발견하면 여기에 맞는 버전을 안내합니다.
+          5. 잘 됐든 안 됐든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)에 `GEN5W-REPORT` 로그와 함께 알려 주세요.
 
-          `gen5w-kr-dongle-gpl-source.tar.xz`는 동글형에 들어 있는 GPL-2.0 커널 모듈·펌웨어의 소스 안내입니다(커널 설정, 빌드 스크립트, Linux·모비스·Debian 원본 소스의 공식 주소와 해시). 동글형을 다른 사람에게 줄 때 함께 주세요.
+          동글형은 설치 직전에 내장 Wi-Fi를 한 번 더 확인하고, 있으면 설치를 멈춥니다(차는 바뀌지 않음). 내장 대신 동글을 꼭 쓰려면 USB 맨 바깥에 빈 파일 `GEN5W-FORCE-DONGLE`을 두세요.
 
-          `gen5w-kr-source.zip`은 같은 코드 버전의 소스입니다. ZIP의 SHA256은 `RELEASE-SHA256SUMS`와 비교할 수 있습니다. 지원 차량과 설치 전 준비 사항은 저장소의 한국어 가이드를 확인해 주세요.
+          두 판 모두 시동 주의 안내를 조건이 맞으면 바로 넘기고, 블루링크 미가입 안내를 숨깁니다. **실차에서는 아직 확인하지 않았습니다.** 설치 전에 저장소의 [설치 가이드](https://github.com/Chunwol/gen5w-kr/blob/main/docs/beginner-guide.md)와 복구 준비 체크리스트를 읽어 주세요.
           NOTES
-          gh release create "$VERSION" --target "$SOURCE_SHA" --title "Gen5W KR $VERSION" --notes-file notes.md files/gen5w-kr-standard.zip files/gen5w-kr-dongle.zip files/gen5w-kr-source.zip files/gen5w-kr-dongle-gpl-source.tar.xz files/RELEASE-SHA256SUMS
+          gh release create "$VERSION" --target "$SOURCE_SHA" --title "Gen5W KR $VERSION" --notes-file notes.md files/gen5w-kr-check.zip files/gen5w-kr-standard.zip files/gen5w-kr-dongle.zip files/gen5w-kr-source.zip files/gen5w-kr-dongle-gpl-source.tar.xz files/RELEASE-SHA256SUMS

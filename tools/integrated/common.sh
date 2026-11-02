@@ -35,6 +35,10 @@ if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
     ALL_IDS=$IDS
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
+# Empty GEN5W-FORCE-DONGLE next to this script: use the dongle even with built-in Wi-Fi.
+GEN5W_FORCE_DONGLE=
+[ ! -f GEN5W-FORCE-DONGLE ] || [ -L GEN5W-FORCE-DONGLE ] || GEN5W_FORCE_DONGLE=1
+export GEN5W_FORCE_DONGLE
 # Safe editions leave SystemUI (the boot-critical consent screen) stock.
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
 REVERSE='gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'

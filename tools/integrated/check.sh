@@ -71,15 +71,30 @@ verify_hash() {
     echo unknown
 }
 # Passive only: the installer may briefly turn Wi-Fi on to look; this check never does.
+SYSFS=${CK_TEST_SYSFS:-/sys}
 wifi_seen() {
     local entry class
-    for entry in /sys/class/net/wlan*; do [ -e "$entry" ] && { echo yes; return; }; done
-    for entry in /sys/bus/sdio/devices/*/class; do
+    for entry in "$SYSFS"/class/net/wlan*; do [ -e "$entry" ] && { echo yes; return; }; done
+    for entry in "$SYSFS"/bus/sdio/devices/*/class; do
         [ -r "$entry" ] || continue
         IFS= read -r class < "$entry"
         [ "$class" = 0x07 ] && { echo yes; return; }
     done
     case "$(dmesg 2>/dev/null)" in *'Firmware up'*) echo yes;; *) echo unknown;; esac
+}
+# Supported USB Wi-Fi dongle plugged in (same IDs as the dongle edition).
+dongle_seen() {
+    local v p vid pid
+    for v in "$SYSFS"/bus/usb/devices/*/idVendor; do
+        [ -f "$v" ] || continue
+        p=${v%idVendor}idProduct
+        [ -f "$p" ] || continue
+        IFS= read -r vid < "$v"; IFS= read -r pid < "$p"
+        case "$vid:$pid" in
+            0cf3:9271|0cf3:7010|0cf3:7015|0cf3:1006|0846:9030|0846:9018|07d1:3a10) echo yes; return;;
+        esac
+    done
+    echo no
 }
 wireless_code() {
     local a
@@ -120,6 +135,18 @@ W_CODE=$(wireless_code)
 W_HW=$(wifi_seen)
 fact wireless_code "$W_CODE"
 fact wifi_hardware_seen "$W_HW"
+D_SEEN=$(dongle_seen)
+fact dongle_seen "$D_SEEN"
+D_INST=no
+[ -f "$APPS/gen5w.kr.dongle/NEMESIS.data" ] && D_INST=yes
+fact dongle_installed "$D_INST"
+# Which download fits this car. With the dongle edition installed, wlan0 may be
+# the dongle, so the built-in result is not used.
+if [ "$D_INST" = yes ]; then EDITION=dongle; EDITION_WHY=installed
+elif [ "$W_HW" = yes ]; then EDITION=standard; EDITION_WHY=builtin
+elif [ "$D_SEEN" = yes ]; then EDITION=dongle; EDITION_WHY=dongle-only
+else EDITION=standard; EDITION_WHY=unknown; fi
+fact recommend "$EDITION"
 fact wifi_on "$(settings get global wifi_on 2>/dev/null | clean)"
 fact ium_support "$(prop persist.ium.support)"
 for x in com.hkmc.software.connectivity.carplay_wireless.xml com.hkmc.software.connectivity.androidauto_wireless.xml com.hkmc.software.wifihotspot.xml android.hardware.wifi.xml; do
@@ -204,7 +231,7 @@ case "$TXSTATE" in none|committed|rolled-back) ;;
 [ -e "$SYS/etc/permissions/android.hardware.wifi.xml" ] && warn 'Wi-Fi 클라이언트 선언(android.hardware.wifi.xml)이 이미 있습니다. 순정에 원래 있던 것인지 확인이 필요합니다. 벽돌 차량에 추가됐던 파일입니다.'
 
 if [ "$W_CODE" != yes ]; then
-    WL='무선 안전판을 설치해도 무선은 켜지지 않고 유선 전용으로 설치됩니다(순정 앱에서 무선 코드를 찾지 못함).'
+    WL='순정 앱에서 무선 코드를 찾지 못했습니다. 설치해도 무선은 켜지지 않고 유선 전용(HUD 등)으로 설치됩니다.'
 else
     if [ -z "$WL" ]; then
         case "$S_AUDIO" in stock-v039|patched-v039) ;;
@@ -212,7 +239,7 @@ else
         if [ "$W_HW" = yes ]; then
             WL='무선 조건 충족: 무선 코드와 Wi-Fi 장치가 확인됐습니다.'
         else
-            WL='무선 코드는 있으나 Wi-Fi 장치가 지금은 꺼져 있어 확인되지 않았습니다. 설치기가 Wi-Fi를 잠깐 켜서 확인하고, 안 되면 유선 전용으로 설치합니다.'
+            WL='무선 코드는 있지만 내장 Wi-Fi는 지금 확인되지 않았습니다(꺼져 있거나 없음). 이 점검은 Wi-Fi를 켜지 않습니다.'
         fi
     fi
 fi
@@ -221,7 +248,7 @@ if [ -n "$BLOCK" ]; then fact verdict block; else fact verdict install; fi
 
 if [ "$MODE" = verify ]; then
     # Volatile values (Wi-Fi power, free space, boot counter) are not compared.
-    stable() { grep -vE '^(wifi_on|wifi_hardware_seen|df|bootguard_count)=' "$1"; }
+    stable() { grep -vE '^(wifi_on|wifi_hardware_seen|dongle_seen|recommend|df|bootguard_count)=' "$1"; }
     SAVED=$OUT/CHECK.txt
     grep -qx 'verdict=install' "$SAVED" || { echo 'REFUSED pre-install check report did not say install'; exit 1; }
     [ -z "$BLOCK" ] || { echo 'REFUSED unit no longer passes the pre-install check'; exit 1; }
@@ -254,9 +281,23 @@ fi
     else
         echo '## 판정: 설치 가능'
         echo
-        echo "- 권장: \`gen5w-kr-safe-wireless.zip\` (동의 화면·services.odex 순정, 무선 유지)"
-        echo "- 무선 연결 때 차 일반 핫스팟 이름·암호가 CarPlay용 값으로 바뀝니다."
+        if [ "$EDITION" = dongle ]; then
+            echo '### 받을 파일: 동글형 `gen5w-kr-dongle.zip`'
+        else
+            echo '### 받을 파일: 기본형 `gen5w-kr-standard.zip`'
+        fi
+        echo
+        case "$EDITION_WHY" in
+            installed) echo '- 이미 동글형이 설치되어 있습니다. 업데이트도 동글형으로 하세요. 기본형으로 바꾸면 동글 설정을 지우고 내장 Wi-Fi로 돌아갑니다.';;
+            builtin) echo '- 내장 Wi-Fi가 확인됐습니다. 동글이 필요 없습니다.';;
+            dongle-only) echo '- 내장 Wi-Fi는 확인되지 않았고 지원 USB Wi-Fi 동글이 꽂혀 있습니다.'
+                echo '- 동글형은 설치 직전에 Wi-Fi를 잠깐 켜서 내장 Wi-Fi를 한 번 더 확인하고, 있으면 설치를 멈추고 기본형을 안내합니다.';;
+            *) echo '- 내장 Wi-Fi를 지금은 확인하지 못했고(꺼져 있거나 없음) 지원 동글도 꽂혀 있지 않습니다.'
+               echo '- 기본형을 설치하세요. 설치기가 Wi-Fi를 잠깐 켜서 다시 확인하고, 내장 Wi-Fi가 없으면 무선만 빼고 설치한 뒤 결과 화면에서 동글형을 안내합니다.'
+               echo '- 내장 Wi-Fi가 없는 차라는 걸 이미 안다면 지원 동글(AR9271/AR7010)을 꽂고 이 점검을 다시 실행하세요.';;
+        esac
         echo "- 무선: $WL"
+        echo '- 무선 연결 때 차 일반 핫스팟 이름·암호가 CarPlay용 값으로 바뀝니다.'
     fi
     if [ -n "$WARN" ]; then
         echo
@@ -279,6 +320,6 @@ fi
 } > "$OUT/CHECK.md"
 sync
 am broadcast -a com.hkmc.intent.action.TOAST \
-    -e com.hkmc.intent.extra.TOAST_MESSAGE "점검 완료: USB의 GEN5W-REPORT/CHECK.md" \
+    -e com.hkmc.intent.extra.TOAST_MESSAGE "점검 완료: USB의 GEN5W-REPORT/CHECK.md에서 받을 버전을 확인하세요" \
     --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1
 [ -z "$BLOCK" ]

@@ -61,12 +61,29 @@ compat=gen5w
 
 이 USB를 다시 꽂았을 때 Manager의 **Packages / Services / Logs**가 보이면 다음 단계로 진행합니다. 안 열리면 [NEMESIS 공식 설치 안내](https://github.com/xwtk/hmg_nemesis#quick-installation-guidance)를 확인하세요. Factory Reset이나 다른 펌웨어 쓰기로 대신하지 않습니다.
 
-## 5. Gen5W KR 설치 ZIP 받기
+## 5. 먼저 점검하고 맞는 버전 고르기
 
-1. [다운로드 페이지](https://github.com/Chunwol/gen5w-kr/releases)에서 **기본형 `gen5w-kr-standard.zip`**을 받습니다.
+설치 전에 **점검 USB**로 내 차에 맞는 버전을 확인합니다. 점검은 차에 아무것도 쓰지 않습니다.
+
+1. [다운로드 페이지](https://github.com/Chunwol/gen5w-kr/releases/latest)에서 **`gen5w-kr-check.zip`**을 받아 압축을 풀고, 내용 전체를 USB 맨 바깥에 복사합니다.
+2. 차량에 USB를 꽂고 Manager에서 **Run USB NEMESIS.sh**를 선택합니다. "점검 완료" 알림이 뜨면 USB를 뺍니다.
+3. PC에서 USB의 **`GEN5W-REPORT/CHECK.md`**를 엽니다.
+   - **판정: 설치하지 마세요** → 설치하지 말고, 적힌 이유(예: 공식 V039 업데이트 필요)부터 해결합니다.
+   - **판정: 설치 가능** → 아래에 적힌 **받을 파일**을 확인합니다.
+
+| CHECK.md의 받을 파일 | 뜻 |
+|---|---|
+| 기본형 `gen5w-kr-standard.zip` | 내장 Wi-Fi가 확인됐거나, 아직 확인하지 못했습니다. 기본형 설치기가 Wi-Fi를 잠깐 켜서 다시 확인하고, 내장 Wi-Fi가 없으면 무선만 빼고 설치한 뒤 결과 화면에서 동글형을 안내합니다. |
+| 동글형 `gen5w-kr-dongle.zip` | 내장 Wi-Fi가 확인되지 않았고 지원 USB Wi-Fi 동글(AR9271/AR7010)이 꽂혀 있습니다. 또는 이미 동글형이 설치되어 있습니다. |
+
+내장 Wi-Fi가 없는 차라는 걸 이미 안다면 지원 동글을 꽂은 상태로 점검하세요. 동글형은 설치 직전에 내장 Wi-Fi를 한 번 더 확인하고, 있으면 설치를 멈추고 기본형을 안내합니다(차는 바뀌지 않음). 내장 Wi-Fi가 있어도 동글을 꼭 쓰려면 USB 맨 바깥에 확장자 없는 빈 파일 `GEN5W-FORCE-DONGLE`을 둡니다.
+
+## 6. Gen5W KR 설치 ZIP 받기
+
+1. 같은 다운로드 페이지에서 CHECK.md가 알려 준 설치 ZIP(**기본형 `gen5w-kr-standard.zip`** 또는 **동글형 `gen5w-kr-dongle.zip`**)을 받습니다. 그 밖의 파일(`gen5w-kr-source.zip`, `gen5w-kr-dongle-gpl-source.tar.xz`)은 받지 않아도 됩니다.
 2. 기본형은 순정의 10초 자동 전환 타이머가 있는 지원 사양에서 확인 버튼이 활성화되자마자 넘깁니다. 주의 안내 화면과 순정 안전 조건은 유지하며, 수동 동의가 필요한 사양은 그대로입니다. 화면을 완전히 생략하는 개인용 구성은 공개 배포하지 않습니다. USB Wi-Fi 동글형은 내장 Wi-Fi가 없는 차용이며 실차 동작은 아직 확인하지 않았습니다.
 3. 같은 릴리스의 `RELEASE-SHA256SUMS`도 받습니다. `Get-FileHash`로 내려받은 설치 ZIP의 SHA256을 구하고 해당 파일 줄과 비교합니다. `gen5w-kr-source.zip`은 개발용 소스이며 설치할 파일이 아닙니다.
-4. 받은 설치 ZIP의 압축을 풀고, **그 안의 내용 전체**를 USB 맨 바깥으로 복사합니다. 이전의 NEMESIS 설치 tar와 이전 실행 스크립트는 섞지 않습니다.
+4. 받은 설치 ZIP의 압축을 풀고, **그 안의 내용 전체**를 점검에 쓴 USB 맨 바깥에 덮어 복사합니다(`GEN5W-REPORT` 폴더는 그대로 둡니다). 이전의 NEMESIS 설치 tar와 다른 버전의 실행 스크립트는 섞지 않습니다.
 
 ```text
 USB 드라이브
@@ -83,29 +100,30 @@ USB 드라이브
 
 `USB\gen5w-kr-standard\NEMESIS.data`처럼 폴더가 한 겹 더 들어가면 안 됩니다. ZIP 자체를 Manager의 단일 패키지 설치로 선택하는 방식도 아닙니다.
 
-## 6. Gen5W KR 설치
+## 7. Gen5W KR 설치
 
 1. USB 루트에 `GEN5W-ACTION` 파일이 **없는지** 확인합니다. 기본 동작은 설치입니다.
 2. 차량에 USB를 꽂으면 Manager가 열립니다. 이 버전은 **USB 삽입만으로 설치하지 않습니다.**
 3. Manager에서 **Run USB NEMESIS.sh**를 한 번 선택합니다. 차량 상태를 확인해 설치 또는 필요한 복구 경로로 진행합니다. 기능이나 복구 모드를 따로 고를 필요가 없습니다.
 4. 정상 완료 시 한 번 재부팅합니다. 실패하면 원복을 시도하고 결과를 남깁니다. 거부 메시지가 나오면 검사 코드를 우회하거나 지원되지 않은 파일을 교체하지 않습니다.
-5. 작업이 끝나면 USB를 빼고 PC에서 **GEN5W-REPORT/RESULT.html**을 엽니다. 기능별 적용·실패·원복 결과를 한눈에 볼 수 있습니다. 핫스팟만 복구한 경우도 구분해 표시합니다. 설치한 기능은 별도 홈 화면 조작 없이 실행됩니다.
+5. 작업이 끝나면 USB를 빼고 PC에서 **GEN5W-REPORT/RESULT.html**을 엽니다. 기능별 적용·실패·원복 결과를 한눈에 볼 수 있습니다. 노란 **받을 버전 안내**가 보이면 그 안내대로 다른 버전으로 바꿔 설치하세요. 핫스팟만 복구한 경우도 구분해 표시합니다. 설치한 기능은 별도 홈 화면 조작 없이 실행됩니다.
 
 설치 완료는 파일 설치 성공을 뜻합니다. 휴대폰 연결이나 HUD의 실제 동작 성공 표시와 구분합니다.
 
-## 7. 휴대폰 사용
+## 8. 휴대폰 사용
 
 - iPhone: Bluetooth와 Wi-Fi를 켜고 차량과 페어링합니다. 휴대폰에 CarPlay 허용 요청이 나오면 허용합니다. 이미 페어링돼 있다면 차량 Bluetooth 연결 상태를 먼저 확인합니다.
 - 유선 CarPlay: 데이터 케이블을 데이터 USB 포트에 연결합니다. 무선을 먼저 연결해야 한다는 요구 조건은 없습니다. Apple USB 장치가 감지되면 무선 브리지는 대기합니다. 무선 실패 직후 순정 USB로 넘어가는 전체 동작은 차량에서 별도 확인이 필요합니다.
 - HUD: CarPlay 지도 앱에서 **실제 길안내를 시작**합니다. 앱이 제공하는 회전·거리·차선 정보만 표시할 수 있습니다. 지도만 열어 놓은 상태와 안내 시작은 다릅니다. 모든 지도 앱이 같은 정보를 보내지는 않습니다.
 - Android Auto: 순정 Google Projection 및 무선 기능 선언을 활성화합니다. V039 환경에서는 별도의 휴대폰 보조 앱 설치 없이 순정 계기판 채널(NavigationStatusService)을 통해 Android Auto의 계기판 및 HUD 턴바이턴 길안내를 순정 네이티브로 지원합니다.
 
-## 8. 업데이트·상태 확인·되돌리기·제거
+## 9. 업데이트·상태 확인·되돌리기·제거
 
 PC에서 USB 루트에 확장자 없는 텍스트 파일 **`GEN5W-ACTION`**을 만들고 첫 줄에 아래 단어 하나만 적습니다. UTF-8 BOM 없이 저장합니다. Windows PowerShell에서는 `$actionFile = 'E:\GEN5W-ACTION'; [IO.File]::WriteAllText($actionFile, 'status', [Text.UTF8Encoding]::new($false))`로 만들 수 있습니다. E:와 `status`를 원하는 작업에 맞게 바꿉니다.
 
 | 첫 줄 | 작업 |
 |---|---|
+| `check` | 아무것도 바꾸지 않고 점검만 해서 `GEN5W-REPORT/CHECK.md`에 판정과 받을 버전 기록 |
 | `status` | 설치된 모듈과 직전 작업 상태 확인 |
 | `update` | 새 통합본으로 교체 |
 | `rollback` | 가장 최근 작업 직전 상태로 복원 |
@@ -115,7 +133,7 @@ USB를 꽂고 Manager의 **Run USB NEMESIS.sh**를 선택합니다. 완료 후 `
 
 NEMESIS까지 제거하려면 **Gen5W KR 제거가 성공한 뒤** NEMESIS 공식 안내에 따라 **Wipe NEMESIS**를 사용합니다. `recovery-required`가 있으면 백업을 지우거나 Wipe부터 하지 않습니다.
 
-## 9. 막혔을 때
+## 10. 막혔을 때
 
 | 증상 | 먼저 확인 |
 |---|---|

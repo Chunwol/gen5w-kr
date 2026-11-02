@@ -11,11 +11,16 @@
 | `gen5w-kr-standard.zip` | wireless·audio·bridge·core·timer·bluelink (`services.odex`·`SystemUI.odex` 순정) | 순정 화면 유지, 서비스로 버튼 활성화 즉시 자동 전환 |
 | `gen5w-kr-dongle.zip` | 기본형 + dongle (`/system/wifi/bcmdhd.ko` 대리 모듈, 순정 HAL 유지) | 기본형과 같음 |
 
-아래 안전판(`safe`)·무선 안전판(`safe-wireless`)·점검판(`check`)은 `tools/build-all.sh`로 만들 수 있지만 릴리스에는 올리지 않습니다.
+점검판 `gen5w-kr-check.zip`(읽기 전용)도 릴리스에 함께 올립니다. 아래 안전판(`safe`)·무선 안전판(`safe-wireless`)은 `tools/build-all.sh`로 만들 수 있지만 릴리스에는 올리지 않습니다.
 
 설치본과 소스는 같은 커밋에서 만듭니다. `GEN5W-VARIANT`와 `GEN5W-BACKEND`는 번들에 들어 있는 값만 씁니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
 
 USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열고, **Run USB NEMESIS.sh**를 선택하면 실행합니다.
+
+## 맞는 버전 안내
+
+- **동글형의 내장 Wi-Fi 확인:** 새로 설치할 때(업데이트·원복 제외) 동글 패키지의 사전 검사가 순정 `bcmdhd.ko`가 아직 있는 상태에서 내장 Wi-Fi를 찾습니다(SDIO 무선 장치, 동글 드라이버가 없을 때의 `wlan`, 커널 `Firmware up`). Wi-Fi가 꺼져 있으면 최대 8초 켰다가 다시 끕니다. 찾으면 아무것도 바꾸기 전에 설치를 멈추고, 결과 화면에 기본형을 안내합니다. 다시 끄지 못하면 설치를 멈춥니다. USB 맨 바깥의 빈 파일 `GEN5W-FORCE-DONGLE`이 있으면 확인하지 않습니다.
+- **기본형에서 내장 Wi-Fi를 못 찾을 때:** 무선 기능만 빼고 설치하며, 순정 앱에 무선 코드가 있고 Wi-Fi 하드웨어가 확인되지 않았으면 `RESULT.md`·`RESULT.html`과 알림에 동글형을 안내합니다.
 
 ## 안전판 (safe, 소스 빌드 전용)
 
@@ -28,13 +33,14 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 - 설치하지 않은 모듈의 대상 파일(`services.odex`·`libCarPlayAudio.so`·`SystemUI.odex`)이 확인 도구로 순정임이 확인되지 않으면 설치를 끝내지 않고 원래대로 되돌립니다. 그래야 부트가드가 실제로 복구할 수 있습니다.
 - 무선 CarPlay·Android Auto, 무선 오디오, 자동 전환 단축은 제공하지 않습니다.
 
-## 설치 전 점검 (check, 소스 빌드 전용)
+## 설치 전 점검 (check)
 
-`gen5w-kr-check.zip`은 설치 파일이 들어 있지 않은 읽기 전용 점검 USB입니다. 설치 전에 먼저 실행합니다.
+`gen5w-kr-check.zip`은 설치 파일이 들어 있지 않은 읽기 전용 점검 USB입니다. 설치 전에 먼저 실행합니다. 릴리스에 함께 올립니다.
 
 - 차량에 아무것도 쓰지 않습니다. 시스템 재마운트·패키지 설치·Wi-Fi 켜기·속성 변경을 하지 않습니다.
 - 설치기와 같은 확인 도구로 대상 파일 6개(`services.odex`, `SystemUI.odex`, `libCarPlayAudio.so`, `Iap2ServerApp.odex`, `HKMC_DiPO.odex`, `HKMC_GPM.odex`)가 순정 V039인지 확인합니다.
 - 무선 코드·Wi-Fi 장치(켜져 있을 때만)·기능 선언 파일, 기존 NEMESIS 패키지 ID, 이전 설치·부트가드 상태, 저장 공간을 기록합니다.
+- 받을 버전을 추천합니다(`CHECK.txt`의 `recommend`): 동글형이 이미 설치돼 있으면 동글형, 내장 Wi-Fi가 보이면 기본형, 내장 Wi-Fi는 안 보이고 지원 동글(USB ID)이 꽂혀 있으면 동글형, 둘 다 아니면 기본형(설치기가 Wi-Fi를 잠깐 켜서 다시 확인). 점검은 Wi-Fi를 켜지 않으므로 꺼진 내장 Wi-Fi는 "확인 못 함"입니다.
 - 결과: `GEN5W-REPORT/CHECK.md`(판정과 이유), `GEN5W-REPORT/CHECK.txt`(세부 값). 대상 파일을 확인하지 못했거나 부트가드가 복구할 수 없는 상태이면 "설치하지 마세요"로 판정합니다.
 - 차대번호·일련번호·전화번호·핫스팟 암호·키·`/data` 파일 내용은 기록하지 않습니다.
 

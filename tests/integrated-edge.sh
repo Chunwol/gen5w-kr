@@ -50,7 +50,7 @@ PY
     mkdir -p "$W/sys/framework" "$W/sys/priv-app"
     echo stock > "$W/sys/framework/services.odex"; echo stock > "$W/sys/priv-app/SystemUI.odex"
 }
-run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
+run() { (cd "$W/usb" && IT_SYSFS="$W/sysfs" IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
 state() { cat "$W/data/nemesis/gen5w-kr-integrated/state" 2>/dev/null; }
 reg() { [ -f "$W/data/nemesis/apps/$1/NEMESIS.data" ]; }
 NOREBOOT() { [ -e "$W/data/nemesis/gen5wkr.noreboot" ]; }
@@ -63,6 +63,28 @@ check 'install without the bridge leaves no /system module registered' eval '! r
 grep -q 'bridge service that runs it is not installed' "$W/data/nemesis/gen5w-kr-integrated/report"
 check 'install without the bridge says why' test $? = 0
 check 'normal install still commits' eval 'run install && test "$(state)" = committed && reg gen5w.kr.bridge'
+rm -rf "$W"
+
+# F: the result screen points to the matching download.
+setup
+IT_SKIP=gen5w.kr.wireless run install
+R=$W/usb/GEN5W-REPORT/RESULT.md
+check 'no wireless code in stock apps: no dongle advice' eval '! grep -q "받을 버전 안내" "$R"'
+mkdir -p "$W/sys/app"; printf 'x carplay_wireless x' > "$W/sys/app/HKMC_DiPO.odex"
+IT_SKIP=gen5w.kr.wireless run install
+check 'no built-in Wi-Fi: result points to the dongle edition' grep -q 'gen5w-kr-dongle.zip으로 업데이트' "$R"
+check 'no built-in Wi-Fi: RESULT.html shows the notice' grep -q '받을 버전 안내' "$W/usb/GEN5W-REPORT/RESULT.html"
+mkdir -p "$W/sysfs/class/net/wlan0"
+IT_SKIP=gen5w.kr.wireless run install
+check 'built-in Wi-Fi seen: no dongle advice' eval '! grep -q "받을 버전 안내" "$R"'
+check 'wireless installed: no dongle advice' eval 'run install && ! grep -q "받을 버전 안내" "$R"'
+echo standard > "$W/data/nemesis/gen5wkr.edition-hint"
+run status
+check 'dongle refusal hint points to the standard edition' grep -q '기본형 gen5w-kr-standard.zip을 설치하세요' "$R"
+check 'the hint is shown once' test ! -e "$W/data/nemesis/gen5wkr.edition-hint"
+run status
+check 'later results carry no stale hint' eval '! grep -q "받을 버전 안내" "$R"'
+check 'standard edition is named in the result' grep -q '기본형(내장 Wi-Fi)' "$R"
 rm -rf "$W"
 
 # B: remove after an official firmware update (audio library not recognised).

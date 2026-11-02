@@ -36,5 +36,24 @@ if [ -z "${GEN5W_REINSTALL:-}" ] && ! has_dongle_hw; then
     fi
 fi
 
+# A car with working built-in Wi-Fi should use the standard edition: the
+# dongle edition would switch its built-in Wi-Fi off. Checked on a fresh
+# install only, while the stock bcmdhd.ko is still in place. An empty
+# GEN5W-FORCE-DONGLE on the USB (GEN5W_FORCE_DONGLE from the installer)
+# keeps the dongle on purpose.
+if [ -z "${GEN5W_REINSTALL:-}" ] && [ -z "${GEN5W_FORCE_DONGLE:-}" ]; then
+    hw=$(builtin_wifi)
+    case "$hw" in
+        yes)
+            log 'REFUSED dongle: built-in Wi-Fi found; use the standard edition (gen5w-kr-standard.zip), or put GEN5W-FORCE-DONGLE on the USB to use the dongle anyway'
+            [ -L "$EDITION_HINT" ] || echo standard > "$EDITION_HINT" 2>/dev/null
+            exit 1;;
+        error)
+            log 'FAIL dongle: Wi-Fi could not be turned off again after the built-in Wi-Fi check'
+            exit 1;;
+    esac
+    log "built-in Wi-Fi check: $hw"
+fi
+
 log "dongle precheck passed"
 exit 0

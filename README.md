@@ -7,12 +7,13 @@
 무선 CarPlay·Android Auto를 켜고, 길안내를 계기판과 HUD에 띄웁니다.
 
 [![Release](https://img.shields.io/github/v/release/Chunwol/gen5w-kr?label=release&color=2ea44f)](https://github.com/Chunwol/gen5w-kr/releases/latest)
+[![GitHub Stars](https://img.shields.io/github/stars/Chunwol/gen5w-kr?style=social)](https://github.com/Chunwol/gen5w-kr/stargazers)
 [![Build and verify](https://github.com/Chunwol/gen5w-kr/actions/workflows/ci.yml/badge.svg)](https://github.com/Chunwol/gen5w-kr/actions/workflows/ci.yml)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 ![Firmware](https://img.shields.io/badge/firmware-V039.001.260902-informational)
 ![Vehicle test](https://img.shields.io/badge/%EC%8B%A4%EC%B0%A8-%EB%AF%B8%EA%B2%80%EC%A6%9D-orange)
 
-[📖 설치 가이드](docs/beginner-guide.md) · [🚘 지원 차량](docs/porting.md) · [✅ 설치 결과 알려주기](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) · [🐞 문제 신고](https://github.com/Chunwol/gen5w-kr/issues/new/choose) · [💖 개발 후원](https://github.com/sponsors/Chunwol)
+[📖 설치 가이드](docs/beginner-guide.md) · [🚘 지원 차량](docs/porting.md) · [✅ 설치 결과 알려주기](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) · [🐞 문제 신고](https://github.com/Chunwol/gen5w-kr/issues/new/choose) · [⭐ 스타 누르기](https://github.com/Chunwol/gen5w-kr/stargazers) · [💖 개발 후원](https://github.com/sponsors/Chunwol)
 
 </div>
 
@@ -38,10 +39,15 @@
 
 ## 📥 다운로드
 
-| 버전 | 대상 | 다운로드 | 상태 |
-|---|---|---|---|
-| **기본형** | 내장 Wi-Fi가 있는 차 | [⬇️ gen5w-kr-standard.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 릴리스 · 실차 미확인 |
-| **동글형** | 내장 Wi-Fi가 없는 차 | [⬇️ gen5w-kr-dongle.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 릴리스 · 실차 미확인 |
+**먼저 점검하고, 점검이 알려 준 버전 하나만 받으세요.**
+
+| 순서 | 파일 | 대상 |
+|---|---|---|
+| **① 점검** | [⬇️ gen5w-kr-check.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-check.zip) | 모든 차. 차에 아무것도 쓰지 않고 `GEN5W-REPORT/CHECK.md`에 설치 가능 여부와 **받을 버전**을 적습니다 |
+| **② 설치 · 기본형** | [⬇️ gen5w-kr-standard.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 내장 Wi-Fi가 있는 차 |
+| **② 설치 · 동글형** | [⬇️ gen5w-kr-dongle.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 내장 Wi-Fi가 없는 차 + 지원 USB Wi-Fi 동글 |
+
+릴리스 페이지의 나머지 파일(`gen5w-kr-source.zip`, `gen5w-kr-dongle-gpl-source.tar.xz`, `RELEASE-SHA256SUMS`)은 소스·라이선스·체크섬용이라 설치에는 필요 없습니다. 모든 버전이 **실차 미확인**입니다.
 
 먼저 [차종·연식별 확인표](docs/porting.md)에서 지원 대상인지 확인하세요. [전체 릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 변경 사항, 체크섬, 대응 소스 파일도 받을 수 있습니다. 화면을 완전히 생략하는 개인용 구성은 공개 소스·CI·릴리스에 포함하지 않습니다.
 
@@ -54,6 +60,7 @@
 
 - V039 원본 `bcmdhd.ko`와 지원되는 `ath9k_htc`(AR9271/AR7010) 장치가 필요합니다. 모든 USB Wi-Fi 동글을 지원하지 않습니다.
 - 드라이버를 올리는 중 헤드유닛이 재시작되면 다음 부팅부터 자동 로딩을 멈춥니다. 동글을 뽑았다 다시 꽂으면 한 번 더 시도합니다.
+- 동글형은 설치 직전에 내장 Wi-Fi를 한 번 더 확인하고, 있으면 아무것도 바꾸지 않고 멈춘 뒤 기본형을 안내합니다. 내장 Wi-Fi가 있어도 동글을 꼭 쓰려면 USB 맨 바깥에 빈 파일 `GEN5W-FORCE-DONGLE`을 두세요.
 - 동글형에서 기본형으로 바꾸면 동글용 변경을 제거하고 순정 구성을 복원합니다.
 - 커널 모듈은 GPL-2.0입니다. 대응 소스는 각 릴리스의 `gen5w-kr-dongle-gpl-source.tar.xz`에 있습니다.
 
@@ -68,9 +75,9 @@
 
 NEMESIS가 이미 설치되어 있다면:
 
-1. 받은 ZIP의 압축을 풀고 **내용물을 USB 맨 바깥에 복사**합니다.
-2. 차량에 USB를 꽂고 NEMESIS Manager에서 **Run USB NEMESIS.sh**를 선택합니다. USB를 꽂는 것만으로는 설치되지 않습니다.
-3. 끝나면 USB의 **`GEN5W-REPORT/RESULT.html`**에서 기능별 결과를 확인합니다.
+1. **점검:** `gen5w-kr-check.zip`의 압축을 풀어 **내용물을 USB 맨 바깥에 복사**하고, 차량에 꽂아 NEMESIS Manager에서 **Run USB NEMESIS.sh**를 선택합니다. USB의 **`GEN5W-REPORT/CHECK.md`**에서 판정과 **받을 파일**을 확인합니다. "설치하지 마세요"가 나오면 설치하지 마세요.
+2. **설치:** 추천된 설치 ZIP의 내용물을 같은 USB 맨 바깥에 덮어 복사하고 다시 **Run USB NEMESIS.sh**를 선택합니다. USB를 꽂는 것만으로는 설치되지 않습니다.
+3. 끝나면 USB의 **`GEN5W-REPORT/RESULT.html`**에서 기능별 결과를 확인합니다. 노란 **받을 버전 안내**가 보이면 그 안내대로 다른 버전으로 바꿔 설치하세요.
 4. 결과는 잘 됐든 안 됐든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)로 알려 주세요. **`GEN5W-REPORT` 폴더의 로그 파일도 함께 첨부**해 주세요. 성공 보고가 쌓여야 지원 차량 표를 "확인됨"으로 바꿀 수 있습니다.
 
 > [!TIP]
@@ -116,6 +123,12 @@ Gen5W라도 차량과 소프트웨어 버전에 따라 지원 여부가 다릅�
 **호환 결과를 기다립니다.** 아직 실차에서 확인한 차가 적습니다. 설치하거나 점검해 본 분은 결과가 좋든 나쁘든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈로 `GEN5W-REPORT` 로그와 함께 알려 주세요. 올라온 결과는 [지원 차량 표](docs/porting.md)에 반영합니다.
 
 다른 차량에서도 쓰고 싶다면 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)을 남겨 주세요. 필요한 정보와 절차는 [차종 추가 안내](docs/porting.md)에 있습니다. 오류나 개선 의견도 이슈로 받습니다. 먼저 [기여 안내](CONTRIBUTING.md)와 [보안 제보](SECURITY.md)를 확인해 주세요.
+
+## ⭐ 스타를 눌러 주세요
+
+이 프로젝트가 도움이 됐거나 응원하고 싶다면 오른쪽 위 **⭐ Star**를 눌러 주세요. 스타가 많아질수록 더 많은 Gen5W 사용자가 프로젝트를 찾을 수 있고, 실차 결과 보고도 늘어 지원 차량을 넓히는 데 큰 힘이 됩니다.
+
+[![Star this repo](https://img.shields.io/github/stars/Chunwol/gen5w-kr?style=for-the-badge&logo=github&label=Star&color=f5c518)](https://github.com/Chunwol/gen5w-kr/stargazers)
 
 ## 💖 개발 후원
 

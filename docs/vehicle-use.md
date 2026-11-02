@@ -6,12 +6,12 @@
 
 NEMESIS가 설치된 Gen5W용입니다. V039 순정 파일의 정확한 해시와 Wi-Fi 하드웨어를 검사하며, 맞지 않으면 적용을 거부합니다. V039로 업데이트해서 쓰세요. 일부 모듈(브리지·오디오)은 이전 V035 해시도 알아보지만, 블루링크 안내 숨기기와 동글형은 V039 전용이고 V035는 실차·모의 모두 주 대상이 아닙니다. 제조사 파일은 이 압축파일에 없습니다.
 
-1. [릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 기본형 ZIP(`gen5w-kr-standard.zip`, 내장 Wi-Fi가 없는 차는 `gen5w-kr-dongle.zip`)을 받아 풀고 그 **내용**을 USB 루트에 복사합니다. 순정 화면·안전 조건을 유지하고 확인 버튼이 활성화되면 순정 조건을 확인해 바로 넘깁니다.
+1. [릴리스](https://github.com/Chunwol/gen5w-kr/releases/latest)에서 먼저 점검 ZIP(`gen5w-kr-check.zip`)으로 점검해 `GEN5W-REPORT/CHECK.md`의 **받을 파일**을 확인합니다. 그다음 그 설치 ZIP(기본형 `gen5w-kr-standard.zip` 또는 동글형 `gen5w-kr-dongle.zip`)을 받아 풀고 그 **내용**을 USB 루트에 복사합니다. 순정 화면·안전 조건을 유지하고 확인 버튼이 활성화되면 순정 조건을 확인해 바로 넘깁니다.
 2. 정차 상태에서 USB를 꽂아 Manager를 열고 **Run USB NEMESIS.sh**를 선택합니다. 삽입만으로 설치하지 않습니다. 정상 설치 후 한 번 재부팅합니다. 제한 복구만 수행한 경우에는 재부팅하지 않습니다.
 3. iPhone에서 차량과 Bluetooth 페어링을 합니다. 이미 페어링했다면 다시 연결합니다. 무선 CarPlay 연결 요청을 허용합니다.
 4. 지도 앱의 길안내를 시작하고 회전·거리·차선 표시와 음악·안내 음성을 확인합니다. 유선 CarPlay도 사용할 수 있습니다.
 
-업데이트는 USB 루트의 `GEN5W-ACTION` 파일 첫 줄에 `update`, 이전 설치로 되돌리기는 `rollback`, 전체 제거는 `remove`, 상태 확인은 `status`를 적고 같은 실행 메뉴를 선택합니다. 그 밖에 `wired-only`(무선 설정을 순정으로 되돌리고 유선 기능만 설치), `check`(아무것도 바꾸지 않고 대상 파일이 순정인지 점검해 `GEN5W-REPORT/CHECK.md`에 기록)도 쓸 수 있습니다. 파일이 없으면 설치합니다. 작업 후 해당 파일을 지우세요. 설치가 실패하면 자동 원복을 시도하며 실패 보고서는 기기의 `/data/nemesis/gen5w-kr-integrated/report`에 남습니다. `recovery-required`이면 백업을 지우지 말고 같은 번들로 복구하세요. 설치에 쓴 ZIP은 순정 복귀(제거)에 필요하니 보관하세요.
+업데이트는 USB 루트의 `GEN5W-ACTION` 파일 첫 줄에 `update`, 이전 설치로 되돌리기는 `rollback`, 전체 제거는 `remove`, 상태 확인은 `status`를 적고 같은 실행 메뉴를 선택합니다. 그 밖에 `wired-only`(무선 설정을 순정으로 되돌리고 유선 기능만 설치), `check`(아무것도 바꾸지 않고 대상 파일이 순정인지 점검해 `GEN5W-REPORT/CHECK.md`에 기록)도 쓸 수 있습니다. 파일이 없으면 설치합니다. 작업 후 해당 파일을 지우세요. 동글형은 내장 Wi-Fi가 있는 차에서 설치를 멈춥니다. 그래도 동글을 쓰려면 USB 루트에 확장자 없는 빈 파일 `GEN5W-FORCE-DONGLE`을 둡니다. 설치가 실패하면 자동 원복을 시도하며 실패 보고서는 기기의 `/data/nemesis/gen5w-kr-integrated/report`에 남습니다. `recovery-required`이면 백업을 지우지 말고 같은 번들로 복구하세요. 설치에 쓴 ZIP은 순정 복귀(제거)에 필요하니 보관하세요.
 
 Wi-Fi 클라이언트는 기본 꺼짐입니다. 필요한 경우에만 USB 루트에 확장자 없는 빈 파일 `GEN5W-WIFI-CLIENT`를 만들고 설치합니다. 무선 CarPlay 사용에 필수인 설정은 아닙니다. **주의:** 이 파일은 벽돌이 났던 V039 차량에 추가돼 있던 설정입니다(원인은 확정되지 않음). 부팅 중 Wi-Fi 클라이언트를 켜는 경로를 열기 때문에, 꼭 필요하지 않으면 만들지 마세요.
 
