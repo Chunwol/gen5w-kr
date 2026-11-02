@@ -33,8 +33,7 @@
 | [통화 버튼](wireless-call-button.md) | CarPlay 핸들 통화 버튼 보완 |
 | [USB Wi-Fi 동글](usb-wifi-experiment.md) | 동글형 드라이버 빌드와 대리 모듈 |
 | [버전 전환 기준](edition-transitions.md) | 하드웨어 및 버전 전환과 복구 기준 |
-| [라이선스](licensing.md) · [후원](sponsorship.md) | 소스 제공과 후원 연결 |
-| [공개 준비](public-release.md) | 배포 확인 결과와 공개 전 남은 설정 |
+| [라이선스](licensing.md) | 소스 제공과 라이선스 |
 
 ## 개발 기록
 
@@ -42,6 +41,4 @@
 
 | 문서 | 내용 |
 |---|---|
-| [부트 안전장치 보강 계획](boot-safety-reinforcements.md) | 부트가드 보강 항목 검토 |
 | [V039 HUD 코드 대조](v039-cluster-review.md) | 순정 클러스터·내비 수신 코드 대조 |
-| [작업 계획](superpowers/plans/) | HUD 로드맵, 부트 안전장치, 런타임·fastboot 복구 구현 계획 |

@@ -5,13 +5,42 @@ import configparser
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
+import posixpath
+import re
 import shutil
 import subprocess
 import sys
 import zipfile
 
 HERE = Path(__file__).resolve().parent
-IDS = ['gen5w.kr.' + x for x in ('wireless', 'audio', 'bridge', 'core', 'timer', 'bluelink')]
+REPO_URL = 'https://github.com/Chunwol/gen5w-kr/blob/main/'
+# Installing, using and recovering. Everything else in docs/ is for developers.
+USER_DOCS = ['beginner-guide.md', 'vehicle-use.md', 'porting.md', 'notices.md',
+             'pre-install-recovery-checklist.md', 'bluelink.md', 'wireless-recovery.md',
+             'recovery.md', 'bootloader-recovery.md', 'validation.md', 'licensing.md']
+LINK = re.compile(r'\]\(([^)#\s]+)(#[^)\s]*)?\)')
+
+
+def link_missing_docs(output):
+    """Point links to repository files left off the USB at their GitHub page."""
+    for md in sorted(output.rglob('*.md')):
+        here = md.parent.relative_to(output).as_posix()
+
+        def fix(m):
+            target = m.group(1)
+            if '://' in target or target.startswith('mailto:'):
+                return m.group(0)
+            path = posixpath.normpath(posixpath.join(here, target))
+            if path.startswith('..') or (output / path).exists() or not (HERE.parents[1] / path).exists():
+                return m.group(0)
+            return '](' + REPO_URL + path + (m.group(2) or '') + ')'
+        text = md.read_text(encoding='utf-8')
+        new = LINK.sub(fix, text)
+        if new != text:
+            md.write_text(new, encoding='utf-8', newline='\n')
+
+
+IDS =['gen5w.kr.' + x for x in ('wireless', 'audio', 'bridge', 'core', 'timer', 'bluelink')]
 
 
 def compiler():
@@ -106,26 +135,13 @@ def build(dist, output, variant='standard'):
         (output / p.name).chmod(0o755)
     shutil.copyfile(HERE / 'bin/zipstore', output / 'zipstore')
     (output / 'zipstore').chmod(0o755)
-    guide = HERE.parents[1] / 'docs/vehicle-use.md'
-    shutil.copytree(HERE.parents[1] / 'docs', output / 'docs')
-    if guide.is_file():
-        (output / '사용방법.md').write_text(guide.read_text(encoding='utf-8').replace(
-            '](beginner-guide.md)', '](docs/beginner-guide.md)').replace(
-            '](validation.md)', '](docs/validation.md)'), encoding='utf-8', newline='\n')
-    for source, target in [('LICENSE','LICENSE'), ('NOTICE.md','NOTICE.md'), ('docs/beginner-guide.md','처음설치.md'),
-                           ('docs/licensing.md','라이선스와소스.md'), ('SOURCE.md','SOURCE.md'),
-                           ('README.md','README.md'), ('CONTRIBUTING.md','CONTRIBUTING.md'),
-                           ('SECURITY.md','SECURITY.md'), ('CHANGELOG.md','CHANGELOG.md')]:
-        path = HERE.parents[1] / source
-        if path.is_file():
-            if source == 'docs/beginner-guide.md':
-                (output / target).write_text(path.read_text(encoding='utf-8').replace(
-                    '](porting.md)', '](docs/porting.md)'), encoding='utf-8', newline='\n')
-            elif source == 'docs/licensing.md':
-                (output / target).write_text(path.read_text(encoding='utf-8').replace(
-                    '](../LICENSE)', '](LICENSE)').replace(
-                    '](../NOTICE.md)', '](NOTICE.md)'), encoding='utf-8', newline='\n')
-            else: shutil.copyfile(path, output / target)
+    # Only the documents a user needs on the USB; developer documents stay in the repository.
+    (output / 'docs').mkdir()
+    for name in USER_DOCS:
+        shutil.copyfile(HERE.parents[1] / 'docs' / name, output / 'docs' / name)
+    for name in ['LICENSE', 'NOTICE.md', 'SOURCE.md', 'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md']:
+        shutil.copyfile(HERE.parents[1] / name, output / name)
+    link_missing_docs(output)
     (output / 'BUILD-REVISION').write_text(subprocess.check_output(
         ['git','rev-parse','HEAD'], cwd=HERE.parents[1], text=True).strip()+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-VARIANT').write_text(variant+'\n', encoding='ascii', newline='\n')

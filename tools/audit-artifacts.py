@@ -3,6 +3,8 @@ import configparser
 import hashlib
 from io import BytesIO
 from pathlib import Path
+import posixpath
+import re
 import struct
 import sys
 import zipfile
@@ -104,6 +106,20 @@ for variant,count in [('standard',6),('dongle',7)]:
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
         assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
         assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','docs/beginner-guide.md'])
+        # Only user documents on the USB, and no link on it points at a missing file.
+        docs = sorted(n for n in z.namelist() if n.startswith('docs/'))
+        assert docs == sorted('docs/' + d for d in ['beginner-guide.md', 'vehicle-use.md', 'porting.md', 'notices.md',
+            'pre-install-recovery-checklist.md', 'bluelink.md', 'wireless-recovery.md', 'recovery.md',
+            'bootloader-recovery.md', 'validation.md', 'licensing.md']), ('developer documents on the USB', docs)
+        assert not any(n in z.namelist() for n in ['처음설치.md', '사용방법.md', '라이선스와소스.md', 'AGENTS.md'])
+        for n in z.namelist():
+            if not n.endswith('.md'):
+                continue
+            for target in re.findall(r'\]\(([^)#\s]+)', z.read(n).decode('utf-8')):
+                if '://' in target or target.startswith('mailto:'):
+                    continue
+                path = posixpath.normpath(posixpath.join(posixpath.dirname(n), target))
+                assert path in z.namelist() or any(x.startswith(path + '/') for x in z.namelist()), ('broken link on the USB', n, target)
         assert z.read('GEN5W-BACKEND') == (b'dongle\n' if variant == 'dongle' else b'builtin\n')
         assert not any(n.endswith(('gen5w.kr.notice.zip', 'gen5w.kr.hotspot.zip')) for n in z.namelist()), 'SystemUI/services.odex patch package shipped'
         assert not any(n.endswith('gen5w.kr.consent.zip') for n in z.namelist())

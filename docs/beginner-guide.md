@@ -95,8 +95,8 @@ USB 드라이브
 ├─ zipstore
 ├─ packages/          ← 선택한 버전의 설치 파일
 ├─ checks/            ← 설치 전 검사 자료
-├─ 처음설치.md / 사용방법.md
-├─ docs/             ← 문서
+├─ README.md / CHANGELOG.md
+├─ docs/             ← 설치·사용 문서
 └─ LICENSE / SOURCE.md / BUILD-REVISION 등
 ```
 
