@@ -20,12 +20,14 @@ bootguard_reconcile_previous() {
 }
 write_summary() { : > "$CASE_DIR/summary"; }
 sync() { :; }
+cold_reboot() { : > "$CASE_DIR/cold-reboot"; }
 SH
 mkdir -p "$W/case/transaction/prior"
 touch "$W/case/transaction/prior/complete"
 check 'manual rollback reconciles guard' env CASE_DIR="$W/case" IT_NO_REBOOT=1 mksh "$W/rollback.sh"
 check 'manual rollback requests rolled-back generation' grep -qx rolled-back "$W/case/reconciled"
 check 'successful reconciliation clears reboot suppression' test ! -e "$W/case/no-reboot"
+check 'rollback reboots cold like install and remove' test -e "$W/case/cold-reboot"
 rm -f "$W/case/summary" "$W/case/reconciled"
 if env CASE_DIR="$W/case" RECONCILE_FAIL=1 IT_NO_REBOOT=1 mksh "$W/rollback.sh"; then
     bad 'manual rollback refuses unresolved guard'

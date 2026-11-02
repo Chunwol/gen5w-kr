@@ -19,7 +19,7 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 
 ## 안전판 (safe, 소스 빌드 전용)
 
-`gen5w-kr-safe.zip`은 부팅에 꼭 필요한 시스템 파일을 건드리지 않는 최소 구성입니다. 이전 코나 V039 부트루프의 가장 유력한 원인(한국 펌웨어에서 꺼 둔 Wi-Fi·핫스팟 기능을 다시 켬)을 설치 경로에서 뺐습니다.
+`gen5w-kr-safe.zip`은 부팅에 꼭 필요한 시스템 파일을 건드리지 않는 최소 구성입니다. 이전 코나 V039 부트루프의 원인은 확정되지 않았습니다. 이 판은 의심 경로 중 하나인 Wi-Fi·핫스팟 기능 재활성화(한국 펌웨어에서 꺼 둔 기능)를 설치 경로에서 뺐습니다.
 
 - 설치: `gen5w.kr.bridge`(Iap2ServerApp·HKMC_DiPO·HKMC_GPM ODEX의 경로 정보 API)와 `gen5w.kr.core`(HUD 앱)만.
 - 설치 안 함, 이미 있으면 순정 복원: 무선 기능 선언·핫스팟(`services.odex`, system_server)·무선 오디오(`libCarPlayAudio.so`)·시동 안내 타이머(`SystemUI.odex`).
@@ -91,7 +91,7 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 
 ## 자동 분기
 
-설치 시작 시 무선 지원 여부부터 확인합니다. 무선 기능이 없거나 Wi-Fi를 확인할 수 없으면 기존 무선 설정·오디오 보정을 원복하고 핫스팟 자동 보정·Bluetooth 자동 연결을 끕니다. 그 뒤 지원되는 유선 HUD·주의 안내 타이머을 설치합니다. 별도 파일 선택이나 CMD 실행은 필요하지 않습니다.
+설치 시작 시 무선 지원 여부부터 확인합니다. 무선 기능(Wi-Fi 하드웨어)이 없으면 기존 무선 설정·오디오 보정을 원복하고 핫스팟 자동 보정·Bluetooth 자동 연결을 끕니다. Wi-Fi 확인 결과가 불확실하면 이미 검증된 기존 무선 설정은 그대로 두고, 기존 설정이 없으면 무선 기능 없이 설치합니다. 그 뒤 지원되는 유선 HUD·주의 안내 타이머을 설치합니다. 별도 파일 선택이나 CMD 실행은 필요하지 않습니다.
 
 무선 원복에 실패하면 중단하고 백업을 보존합니다. 무선 지원 판정은 실제 휴대폰 연결 성공과는 다릅니다.
 
@@ -100,6 +100,7 @@ USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열�
 | 위치 | 내용 |
 |---|---|
 | `GEN5W-REPORT/STARTUP.txt` | 실행 작업과 종료 코드 |
+| `GEN5W-REPORT/EXEC_LOG.txt` | 설치기 진행 기록(단계별 결과, 모듈 점검 메시지). 차량 고유 정보는 쓰지 않습니다 |
 | `GEN5W-REPORT/RESULT.html` | 기능별 적용·실패·원복 결과 |
 | `GEN5W-REPORT/RESULT.md` | 같은 결과의 텍스트 |
 | `GEN5W-REPORT/ISSUE.md` | 검토 후 이슈에 첨부할 진단 로그 |

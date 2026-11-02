@@ -7,7 +7,8 @@ if [ -f GEN5W-ACTION ]; then
 fi
 case "$action" in install|update|rollback|remove|status|wired-only|check) ;;
     *) echo 'REFUSED unknown GEN5W-ACTION'; exit 1;; esac
-# Only fixed phase names and exit codes; never copy subprocess output or secrets.
+# STARTUP.txt: fixed phase names and exit codes only. EXEC_LOG.txt: the installer's
+# own progress lines (report lines and hook messages); no secrets are printed.
 [ ! -L GEN5W-REPORT ] || exit 1
 mkdir -p GEN5W-REPORT || exit 1
 [ ! -L GEN5W-REPORT/STARTUP.txt ] || exit 1

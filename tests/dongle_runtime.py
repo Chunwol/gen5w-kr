@@ -40,7 +40,8 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
               and log.read_bytes() == b'probe\n')
 
     def service_case(name, backend, request=False, ready=False, renew=False,
-                     mark=False, block=False, loader_ok=False, unplug_at=0, replug_at=0):
+                     mark=False, block=False, loader_ok=False, unplug_at=0, replug_at=0,
+                     block_unwritable=False):
         case = work/name
         case.mkdir()
         (case/'nemesis').mkdir()
@@ -48,6 +49,10 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
             (case/'nemesis/gen5wkr.dongle-loading').write_text('loading\n')
         if block:
             (case/'nemesis/gen5wkr.dongle-blocked').write_text('blocked\n')
+        if block_unwritable:
+            # A directory at the block name: the write fails like a full /data.
+            (case/'nemesis/gen5wkr.dongle-blocked').mkdir()
+            (case/'nemesis/gen5wkr.dongle-blocked/keep').write_text('x')
         net = case/'net'
         net.mkdir()
         usb = case/'usb/1-1'
@@ -120,6 +125,11 @@ if [ "$n" = "$REPLUG_AT" ]; then mv "$CASE/usb-off" "$CASE/usb/1-1"; fi
     c = service_case.case
     check('unplugging clears the block and the next attachment tries again', n >= 1
           and not (c/'nemesis/gen5wkr.dongle-blocked').exists())
+
+    n = service_case('unwritable-block', 'dongle', mark=True, block_unwritable=True)
+    c = service_case.case
+    check('a block that cannot be written still stops loading and keeps the mark', n == 0
+          and (c/'nemesis/gen5wkr.dongle-loading').exists())
 
 print('== dongle runtime:', passed, 'passed,', failed, 'failed')
 raise SystemExit(1 if failed else 0)

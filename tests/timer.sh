@@ -64,5 +64,16 @@ check 'default closes immediately on a passing state line' closed
 feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|0"; rm -rf "$PKG/run"; : > "$W/am.log"
 TIMER_TEST_SYS=$W/sys TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" >/dev/null 2>&1
 check 'default never closes while reversing' eval '! closed'
+# A restarted logcat replays its buffer: an old passing line must not close again.
+cat > "$W/logcat" <<'L'
+#!/bin/bash
+n=$(cat "$TIMER_CALLS" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$TIMER_CALLS"
+echo "01-01 00:00:01.000 $OK"
+[ "$n" = 1 ] || echo "01-01 00:00:09.000 ${OK/mIsReverseOn : false/mIsReverseOn : true}"
+L
+chmod 755 "$W/logcat"; rm -rf "$PKG/run"; : > "$W/am.log"; rm -f "$W/calls"
+OK=$OK TIMER_CALLS=$W/calls TIMER_TEST_SYS=$W/sys TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am TIMER_TEST_ONCE=2 TIMER_TEST_PAUSE=0 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" >/dev/null 2>&1
+check 'restarted logcat does not replay an old close' test "$(grep -c CLOSE "$W/am.log")" = 1
+check 'restarted logcat ran twice' test "$(cat "$W/calls")" = 2
 echo "== timer: $pass passed, $fail failed"
 [ "$fail" = 0 ]

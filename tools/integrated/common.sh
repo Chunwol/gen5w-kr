@@ -191,7 +191,7 @@ restore_prior() {
     hook "$id" postinstall
 }
 rollback_transaction() {
-    local id rc=0
+    local id rc=0 prc
     [ -f "$TX/prior/complete" ] || { report 'REFUSED incomplete snapshot; no rollback mutation'; return 1; }
     # Restore the mode before re-registering services from the snapshot.
     restore_wireless_mode || {
@@ -208,9 +208,23 @@ rollback_transaction() {
         for id in $SNAPSHOT_IDS; do
             [ -f "$TX/attempt.$id" ] && [ -f "$TX/prior/$id.zip" ] || continue
             [ "$(digest "$TX/prior/$id.zip")" = "$(cat "$TX/prior/$id.md5")" ] || { rc=1; break; }
+            if [ "$id" = gen5w.kr.audio ] && [ -f "$WIRELESS_OFF" ]; then
+                result "$id" skipped; report "SKIPPED $id: wired-only after rollback"; continue
+            fi
             export GEN5W_REINSTALL=1
-            gate "$TX/prior/$id" preinstall || { unset GEN5W_REINSTALL; rc=1; break; }
+            gate "$TX/prior/$id" preinstall; prc=$?
             unset GEN5W_REINSTALL
+            # 77: the earlier package does not apply now (e.g. Wi-Fi detection
+            # inconclusive after its backup was removed). It stays removed, which
+            # leaves its targets stock; wireless then falls back to wired-only.
+            if [ "$prc" = 77 ]; then
+                if [ "$id" = gen5w.kr.wireless ]; then
+                    [ ! -L "$WIRELESS_OFF" ] && echo disabled > "$WIRELESS_OFF" || { rc=1; break; }
+                fi
+                result "$id" skipped; report "SKIPPED $id: earlier build does not apply now; left stock"
+                continue
+            fi
+            [ "$prc" = 0 ] || { rc=1; break; }
             "$NEM" install "$TX/prior/$id.zip" || { rc=1; break; }
             hook "$id" postinstall || { rc=1; break; }
             report "RESTORED $id"
@@ -268,7 +282,7 @@ cold_reboot() {
 # backups (etc/gen5w-kr-backup/*/original) and cold-boots. Uses only data already
 # on the unit, so no USB bundle is required to self-heal.
 bootguard_arm() {
-    local stage=$BOOTGUARD.tmp.$$ previous=$BOOTGUARD.previous max item id source name sum path extra found
+    local purpose=${1:-install} stage=$BOOTGUARD.tmp.$$ previous=$BOOTGUARD.previous max item id source name sum path extra found
     # Safe edition: recover after 2 failed boots instead of 3 (reinforcement R1).
     if keeps_systemui; then max=${IT_BOOTGUARD_MAX:-2}; else max=${IT_BOOTGUARD_MAX:-3}; fi
     case "$max" in ''|*[!0-9]*|0) return 1;; esac
@@ -298,8 +312,11 @@ bootguard_arm() {
     done
     # A module that is not installed is recovered by proving its target is still
     # stock with the retained verifier. Check that now, so an install never commits
-    # behind a guard that would refuse to recover.
+    # behind a guard that would refuse to recover. A removal leaves nothing of ours
+    # on /system to recover, so an unrecognised file (e.g. after an official
+    # firmware update) must not turn the removal into a rollback.
     for item in 'audio gen5w.kr.audio lib/libCarPlayAudio.so'; do
+        [ "$purpose" != remove ] || continue
         set -- $item
         if [ -e "$APPS/$2" ] || [ -L "$APPS/$2" ] || [ -e "$SYS/etc/gen5w-kr-backup/$1" ] || [ -L "$SYS/etc/gen5w-kr-backup/$1" ]; then
             continue
@@ -364,8 +381,24 @@ bootguard_reconcile_previous() {
         *) return 1 ;;
     esac
 }
+# The boot counter and recovery run only from the bridge service. Refuse to
+# commit /system changes that the guard could not recover because the bridge
+# skipped itself (e.g. unrecognised ODEX files).
+guard_runner_ok() {
+    local id
+    [ -f "$APPS/gen5w.kr.bridge/NEMESIS.data" ] && [ ! -L "$APPS/gen5w.kr.bridge/NEMESIS.data" ] && return 0
+    for id in gen5w.kr.wireless gen5w.kr.audio gen5w.kr.dongle; do
+        [ ! -e "$APPS/$id" ] && [ ! -L "$APPS/$id" ] || return 1
+    done
+    return 0
+}
 finish() {
-    bootguard_arm || {
+    if [ "${1:-install}" != remove ] && ! guard_runner_ok; then
+        report 'FAILED boot-loop guard: the bridge service that runs it is not installed; refusing to commit'
+        rollback_transaction || report 'RECOVERY REQUIRED: boot-loop guard has no runner'
+        return 1
+    fi
+    bootguard_arm "${1:-install}" || {
         report 'FAILED boot-loop guard: refusing to commit or reboot'
         rollback_transaction || report 'RECOVERY REQUIRED: boot-loop guard could not be armed'
         return 1
@@ -383,6 +416,14 @@ finish() {
     [ "${IT_NO_REBOOT:-0}" = 1 ] || cold_reboot
 }
 begin() {
+    BEGIN_MADE_NOREBOOT=0
+    begin_steps && return 0
+    # A failed start must not leave reboot suppression behind: it stops the
+    # wireless bridge and would let a standalone package install through.
+    [ "$BEGIN_MADE_NOREBOOT" != 1 ] || rm -f "$NOREBOOT" 2>/dev/null
+    return 1
+}
+begin_steps() {
     local state= id
     if [ -f "$TX/state" ]; then
         state=$(cat "$TX/state" 2>/dev/null)
@@ -413,6 +454,7 @@ begin() {
     rm -f "$TX"/attempt.*
     mkdir "$TX/prior" || return 1
     : > "$NOREBOOT" || return 1
+    BEGIN_MADE_NOREBOOT=1
     # Capture every prior tree before any hook can mutate the system.
     for id in $SNAPSHOT_IDS; do
         snapshot "$id" || { report "FAILED snapshot $id"; return 1; }

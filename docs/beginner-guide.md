@@ -72,12 +72,13 @@ compat=gen5w
 USB 드라이브
 ├─ NEMESIS.data
 ├─ NEMESIS.sh
-├─ install.sh, update.sh, remove.sh, rollback.sh, status.sh, common.sh
+├─ install.sh, update.sh, remove.sh, rollback.sh, status.sh, wired-only.sh, check.sh 등 실행 스크립트
 ├─ zipstore
 ├─ packages/          ← 선택한 버전의 설치 파일
 ├─ checks/            ← 설치 전 검사 자료
 ├─ 처음설치.md / 사용방법.md
-└─ LICENSE / SOURCE.md / BUILD-REVISION
+├─ docs/             ← 문서
+└─ LICENSE / SOURCE.md / BUILD-REVISION 등
 ```
 
 `USB\gen5w-kr-standard\NEMESIS.data`처럼 폴더가 한 겹 더 들어가면 안 됩니다. ZIP 자체를 Manager의 단일 패키지 설치로 선택하는 방식도 아닙니다.

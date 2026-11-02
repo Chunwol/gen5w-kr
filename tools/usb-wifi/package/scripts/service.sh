@@ -28,6 +28,7 @@ toast() {
 # after, the next boot finds it and stops automatic loading instead of crashing
 # again on every boot.
 try_load() {
+    [ "$held" = 0 ] || return 1
     [ -x "$LOADER_BIN" ] || return 1
     [ ! -e "$LOAD_BLOCK" ] && [ ! -L "$LOAD_BLOCK" ] || return 1
     if [ ! -e "$NET_ROOT/wlan0" ]; then
@@ -48,12 +49,18 @@ if [ -z "${DONGLE_TEST_NET_ROOT:-}" ]; then
 fi
 
 # A mark left from the previous boot: that load never finished cleanly.
+# If the block cannot be written (e.g. /data full), keep the mark so the next
+# boot blocks again, and hold loading for this boot.
+held=0
 if [ -e "$LOAD_MARK" ] && [ ! -L "$LOAD_MARK" ]; then
     # Replace whatever is at that name (a link is removed, not followed).
     rm -f "$LOAD_BLOCK"
-    echo blocked > "$LOAD_BLOCK"
-    sync
-    rm -f "$LOAD_MARK"
+    if echo blocked > "$LOAD_BLOCK"; then
+        sync
+        rm -f "$LOAD_MARK"
+    else
+        held=1
+    fi
     log 'BLOCKED dongle: the unit restarted while the dongle driver was loading; automatic loading stopped until the dongle is unplugged'
     toast "USB Wi-Fi 동글 드라이버를 올리던 중 재시작되어 동글 사용을 멈췄습니다. 동글을 뽑았다 다시 꽂으면 한 번 다시 시도합니다."
 fi
@@ -71,7 +78,8 @@ fi
 # Bounded retries (max 3 per hardware attachment or explicit request) prevent infinite insmod loops.
 while true; do
     # Unplugging the dongle clears the block; the next attachment tries once more.
-    if [ -e "$LOAD_BLOCK" ] && ! has_dongle_hw; then
+    if { [ -e "$LOAD_BLOCK" ] || [ "$held" = 1 ]; } && ! has_dongle_hw; then
+        if [ "$held" = 1 ]; then rm -f "$LOAD_MARK" && held=0; fi
         rm -f "$LOAD_BLOCK" && log 'dongle unplugged: automatic loading allowed again'
     fi
     if [ -e "$LOAD_MARK" ]; then

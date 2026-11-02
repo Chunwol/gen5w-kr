@@ -2,6 +2,13 @@
 SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
+# Installed on its own, the swapped bcmdhd.ko would be live at the next boot
+# without the boot-loop guard, which only the release bundle arms. Every bundle
+# step creates the reboot-suppression file before running this check.
+if [ -z "${DONGLE_TEST_SYS:-}" ] && [ ! -f "$DATA/nemesis/gen5wkr.noreboot" ]; then
+    log 'FAIL: install this package with the release bundle (GEN5W-ACTION), not on its own'
+    exit 1
+fi
 
 # Verify required payload files exist in package
 [ -f "$SCRIPT_DIR/../files/bcmdhd.ko" ] || {

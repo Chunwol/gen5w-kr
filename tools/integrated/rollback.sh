@@ -18,4 +18,5 @@ bootguard_reconcile_previous rolled-back || {
 rm -f "$NOREBOOT" || { report 'RECOVERY REQUIRED: reboot suppression could not be cleared'; exit 1; }
 write_summary || echo '결과 문서를 USB에 저장하지 못했습니다.'
 sync
-[ "${IT_NO_REBOOT:-0}" = 1 ] || /system/bin/reboot
+# Rollback rewrites patched ODEX too: boot cold like install and remove.
+cold_reboot

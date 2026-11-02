@@ -67,6 +67,21 @@ rm -f "$DATA/nemesis/gen5wkr.bootguard/recovered"
 check 'bootguard refuses unarmed recovery' eval '! BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh"'
 check 'unarmed recovery leaves no success marker' test ! -e "$DATA/nemesis/gen5wkr.bootguard/recovered"
 
+# A unit without HKMC_GPM.odex (so the bridge kept no GPM backup) still recovers.
+printf armed > "$BG/armed"
+rm -f "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex"
+write_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex"
+check 'recovery without any GPM file succeeds' eval 'BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh" > "$W/nogpm.out" 2>&1'
+check 'recovery without GPM still restores the bridge ODEX' cmp -s "$SYS/app/Iap2ServerApp.odex" "$SYS/etc/gen5w-kr-backup/bridge/original"
+rm -f "$BG/armed" "$BG/recovered" "$BG/recovery-required"
+write_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex"
+# A missing GPM backup while the GPM ODEX exists must still refuse.
+printf armed > "$BG/armed"
+rm -f "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal"
+check 'missing GPM backup with a GPM ODEX refuses' eval '! BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh" > "$W/nogpmbak.out" 2>&1'
+rm -f "$BG/armed" "$BG/recovered" "$BG/recovery-required"
+write_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex"
+
 mkdir -p "$W/integrated" "$W/integrated-data" "$W/integrated-system"
 cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$W/integrated/"
 check 'bootguard arm creates an atomic armed marker' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"

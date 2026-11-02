@@ -60,9 +60,26 @@ arm() {
         "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
     ) &
 }
+# logcat has no -T on this unit, so a restarted logcat replays the whole buffer.
+# Lines carry their time (-v time: "MM-DD HH:MM:SS.mmm ..."); after a restart we
+# skip every line not newer than the last one already handled, so an old state
+# line can never close a screen that the current state would keep open. If the
+# clock moves back we only miss an early close; the stock timer still applies.
+LAST=$RUN/last
+passes=0
+rm -f "$LAST"
+newer() {
+    local d t rest last
+    case "$1" in [0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:*) ;; *) return 0;; esac
+    d=${1%% *}; rest=${1#* }; t=${rest%% *}
+    last=$(cat "$LAST" 2>/dev/null)
+    [ -z "$last" ] || [[ "$d $t" > "$last" ]] || return 1
+    echo "$d $t" > "$LAST"
+}
 while :; do
     bump
-    "$LOGCAT" -b system -v brief -s ConsentScreen:V 2>/dev/null | while IFS= read -r line; do
+    "$LOGCAT" -b system -v time -s ConsentScreen:V 2>/dev/null | while IFS= read -r line; do
+        newer "$line" || continue
         case "$line" in
             *'mScreenEnabled : '*) if passes "$line"; then arm; else bump; fi;;
             *'ConsentScreenTimeout is not executed'*|*'Locale Setting Button pressed'*|\
@@ -70,6 +87,7 @@ while :; do
             *'Not auto-close specification'*|*'ConsentScreen is null'*) bump;;
         esac
     done
-    [ -z "$TIMER_TEST_ONCE" ] || { wait; exit 0; }
-    sleep 5
+    passes=$((passes + 1))
+    [ -z "$TIMER_TEST_ONCE" ] || [ "$passes" -lt "$TIMER_TEST_ONCE" ] || { wait; exit 0; }
+    sleep "${TIMER_TEST_PAUSE:-5}"
 done

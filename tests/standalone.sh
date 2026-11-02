@@ -14,11 +14,11 @@ for c in getprop setprop svc am settings reboot; do
     chmod 755 "$W/bin/$c"
 done
 MSG='install this package with the release bundle'
-for item in 'wireless-enable EN_TEST_DATA' 'wireless-bridge BRIDGE_TEST_DATA' 'audio-format AUDIO_TEST_DATA'; do
-    set -- $item; pkg=$1; datavar=$2
+for item in 'packages/wireless-enable EN_TEST_DATA' 'packages/wireless-bridge BRIDGE_TEST_DATA' 'packages/audio-format AUDIO_TEST_DATA' 'tools/usb-wifi/package DONGLE_TEST_DATA'; do
+    set -- $item; dir=$1; pkg=${1#packages/}; [ "$pkg" != tools/usb-wifi/package ] || pkg=dongle; datavar=$2
     data=$W/$pkg-data; mkdir -p "$data/nemesis"
     calls=$W/$pkg.calls; : > "$calls"
-    out=$(cd "packages/$pkg" && env -u EN_TEST_SYS -u BRIDGE_TEST_SYS -u AUDIO_TEST_SYS \
+    out=$(cd "$dir" && env -u EN_TEST_SYS -u BRIDGE_TEST_SYS -u AUDIO_TEST_SYS -u DONGLE_TEST_SYS \
         PATH="$W/bin:$PATH" CALLS="$calls" "$datavar=$data" mksh scripts/pre.sh 2>&1)
     rc=$?
     if [ "$rc" = 1 ] && [[ "$out" == *"$MSG"* ]]; then ok "$pkg refuses a standalone install"
@@ -27,7 +27,7 @@ for item in 'wireless-enable EN_TEST_DATA' 'wireless-bridge BRIDGE_TEST_DATA' 'a
     if ! grep -q -E '^(svc|setprop|reboot|settings) ' "$calls"; then ok "$pkg refuses before any change"
     else bad "$pkg changed state before refusing: $(cat "$calls")"; fi
     : > "$data/nemesis/gen5wkr.noreboot"
-    out=$(cd "packages/$pkg" && env -u EN_TEST_SYS -u BRIDGE_TEST_SYS -u AUDIO_TEST_SYS \
+    out=$(cd "$dir" && env -u EN_TEST_SYS -u BRIDGE_TEST_SYS -u AUDIO_TEST_SYS -u DONGLE_TEST_SYS \
         PATH="$W/bin:$PATH" CALLS="$calls" "$datavar=$data" mksh scripts/pre.sh 2>&1)
     [[ "$out" != *"$MSG"* ]] && ok "$pkg passes the guard inside a bundle step" || bad "$pkg refused inside a bundle step"
 done

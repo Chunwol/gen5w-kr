@@ -71,6 +71,15 @@ preflight_pair() {
     done
     return 1
 }
+# The bridge installs without a GPM backup only on units that have no
+# HKMC_GPM.odex at all; there is nothing to restore there.
+preflight_gpm() {
+    if [ ! -e "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" ] && [ ! -L "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" ] &&
+       [ ! -e "$SYS/app/HKMC_GPM.odex" ] && [ ! -L "$SYS/app/HKMC_GPM.odex" ]; then
+        return 0
+    fi
+    preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v039" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v035"
+}
 guard_digest() {
     local value
     value=$(md5 "$1" 2>/dev/null) || return 1
@@ -152,7 +161,7 @@ dongle_preflight() {
 recovery_roots_valid && wireless_preflight && dongle_preflight &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035" &&
-preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v039" "$_apps/gen5w.kr.bridge/bin/gpm-patch-v035" &&
+preflight_gpm &&
 preflight_optional_pair "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" gen5w.kr.audio audio "$_apps/gen5w.kr.audio/bin/audio-patch" "$_apps/gen5w.kr.audio/bin/audio-patch-v035" || {
     log 'REFUSED bootguard: incomplete or unsafe recovery plan; manual recovery required'
     echo 'recovery-required' > "$BG/recovery-required.tmp" && mv "$BG/recovery-required.tmp" "$BG/recovery-required"

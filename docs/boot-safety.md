@@ -62,7 +62,7 @@ gen5w-kr의 기존 표는 “Leafia와 안전장치가 동일하다”고 표현
 
 1. 설치 완료를 기록하기 전에 `gen5wkr.bootguard`를 원자적으로 만들고 `armed/count/max`를 검증합니다. 무장 실패 시 커밋과 재부팅을 진행하지 않습니다.
 2. 부트가드 복구 시 원본 백업이 있는 모든 boot-critical 패치 파일과 `libCarPlayAudio.so`를 단계 파일로 복원한 뒤 바이트 비교합니다.
-3. `services`, `SystemUI`, `Iap2ServerApp`, `HKMC_DiPO`, `HKMC_GPM`에 해당하는 Dalvik 캐시를 삭제하고, 삭제 실패나 잔존을 오류로 처리합니다.
+3. 패치한 `Iap2ServerApp`, `HKMC_DiPO`, `HKMC_GPM`에 해당하는 Dalvik 캐시만 삭제하고(`services`·`SystemUI`는 순정이라 건드리지 않음), 삭제 실패나 잔존을 오류로 처리합니다.
 4. 복구 성공 때만 `recovered`를 기록하고 재부팅합니다. 복구 실패는 `recovery-required`를 기록하고 추가 재부팅을 하지 않습니다.
 5. 정상 부팅 완료 신호가 확인되면 해당 부팅의 실패 카운터만 0으로 되돌립니다. 부트가드 디렉터리와 `armed` 상태는 다음 시동까지 남겨 두어, 사용 중 재부팅된 다음 시동에서 같은 문제가 반복되어도 복구 경로를 유지합니다. 가드가 있는데 `armed`가 없으면 서비스 시작을 거부합니다.
 
