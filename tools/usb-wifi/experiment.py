@@ -21,9 +21,6 @@ INPUTS = {
     "mobis": "dae5b7e9f1c7d978878dee05a46e3ff4d9406a23bb535842ea63197a018cde44",
     "toolchain": "26219955973c0a270a2fbf2a5b070d4c9d6799b92fb1c32b3ceb44d2a6caca56",
 }
-# The GPL source bundle (gpl_source.py) carries only the kernel part of the
-# Mobis archive; it builds the same modules.
-MOBIS_SUBSET = "e57b1a5ce08bc67d1acc14d7b10ad0225258c6078f8ac468b9c8a5a556e1b2aa"
 VENDOR_ROOT = "AVNT5W_DaudioKK_kerneltcc/"
 BASELINE_SHA256 = "c9a0fa793da65bb4b7eaf08f741dd99152cb707a870593151e50f576f8da3b36"
 VERMAGIC = "3.18.24-tcc SMP preempt mod_unload ARMv7 p2v8 "
@@ -57,8 +54,7 @@ def main():
     if out.exists():
         ap.error("output must not exist; existing experiments are preserved")
     for name, expected in INPUTS.items():
-        found = digest(getattr(args, name))
-        if found != expected and not (name == "mobis" and found == MOBIS_SUBSET):
+        if digest(getattr(args, name)) != expected:
             ap.error(name + " checksum mismatch")
     if digest(args.config) != BASELINE_SHA256:
         ap.error("config checksum does not match the inspected V039 baseline")
