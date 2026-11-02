@@ -1,5 +1,13 @@
 #!/system/bin/sh
 . ./scripts/common.sh
+# Installed on its own, post.sh would reboot into the change without the
+# boot-loop guard, which only the release bundle arms. Every bundle step
+# creates the reboot-suppression file before running this check.
+if [ -z "$EN_TEST_SYS" ] && [ ! -f "$NOREBOOT" ]; then
+    log 'FAIL: install this package with the release bundle (GEN5W-ACTION), not on its own'
+    toast '이 패키지는 단독 설치할 수 없습니다. 릴리스 ZIP으로 설치하세요.'
+    exit 1
+fi
 log "=== preinstall gen5w.kr.wireless $(date 2>/dev/null) firmware=$(getprop ro.build.product 2>/dev/null)"
 preserve_existing_or_skip() {
     _installed=$DATA/nemesis/apps/gen5w.kr.wireless

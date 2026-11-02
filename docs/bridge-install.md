@@ -19,7 +19,7 @@ helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 
 
 재설치 시 원본 백업을 수정본으로 덮어쓰지 않습니다. `/data` reset으로 runtime 백업만 없어졌으면 system 백업으로 복구합니다. 제거는 원본 해시·소유 표식을 확인한 뒤 원본 bytes와 mode/uid/gid를 보존하여 복원하고 자기 백업만 제거합니다. 심볼릭 링크나 다른 소유 표식은 거부합니다. 이 경로에서 USB로 제조사 원본을 수집하지 않습니다.
 
-설치 도중 stock Iap2Server를 종료하지 않습니다. standalone 설치 성공 시 한 번 재부팅합니다. `/data/nemesis/gen5wkr.noreboot`가 있으면 통합 설치의 마지막 재부팅에 맡깁니다. 인접 ODEX가 유지되므로 Dalvik cache를 삭제하지 않습니다.
+설치 도중 stock Iap2Server를 종료하지 않습니다. 단독(standalone) NEMESIS 설치는 거부합니다. 통합 설치만 부트가드를 준비하고, 모든 통합 단계는 점검 전에 `/data/nemesis/gen5wkr.noreboot`를 만들어 마지막 재부팅을 직접 합니다. 인접 ODEX가 유지되므로 Dalvik cache를 삭제하지 않습니다.
 
 ## daemon
 
