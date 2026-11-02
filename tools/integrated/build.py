@@ -146,7 +146,8 @@ def build(dist, output, variant='standard'):
         ['git','rev-parse','HEAD'], cwd=HERE.parents[1], text=True).strip()+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-VARIANT').write_text(variant+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-BACKEND').write_text(('dongle' if variant == 'dongle' else 'builtin')+'\n', encoding='ascii', newline='\n')
-    (output / 'NEMESIS.data').write_text('[nemesis]\nversion=1.0\ntype=open\nid=gen5w.kr.integrated\nname=' + ('Gen5W KR pre-install check (read-only)' if variant == 'check' else 'Gen5W KR integrated installer') + '\ncompat=gen5w\n', encoding='ascii', newline='\n')
+    # type=execute: NEMESIS asks Yes/No on insert (1.16 removed Manager's "Run USB NEMESIS.sh").
+    (output / 'NEMESIS.data').write_text('[nemesis]\nversion=1.0\ntype=execute\npath=NEMESIS.sh\nid=gen5w.kr.integrated\nname=' + ('Gen5W KR pre-install check (read-only)' if variant == 'check' else 'Gen5W KR integrated installer') + '\ncompat=gen5w\n', encoding='ascii', newline='\n')
     nemesis_sh = '''#!/system/bin/sh
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 action=install
@@ -161,6 +162,13 @@ case "$action" in install|update|rollback|remove|status|wired-only|check) ;;
 mkdir -p GEN5W-REPORT || exit 1
 [ ! -L GEN5W-REPORT/STARTUP.txt ] || exit 1
 echo "action=$action" > GEN5W-REPORT/STARTUP.txt || exit 1
+# NEMESIS 1.15 runs type=execute without asking while Android is down. Only
+# run once Android has booted and the Yes/No dialog was answered.
+if [ "$(getprop sys.boot_completed 2>/dev/null)" != 1 ]; then
+    echo 'refused=android-not-ready' >> GEN5W-REPORT/STARTUP.txt
+    echo 'REFUSED Android is not ready; plug the USB in again after boot'
+    exit 1
+fi
 /system/bin/sh "./$action.sh" > GEN5W-REPORT/EXEC_LOG.txt 2>&1
 status=$?
 cat GEN5W-REPORT/EXEC_LOG.txt 2>/dev/null

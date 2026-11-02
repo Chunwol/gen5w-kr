@@ -15,7 +15,7 @@
 
 설치본과 소스는 같은 커밋에서 만듭니다. `GEN5W-VARIANT`와 `GEN5W-BACKEND`는 번들에 들어 있는 값만 씁니다. 원복할 수 없는 상태로 설치를 진행하지 않습니다.
 
-USB의 `NEMESIS.data`는 `type=open`입니다. USB를 꽂으면 Manager만 열고, **Run USB NEMESIS.sh**를 선택하면 실행합니다.
+USB의 `NEMESIS.data`는 `type=execute`, `path=NEMESIS.sh`입니다. USB를 꽂으면 NEMESIS가 예/아니오를 묻고, **예**를 눌러야 실행합니다(NEMESIS 1.16에서 Manager의 Run USB NEMESIS.sh 버튼이 없어짐). `NEMESIS.emergency`는 넣지 않으며, `NEMESIS.sh`는 `sys.boot_completed`가 1이 아니면 거부합니다(1.15는 Android가 안 켜졌을 때 묻지 않고 실행하므로).
 
 ## 맞는 버전 안내
 

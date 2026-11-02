@@ -1,5 +1,10 @@
 # 변경 내역
 
+## v0.3.19
+
+- NEMESIS 1.16에서 Manager의 **Run USB NEMESIS.sh** 버튼이 없어져, 이전 USB(`type=open`)는 Manager만 열고 실행할 방법이 없었습니다. 이제 USB의 `NEMESIS.data`가 `type=execute`라서 꽂으면 NEMESIS가 실행할지 묻고, **예**를 눌러야 실행합니다(1.15에서도 같음).
+- 1.15는 Android가 안 켜진 상태에서는 묻지 않고 실행하므로, `NEMESIS.sh`가 `sys.boot_completed`를 확인해 차가 완전히 켜지기 전에는 거부합니다. `NEMESIS.emergency`는 넣지 않습니다.
+
 ## v0.3.18
 
 - NEMESIS 1.16.3에 맞췄습니다. 1.16부터 NEMESIS가 제거 전 검사를 직접 다시 돌리고, 실패하면 제거를 멈춥니다. 우리 설치기는 이전 빌드의 검사가 거부했을 때 이 묶음의 검증된 검사로 순정을 복원한 뒤, 그 경우에만 `--force`로 제거를 마칩니다(1.15에서는 필요 없어 쓰지 않음). 각 모듈의 제거 검사가 두 번 돌아도 성공하는지 테스트를 더했습니다.

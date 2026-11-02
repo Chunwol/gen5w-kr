@@ -90,9 +90,9 @@ jobs:
 
           ## 사용 방법
 
-          1. `gen5w-kr-check.zip`의 압축을 풀어 내용물을 USB 맨 바깥에 복사하고, NEMESIS Manager에서 **Run USB NEMESIS.sh**를 선택합니다.
+          1. `gen5w-kr-check.zip`의 압축을 풀어 내용물을 USB 맨 바깥에 복사하고, 차량에 꽂고 NEMESIS가 실행할지 물으면 **예**를 누릅니다.
           2. USB의 `GEN5W-REPORT/CHECK.md`에서 판정과 **받을 파일**을 확인합니다. "설치하지 마세요"가 나오면 설치하지 마세요.
-          3. 같은 USB에 추천된 설치 ZIP의 내용물을 덮어 복사하고 다시 **Run USB NEMESIS.sh**를 선택합니다.
+          3. 같은 USB에 추천된 설치 ZIP의 내용물을 덮어 복사하고 다시 꽂아 **예**를 누릅니다.
           4. `GEN5W-REPORT/RESULT.html`에서 결과를 확인합니다. 내장 Wi-Fi를 찾지 못했거나 동글형이 내장 Wi-Fi를 발견하면 여기에 맞는 버전을 안내합니다.
           5. 잘 됐든 안 됐든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)에 `GEN5W-REPORT` 로그와 함께 알려 주세요.
 

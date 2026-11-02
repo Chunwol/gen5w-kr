@@ -104,7 +104,10 @@ for variant,count in [('standard',6),('dongle',7)]:
     with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
         assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
-        assert b'type=open' in z.read('NEMESIS.data'), 'automatic insertion installation'
+        meta = z.read('NEMESIS.data')
+        assert b'type=execute' in meta and b'path=NEMESIS.sh' in meta, 'USB is not a NEMESIS run script'
+        assert 'NEMESIS.emergency' not in z.namelist(), 'USB would run without a dialog'
+        assert b'sys.boot_completed' in z.read('NEMESIS.sh'), 'USB entry runs before Android is up'
         assert all(n in z.namelist() for n in ['LICENSE','NOTICE.md','SOURCE.md','BUILD-REVISION','report.sh','docs/beginner-guide.md'])
         # Only user documents on the USB, and no link on it points at a missing file.
         docs = sorted(n for n in z.namelist() if n.startswith('docs/'))

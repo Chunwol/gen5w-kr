@@ -13,7 +13,8 @@ PY
 check 'build complete integrated USB bundle' python3 "$ROOT/tools/integrated/build.py" --skip-native --dist "$W/dist" --output "$W/usb"
 check 'bundle includes staged module gates' test -f "$W/usb/checks/gen5w.kr.bridge/FILES.md5"
 check 'source revision metadata uses LF on every build platform' eval '! grep -q "$(printf "\r")" "$W/usb/BUILD-REVISION"'
-check 'USB insertion opens Manager without automatic installation' grep -qx 'type=open' "$W/usb/NEMESIS.data"
+check 'USB insertion asks NEMESIS to run NEMESIS.sh (Yes/No)' eval 'grep -qx type=execute "$W/usb/NEMESIS.data" && grep -qx path=NEMESIS.sh "$W/usb/NEMESIS.data"'
+check 'USB never runs without a dialog' test ! -e "$W/usb/NEMESIS.emergency"
 check 'bundle includes ARM snapshot helper' cmp "$ROOT/tools/integrated/bin/zipstore" "$W/usb/zipstore"
 check 'build second deterministic bundle' python3 "$ROOT/tools/integrated/build.py" --skip-native --dist "$W/dist" --output "$W/usb-second"
 check 'deterministic archive bytes' cmp "$W/usb.zip" "$W/usb-second.zip"
@@ -35,6 +36,11 @@ check 'dongle backend is explicitly dongle' grep -qx dongle "$W/dongle/GEN5W-BAC
 check 'local edition cannot be built by public tool' eval '! python3 "$ROOT/tools/integrated/build.py" --skip-native --variant skip-consent --dist "$W/dist" --output "$W/local-refused"'
 check 'refused edition creates no files' test ! -e "$W/local-refused"
 sed "s#/system/bin/sh#$(command -v mksh)#g" "$W/usb/NEMESIS.sh" > "$W/usb/entry.sh"
+mkdir "$W/prop"; printf '#!/bin/sh\necho "${BOOTED-1}"\n' > "$W/prop/getprop"; chmod +x "$W/prop/getprop"
+echo 'echo ran' > "$W/usb/status.sh"; echo status > "$W/usb/GEN5W-ACTION"
+check 'USB entry refuses while Android is down' eval '! BOOTED=0 PATH="$W/prop:$PATH" mksh "$W/usb/entry.sh" && grep -qx refused=android-not-ready "$W/usb/GEN5W-REPORT/STARTUP.txt"'
+check 'USB entry refuses when boot state is unknown' eval '! mksh "$W/usb/entry.sh" | grep -q ran'
+export PATH="$W/prop:$PATH"
 echo 'echo selected-status' > "$W/usb/status.sh"
 printf 'status\r\n' > "$W/usb/GEN5W-ACTION"
 check 'USB action selector accepts Windows newline' eval 'mksh "$W/usb/entry.sh" | grep -qx selected-status'
