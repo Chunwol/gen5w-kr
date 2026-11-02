@@ -16,6 +16,12 @@ FW_DIR=$SYS/etc/firmware
 
 BACKUP_DURABLE=$SYS/etc/gen5w-kr-backup/dongle
 BACKUP_RUNTIME=$DATA/nemesis/backup/gen5w.kr.dongle
+# Reboot-loop guard (service.sh): LOAD_MARK is on disk while the kernel modules
+# are being loaded and for a while after; finding it at boot means the last load
+# was cut short (crash, reboot or power off), so automatic loading stops
+# (LOAD_BLOCK) until the dongle is unplugged.
+LOAD_MARK=$DATA/nemesis/gen5wkr.dongle-loading
+LOAD_BLOCK=$DATA/nemesis/gen5wkr.dongle-blocked
 OWNER="gen5w.kr.dongle:2.0"
 
 log_size() {
@@ -243,4 +249,5 @@ EOF2
         rm -f "$BACKUP_RUNTIME/original" "$BACKUP_RUNTIME/owner" && rmdir "$BACKUP_RUNTIME" || return 1
         log 'CLEARED dongle: runtime copy left by a system reinstall'
     fi
+    rm -f "$LOAD_MARK" "$LOAD_BLOCK" || return 1
 }

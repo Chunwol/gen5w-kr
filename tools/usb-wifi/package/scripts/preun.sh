@@ -42,6 +42,7 @@ setprop persist.gen5w.wifi.backend "$backend_original" 2>/dev/null &&
 # 7. Clean up backup trees
 rm -rf "$BACKUP_RUNTIME" 2>/dev/null || exit 1
 rm -rf "$BACKUP_DURABLE" 2>/dev/null || exit 1
+rm -f "$LOAD_MARK" "$LOAD_BLOCK" || exit 1
 
 sync
 sys_ro || exit 1

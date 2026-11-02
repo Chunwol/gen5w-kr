@@ -39,9 +39,15 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
         check(which + ' rotates oversized logs without wc', log.with_suffix('.log.1').exists()
               and log.read_bytes() == b'probe\n')
 
-    def service_case(name, backend, request=False, ready=False, renew=False):
+    def service_case(name, backend, request=False, ready=False, renew=False,
+                     mark=False, block=False, loader_ok=False, unplug_at=0, replug_at=0):
         case = work/name
         case.mkdir()
+        (case/'nemesis').mkdir()
+        if mark:
+            (case/'nemesis/gen5wkr.dongle-loading').write_text('loading\n')
+        if block:
+            (case/'nemesis/gen5wkr.dongle-blocked').write_text('blocked\n')
         net = case/'net'
         net.mkdir()
         usb = case/'usb/1-1'
@@ -63,21 +69,27 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
 [ ! -f "$CASE/ticks" ] || n=$(cat "$CASE/ticks")
 n=$((n+1)); echo "$n" > "$CASE/ticks"
 if [ "$RENEW" = 1 ] && [ "$n" = 5 ]; then echo 1 > "$CASE/props/wlan.driver.load.request"; fi
+if [ "$n" = "$UNPLUG_AT" ]; then mv "$CASE/usb/1-1" "$CASE/usb-off"; fi
+if [ "$n" = "$REPLUG_AT" ]; then mv "$CASE/usb-off" "$CASE/usb/1-1"; fi
 [ "$n" -lt 12 ] || kill -TERM "$PPID"
 ''',
-            'gen5w-dongle-load': 'echo attempt >> "$CASE/attempts"; exit 1',
+            'gen5w-dongle-load': ('echo attempt >> "$CASE/attempts"; '
+                                  '[ -f "$CASE/nemesis/gen5wkr.dongle-loading" ] && echo marked >> "$CASE/marked"; '
+                                  + ('mkdir -p "$CASE/net/wlan0"; exit 0' if loader_ok else 'exit 1')),
         }
         for filename, body in scripts.items():
             p = bindir/filename
             p.write_text('#!/bin/sh\n'+body+'\n')
             p.chmod(0o755)
         env = dict(os.environ, CASE=str(case), RENEW='1' if renew else '0',
+            UNPLUG_AT=str(unplug_at), REPLUG_AT=str(replug_at), DONGLE_TEST_STABLE='6',
             PATH=str(bindir)+':'+os.environ['PATH'], DONGLE_TEST_SYS=str(case),
             DONGLE_TEST_DATA=str(case), DONGLE_TEST_SYS_BUS=str(usb.parent),
             DONGLE_TEST_NET_ROOT=str(net))
         # The production common script resolves the installed loader under SYS/bin.
         subprocess.run(['mksh', str(ROOT/'tools/usb-wifi/package/scripts/service.sh')],
                        env=env, capture_output=True, timeout=5)
+        service_case.case = case
         return len((case/'attempts').read_text().splitlines()) if (case/'attempts').exists() else 0
 
     check('inactive backend never loads modules', service_case('inactive', 'builtin') == 0)
@@ -85,6 +97,29 @@ if [ "$RENEW" = 1 ] && [ "$n" = 5 ]; then echo 1 > "$CASE/props/wlan.driver.load
     check('explicit load request can start the root loader', service_case('request', 'builtin', True) == 1)
     check('new request resets the bounded retry budget', service_case('renew', 'dongle', renew=True) == 6)
     check('an existing interface does not trigger a reload', service_case('ready', 'dongle', ready=True) == 0)
+
+    # Reboot-loop guard
+    n = service_case('crashed', 'dongle', mark=True)
+    c = service_case.case
+    check('a load cut short by a restart blocks automatic loading', n == 0
+          and (c/'nemesis/gen5wkr.dongle-blocked').exists()
+          and not (c/'nemesis/gen5wkr.dongle-loading').exists())
+    n = service_case('blocked-request', 'builtin', request=True, block=True)
+    check('a blocked dongle ignores driver load requests', n == 0)
+    n = service_case('clean-fail', 'dongle')
+    c = service_case.case
+    check('the mark is on disk during each load and cleared after a clean failure',
+          (c/'marked').exists() and len((c/'marked').read_text().splitlines()) == n == 3
+          and not (c/'nemesis/gen5wkr.dongle-loading').exists())
+    n = service_case('stable', 'dongle', loader_ok=True)
+    c = service_case.case
+    check('a working dongle clears the mark after the stable period', n == 1
+          and not (c/'nemesis/gen5wkr.dongle-loading').exists()
+          and not (c/'nemesis/gen5wkr.dongle-blocked').exists())
+    n = service_case('replug', 'dongle', mark=True, unplug_at=3, replug_at=6)
+    c = service_case.case
+    check('unplugging clears the block and the next attachment tries again', n >= 1
+          and not (c/'nemesis/gen5wkr.dongle-blocked').exists())
 
 print('== dongle runtime:', passed, 'passed,', failed, 'failed')
 raise SystemExit(1 if failed else 0)
