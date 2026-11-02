@@ -46,7 +46,14 @@ body:
     id: release
     attributes:
       label: 릴리스 버전
-      description: "예: v0.3.13"
+      description: "예: v0.3.18"
+    validations:
+      required: true
+  - type: input
+    id: nemesis
+    attributes:
+      label: NEMESIS 버전
+      description: "예: 1.16.3. CHECK.md나 ISSUE.md의 'NEMESIS 버전' 줄에 나옵니다. 1.15 이하는 '확인 불가'로 나오니 아는 대로 적어 주세요."
     validations:
       required: true
   - type: checkboxes

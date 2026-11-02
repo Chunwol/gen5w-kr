@@ -170,6 +170,7 @@ check 'file deletion failure keeps recovery backup' test -f "$PERSIST/original"
 cp "$W/pkg/files/bcmdhd.ko" "$TARGET"
 echo unrelated > "$W/sys/wifi/dongle/other-owner.dat"
 check 'dongle uninstall succeeds' run preun
+check 'dongle second preuninstall after removal succeeds (NEMESIS 1.16)' run preun
 check 'dongle uninstall restores stock bcmdhd.ko byte-identical' cmp -s "$TARGET" "$W/fixture/stock_hal"
 check 'stock Wi-Fi HAL still untouched after uninstall' grep -qx stock_wifi_hal "$W/sys/lib/libhardware_legacy.so"
 check 'dongle uninstall removes own module' test ! -e "$W/sys/wifi/dongle/ath9k_htc.ko"

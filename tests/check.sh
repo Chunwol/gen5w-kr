@@ -73,6 +73,14 @@ run
 check 'records SystemUI stock' grep -qx 'systemui_odex=stock-v039' "$U/GEN5W-REPORT/CHECK.txt"
 check 'records services stock' grep -qx 'services_odex=stock-v039' "$U/GEN5W-REPORT/CHECK.txt"
 check 'records firmware' grep -qx 'firmware=OSHEV.KOR' "$U/GEN5W-REPORT/CHECK.txt"
+check 'NEMESIS without a version command is unknown' grep -qx 'nemesis_version=unknown' "$U/GEN5W-REPORT/CHECK.txt"
+mkdir -p "$S/xbin"; printf '#!/bin/sh
+[ "$1" = version ] && echo 1.16.3
+' > "$S/xbin/nemesis"; chmod 755 "$S/xbin/nemesis"
+run
+check 'records the NEMESIS version' grep -qx 'nemesis_version=1.16.3' "$U/GEN5W-REPORT/CHECK.txt"
+check 'shows the NEMESIS version' grep -q -- '- NEMESIS 버전: 1.16.3' "$U/GEN5W-REPORT/CHECK.md"
+rm -rf "$S/xbin"; run
 check 'wireless code found' grep -qx 'wireless_code=yes' "$U/GEN5W-REPORT/CHECK.txt"
 check 'nothing on the unit changed' test "$before" = "$(snapshot)"
 

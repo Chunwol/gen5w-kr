@@ -51,6 +51,11 @@ body:
       description: 아직 설치하지 않았다면 미설치라고 적어 주세요.
     validations:
       required: true
+  - type: input
+    id: nemesis
+    attributes:
+      label: NEMESIS 버전
+      description: "예: 1.16.3. CHECK.md나 ISSUE.md의 'NEMESIS 버전' 줄에 나옵니다."
   - type: textarea
     id: dongle
     attributes:

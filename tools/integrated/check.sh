@@ -114,6 +114,10 @@ fact targetdir "$(prop ro.mobis.targetdir)"
 fact hardware "$(prop ro.hardware)"
 fact android "$(prop ro.build.version.release)"
 [ -x "$SYS/xbin/nemesis" ] && fact nemesis yes || fact nemesis no
+# "nemesis version" exists from 1.16; 1.15 has no such command.
+NEM_VER=$("$SYS/xbin/nemesis" version 2>/dev/null | clean)
+case "$NEM_VER" in ''|*[!0-9.]*) NEM_VER=unknown;; esac
+fact nemesis_version "$NEM_VER"
 
 S_HOTSPOT=$(verify_hash framework/services.odex 63cf432dd4597a916ce9faa0c26b5f7ad29affba3976cf4c8cf316dc16107c4f 64fe8286ff39ba52223bf04d7c98fe7e4c2579ad06a090f7a4b80a34faa1e0ca)
 S_SYSUI=$(verify_hash priv-app/SystemUI.odex 97e7e258df34d76ed61a714f83de4bf0fbc3d6b6188055c941ad2689f72595af 3de39c29f10c8db3ec786f59378f5b716b04e6be473b42989f40ef828ef0867b)
@@ -274,6 +278,7 @@ fi
     echo "- 펌웨어: $(prop ro.build.product) / $(prop ro.build.display.id)"
     REV=$(first_line BUILD-REVISION 2>/dev/null)
     echo "- 점검 도구 버전: ${REV:0:7}"
+    echo "- NEMESIS 버전: $NEM_VER"
     echo
     if [ -n "$BLOCK" ]; then
         echo '## 판정: 설치하지 마세요'

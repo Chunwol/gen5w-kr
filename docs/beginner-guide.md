@@ -29,7 +29,7 @@
 
 ## 3. NEMESIS 설치 USB 만들기
 
-1. [NEMESIS 공식 저장소](https://github.com/xwtk/hmg_nemesis)에서 `ota_package.tar`를 받습니다. 우리 앱 설치 ZIP과는 다른 파일입니다.
+1. [NEMESIS 공식 저장소](https://github.com/xwtk/hmg_nemesis)에서 `ota_package.tar`를 받습니다. 우리 앱 설치 ZIP과는 다른 파일입니다. 어느 NEMESIS 버전에서 확인했는지는 [README의 NEMESIS 버전 표](https://github.com/Chunwol/gen5w-kr#nemesis-버전)를 보세요. 표에 없는 버전이면 결과 공유 때 버전을 꼭 적어 주세요.
 2. 비어 있는 FAT32 또는 exFAT USB를 준비합니다. 포맷은 기존 자료를 지우므로 백업 후 수행합니다.
 3. `ota_package.tar`는 **압축을 풀지 않고 이름 그대로** USB 맨 바깥에 복사합니다. 일반 내비 업데이트 `NaU` 파일과 섞지 않습니다.
 

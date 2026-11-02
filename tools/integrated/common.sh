@@ -140,11 +140,20 @@ safe_remove() {
     # Native NEMESIS ignores this hook's return value. Check it ourselves first.
     # An earlier build's hook may not know a firmware reinstall; this bundle's
     # verified hook then decides, with the same refusal rules.
+    local recovered=0
     if ! hook "$id" preuninstall; then
         bundle_remove_hook "$id" || return 1
         report "RECOVERED $id: removed with this bundle's check after the installed one refused"
+        recovered=1
     fi
-    "$NEM" uninstall "$id" || return 1
+    # NEMESIS 1.16 runs the installed hook again and keeps the package if it
+    # fails. After this bundle's verified hook restored stock, --force (1.16
+    # only; never reached on 1.15, which ignores the hook) lets the removal finish.
+    if ! "$NEM" uninstall "$id"; then
+        [ "$recovered" = 1 ] && [ -f "$APPS/$id/NEMESIS.data" ] || return 1
+        "$NEM" uninstall --force "$id" || return 1
+        report "FORCED $id: removed after this bundle's check (installed hook still refuses)"
+    fi
     if [ -e "$APPS/$id" ]; then
         rm -rf "$APPS/$id" || return 1
     fi

@@ -86,6 +86,7 @@ check "persist.ium.support set to carplay" grep -qx 'persist.ium.support=carplay
 check "featurexml stripping lines commented" eval 'grep -q "^#- .*carplay_wireless" "$W/sys/onebin/oshev_kr/featurexml.cfg" && grep -q "^#- .*wifihotspot" "$W/sys/onebin/oshev_kr/featurexml.cfg"'
 check "featurexml keeps unrelated + lines" grep -q '^+ /system/etc/permissions/com.hkmc.foo.xml' "$W/sys/onebin/oshev_kr/featurexml.cfg"
 check "uninstall" run preun.sh
+check "second preuninstall after removal succeeds (NEMESIS 1.16)" run preun.sh
 check "uninstall -> /system byte-identical to stock" same
 
 # Match mode (safe-wireless): projection features only, hotspot feature and its featurexml line untouched.

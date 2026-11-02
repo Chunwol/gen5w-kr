@@ -127,6 +127,7 @@ echo foreign > "$TARGET"
 if run preun; then bad "$version foreign target refused"; else ok "$version foreign target refused"; fi
 cp "$W/fixture/$version-patched" "$TARGET"
 check "$version uninstall" run preun
+check "$version second preuninstall after removal succeeds (NEMESIS 1.16)" run preun
 check "$version original identity" cmp -s "$TARGET" "$W/fixture/$version-original"
 check "$version DiPO original identity" cmp -s "$DIPO" "$W/fixture/dipo-$version-original"
 if [ -f "$W/pkg/bin/gpm-patch-$version" ]; then

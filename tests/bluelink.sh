@@ -67,6 +67,7 @@ check 'restored older time is hidden again' has "value=\"$FAR\""
 check 'reinstall keeps the first original' run post
 check 'original not replaced by our time' eval '! grep -qF "$FAR" "$W/data/nemesis/gen5wkr.bluelink/orig-lines"'
 check 'removal succeeds' run preun
+check 'second preuninstall after removal succeeds (NEMESIS 1.16)' run preun
 check 'removal restores the original time' has 'value="1761955200000"'
 check 'removal drops our time' eval '! grep -qF "$FAR" "$PREFS"'
 check 'removal keeps other settings' has 'keep &amp; me'

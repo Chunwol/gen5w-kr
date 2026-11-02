@@ -87,6 +87,7 @@ echo foreign > "$TARGET"
 if run preun; then bad 'audio foreign modification refused'; else ok 'audio foreign modification refused'; fi
 cp "$W/fixture/patched" "$TARGET"
 check 'audio uninstall' run preun
+check 'audio second preuninstall after removal succeeds (NEMESIS 1.16)' run preun
 check 'audio uninstall byte identity' cmp -s "$TARGET" "$W/fixture/original"
 check 'audio uninstall removes own persistent state' test ! -d "$PERSIST"
 check 'audio uninstall removes runtime state' test ! -d "$MARK"

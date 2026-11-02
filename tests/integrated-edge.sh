@@ -22,7 +22,15 @@ elif args[0]=='install':
     with zipfile.ZipFile(args[-1]) as z:
         id=z.read('NEMESIS.data').decode().split('id=')[1].splitlines()[0]
         path=root+'/'+id; shutil.rmtree(path,ignore_errors=True); os.makedirs(path); z.extractall(path)
-elif args[0]=='uninstall': shutil.rmtree(root+'/'+args[1],ignore_errors=True)
+elif args[0]=='version' and os.environ.get('IT_NEM116'): print('1.16.3')
+elif args[0]=='uninstall':
+    # IT_NEM116: NEMESIS 1.16 runs preuninstall itself and keeps the package if it fails.
+    force='--force' in args; pid=[a for a in args[1:] if not a.startswith('-')][0]
+    if os.environ.get('IT_NEM116') and not force and os.path.exists(root+'/'+pid+'/scripts/preun.sh'):
+        import subprocess
+        if subprocess.call(['sh','scripts/preun.sh'],cwd=root+'/'+pid)!=0: sys.exit(5)
+    elif force and not os.environ.get('IT_NEM116'): sys.exit(1)  # 1.15 reads --force as the package id
+    shutil.rmtree(root+'/'+pid,ignore_errors=True)
 else: sys.exit(1)
 PY
     chmod +x "$W/bin/nemesis"
@@ -32,7 +40,9 @@ import zipfile,sys,hashlib,pathlib
 for m in ['dongle','wireless','audio','bridge','core','timer','bluelink']:
     pid='gen5w.kr.'+m
     with zipfile.ZipFile(sys.argv[1]+'/'+pid+'.zip','w') as z:
-        z.writestr('NEMESIS.data','[nemesis]\nid='+pid+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
+        z.writestr('NEMESIS.data','[nemesis]\nid='+pid+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\npreuninstall=scripts/preun.sh\n')
+        # The installed copy refuses when IT_PREUN_REFUSE names it; this bundle's copy (checks/) agrees.
+        z.writestr('scripts/preun.sh','case "$PWD" in */checks/*) exit 0;; esac\n[ "$IT_PREUN_REFUSE" != "'+pid+'" ] || exit 1\nexit 0\n')
         # Incoming build (bundle checks/) and earlier build (snapshot) answer separately.
         z.writestr('scripts/pre.sh','case "$PWD" in */checks/*) [ "$IT_SKIP" != "'+pid+'" ] || exit 77; exit 0;; esac\n[ "$IT_PRIOR_SKIP" != "'+pid+'" ] || exit 77\nexit 0\n')
         # Fails once, so the rollback reinstall of the earlier build succeeds.
@@ -85,6 +95,21 @@ check 'the hint is shown once' test ! -e "$W/data/nemesis/gen5wkr.edition-hint"
 run status
 check 'later results carry no stale hint' eval '! grep -q "받을 버전 안내" "$R"'
 check 'standard edition is named in the result' grep -q '기본형(내장 Wi-Fi)' "$R"
+rm -rf "$W"
+
+# G: NEMESIS 1.16 keeps a package whose installed preuninstall refuses.
+setup
+run install
+check 'NEMESIS 1.16: normal remove still works' eval 'IT_NEM116=1 run remove && test "$(state)" = committed && ! reg gen5w.kr.bridge'
+run install
+IT_NEM116=1 IT_PREUN_REFUSE=gen5w.kr.bridge run remove
+check 'NEMESIS 1.16: refusing installed hook, bundle check removes it' eval 'test "$(state)" = committed && ! reg gen5w.kr.bridge'
+check 'NEMESIS 1.16: forced removal is reported' grep -q 'FORCED gen5w.kr.bridge' "$W/data/nemesis/gen5w-kr-integrated/report"
+check 'NEMESIS 1.16: ISSUE.md records the NEMESIS version' grep -qx -- '- NEMESIS 버전: 1.16.3' "$W/usb/GEN5W-REPORT/ISSUE.md"
+run status
+check 'NEMESIS without a version command is reported as unknown' grep -q -- '- NEMESIS 버전: 확인 불가(1.15 이하일 수 있음)' "$W/usb/GEN5W-REPORT/ISSUE.md"
+run install
+check 'NEMESIS 1.15: no force needed' eval 'IT_PREUN_REFUSE=gen5w.kr.bridge run remove && ! grep -q "FORCED" "$W/out"'
 rm -rf "$W"
 
 # B: remove after an official firmware update (audio library not recognised).

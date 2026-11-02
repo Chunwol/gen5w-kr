@@ -80,6 +80,12 @@ edition_advice() {
         echo '내장 Wi-Fi를 찾지 못해 무선 연결은 빼고 설치했습니다. 내장 Wi-Fi가 없는 차라면 지원 USB Wi-Fi 동글(AR9271/AR7010)을 꽂고 동글형 gen5w-kr-dongle.zip으로 업데이트하세요.'
     fi
 }
+# "nemesis version" exists from 1.16; 1.15 has no such command.
+nemesis_version() {
+    local v
+    v=$("$NEM" version 2>/dev/null)
+    case "$v" in ''|*[!0-9.]*) echo '확인 불가(1.15 이하일 수 있음)';; *) echo "$v";; esac
+}
 hud_owner() {
     local file=$DATA/data/kr.gen5w.core/files/hud-owner.status value
     [ ! -L "$file" ] && [ -f "$file" ] || { echo '아직 확인되지 않음'; return; }
@@ -168,6 +174,7 @@ write_summary() {
         echo '## 진단 로그'
         echo
         echo "- 코드 버전: $revision"
+        echo "- NEMESIS 버전: $(nemesis_version)"
         echo "- 명령 종료 코드: ${1:-0}"
         echo "- 트랜잭션 상태: $state"
         echo "- 모델 식별명: $(safe_prop ro.product.model)"
