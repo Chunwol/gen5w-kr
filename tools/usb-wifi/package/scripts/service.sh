@@ -49,6 +49,8 @@ fi
 
 # A mark left from the previous boot: that load never finished cleanly.
 if [ -e "$LOAD_MARK" ] && [ ! -L "$LOAD_MARK" ]; then
+    # Replace whatever is at that name (a link is removed, not followed).
+    rm -f "$LOAD_BLOCK"
     echo blocked > "$LOAD_BLOCK"
     sync
     rm -f "$LOAD_MARK"
