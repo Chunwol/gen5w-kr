@@ -15,6 +15,12 @@ cat > "$W/am" <<'A'
 echo "$*" >> "$TIMER_AM_LOG"
 A
 chmod 755 "$W/am"
+# Boot state: $W/booted holds sys.boot_completed (1 unless a test changes it).
+echo 1 > "$W/booted"
+printf '#!/bin/sh
+cat "%s/booted"
+' "$W" > "$W/getprop"; chmod 755 "$W/getprop"
+export TIMER_TEST_GETPROP=$W/getprop TIMER_BOOT_WAIT=3
 OK='D/ConsentScreen(  1): mScreenEnabled : true, mIsEarlyCamOn : false, mIsReverseOn : false, mIsPowerOn : true, mIsCalling : false, mIsBtCalling : false, mAccStatus : 0, mShowLocaleDialog : false, mIsUpdateCompleteViewOn : false mIsValet : false, mIsEmergency : false, mInitDriverIdx : 0, mIsDipoCalling : false'
 # Feed lines with gaps; $1.. are "line|seconds-before-next".
 feed() {
@@ -75,5 +81,13 @@ chmod 755 "$W/logcat"; rm -rf "$PKG/run"; : > "$W/am.log"; rm -f "$W/calls"
 OK=$OK TIMER_CALLS=$W/calls TIMER_TEST_SYS=$W/sys TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am TIMER_TEST_ONCE=2 TIMER_TEST_PAUSE=0 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" >/dev/null 2>&1
 check 'restarted logcat does not replay an old close' test "$(grep -c CLOSE "$W/am.log")" = 1
 check 'restarted logcat ran twice' test "$(cat "$W/calls")" = 2
+# Cold start: the screen can come up before Android allows broadcasts.
+echo 0 > "$W/booted"; feed "$OK|4"; ( sleep 1; echo 1 > "$W/booted" ) & run; wait
+check 'early screen closes once boot completes' closed
+echo 0 > "$W/booted"; feed "$OK|5"; run
+check 'boot never completing sends nothing' eval '! closed'
+echo 0 > "$W/booted"; feed "$OK|0.5" 'D/ConsentScreen(  1): Locale Setting Button pressed or refresh dialog|4'; ( sleep 1.5; echo 1 > "$W/booted" ) & run; wait
+check 'event while waiting for boot cancels' eval '! closed'
+echo 1 > "$W/booted"
 echo "== timer: $pass passed, $fail failed"
 [ "$fail" = 0 ]

@@ -28,6 +28,10 @@ def audit(path):
         meta=configparser.ConfigParser(interpolation=None)
         meta.read_string(z.read('NEMESIS.data').decode())
         assert meta['nemesis']['id']==path.stem, 'package identity differs'
+        # NEMESIS 1.16 shows these in My Packages; the version follows the newest CHANGELOG entry.
+        top = re.search(r'(?m)^## v([0-9.]+)$', (Path(__file__).resolve().parents[1]/'CHANGELOG.md').read_text(encoding='utf-8')).group(1)
+        assert meta['nemesis'].get('package-version')==top, 'package-version is not the CHANGELOG version '+top
+        assert 0 < len(meta['nemesis'].get('short-desc','')) <= 64, 'short-desc missing or over 64 characters'
         assert z.read('LICENSE').startswith(b' '), 'license missing'
         assert len(z.read('BUILD-REVISION').strip())==40, 'source revision missing'
         assert 'SOURCE.md' in z.namelist(), 'source notice missing'

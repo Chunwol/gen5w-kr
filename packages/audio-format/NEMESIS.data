@@ -2,6 +2,9 @@
 version=1.0
 id=gen5w.kr.audio
 name=Gen5W KR - AAC and Opus audio formats
+package-version=0.3.20
+short-desc=무선 CarPlay용 AAC·Opus 오디오 형식
+depends=!enhanced.projection
 types=application
 preinstall=scripts/pre.sh
 postinstall=scripts/post.sh

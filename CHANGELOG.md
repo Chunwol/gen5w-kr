@@ -1,5 +1,12 @@
 # 변경 내역
 
+## v0.3.20
+
+- 점검이 내장 Wi-Fi를 제대로 확인합니다. Wi-Fi가 꺼져 있고 동글도 없으면 최대 8초 켰다가 다시 끄고(`wifi_probe`), 파일은 쓰지 않습니다. 다시 안 꺼지면 경고합니다. 2020 코나 HEV(V039)에서 `wifi_probe=found`로 확인했습니다.
+- 같은 기능을 바꾸는 NEMESIS 스토어 패키지(`wireless.projection`, `local.hkmc.factory82`, `enhanced.projection`, `projection.tbt`)와 같이 설치되지 않게 했습니다. 점검은 설치를 막고, 각 모듈의 `depends=`에도 적어 NEMESIS 1.16이 양쪽 설치를 거부합니다.
+- 시동 안내 타이머가 부팅이 끝난 뒤에 닫기 신호를 보냅니다(부팅 전 신호는 Android가 거부). 최대 30초 기다리고, 그 사이 다른 일이 생기면 보내지 않습니다.
+- 모듈마다 `package-version`과 한 줄 설명을 넣어 1.16 My Packages에 보입니다. NEMESIS 자체 패키지(`nemesis.update-monitor`, `usb-handler`)는 "다른 패키지" 경고에서 뺐습니다.
+
 ## v0.3.19
 
 - NEMESIS 1.16에서 Manager의 **Run USB NEMESIS.sh** 버튼이 없어져, 이전 USB(`type=open`)는 Manager만 열고 실행할 방법이 없었습니다. 이제 USB의 `NEMESIS.data`가 `type=execute`라서 꽂으면 NEMESIS가 실행할지 묻고, **예**를 눌러야 실행합니다(1.15에서도 같음).

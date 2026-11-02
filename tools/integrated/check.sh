@@ -140,6 +140,29 @@ W_HW=$(wifi_seen)
 fact wireless_code "$W_CODE"
 fact wifi_hardware_seen "$W_HW"
 D_SEEN=$(dongle_seen)
+# Built-in Wi-Fi shows up only while Wi-Fi is on. If it is off and no dongle is
+# plugged in, turn it on for up to 8 s and off again, as the installer does.
+# Settings only (svc wifi); no file is written.
+W_PROBE=skipped
+if [ "$W_HW" != yes ] && [ "$D_SEEN" != yes ] && [ "$(settings get global wifi_on 2>/dev/null | clean)" = 0 ] &&
+   command -v svc >/dev/null 2>&1; then
+    W_PROBE=not-found
+    # Always turn it off again, even if enable reported an error.
+    svc wifi enable >/dev/null 2>&1
+    n=0
+    while [ $n -lt 8 ]; do
+        [ "$(wifi_seen)" = yes ] && { W_PROBE=found; W_HW=yes; break; }
+        sleep 1; n=$((n + 1))
+    done
+    svc wifi disable >/dev/null 2>&1
+    n=0
+    while [ "$(settings get global wifi_on 2>/dev/null | clean)" != 0 ]; do
+        [ $n -lt 8 ] || { W_PROBE=still-on; break; }
+        sleep 1; n=$((n + 1))
+    done
+fi
+fact wifi_probe "$W_PROBE"
+fact wifi_hardware_seen_after_probe "$W_HW"
 fact dongle_seen "$D_SEEN"
 D_INST=no
 [ -f "$APPS/gen5w.kr.dongle/NEMESIS.data" ] && D_INST=yes
@@ -175,7 +198,8 @@ fi
 fact nemesis_packages "${PKGS# }"
 OTHER=
 for n in $PKGS; do
-    case "$n" in gen5w.kr.*) ;; *) OTHER="$OTHER $n";; esac
+    # NEMESIS 1.16 installs its own update-monitor and usb-handler packages.
+    case "$n" in gen5w.kr.*|nemesis.update-monitor|usb-handler) ;; *) OTHER="$OTHER $n";; esac
 done
 BACKUPS=
 for d in "$SYS"/etc/gen5w-kr-backup/*; do [ -e "$d" ] && BACKUPS="$BACKUPS ${d##*/}"; done
@@ -228,9 +252,17 @@ case "$S_HOTSPOT" in
     *) block "services.odex(시스템 핵심)가 순정이 아닙니다($S_HOTSPOT). 다른 도구가 바꾼 상태일 수 있습니다. 공식 업데이트로 순정 복구 후 다시 점검하세요.";;
 esac
 [ "$APGUARD_OFF" = yes ] && warn '핫스팟을 켜는 도중 재부팅이 3번 연속 일어나 무선이 자동으로 꺼져 있습니다(유선은 동작). 다시 설치하면 다시 켜집니다. 재발하면 무선을 쓰지 마세요.'
+[ "$W_PROBE" = still-on ] && warn 'Wi-Fi 확인 후 Wi-Fi가 꺼지지 않았습니다. 설정에서 Wi-Fi를 끄세요.'
 [ "$GUARD" = recovery-required ] && block '이전 부트가드가 복구 필요 상태입니다. 공식 V039 업데이트를 먼저 하세요.'
 case "$TXSTATE" in none|committed|rolled-back) ;;
     *) warn "이전 설치 작업이 끝나지 않은 흔적이 있습니다(state=$TXSTATE). 설치하면 먼저 이 작업을 복구합니다.";; esac
+# NEMESIS Store packages that change the same things as ours (also refused in our depends=).
+CLASH=
+for n in $OTHER; do
+    case "$n" in wireless.projection|local.hkmc.factory82|enhanced.projection|projection.tbt) CLASH="$CLASH $n";; esac
+done
+fact store_conflicts "${CLASH# }"
+[ -n "$CLASH" ] && block "같은 기능을 바꾸는 스토어 패키지가 설치돼 있습니다:$CLASH. NEMESIS Manager의 My Packages에서 먼저 제거한 뒤 다시 점검하세요."
 [ -n "$OTHER" ] && warn "다른 NEMESIS 패키지가 있습니다:$OTHER. 이전 Leafia 패키지(wireless.carplay.aa)는 설치 중 백업 후 제거됩니다. 그 외는 그대로 둡니다."
 [ -e "$SYS/etc/permissions/android.hardware.wifi.xml" ] && warn 'Wi-Fi 클라이언트 선언(android.hardware.wifi.xml)이 이미 있습니다. 순정에 원래 있던 것인지 확인이 필요합니다. 벽돌 차량에 추가됐던 파일입니다.'
 
@@ -243,7 +275,7 @@ else
         if [ "$W_HW" = yes ]; then
             WL='무선 조건 충족: 무선 코드와 Wi-Fi 장치가 확인됐습니다.'
         else
-            WL='무선 코드는 있지만 내장 Wi-Fi는 지금 확인되지 않았습니다(꺼져 있거나 없음). 이 점검은 Wi-Fi를 켜지 않습니다.'
+            WL='무선 코드는 있지만 내장 Wi-Fi를 확인하지 못했습니다. Wi-Fi를 잠깐 켜서 확인했는데도 안 보이면 내장 Wi-Fi가 없는 차일 수 있습니다.'
         fi
     fi
 fi
@@ -252,7 +284,7 @@ if [ -n "$BLOCK" ]; then fact verdict block; else fact verdict install; fi
 
 if [ "$MODE" = verify ]; then
     # Volatile values (Wi-Fi power, free space, boot counter) are not compared.
-    stable() { grep -vE '^(wifi_on|wifi_hardware_seen|dongle_seen|recommend|df|bootguard_count)=' "$1"; }
+    stable() { grep -vE '^(wifi_on|wifi_hardware_seen|wifi_hardware_seen_after_probe|wifi_probe|dongle_seen|recommend|df|bootguard_count)=' "$1"; }
     SAVED=$OUT/CHECK.txt
     grep -qx 'verdict=install' "$SAVED" || { echo 'REFUSED pre-install check report did not say install'; exit 1; }
     [ -z "$BLOCK" ] || { echo 'REFUSED unit no longer passes the pre-install check'; exit 1; }
@@ -322,7 +354,7 @@ fi
     echo "| HKMC_DiPO.odex | $S_DIPO |"
     echo "| HKMC_GPM.odex | $S_GPM |"
     echo
-    echo '이 점검은 차량에 아무것도 쓰지 않았습니다. 세부 값은 CHECK.txt에 있습니다.'
+    echo '이 점검은 차량에 파일을 쓰지 않았습니다. 내장 Wi-Fi 확인을 위해 꺼져 있던 Wi-Fi를 최대 8초 켰다가 다시 껐을 수 있습니다(CHECK.txt의 wifi_probe). 세부 값은 CHECK.txt에 있습니다.'
 } > "$OUT/CHECK.md"
 sync
 am broadcast -a com.hkmc.intent.action.TOAST \

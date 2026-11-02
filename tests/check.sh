@@ -111,6 +111,12 @@ check 'other package passes with warning' run
 check 'other package listed' grep -q 'wireless.carplay.aa' "$U/GEN5W-REPORT/CHECK.md"
 rm -rf "$D/nemesis/apps/wireless.carplay.aa"
 
+for clash in wireless.projection local.hkmc.factory82; do
+    stock; mkdir -p "$D/nemesis/apps/$clash"
+    check "store package $clash blocks install" eval '! run && grep -q "스토어 패키지" "$U/GEN5W-REPORT/CHECK.md" && grep -qx "store_conflicts='"$clash"'" "$U/GEN5W-REPORT/CHECK.txt"'
+    rm -rf "$D/nemesis/apps/$clash"
+done
+
 stock; echo off > "$D/nemesis/gen5wkr.apguard.off"
 check 'AP guard off still installable' run
 check 'AP guard off recorded' grep -qx 'apguard_off=yes' "$U/GEN5W-REPORT/CHECK.txt"
@@ -127,6 +133,30 @@ check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/
 ln -s "$W/elsewhere" "$U/GEN5W-REPORT.tmp" 2>/dev/null; rm -rf "$U/GEN5W-REPORT"; ln -s "$W" "$U/GEN5W-REPORT"
 check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_SYSFS=$F CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
 rm -f "$U/GEN5W-REPORT" "$U/GEN5W-REPORT.tmp"
+
+# Built-in Wi-Fi is only visible while on: the check turns it on briefly and off again.
+cat > "$B/svc" <<EOF
+#!/bin/sh
+echo "\$*" >> "$W/svc.log"
+case "\$2" in
+    enable) [ -f "$W/has_wifi" ] && mkdir -p "$F/class/net/wlan0"; [ -f "$W/stuck_on" ] && echo 1 > "$W/wifi_on";;
+    disable) rm -rf "$F/class/net/wlan0";;
+esac
+EOF
+printf '#!/bin/sh\ncat "%s/wifi_on" 2>/dev/null || echo 0\n' "$W" > "$B/settings"; chmod 755 "$B/svc" "$B/settings"
+stock; touch "$W/has_wifi"; rm -f "$W/svc.log"
+run
+check 'probe finds built-in Wi-Fi that was off' grep -qx 'wifi_probe=found' "$U/GEN5W-REPORT/CHECK.txt"
+check 'probe recommends standard for built-in Wi-Fi' grep -qx 'recommend=standard' "$U/GEN5W-REPORT/CHECK.txt"
+check 'probe turns Wi-Fi off again' eval 'grep -qx "wifi enable" "$W/svc.log" && grep -qx "wifi disable" "$W/svc.log" && test ! -e "$F/class/net/wlan0"'
+check 'probe result shown as Wi-Fi confirmed' grep -q '무선 조건 충족' "$U/GEN5W-REPORT/CHECK.md"
+rm -f "$W/has_wifi" "$W/svc.log"; run
+check 'probe without Wi-Fi reports not found' grep -qx 'wifi_probe=not-found' "$U/GEN5W-REPORT/CHECK.txt"
+echo 1 > "$W/wifi_on"; rm -f "$W/svc.log"; run
+check 'Wi-Fi already on is not touched' eval 'grep -qx wifi_probe=skipped "$U/GEN5W-REPORT/CHECK.txt" && test ! -e "$W/svc.log"'
+rm -f "$W/wifi_on"; touch "$W/stuck_on"; run
+check 'Wi-Fi that stays on is warned about' eval 'grep -qx wifi_probe=still-on "$U/GEN5W-REPORT/CHECK.txt" && grep -q "Wi-Fi를 끄세요" "$U/GEN5W-REPORT/CHECK.md"'
+rm -f "$W/stuck_on" "$W/wifi_on" "$B/svc"
 
 unit_shim_report || fail=$((fail+1))
 echo "== check: $pass passed, $fail failed"

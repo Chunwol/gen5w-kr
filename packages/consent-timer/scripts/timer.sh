@@ -17,6 +17,7 @@ SCRIPT_DIR=${0%/*}
 DELAY=${TIMER_TEST_DELAY:-0}
 LOGCAT=${TIMER_TEST_LOGCAT:-logcat}
 AM=${TIMER_TEST_AM:-am}
+GETPROP=${TIMER_TEST_GETPROP:-getprop}
 RUN=$PKG/run
 GEN=$RUN/generation
 stock_systemui || { log 'timer: SystemUI.odex is not a recognised stock file; stock 10 second timer kept'; exit 0; }
@@ -47,8 +48,25 @@ passes() {
     case "$1" in *'mInitDriverIdx : -1,'*) return 1;; esac
     return 0
 }
+# Android refuses broadcasts before boot completes ("Cannot broadcast before
+# boot completed"), and a cold start can show the screen that early. Wait up
+# to 30 s for boot, then send only if no event came in meanwhile.
+booted() { [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; }
 arm() {
     bump
+    if ! booted; then
+        (
+            mine=$gen; n=0
+            while ! booted; do
+                n=$((n + 1)); [ "$n" -le "${TIMER_BOOT_WAIT:-30}" ] || exit 0
+                sleep 1
+            done
+            sleep "$DELAY"
+            [ "$(cat "$GEN" 2>/dev/null)" = "$mine" ] || exit 0
+            "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
+        ) &
+        return
+    fi
     if [ "$DELAY" = 0 ]; then
         "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
         return
