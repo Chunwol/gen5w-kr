@@ -27,7 +27,7 @@
 이 바이너리를 받은 누구에게나, 마지막 배포일로부터 최소 3년 동안, 위 대응 소스 전체를 실비 이하로 제공합니다.
 평소에는 위 공식 주소에서 받으면 됩니다. 위 주소를 쓸 수 없게 되면 이 약속에 따라 요청하세요. 그때는 관리자가
 보관한 원본(모비스 소스 포함)을 요청한 사람에게 개별로 전달합니다. 공개 저장소나 릴리스에는 다시 올리지 않습니다.
-요청: https://github.com/Chunwol
+요청: https://github.com/Chunwol/gen5w-kr/issues (제목에 "GPL source request"; 개인정보는 쓰지 마세요)
 
 ## English summary
 
@@ -37,6 +37,6 @@ open-ath9k-htc-firmware 1.4.0 build. `gen5w-kr-dongle-gpl-source.tar.xz` in the 
 the kernel configuration, build scripts and stand-in source, plus official download addresses and
 SHA-256 for Linux 3.18.24, the Mobis R7 source and the Debian firmware source. For at least three years after the last
 distribution, anyone who received these binaries may request the complete corresponding source, at no
-more than the cost of providing it, via https://github.com/Chunwol. If the official addresses stop
+more than the cost of providing it, via https://github.com/Chunwol/gen5w-kr/issues (title "GPL source request"). If the official addresses stop
 working, the maintainer's archived originals (including the Mobis source) are sent to the requester
 individually; they are not re-published in a public repository or release.

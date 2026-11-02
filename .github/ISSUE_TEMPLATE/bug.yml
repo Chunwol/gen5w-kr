@@ -22,10 +22,10 @@ body:
     id: edition
     attributes:
       label: 사용한 버전
-      description: 공식 배포판은 기본형(내장 Wi-Fi)입니다.
+      description: 공식 배포판은 기본형(내장 Wi-Fi)과 동글형(USB Wi-Fi)입니다.
       options:
         - 기본형 (내장 Wi-Fi)
-        - 동글형 (USB Wi-Fi, 개발 중)
+        - 동글형 (USB Wi-Fi)
         - 기타 (로컬 테스트 버전 등)
     validations:
       required: true
