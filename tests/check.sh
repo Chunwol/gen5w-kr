@@ -55,6 +55,8 @@ check 'no unreleased edition is recommended' eval '! grep -q safe-wireless "$U/G
 check 'unknown Wi-Fi recommends the standard edition' grep -q '받을 파일: 기본형 `gen5w-kr-standard.zip`' "$U/GEN5W-REPORT/CHECK.md"
 check 'unknown Wi-Fi explains the installer re-check' grep -q '무선만 빼고 설치한 뒤 결과 화면에서 동글형을 안내' "$U/GEN5W-REPORT/CHECK.md"
 check 'records the recommendation' grep -qx 'recommend=standard' "$U/GEN5W-REPORT/CHECK.txt"
+check 'wired-only users are pointed to the standard edition' grep -q '유선(케이블) CarPlay·Android Auto만 쓸 거라면.*기본형' "$U/GEN5W-REPORT/CHECK.md"
+check 'wired-only action is explained' grep -q '`wired-only`라고 적고' "$U/GEN5W-REPORT/CHECK.md"
 mkdir -p "$F/bus/usb/devices/1-1"; echo 0cf3 > "$F/bus/usb/devices/1-1/idVendor"; echo 9271 > "$F/bus/usb/devices/1-1/idProduct"
 run
 check 'dongle without built-in Wi-Fi recommends the dongle edition' grep -q '받을 파일: 동글형 `gen5w-kr-dongle.zip`' "$U/GEN5W-REPORT/CHECK.md"

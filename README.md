@@ -47,6 +47,9 @@
 | **② 설치 · 기본형** | [⬇️ gen5w-kr-standard.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-standard.zip) | 내장 Wi-Fi가 있는 차 |
 | **② 설치 · 동글형** | [⬇️ gen5w-kr-dongle.zip](https://github.com/Chunwol/gen5w-kr/releases/latest/download/gen5w-kr-dongle.zip) | 내장 Wi-Fi가 없는 차 + 지원 USB Wi-Fi 동글 |
 
+> [!TIP]
+> **유선(케이블) CarPlay·Android Auto만 쓸 거라면 Wi-Fi·동글과 관계없이 기본형을 쓰세요. 무선 설정은 순정으로 두고 유선 기능(HUD 길안내 등)만 설치하려면 USB 맨 바깥 `GEN5W-ACTION` 파일 첫 줄에 `wired-only`라고 적고 실행합니다.** 동글은 필요 없습니다.
+
 릴리스 페이지의 나머지 파일(`gen5w-kr-source.zip`, `gen5w-kr-dongle-gpl-source.tar.xz`, `RELEASE-SHA256SUMS`)은 소스·라이선스·체크섬용이라 설치에는 필요 없습니다. 모든 버전이 **실차 미확인**입니다.
 
 먼저 [차종·연식별 확인표](docs/porting.md)에서 지원 대상인지 확인하세요. [전체 릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서 변경 사항, 체크섬, 대응 소스 파일도 받을 수 있습니다. 화면을 완전히 생략하는 개인용 구성은 공개 소스·CI·릴리스에 포함하지 않습니다.

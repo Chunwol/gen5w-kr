@@ -84,6 +84,8 @@ jobs:
           | **② 설치 (둘 중 하나)** | `gen5w-kr-standard.zip` | **기본형**: 내장 Wi-Fi가 있는 차 |
           | | `gen5w-kr-dongle.zip` | **동글형**: 내장 Wi-Fi가 없는 차 + 지원 USB Wi-Fi 동글(AR9271/AR7010) |
 
+          **유선(케이블)만 쓴다면** Wi-Fi·동글과 관계없이 **기본형** `gen5w-kr-standard.zip`을 받으세요. 무선 설정은 순정으로 두고 유선 기능만 설치하려면 USB 맨 바깥 `GEN5W-ACTION` 파일 첫 줄에 `wired-only`라고 적고 실행합니다.
+
           **나머지 파일은 받지 않아도 됩니다.** `gen5w-kr-source.zip`(이 버전의 소스), `gen5w-kr-dongle-gpl-source.tar.xz`(동글형 커널 모듈의 GPL 소스 안내, 동글형을 남에게 줄 때 함께 주세요), `RELEASE-SHA256SUMS`(파일 확인용 체크섬)입니다.
 
           ## 사용 방법

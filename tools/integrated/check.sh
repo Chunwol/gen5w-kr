@@ -298,6 +298,7 @@ fi
         esac
         echo "- 무선: $WL"
         echo '- 무선 연결 때 차 일반 핫스팟 이름·암호가 CarPlay용 값으로 바뀝니다.'
+        echo '- 유선(케이블) CarPlay·Android Auto만 쓸 거라면 Wi-Fi·동글과 관계없이 기본형 `gen5w-kr-standard.zip`을 쓰세요. 무선 설정은 순정으로 두고 유선 기능만 설치하려면 USB 맨 바깥 `GEN5W-ACTION` 파일 첫 줄에 `wired-only`라고 적고 실행합니다.'
     fi
     if [ -n "$WARN" ]; then
         echo
