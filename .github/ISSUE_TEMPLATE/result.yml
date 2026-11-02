@@ -1,0 +1,79 @@
+name: 설치 결과 공유 (호환 / 비호환)
+description: 내 차에서 잘 되는지, 안 되는지 알려 주세요. 성공 보고도 큰 도움이 됩니다.
+title: "[Result] "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        아직 실차에서 확인된 차가 적습니다. **잘 될 때도, 안 될 때도** 결과를 남겨 주시면 지원 차량 표와 수정에 반영합니다.
+        VIN, 전화번호, MAC 주소, Wi-Fi 이름·비밀번호, 인증 자료, 원시 로그, 제조사 파일은 올리지 마세요.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: 전체 결과
+      options:
+        - 호환 (모두 정상)
+        - 일부만 동작
+        - 비호환 (설치 거부·실패)
+        - 설치 후 이상 (부팅·화면·연결 문제)
+    validations:
+      required: true
+  - type: input
+    id: car
+    attributes:
+      label: 제조사, 차종, 연식
+      description: "예: 현대 코나 하이브리드 2020"
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: 정확한 펌웨어 버전
+      description: "예: V039.001.260902"
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: 사용한 버전
+      options:
+        - 기본형 (내장 Wi-Fi)
+        - 동글형 (USB Wi-Fi)
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: 릴리스 버전
+      description: "예: v0.3.13"
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: 정상 동작한 기능 (확인한 것만 체크)
+      options:
+        - label: 무선 CarPlay
+        - label: 무선 Android Auto
+        - label: 유선 CarPlay·Android Auto
+        - label: 계기판 길안내
+        - label: HUD 길안내
+        - label: 시동 주의 안내 빠른 전환
+        - label: 블루링크 가입 안내 숨기기
+        - label: 제거 후 순정 복원
+  - type: textarea
+    id: details
+    attributes:
+      label: 안 된 기능과 증상
+      description: 안 된 기능, 실패한 단계, 화면에 나온 메시지를 적어 주세요. 모두 정상이면 비워 두세요.
+  - type: textarea
+    id: report
+    attributes:
+      label: 진단 로그 (선택)
+      description: USB의 GEN5W-REPORT/ISSUE.md 내용을 확인한 뒤 붙여 넣어 주세요.
+  - type: input
+    id: dongle
+    attributes:
+      label: USB Wi-Fi 동글 제품명·칩셋 (동글형일 때)
+      description: MAC 주소·일련번호는 제외합니다.

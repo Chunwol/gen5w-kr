@@ -12,12 +12,15 @@
 ![Firmware](https://img.shields.io/badge/firmware-V039.001.260902-informational)
 ![Vehicle test](https://img.shields.io/badge/%EC%8B%A4%EC%B0%A8-%EB%AF%B8%EA%B2%80%EC%A6%9D-orange)
 
-[📖 설치 가이드](docs/beginner-guide.md) · [🚘 지원 차량](docs/porting.md) · [🐞 문제 신고](https://github.com/Chunwol/gen5w-kr/issues/new/choose) · [💖 개발 후원](https://github.com/sponsors/Chunwol)
+[📖 설치 가이드](docs/beginner-guide.md) · [🚘 지원 차량](docs/porting.md) · [✅ 설치 결과 알려주기](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) · [🐞 문제 신고](https://github.com/Chunwol/gen5w-kr/issues/new/choose) · [💖 개발 후원](https://github.com/sponsors/Chunwol)
 
 </div>
 
 > [!CAUTION]
 > **메인보드 교체 위험:** 실차에서 검증하지 않은 실험입니다. 설치 후 부팅이 조금이라도 비정상(로고/꺼짐 반복)이면 복구가 안 되어 **메인보드(헤드유닛) 교체**가 필요할 수 있습니다(실제 사례 있음). [설치 전 복구 준비 체크리스트](docs/pre-install-recovery-checklist.md)를 모두 마치고, 위험을 감수할 때만 설치하세요.
+
+> [!TIP]
+> **설치해 보셨다면 결과를 알려 주세요!** 잘 되든 안 되든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈 하나가 다음 사람의 차를 지킵니다. 차종·연식·펌웨어와 된 기능/안 된 기능만 체크하면 됩니다.
 
 ## ✨ 주요 기능
 
@@ -69,6 +72,7 @@ NEMESIS가 이미 설치되어 있다면:
 2. 차량에 USB를 꽂고 NEMESIS Manager에서 **Run USB NEMESIS.sh**를 선택합니다. USB를 꽂는 것만으로는 설치되지 않습니다.
 3. 끝나면 USB의 **`GEN5W-REPORT/RESULT.html`**에서 기능별 결과를 확인합니다.
 4. 오류가 있으면 같은 폴더의 **`ISSUE.md`** 내용을 확인한 뒤 [이슈에 첨부](https://github.com/Chunwol/gen5w-kr/issues/new/choose)해 주세요.
+5. **잘 됐어도** [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)로 알려 주세요. 성공 보고가 쌓여야 지원 차량 표를 "확인됨"으로 바꿀 수 있습니다.
 
 > [!IMPORTANT]
 > **설치에 쓴 ZIP은 꼭 보관하세요.** 순정으로 되돌릴 때는 같은 ZIP으로 **제거**(`GEN5W-ACTION`에 `remove`, [사용 안내](docs/vehicle-use.md))를 실행합니다. 업데이트 없이 백업한 순정 파일로 되돌리며, 공장초기화나 시스템 재설치 뒤에도 같은 ZIP으로 제거·재설치할 수 있습니다([초기화·재설치 후 복구](docs/recovery.md)).
@@ -99,6 +103,8 @@ Gen5W라도 차량과 소프트웨어 버전에 따라 지원 여부가 다릅�
 - **GPL 소스 요청:** 동글형 커널 모듈의 대응 소스는 각 릴리스에 있습니다. 안내된 공식 주소를 쓸 수 없게 되면 [이슈](https://github.com/Chunwol/gen5w-kr/issues)에 "GPL source request"로 요청해 주세요([라이선스와 소스](docs/licensing.md)).
 
 ## 🤝 다른 차량 지원과 참여
+
+**호환 결과를 기다립니다.** 아직 실차에서 확인한 차가 적습니다. 설치해 본 분은 결과가 좋든 나쁘든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈로 알려 주세요. 올라온 결과는 [지원 차량 표](docs/porting.md)에 반영합니다.
 
 다른 차량에서도 쓰고 싶다면 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)을 남겨 주세요. 필요한 정보와 절차는 [차종 추가 안내](docs/porting.md)에 있습니다. 오류나 개선 의견도 이슈로 받습니다. 먼저 [기여 안내](CONTRIBUTING.md)와 [보안 제보](SECURITY.md)를 확인해 주세요.
 
