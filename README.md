@@ -20,7 +20,7 @@
 > **메인보드 교체 위험:** 실차에서 검증하지 않은 실험입니다. 설치 후 부팅이 조금이라도 비정상(로고/꺼짐 반복)이면 복구가 안 되어 **메인보드(헤드유닛) 교체**가 필요할 수 있습니다(실제 사례 있음). [설치 전 복구 준비 체크리스트](docs/pre-install-recovery-checklist.md)를 모두 마치고, 위험을 감수할 때만 설치하세요.
 
 > [!TIP]
-> **설치해 보셨다면 결과를 알려 주세요!** 잘 되든 안 되든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈 하나가 다음 사람의 차를 지킵니다. 차종·연식·펌웨어와 된 기능/안 된 기능만 체크하면 됩니다.
+> **설치해 보셨다면 결과를 알려 주세요!** 잘 되든 안 되든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈 하나가 다음 사람의 차를 지킵니다. 차종·연식·펌웨어와 된 기능/안 된 기능을 체크하고, USB의 `GEN5W-REPORT` 폴더 로그를 같이 올려 주세요.
 
 ## ✨ 주요 기능
 
@@ -71,8 +71,17 @@ NEMESIS가 이미 설치되어 있다면:
 1. 받은 ZIP의 압축을 풀고 **내용물을 USB 맨 바깥에 복사**합니다.
 2. 차량에 USB를 꽂고 NEMESIS Manager에서 **Run USB NEMESIS.sh**를 선택합니다. USB를 꽂는 것만으로는 설치되지 않습니다.
 3. 끝나면 USB의 **`GEN5W-REPORT/RESULT.html`**에서 기능별 결과를 확인합니다.
-4. 오류가 있으면 같은 폴더의 **`ISSUE.md`** 내용을 확인한 뒤 [이슈에 첨부](https://github.com/Chunwol/gen5w-kr/issues/new/choose)해 주세요.
-5. **잘 됐어도** [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)로 알려 주세요. 성공 보고가 쌓여야 지원 차량 표를 "확인됨"으로 바꿀 수 있습니다.
+4. 결과는 잘 됐든 안 됐든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)로 알려 주세요. **`GEN5W-REPORT` 폴더의 로그 파일도 함께 첨부**해 주세요. 성공 보고가 쌓여야 지원 차량 표를 "확인됨"으로 바꿀 수 있습니다.
+
+> [!TIP]
+> **올려 주시면 좋은 로그** — 모두 USB의 `GEN5W-REPORT` 폴더에 생깁니다.
+>
+> | 언제 | 파일 |
+> |---|---|
+> | 설치 전 점검(`check`) | `CHECK.md`, `CHECK.txt` |
+> | 설치·제거·업데이트 | `ISSUE.md`, `EXEC_LOG.txt`, `STARTUP.txt` |
+>
+> 이 파일들은 차종·펌웨어 버전·파일 해시·단계별 결과만 기록하고 VIN·MAC·Wi-Fi 이름과 비밀번호는 기록하지 않습니다. 올리기 전에 한 번 훑어봐 주세요. `logcat`·`dmesg` 같은 원시 시스템 로그는 개인정보가 섞일 수 있어 받지 않습니다.
 
 > [!IMPORTANT]
 > **설치에 쓴 ZIP은 꼭 보관하세요.** 순정으로 되돌릴 때는 같은 ZIP으로 **제거**(`GEN5W-ACTION`에 `remove`, [사용 안내](docs/vehicle-use.md))를 실행합니다. 업데이트 없이 백업한 순정 파일로 되돌리며, 공장초기화나 시스템 재설치 뒤에도 같은 ZIP으로 제거·재설치할 수 있습니다([초기화·재설치 후 복구](docs/recovery.md)).
@@ -98,13 +107,13 @@ Gen5W라도 차량과 소프트웨어 버전에 따라 지원 여부가 다릅�
 
 - **비공식 프로젝트입니다.** 현대자동차·기아·제네시스·현대모비스와 관계가 없고, 이들의 승인이나 지원을 받지 않습니다. 상표는 각 소유자의 것입니다([NOTICE](NOTICE.md)).
 - **제조사 파일이 없습니다.** 이 저장소와 릴리스에는 제조사의 펌웨어·앱·라이브러리·키가 들어 있지 않습니다. 패치는 차량에 있는 원본 파일의 해시를 확인한 뒤 차량 안에서만 적용합니다.
-- **개인정보는 올리지 마세요.** 이슈에 VIN, 전화번호, MAC 주소, Wi-Fi 이름·비밀번호, 인증 자료, 원시 로그, 제조사 파일을 첨부하지 마세요. 이슈는 누구나 볼 수 있습니다.
+- **개인정보는 올리지 마세요.** 이슈는 누구나 볼 수 있습니다. `GEN5W-REPORT` 폴더의 로그는 개인 식별 정보 없이 만들어지니 첨부해 주시고, VIN·전화번호·MAC 주소·Wi-Fi 이름과 비밀번호·인증 자료·`logcat` 같은 원시 시스템 로그·제조사 파일은 올리지 마세요.
 - **보안 문제**는 공개 이슈 대신 [보안 제보](SECURITY.md)에 적힌 비공개 경로로 알려 주세요.
 - **GPL 소스 요청:** 동글형 커널 모듈의 대응 소스는 각 릴리스에 있습니다. 안내된 공식 주소를 쓸 수 없게 되면 [이슈](https://github.com/Chunwol/gen5w-kr/issues)에 "GPL source request"로 요청해 주세요([라이선스와 소스](docs/licensing.md)).
 
 ## 🤝 다른 차량 지원과 참여
 
-**호환 결과를 기다립니다.** 아직 실차에서 확인한 차가 적습니다. 설치해 본 분은 결과가 좋든 나쁘든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈로 알려 주세요. 올라온 결과는 [지원 차량 표](docs/porting.md)에 반영합니다.
+**호환 결과를 기다립니다.** 아직 실차에서 확인한 차가 적습니다. 설치하거나 점검해 본 분은 결과가 좋든 나쁘든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) 이슈로 `GEN5W-REPORT` 로그와 함께 알려 주세요. 올라온 결과는 [지원 차량 표](docs/porting.md)에 반영합니다.
 
 다른 차량에서도 쓰고 싶다면 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)을 남겨 주세요. 필요한 정보와 절차는 [차종 추가 안내](docs/porting.md)에 있습니다. 오류나 개선 의견도 이슈로 받습니다. 먼저 [기여 안내](CONTRIBUTING.md)와 [보안 제보](SECURITY.md)를 확인해 주세요.
 

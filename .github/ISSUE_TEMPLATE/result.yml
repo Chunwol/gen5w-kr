@@ -70,8 +70,13 @@ body:
   - type: textarea
     id: report
     attributes:
-      label: 진단 로그 (선택)
-      description: USB의 GEN5W-REPORT/ISSUE.md 내용을 확인한 뒤 붙여 넣어 주세요.
+      label: GEN5W-REPORT 로그 첨부
+      description: |
+        USB의 GEN5W-REPORT 폴더에 있는 파일을 여기에 끌어다 놓거나 내용을 붙여 넣어 주세요. 잘 됐을 때도 올려 주시면 비교에 큰 도움이 됩니다.
+        - 설치·제거 때: ISSUE.md, EXEC_LOG.txt, STARTUP.txt
+        - 점검(check) 때: CHECK.md, CHECK.txt
+        이 파일들은 차종·펌웨어·파일 해시·단계별 결과만 기록하고 VIN·MAC·Wi-Fi 비밀번호는 기록하지 않습니다. 그래도 올리기 전에 한 번 훑어봐 주세요.
+      placeholder: 파일을 끌어다 놓거나 붙여 넣기
   - type: input
     id: dongle
     attributes:

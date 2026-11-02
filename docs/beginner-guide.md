@@ -127,6 +127,6 @@ NEMESIS까지 제거하려면 **Gen5W KR 제거가 성공한 뒤** NEMESIS 공�
 | recovery-required | 원본 백업 보존, 같은 호환 번들로 복구. 추가 설치/삭제를 반복하지 않음 |
 | HUD가 없음 | CarPlay인지, 실제 안내 중인지, 지도 앱이 해당 정보를 보내는지, core/bridge 설치 여부 |
 
-다른 차종이나 펌웨어에서 실패하면 **GEN5W-REPORT/ISSUE.md**를 확인한 뒤 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)에 첨부합니다. 모델·연식·사용한 배포판·릴리스 버전·재현 순서를 추가해 주세요. 원시 로그·VIN·전화번호·SSID/비밀번호·키·인증서·제조사 파일은 첨부하지 않습니다. 내장 Wi-Fi 모듈이 없는 차량은 USB Wi-Fi 동글형을 사용할 수 있습니다. 동글형은 배포 중이지만 실차 동작은 아직 확인하지 않았고, 지원 동글(ath9k_htc)만 동작합니다.
+설치나 점검을 했다면 잘 됐든 안 됐든 [설치 결과 공유](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml)로 알려 주세요. 이때 USB의 **GEN5W-REPORT** 폴더 로그(`ISSUE.md`, `EXEC_LOG.txt`, `STARTUP.txt`, 점검 때 `CHECK.md`·`CHECK.txt`)를 확인한 뒤 함께 첨부합니다. 다른 차종이나 펌웨어 지원은 [차량 지원 요청](https://github.com/Chunwol/gen5w-kr/issues/new/choose)에 모델·연식·사용한 배포판·릴리스 버전·재현 순서와 같은 로그를 올려 주세요. `logcat`·`dmesg` 같은 원시 시스템 로그·VIN·전화번호·SSID/비밀번호·키·인증서·제조사 파일은 첨부하지 않습니다. 내장 Wi-Fi 모듈이 없는 차량은 USB Wi-Fi 동글형을 사용할 수 있습니다. 동글형은 배포 중이지만 실차 동작은 아직 확인하지 않았고, 지원 동글(ath9k_htc)만 동작합니다.
 
 설치 기준: [NEMESIS 공식 안내](https://github.com/xwtk/hmg_nemesis), [Manager 사용법](https://github.com/xwtk/hmg_nemesis/blob/main/02-Debugging-Execution-Interface.md). 엔지니어링 모드 진입 순서는 한국 코나 사용자의 확인을 반영했습니다.

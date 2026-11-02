@@ -32,8 +32,10 @@ body:
   - type: textarea
     id: report
     attributes:
-      label: 진단 로그
-      description: USB의 GEN5W-REPORT/ISSUE.md를 확인하고 첨부해 주세요. 원시 로그는 첨부하지 마세요.
+      label: GEN5W-REPORT 로그 첨부
+      description: |
+        USB의 GEN5W-REPORT 폴더 파일을 끌어다 놓거나 붙여 넣어 주세요: ISSUE.md, EXEC_LOG.txt, STARTUP.txt (설치·제거 때), CHECK.md, CHECK.txt (점검 때). 개인 식별 정보는 기록하지 않지만 올리기 전에 확인해 주세요.
+        logcat·dmesg 같은 원시 시스템 로그나 /data 파일은 개인정보가 섞일 수 있으니 첨부하지 마세요.
   - type: textarea
     id: behavior
     attributes:

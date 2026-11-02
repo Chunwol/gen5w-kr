@@ -4,7 +4,7 @@ title: "[Port] "
 body:
   - type: markdown
     attributes:
-      value: USB의 GEN5W-REPORT/ISSUE.md 로그를 확인하고 첨부해 주세요. 한국 내수용 Gen5W만 대상입니다. 원시 로그·제조사 파일·개인정보는 올리지 마세요.
+      value: USB의 GEN5W-REPORT 폴더 로그(점검 때 CHECK.md·CHECK.txt, 설치 때 ISSUE.md·EXEC_LOG.txt·STARTUP.txt)를 확인하고 첨부해 주세요. 한국 내수용 Gen5W만 대상입니다. 원시 로그·제조사 파일·개인정보는 올리지 마세요.
   - type: dropdown
     id: brand
     attributes:
