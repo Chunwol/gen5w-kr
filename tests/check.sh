@@ -161,7 +161,10 @@ check 'recovery-required fails' eval '! run'
 rm -rf "$D/nemesis/gen5wkr.bootguard"
 
 mkdir -p "$D/nemesis/gen5w-kr-integrated"; echo applying > "$D/nemesis/gen5w-kr-integrated/state"
+check 'incomplete interrupted transaction blocks' eval '! run && grep -q "state=applying" "$U/GEN5W-REPORT/CHECK.md"'
+mkdir -p "$D/nemesis/gen5w-kr-integrated/prior"; : > "$D/nemesis/gen5w-kr-integrated/prior/complete"
 check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/GEN5W-REPORT/CHECK.md"'
+rm -rf "$D/nemesis/gen5w-kr-integrated/prior"
 echo recovery-required > "$D/nemesis/gen5w-kr-integrated/state"
 check 'transaction recovery-required blocks install' eval '! run && grep -q "state=recovery-required" "$U/GEN5W-REPORT/CHECK.md"'
 rm -f "$D/nemesis/gen5w-kr-integrated/state"

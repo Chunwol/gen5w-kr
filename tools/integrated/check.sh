@@ -238,6 +238,9 @@ fact gen5w_backups "${BACKUPS# }"
 TXSTATE=none
 [ -f "$TX/state" ] && TXSTATE=$(first_line "$TX/state" | clean)
 fact transaction "$TXSTATE"
+TXSNAPSHOT=missing
+[ -f "$TX/prior/complete" ] && TXSNAPSHOT=complete
+fact transaction_snapshot "$TXSNAPSHOT"
 GUARD=none
 if [ -d "$BOOTGUARD" ]; then
     GUARD=present
@@ -289,7 +292,13 @@ esac
 [ "$GUARD" = recovery-required ] && block '이전 부트가드가 복구 필요 상태입니다. 공식 V039 업데이트를 먼저 하세요.'
 case "$TXSTATE" in none|committed|rolled-back) ;;
     recovery-required) block '이전 설치 작업을 복구해야 합니다(state=recovery-required). 복구 상태를 확인한 뒤 다시 점검하세요.';;
-    *) warn "이전 설치 작업이 끝나지 않은 흔적이 있습니다(state=$TXSTATE). 설치하면 먼저 이 작업을 복구합니다.";; esac
+    applying|removing|recovering)
+        if [ "$TXSNAPSHOT" = complete ]; then
+            warn "이전 설치 작업이 끝나지 않은 흔적이 있습니다(state=$TXSTATE). 설치하면 먼저 이 작업을 복구합니다."
+        else
+            block "이전 설치 작업의 백업이 완전하지 않습니다(state=$TXSTATE). 복구 상태를 확인한 뒤 다시 점검하세요."
+        fi;;
+    *) warn "이전 설치 작업 상태를 확인하세요(state=$TXSTATE).";; esac
 # NEMESIS Store packages that change the same things as ours (also refused in our depends=).
 CLASH=
 for n in $OTHER; do
