@@ -288,6 +288,7 @@ esac
 [ "$W_PROBE" = still-on ] && warn 'Wi-Fi 확인 후 Wi-Fi가 꺼지지 않았습니다. 설정에서 Wi-Fi를 끄세요.'
 [ "$GUARD" = recovery-required ] && block '이전 부트가드가 복구 필요 상태입니다. 공식 V039 업데이트를 먼저 하세요.'
 case "$TXSTATE" in none|committed|rolled-back) ;;
+    recovery-required) block '이전 설치 작업을 복구해야 합니다(state=recovery-required). 복구 상태를 확인한 뒤 다시 점검하세요.';;
     *) warn "이전 설치 작업이 끝나지 않은 흔적이 있습니다(state=$TXSTATE). 설치하면 먼저 이 작업을 복구합니다.";; esac
 # NEMESIS Store packages that change the same things as ours (also refused in our depends=).
 CLASH=

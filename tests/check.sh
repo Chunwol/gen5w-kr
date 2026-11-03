@@ -162,6 +162,9 @@ rm -rf "$D/nemesis/gen5wkr.bootguard"
 
 mkdir -p "$D/nemesis/gen5w-kr-integrated"; echo applying > "$D/nemesis/gen5w-kr-integrated/state"
 check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/GEN5W-REPORT/CHECK.md"'
+echo recovery-required > "$D/nemesis/gen5w-kr-integrated/state"
+check 'transaction recovery-required blocks install' eval '! run && grep -q "state=recovery-required" "$U/GEN5W-REPORT/CHECK.md"'
+rm -f "$D/nemesis/gen5w-kr-integrated/state"
 
 ln -s "$W/elsewhere" "$U/GEN5W-REPORT.tmp" 2>/dev/null; rm -rf "$U/GEN5W-REPORT"; ln -s "$W" "$U/GEN5W-REPORT"
 check 'symlinked report dir refused' eval '! (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_SYSFS=$F CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1'
