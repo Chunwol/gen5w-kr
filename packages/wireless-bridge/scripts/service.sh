@@ -29,6 +29,7 @@ if [ -z "$BRIDGE_TEST_SYS" ] && [ -d "$_bg" ] && [ ! -f "$_bg/recovered" ]; then
     [ "$_bg_rc" -eq 0 ] || exit 1
 fi
 . "$SERVICE_DIR/scripts/common.sh"
+. "$SERVICE_DIR/scripts/retry-state.sh"
 inspect || exit $?
 [ "$BRIDGE_STATE" = patched ] && [ "$DIPO_STATE" = patched ] && [ "$BRIDGE_OWNED" = yes ] || exit 1
 DATA=${BRIDGE_TEST_DATA:-/data}
@@ -78,6 +79,15 @@ done
 apguard_boot || { [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
 broker_pid=
 host_started=no
+host_count=0; host_stable=0; broker_count=0; broker_stable=0
+HOST_READY=${BRIDGE_TEST_READY:-/data/data/kr.gen5w.wirelesshost/files/bridge-ready}
+host_alive() {
+    [ -f "$HOST_READY" ] && [ ! -L "$HOST_READY" ] || return 1
+    IFS= read -r _host_pid < "$HOST_READY" || return 1
+    case "$_host_pid" in ''|*[!0-9]*) return 1;; esac
+    kill -0 "$_host_pid" 2>/dev/null || return 1
+    grep -q 'kr.gen5w.wirelesshost' "/proc/$_host_pid/cmdline" 2>/dev/null
+}
 pause_pid=
 pause() {
     sleep "$1" &
@@ -131,14 +141,35 @@ while [ ! -f "$STOPPING" ]; do
         pause 2
         continue
     fi
-    if [ -z "$broker_pid" ] || ! kill -0 "$broker_pid" 2>/dev/null; then
+    RETRY_COUNT=$broker_count; RETRY_STABLE=$broker_stable
+    if [ -n "$broker_pid" ] && kill -0 "$broker_pid" 2>/dev/null; then
+        retry_action healthy
+    else
+        retry_action dead
+    fi
+    broker_count=$RETRY_COUNT; broker_stable=$RETRY_STABLE
+    if [ "$RETRY_ACTION" = blocked ]; then
+        echo 'FAIL bridge: AP broker repeatedly stopped; wireless suspended until restart'
+        stop_runtime
+        exit 1
+    elif [ "$RETRY_ACTION" = start ]; then
         "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &
         broker_pid=$!
     fi
-    if am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1; then
-        host_started=yes
+    RETRY_COUNT=$host_count; RETRY_STABLE=$host_stable
+    if host_alive; then retry_action healthy; else retry_action dead; fi
+    host_count=$RETRY_COUNT; host_stable=$RETRY_STABLE
+    if [ "$RETRY_ACTION" = blocked ]; then
+        echo 'FAIL bridge: host repeatedly failed to start; wireless suspended until restart'
+        stop_runtime
+        exit 1
+    elif [ "$RETRY_ACTION" = start ]; then
+        rm -f "$HOST_READY" 2>/dev/null || :
+        if am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService 2>&1; then
+            host_started=yes
+        fi
     fi
     [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
     [ -f "$STOPPING" ] && exit 0
-    pause 5
+    pause "${BRIDGE_TEST_INTERVAL:-5}"
 done

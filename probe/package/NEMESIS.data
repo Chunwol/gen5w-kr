@@ -2,7 +2,7 @@
 version=1.0
 id=gen5w.kr.probe
 name=Gen5W KR probe - route guidance log (read-only)
-package-version=0.3.22
+package-version=0.3.23
 short-desc=진단 수집 도구 (읽기 전용)
 types=application,service
 

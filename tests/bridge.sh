@@ -233,6 +233,14 @@ fi
 wait "$supervisor" 2>/dev/null || :
 check 'SIGTERM requests Android host stop' grep -q '^am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
 check 'SIGTERM stops privileged broker' eval '[ -n "$broker_pid" ] && ! kill -0 "$broker_pid" 2>/dev/null'
+# No readiness marker simulates a host which repeatedly dies on startup.
+: > "$W/fixture/calls"
+BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 BRIDGE_TEST_HOLD_BROKER=1 mksh "$W/pkg/scripts/service.sh" >/dev/null 2>&1 || :
+check 'host startup failure stops after three attempts' test "$(grep -c '^am startservice' "$W/fixture/calls")" = 3
+: > "$W/fixture/calls"
+BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 mksh "$W/pkg/scripts/service.sh" > "$W/fixture/retry.log" 2>&1 || :
+check 'broker startup failure stops after three attempts' test "$(grep -c '^root 1000 -c ' "$W/fixture/calls")" = 3
+check 'broker failure is recorded' grep -q 'AP broker repeatedly stopped' "$W/fixture/retry.log"
 before=$(wc -l < "$W/fixture/calls")
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'bridge waits while installation needs a reboot' run service

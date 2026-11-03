@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 rc=0
 echo "== head-unit commands (static)"
 python3 tests/unit_commands.py || rc=1
+mksh tests/bridge-retry.sh || rc=1
 echo "== shell syntax (mksh -n)"
 for f in $(find packages probe/package probe/usb tools -name '*.sh'); do
     mksh -n "$f" || { echo "FAIL syntax $f"; rc=1; }
