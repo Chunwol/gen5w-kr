@@ -55,8 +55,10 @@ public final class WirelessBridge implements WirelessSession.Port {
     final Handler main;
     final BluetoothAdapter adapter=BluetoothAdapter.getDefaultAdapter();
     final WirelessSession session=new WirelessSession(this);
+    final SdpRefresh sdpRefresh=new SdpRefresh();
     final Set<String> linked=new HashSet<String>();
     final Map<String,UUID> advertised=new HashMap<String,UUID>();
+    final Map<String,Integer> selectedService=new HashMap<String,Integer>();
     final Map<String,Integer> failedService=new HashMap<String,Integer>();
     final ArrayDeque<byte[]> pending=new ArrayDeque<byte[]>();
     final ThreadPoolExecutor writes=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(32));
@@ -139,39 +141,76 @@ public final class WirelessBridge implements WirelessSession.Port {
         for(BluetoothDevice d:adapter.getBondedDevices()){
             boolean connected=linked.contains(d.getAddress()) || d.getAddress().equalsIgnoreCase(hfp);
             if(!connected)try{connected=(Boolean)d.getClass().getMethod("isConnected").invoke(d);}catch(Exception ignored){}
-            if(connected)consider(d);
+            if(connected)connected(d);
         }
     }
+    void connected(BluetoothDevice d){
+        if(d==null)return;
+        String address=d.getAddress();
+        if(linked.add(address)){
+            sdpRefresh.reset(address);advertised.remove(address);selectedService.remove(address);failedService.remove(address);
+            session.lost(address,now());
+        }
+        consider(d);
+    }
     void consider(BluetoothDevice d){
+        consider(d,false);
+    }
+    void consider(BluetoothDevice d,boolean freshSdpResult){
         if(d==null || d.getBondState()!=BluetoothDevice.BOND_BONDED)return;
+        String address=d.getAddress();
+        if(!sdpRefresh.ready(address)){
+            long time=now();
+            if(sdpRefresh.begin(address,time)){
+                boolean requested=false;
+                try{requested=d.fetchUuidsWithSdp();}catch(RuntimeException ignored){}
+                if(!requested){
+                    sdpRefresh.complete(address,time,false);
+                    log("iAP SDP refresh request unavailable");
+                }else log("iAP SDP refresh requested");
+            }
+            return;
+        }
         ParcelUuid[] uuids=d.getUuids();
-        if(uuids==null){d.fetchUuidsWithSdp();return;}
+        if(uuids==null){
+            sdpRefresh.complete(address,now(),false);
+            log("iAP SDP result unavailable");
+            return;
+        }
         boolean caff=false,cafe=false;
         for(ParcelUuid uuid:uuids){
             if(uuid==null)continue;
             if(WIRELESS.equals(uuid.getUuid()))caff=true;
             if(WIRELESS_FALLBACK.equals(uuid.getUuid()))cafe=true;
         }
-        Integer previous=failedService.get(d.getAddress());
+        Integer previous=failedService.get(address);
         int selected=WirelessSession.selectIapService(caff,cafe,previous==null?0:previous.intValue());
+        Integer oldSelection=selectedService.put(address,Integer.valueOf(selected));
+        boolean selectionChanged=oldSelection==null || oldSelection.intValue()!=selected;
         UUID chosen=selected==1?WIRELESS:selected==2?WIRELESS_FALLBACK:null;
         if(chosen!=null){
-            UUID old=advertised.put(d.getAddress(),chosen);
-            if(!chosen.equals(old))log("iAP services caff="+caff+" cafe="+cafe+" selected="+(selected==1?"caff":"cafe"));
-            session.candidate(d.getAddress(),now());
+            advertised.put(address,chosen);
+            if(freshSdpResult || selectionChanged)
+                log("iAP SDP result caff="+caff+" cafe="+cafe+" selected="+(selected==1?"caff":"cafe"));
+            session.candidate(address,now());
+        }else{
+            advertised.remove(address);
+            failedService.remove(address);
+            if(freshSdpResult || selectionChanged)log("iAP SDP result has no supported service");
+            if(selectionChanged)session.lost(address,now());
         }
     }
     final BroadcastReceiver events=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
         String action=i.getAction();BluetoothDevice d=(BluetoothDevice)i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
         if(BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)){
-            if(d!=null){linked.add(d.getAddress());consider(d);}
+            if(d!=null)connected(d);
         }else if(BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)){
-            if(d!=null){linked.remove(d.getAddress());failedService.remove(d.getAddress());session.lost(d.getAddress(),now());}
+            if(d!=null){linked.remove(d.getAddress());sdpRefresh.reset(d.getAddress());advertised.remove(d.getAddress());selectedService.remove(d.getAddress());failedService.remove(d.getAddress());session.lost(d.getAddress(),now());}
         }else if(BluetoothDevice.ACTION_UUID.equals(action)){
-            if(d!=null && linked.contains(d.getAddress()))consider(d);
+            if(d!=null && linked.contains(d.getAddress())){sdpRefresh.complete(d.getAddress(),now(),true);consider(d,true);}
         }else if(action!=null && action.endsWith("profile.action.CONNECTION_STATE_CHANGED")){
             int state=i.getIntExtra("android.bluetooth.profile.extra.STATE",-1);
-            if(d!=null && state==2){linked.add(d.getAddress());consider(d);}
+            if(d!=null && state==2)connected(d);
             // A profile disconnect is not an ACL disconnect. RFCOMM may remain active.
         }else if("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED".equals(action)){
             carplayCable.event(action,false);refreshWired();
@@ -191,9 +230,9 @@ public final class WirelessBridge implements WirelessSession.Port {
             }
         }
         else if(BluetoothAdapter.ACTION_STATE_CHANGED.equals(action) && i.getIntExtra(BluetoothAdapter.EXTRA_STATE,0)!=BluetoothAdapter.STATE_ON){
-            session.shutdown();linked.clear();advertised.clear();failedService.clear();
+            session.shutdown();linked.clear();sdpRefresh.clear();advertised.clear();selectedService.clear();failedService.clear();
         }else if("com.hkmc.intent.action.SYSTEM_POWERON".equals(action)){
-            session.shutdown();linked.clear();advertised.clear();failedService.clear();registered=false;
+            session.shutdown();linked.clear();sdpRefresh.clear();advertised.clear();selectedService.clear();failedService.clear();registered=false;
         }
     }};
     public void open(final long g,final String address){

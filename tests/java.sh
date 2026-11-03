@@ -12,6 +12,7 @@ trap 'rm -rf "$work"' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     app/src/kr/gen5w/hud/*.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
+    packages/wireless-bridge/src/kr/gen5w/wireless/SdpRefresh.java packages/wireless-bridge/test/SdpRefreshTest.java \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApBrokerPolicy.java packages/wireless-bridge/test/ApBrokerPolicyTest.java \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApBrokerCancellation.java packages/wireless-bridge/test/ApBrokerCancellationTest.java \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApBrokerParent.java packages/wireless-bridge/test/ApBrokerParentTest.java \
@@ -26,6 +27,7 @@ java -cp "$work" GuidanceSessionTest
 java -cp "$work" OwnershipTest
 java -cp "$work" DumpTest
 java -cp "$work" WirelessSessionTest
+java -cp "$work" SdpRefreshTest
 java -cp "$work" TbtDistanceTest
 java -cp "$work" ApProfilesTest
 java -cp "$work" ApBrokerPolicyTest
