@@ -44,6 +44,8 @@ check 'stock failure line cancels' eval '! closed'
 feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|2"; run
 check 'reverse gear never arms' eval '! closed'
 check 'unsafe state is logged without the state contents' eval 'grep -q "timer: state rejected reason=reverse" "$W/timer.log" && ! grep -q "mIsReverseOn" "$W/timer.log"'
+feed "${OK/mScreenEnabled : true/mScreenEnabled : false}|0"; run
+check 'inactive screen never arms and is identified' eval '! closed && grep -q "timer: state rejected reason=screen-off" "$W/timer.log"'
 feed "${OK/mAccStatus : 0,/mAccStatus : 10,}|2"; run
 check 'non-zero ACC status never arms' eval '! closed'
 feed "${OK/mIsPowerOn : true/mIsPowerOn : false}|2"; run

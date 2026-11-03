@@ -2,6 +2,24 @@ package kr.gen5w.wireless;
 
 /** Serialized transport ownership and retry policy; no Android dependencies. */
 public final class WirelessSession {
+    /** Try the other advertised iAP service after a socket connection failure. */
+    public static int selectIapService(boolean caff, boolean cafe, int lastFailed) {
+        if (caff && cafe) return lastFailed == 1 ? 2 : 1;
+        if (caff) return 1;
+        if (cafe) return 2;
+        return 0;
+    }
+    /** Never log the exception message: it can contain a phone identifier. */
+    public static String socketErrorKind(String message) {
+        if (message == null) return "unknown";
+        String m = message.toLowerCase(java.util.Locale.US);
+        if (m.contains("closed") && m.contains("timeout")) return "closed-or-timeout";
+        if (m.contains("refused")) return "refused";
+        if (m.contains("timeout") || m.contains("timed out")) return "timeout";
+        if (m.contains("service discovery")) return "service-discovery";
+        if (m.contains("read failed")) return "read-failed";
+        return "other";
+    }
     /** The Android USB device-mode state is independent of a host CarPlay cable. */
     public static final class WiredSignal {
         private boolean attached;

@@ -10,6 +10,17 @@ public final class WirelessSessionTest {
         public void authenticated(long g){auth++;}
     }
     public static void main(String[] args) throws Exception {
+        // Retry only a service actually advertised by the phone.
+        check(WirelessSession.selectIapService(true, true, 0)==1);
+        check(WirelessSession.selectIapService(true, true, 1)==2);
+        check(WirelessSession.selectIapService(true, true, 2)==1);
+        check(WirelessSession.selectIapService(true, false, 1)==1);
+        check(WirelessSession.selectIapService(false, true, 2)==2);
+        check(WirelessSession.selectIapService(false, false, 0)==0);
+        check("closed-or-timeout".equals(WirelessSession.socketErrorKind("read failed, socket might closed or timeout")));
+        check("refused".equals(WirelessSession.socketErrorKind("Connection refused")));
+        check("other".equals(WirelessSession.socketErrorKind("secret address 00:11:22:33:44:55")));
+        check("unknown".equals(WirelessSession.socketErrorKind(null)));
         WirelessSession.WiredSignal cableSignal = new WirelessSession.WiredSignal();
         cableSignal.event("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED", false);
         cableSignal.event("android.hardware.usb.action.USB_STATE", false);

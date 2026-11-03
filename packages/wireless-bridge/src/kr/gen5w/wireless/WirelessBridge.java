@@ -57,6 +57,7 @@ public final class WirelessBridge implements WirelessSession.Port {
     final WirelessSession session=new WirelessSession(this);
     final Set<String> linked=new HashSet<String>();
     final Map<String,UUID> advertised=new HashMap<String,UUID>();
+    final Map<String,Integer> failedService=new HashMap<String,Integer>();
     final ArrayDeque<byte[]> pending=new ArrayDeque<byte[]>();
     final ThreadPoolExecutor writes=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(32));
     final WirelessSession.Resource<BluetoothSocket> transport=new WirelessSession.Resource<BluetoothSocket>();
@@ -145,20 +146,27 @@ public final class WirelessBridge implements WirelessSession.Port {
         if(d==null || d.getBondState()!=BluetoothDevice.BOND_BONDED)return;
         ParcelUuid[] uuids=d.getUuids();
         if(uuids==null){d.fetchUuidsWithSdp();return;}
-        UUID chosen=null;
+        boolean caff=false,cafe=false;
         for(ParcelUuid uuid:uuids){
             if(uuid==null)continue;
-            if(WIRELESS.equals(uuid.getUuid())){chosen=WIRELESS;break;}
-            if(WIRELESS_FALLBACK.equals(uuid.getUuid()))chosen=WIRELESS_FALLBACK;
+            if(WIRELESS.equals(uuid.getUuid()))caff=true;
+            if(WIRELESS_FALLBACK.equals(uuid.getUuid()))cafe=true;
         }
-        if(chosen!=null){advertised.put(d.getAddress(),chosen);session.candidate(d.getAddress(),now());}
+        Integer previous=failedService.get(d.getAddress());
+        int selected=WirelessSession.selectIapService(caff,cafe,previous==null?0:previous.intValue());
+        UUID chosen=selected==1?WIRELESS:selected==2?WIRELESS_FALLBACK:null;
+        if(chosen!=null){
+            UUID old=advertised.put(d.getAddress(),chosen);
+            if(!chosen.equals(old))log("iAP services caff="+caff+" cafe="+cafe+" selected="+(selected==1?"caff":"cafe"));
+            session.candidate(d.getAddress(),now());
+        }
     }
     final BroadcastReceiver events=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
         String action=i.getAction();BluetoothDevice d=(BluetoothDevice)i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
         if(BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)){
             if(d!=null){linked.add(d.getAddress());consider(d);}
         }else if(BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)){
-            if(d!=null){linked.remove(d.getAddress());session.lost(d.getAddress(),now());}
+            if(d!=null){linked.remove(d.getAddress());failedService.remove(d.getAddress());session.lost(d.getAddress(),now());}
         }else if(BluetoothDevice.ACTION_UUID.equals(action)){
             if(d!=null && linked.contains(d.getAddress()))consider(d);
         }else if(action!=null && action.endsWith("profile.action.CONNECTION_STATE_CHANGED")){
@@ -183,9 +191,9 @@ public final class WirelessBridge implements WirelessSession.Port {
             }
         }
         else if(BluetoothAdapter.ACTION_STATE_CHANGED.equals(action) && i.getIntExtra(BluetoothAdapter.EXTRA_STATE,0)!=BluetoothAdapter.STATE_ON){
-            session.shutdown();linked.clear();advertised.clear();
+            session.shutdown();linked.clear();advertised.clear();failedService.clear();
         }else if("com.hkmc.intent.action.SYSTEM_POWERON".equals(action)){
-            session.shutdown();linked.clear();advertised.clear();registered=false;
+            session.shutdown();linked.clear();advertised.clear();failedService.clear();registered=false;
         }
     }};
     public void open(final long g,final String address){
@@ -210,7 +218,21 @@ public final class WirelessBridge implements WirelessSession.Port {
                     }
                     else closeSocket(ready);
                 }});
-            }catch(Exception e){closeSocket(opened);log("transport failure stage="+stage+" type="+e.getClass().getName());fail(g,"transport open failed");}
+            }catch(Exception e){
+                closeSocket(opened);
+                log("transport failure stage="+stage+" type="+e.getClass().getName());
+                if("socket-connect".equals(stage) && e instanceof java.io.IOException){
+                    final int failed=WIRELESS.equals(service)?1:2;
+                    log("socket error kind="+WirelessSession.socketErrorKind(e.getMessage()));
+                    main.post(new Runnable(){public void run(){
+                        if(session.current(g)){
+                            failedService.put(address,Integer.valueOf(failed));
+                            log("socket service="+(failed==1?"caff":"cafe")+" failed; retrying advertised alternative if available");
+                            session.failed(g,now());
+                        }
+                    }});
+                } else fail(g,"transport open failed");
+            }
         }},"gen5w-bt-open").start();
     }
     public void start(long g){

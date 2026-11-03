@@ -54,7 +54,11 @@ passes() {
 }
 # Fixed reason labels only; do not retain the SystemUI state line.
 reject_reason() {
-    case "$1" in *'mScreenEnabled : true,'*) ;; *) echo screen; return;; esac
+    case "$1" in
+        *'mScreenEnabled : true,'*) ;;
+        *'mScreenEnabled : false,'*) echo screen-off; return;;
+        *) echo screen-format; return;;
+    esac
     case "$1" in *'mIsEarlyCamOn : false,'*) ;; *) echo camera; return;; esac
     case "$1" in *'mIsReverseOn : false,'*) ;; *) echo reverse; return;; esac
     case "$1" in *'mAccStatus : 0,'*) ;; *) echo accessory; return;; esac

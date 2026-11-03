@@ -2,7 +2,7 @@
 version=1.0
 id=gen5w.kr.bridge
 name=Gen5W KR - external iAP2 Bluetooth bridge
-package-version=0.3.24
+package-version=0.3.25
 short-desc=무선 CarPlay 블루투스 연결·재연결 보정
 depends=!wireless.projection,!enhanced.projection
 types=application,service
