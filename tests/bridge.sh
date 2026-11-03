@@ -107,7 +107,7 @@ run() { mksh "$W/pkg/scripts/$1.sh" >/dev/null 2>&1; }
 cp "$W/fixture/v035-original" "$TARGET"; cp "$W/fixture/v035-apk" "$APK"
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 if run pre; then bad 'missing daemon payload refused'; else ok 'missing daemon payload refused'; fi
-touch "$W/pkg/app/bridge.dex" "$W/sys/framework/com.tcc.iap2.jar"
+touch "$W/pkg/app/bridge.dex"
 if run pre; then bad 'missing host APK refused'; else ok 'missing host APK refused'; fi
 touch "$W/pkg/app/wireless-host.apk"
 for version in v035 v039; do
@@ -121,7 +121,7 @@ chmod 640 "$TARGET"
 check "$version pre accepts exact pair" run pre
 check "$version helpers made executable" test -x "$W/pkg/bin/iap2-patch-$version"
 check "$version install" run post
-check "$version patched exact" cmp -s "$TARGET" "$W/fixture/$version-patched"
+check "$version OEM iAP2 entry restored to stock" cmp -s "$TARGET" "$W/fixture/$version-original"
 check "$version DiPO patched exact" cmp -s "$DIPO" "$W/fixture/dipo-$version-patched"
 if [ -f "$W/pkg/bin/gpm-patch-$version" ]; then
     check "$version GPM patched exact" cmp -s "$GPM" "$W/fixture/gpm-$version-patched"
@@ -170,7 +170,7 @@ check 'unknown creates no backup' test ! -d "$PERSIST"
 cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v035-apk" "$APK"
 run pre; rc=$?; check 'mismatched APK skip77' test "$rc" = 77
 cp "$W/fixture/v039-apk" "$APK"
-touch "$W/fixture/fail-mv"
+touch "$W/fixture/fail-dipo-mv"
 if run post; then bad 'rename failure rejected'; else ok 'rename failure rejected'; fi
 check 'rename failure target stock' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'interrupted install retry' run post
@@ -190,7 +190,7 @@ unset BRIDGE_TEST_REMOUNT_FAIL
 check 'install for backup corruption test' run post
 echo corrupt > "$PERSIST/original"
 if run preun; then bad 'corrupt backup refuses uninstall'; else ok 'corrupt backup refuses uninstall'; fi
-check 'corrupt backup target retained' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'corrupt backup target retained' cmp -s "$TARGET" "$W/fixture/v039-original"
 cp "$W/fixture/v039-original" "$PERSIST/original"
 check 'cleanup corruption fixture' run preun
 cp "$W/fixture/v039-original" "$TARGET"
@@ -207,8 +207,8 @@ before=$(wc -l < "$W/fixture/calls")
 check 'bridge waits without the match marker' run service
 check 'no match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
 echo match > "$W/data/nemesis/gen5wkr.ap-match"
-check 'service starts broker and Android host' run service
-check 'broker runs as system UID' grep -q 'root 1000 -c CLASSPATH=.*/app/bridge.dex:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker' "$W/fixture/calls"
+check 'service starts the OEM request observer' run service
+check 'service does not launch private AP broker' eval '! grep -q "ApBroker\|root 1000 -c" "$W/fixture/calls"'
 check 'registered Android host is started' grep -q '^am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
 check 'Android host stops with the supervisor' grep -q '^am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
 # NEMESIS sends SIGTERM, then SIGKILL after 200 ms. Exercise the supervisor
@@ -221,7 +221,6 @@ for _i in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.1
 done
 sleep 0.3
-broker_pid=$(cat "$W/fixture/broker-pid" 2>/dev/null || :)
 kill -TERM "$supervisor" 2>/dev/null || :
 sleep 0.2
 if kill -0 "$supervisor" 2>/dev/null; then
@@ -232,15 +231,14 @@ else
 fi
 wait "$supervisor" 2>/dev/null || :
 check 'SIGTERM requests Android host stop' grep -q '^am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
-check 'SIGTERM stops privileged broker' eval '[ -n "$broker_pid" ] && ! kill -0 "$broker_pid" 2>/dev/null'
+check 'SIGTERM does not leave a privileged broker' eval '! grep -q "ApBroker\|root 1000 -c" "$W/fixture/calls"'
 # No readiness marker simulates a host which repeatedly dies on startup.
 : > "$W/fixture/calls"
 BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 BRIDGE_TEST_HOLD_BROKER=1 mksh "$W/pkg/scripts/service.sh" >/dev/null 2>&1 || :
 check 'host startup failure stops after three attempts' test "$(grep -c '^am startservice' "$W/fixture/calls")" = 3
 : > "$W/fixture/calls"
 BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 mksh "$W/pkg/scripts/service.sh" > "$W/fixture/retry.log" 2>&1 || :
-check 'broker startup failure stops after three attempts' test "$(grep -c '^root 1000 -c ' "$W/fixture/calls")" = 3
-check 'broker failure is recorded' grep -q 'AP broker repeatedly stopped' "$W/fixture/retry.log"
+check 'private AP broker retry is absent' eval '! grep -q "ApBroker\|root 1000 -c" "$W/fixture/calls"'
 before=$(wc -l < "$W/fixture/calls")
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'bridge waits while installation needs a reboot' run service
@@ -320,20 +318,20 @@ check 'resume iAP patched DiPO original pair' run post
 check 'resumed DiPO patched exact' cmp -s "$DIPO" "$W/fixture/dipo-v039-patched"
 cp "$W/fixture/v039-original" "$TARGET"
 check 'resume iAP original DiPO patched pair' run post
-check 'resumed iAP patched exact' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'resumed iAP remains stock exact' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'cleanup partial pairs' run preun
 touch "$W/fixture/fail-dipo-mv"
 if run post; then bad 'second target failure rejected'; else ok 'second target failure rejected'; fi
-check 'second failure rolls iAP back' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'second failure leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'second failure leaves DiPO original' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
 check 'retry second target failure' run post
 echo corrupt > "$PERSIST/dipooriginal"
 if run preun; then bad 'corrupt DiPO backup refuses pair restore'; else ok 'corrupt DiPO backup refuses pair restore'; fi
-check 'corrupt DiPO backup leaves iAP patched' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'corrupt DiPO backup leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
 cp "$W/fixture/dipo-v039-original" "$PERSIST/dipooriginal"
 cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 if run post; then bad 'DiPO APK drift refused'; else ok 'DiPO APK drift refused'; fi
-check 'DiPO APK drift leaves iAP patched' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'DiPO APK drift leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
 cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
 cp "$W/fixture/dipo-v039-original" "$DIPO"
 before=$(wc -l < "$W/fixture/calls")
@@ -342,7 +340,7 @@ check 'partial pair launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "
 check 'resume partial pair after boot refusal' run post
 echo foreign > "$DIPO"
 if run preun; then bad 'foreign DiPO refuses restore pair'; else ok 'foreign DiPO refuses restore pair'; fi
-check 'foreign DiPO leaves iAP intact' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'foreign DiPO leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
 cp "$W/fixture/dipo-v039-patched" "$DIPO"
 check 'cleanup foreign fixture' run preun
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
@@ -389,7 +387,7 @@ check 'removal clears the start guard' eval 'test ! -e "$W/data/nemesis/gen5wkr.
 check 'removal leaves stock ODEX' cmp -s "$TARGET" "$W/fixture/v039-original"
 run post; reinstall_system
 check 'reinstall after system reinstall' run post
-check 'reinstall patches again' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'reinstall keeps OEM iAP2 stock' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'removal after that reinstall restores stock' eval 'run preun && cmp -s "$TARGET" "$W/fixture/v039-original"'
 run post; reinstall_system; echo other-firmware > "$TARGET"
 check 'removal on other firmware clears our copies' run preun

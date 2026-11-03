@@ -1,12 +1,12 @@
-# 외부 iAP2 / Android Auto 프로젝션 bridge 설치·복구
+# 무선 PhoneProjection 브리지 설치·복구
 
-`gen5w.kr.bridge`는 자체 작성한 iAP2·DiPO·Android Auto(GPM) 제어 shim, 무선 연결 앱 서비스와 핫스팟 보조 프로세스를 묶는 NEMESIS 모듈입니다. 제조사 APK/ODEX/Java 구현은 포함하지 않습니다. 실제 연결·인증·세션 로직은 앱 서비스와 기존 순정 native 경로에서 처리합니다.
+`gen5w.kr.bridge`는 순정 PhoneProjection에 무선 CarPlay 연결을 요청하고 상태를 확인하는 NEMESIS 모듈입니다. 제조사 APK/ODEX/Java 구현은 포함하지 않습니다. 자체 RFCOMM·iAP2·핫스팟 연결을 시작하지 않습니다. 이 모듈의 연결 요청과 실차 동작은 아직 차량에서 검증되지 않았습니다.
 
 ## 적용 조건
 
-`/system/app/Iap2ServerApp.odex`의 전체 해시가 helper `iap2-patch-v035` 또는 `iap2-patch-v039`의 원본/수정본 중 하나와 같아야 합니다. `/system/app/HKMC_DiPO.odex`도 동일 버전 `dipo-patch-v035`/`dipo-patch-v039`에 맞아야 합니다. V039 사양에서는 Android Auto HUD 활성화를 위한 `/system/app/HKMC_GPM.odex`도 `gpm-patch-v039`에 의해 함께 검증·적용됩니다. APK 전체 해시는 해당 버전의 `BRIDGE_APK_V035_SHA`/`BRIDGE_APK_V039_SHA`, `BRIDGE_DIPO_APK_V035_SHA`/`BRIDGE_DIPO_APK_V039_SHA`, `BRIDGE_GPM_APK_V039_SHA`로 검사합니다. 원본 APK는 수정하지 않습니다. 새 파일·교차 버전 조합은 설치 전 exit 77로 건너뜁니다. 이미 소유한 파일이 달라졌거나 어느 백업이든 훼손됐으면 실패하며 대상 파일들을 덮어쓰지 않습니다.
+대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. `/system/app/Iap2ServerApp.odex`가 이전 사용자 정의 bridge 상태이면 검증된 원본으로 되돌립니다. `/system/app/HKMC_DiPO.odex`에는 기존 핸들 통화 키 보완을 적용하며, 이 패치에는 새 브리지가 사용하지 않는 과거 무선 요청 분기도 포함됩니다. V039의 `/system/app/HKMC_GPM.odex`는 Android Auto HUD용 패치를 적용합니다. 이 ODEX 수정들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. APK는 수정하지 않습니다. 지원하지 않는 해시·교차 버전 조합은 설치 전 건너뛰고, 이미 소유한 파일이나 백업이 달라졌으면 덮어쓰지 않고 중단합니다.
 
-helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. 브리지 DEX, 호스트 APK와 iAP2 runtime JAR 존재도 설치 전에 확인합니다.
+helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. 브리지 DEX와 호스트 APK가 있는지 설치 전에 확인합니다.
 
 ## 백업과 수명주기
 
@@ -19,14 +19,14 @@ helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 
 
 재설치 시 원본 백업을 수정본으로 덮어쓰지 않습니다. `/data` reset으로 runtime 백업만 없어졌으면 system 백업으로 복구합니다. 제거는 원본 해시·소유 표식을 확인한 뒤 원본 bytes와 mode/uid/gid를 보존하여 복원하고 자기 백업만 제거합니다. 심볼릭 링크나 다른 소유 표식은 거부합니다. 이 경로에서 USB로 제조사 원본을 수집하지 않습니다.
 
-설치 도중 stock Iap2Server를 종료하지 않습니다. 단독(standalone) NEMESIS 설치는 거부합니다. 통합 설치만 부트가드를 준비하고, 모든 통합 단계는 점검 전에 `/data/nemesis/gen5wkr.noreboot`를 만들어 마지막 재부팅을 직접 합니다. 인접 ODEX가 유지되므로 Dalvik cache를 삭제하지 않습니다.
+단독(standalone) NEMESIS 설치는 거부합니다. 통합 설치는 재부팅 억제 표식을 만들고, 마지막에만 재부팅합니다. 변경한 Iap2ServerApp·DiPO·GPM과 관련된 Dalvik 최적화 캐시 항목을 지워 다음 부팅에서 현재 ODEX를 사용하게 합니다. `services.odex`, `SystemUI.odex`, framework, 커널, LK는 변경하지 않습니다. 단, 어떤 앱 ODEX 수정도 실차 부팅 안전성을 보장하지는 않습니다.
 
 ## 실행 구조
 
-NEMESIS의 `scripts/service.sh`는 원본·수정 파일과 백업을 확인하고, 부팅 완료 후 Android가 관리하는 `BridgeHostService`를 시작합니다. 블루투스 이벤트 수신과 iAP2 바인딩은 이 앱 프로세스에서 처리합니다. 핫스팟 제어는 system UID의 `ApBroker`가 담당하며, 로컬 소켓 양쪽에서 상대 UID를 확인합니다. 앱이 연결을 끊으면 진행 중인 요청을 취소합니다. 소켓에는 명령과 결과만 전달하며 Wi-Fi 비밀번호는 전달하지 않습니다. 이 구조의 실차 동작은 아직 확인하지 않았습니다.
+NEMESIS의 `scripts/service.sh`는 설치한 부팅부터 부팅 시도 수를 기록하고, 반복 실패 조건이 되면 확인된 원본 ODEX 복원을 시도합니다. 이 스크립트는 NEMESIS가 실행돼야 작동하므로 Android/NEMESIS가 시작되지 않는 고장까지 복구한다고 보장하지 않습니다. 부팅 완료 후 Android가 관리하는 `BridgeHostService`를 시작합니다. 앱은 저장된 같은 사용자 CarPlay 프로필이 활성화된 경우에만 순정 PhoneProjection 요청을 한 번 보내고 연결 상태를 관찰합니다. 자체 RFCOMM·iAP2 연결과 핫스팟 제어 broker는 시작하지 않습니다. 순정 서비스가 실행 중인지, 요청을 받는지, 휴대폰 Wi-Fi 접속 정보가 일치하는지는 실차에서 확인되지 않았습니다.
 
 제거는 `/data/nemesis/gen5wkr.bridge.stopping`을 만든 뒤 `kr.gen5w.wireless.STOP_BRIDGE`를 방송하고 2초 기다립니다. 수신기는 `android.permission.SHUTDOWN`으로 보호됩니다. supervisor는 표식이 있으면 앱과 보조 프로세스를 중지하고 재시작하지 않습니다. 다음 설치가 성공한 뒤에만 표식을 지웁니다.
 
 ## PC 검증
 
-`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 162개가 통과했습니다. 앱 UID 검증과 연결 종료 시 요청 취소도 JVM에서 시험했습니다. APK 빌드·서명은 확인했지만, Android 4.4 차량에서 프로세스 간 연결·iAP2·무선 CarPlay는 아직 확인하지 않았습니다.
+`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 164개가 통과했습니다. OEM 요청 세션·반사형 API 접근 JVM 시험도 포함됩니다. Android 4.4 차량의 PhoneProjection 권한, Wi-Fi 설정 일치, 무선 CarPlay는 아직 확인하지 않았습니다.

@@ -31,15 +31,14 @@ fi
 . "$SERVICE_DIR/scripts/common.sh"
 . "$SERVICE_DIR/scripts/retry-state.sh"
 inspect || exit $?
-[ "$BRIDGE_STATE" = patched ] && [ "$DIPO_STATE" = patched ] && [ "$BRIDGE_OWNED" = yes ] || exit 1
+[ "$BRIDGE_STATE" = stock ] && [ "$DIPO_STATE" = patched ] && [ "$BRIDGE_OWNED" = yes ] || exit 1
 DATA=${BRIDGE_TEST_DATA:-/data}
 NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 DEX=$SERVICE_DIR/app/bridge.dex
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
-# AP start guard (see AndroidWifiAp): the bridge (uid 1000) leaves "attempt"
-# holding the boot id while an AP start is in progress, and "ok" after one stayed
-# up. An attempt from an earlier boot means the unit restarted mid-start.
+# Runtime restart guard. The OEM PhoneProjection stack owns Wi-Fi/AP setup; this
+# supervisor only starts the app-side request/observation service.
 APG_MAX=3
 apguard_boot() {
     for _p in "$APG" "$APG_COUNT" "$APG_OFF" "$APG/attempt" "$APG/ok"; do [ ! -L "$_p" ] || return 1; done
@@ -77,9 +76,8 @@ while [ ! -f "$STOPPING" ]; do
 done
 # Wireless runs only on a working guard; if it cannot be kept, stay wired-only.
 apguard_boot || { [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
-broker_pid=
 host_started=no
-host_count=0; host_stable=0; broker_count=0; broker_stable=0
+host_count=0; host_stable=0
 HOST_READY=${BRIDGE_TEST_READY:-/data/data/kr.gen5w.wirelesshost/files/bridge-ready}
 host_alive() {
     [ -f "$HOST_READY" ] && [ ! -L "$HOST_READY" ] || return 1
@@ -98,8 +96,6 @@ pause() {
 stop_runtime() {
     # NEMESIS can SIGKILL the supervisor shortly after SIGTERM; stop the
     # privileged child before the potentially slow ActivityManager call.
-    [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
-    broker_pid=
     if [ "$host_started" = yes ]; then
         am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 || :
         host_started=no
@@ -110,7 +106,6 @@ terminate_runtime() {
     # behind while waiting for ActivityManager to stop the host service.
     trap - EXIT
     [ -n "$pause_pid" ] && kill "$pause_pid" 2>/dev/null || :
-    [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
     if [ "$host_started" = yes ]; then
         am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 &
     fi
@@ -133,28 +128,13 @@ while [ ! -f "$STOPPING" ]; do
         continue
     fi
     # The feature files take effect only after the installer's reboot. Wireless
-    # runs only in match mode (services.odex stays stock; the bridge sets the AP).
+    # runs only in match mode; the OEM PhoneProjection stack manages its AP.
     if [ -e "$DATA/nemesis/gen5wkr.noreboot" ] ||
        [ ! -f "$AP_MATCH" ] || [ -L "$AP_MATCH" ] || [ "$(cat "$AP_MATCH" 2>/dev/null)" != match ]; then
         stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         pause 2
         continue
-    fi
-    RETRY_COUNT=$broker_count; RETRY_STABLE=$broker_stable
-    if [ -n "$broker_pid" ] && kill -0 "$broker_pid" 2>/dev/null; then
-        retry_action healthy
-    else
-        retry_action dead
-    fi
-    broker_count=$RETRY_COUNT; broker_stable=$RETRY_STABLE
-    if [ "$RETRY_ACTION" = blocked ]; then
-        echo 'FAIL bridge: AP broker repeatedly stopped; wireless suspended until restart'
-        stop_runtime
-        exit 1
-    elif [ "$RETRY_ACTION" = start ]; then
-        "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" 2>&1 &
-        broker_pid=$!
     fi
     RETRY_COUNT=$host_count; RETRY_STABLE=$host_stable
     if host_alive; then retry_action healthy; else retry_action dead; fi

@@ -26,7 +26,7 @@ USB의 `NEMESIS.data`는 `type=execute`, `path=NEMESIS.sh`입니다. USB를 꽂�
 
 `gen5w-kr-safe.zip`은 부팅에 꼭 필요한 시스템 파일을 건드리지 않는 최소 구성입니다. 이전 코나 V039 부트루프의 원인은 확정되지 않았습니다. 이 판은 의심 경로 중 하나인 Wi-Fi·핫스팟 기능 재활성화(한국 펌웨어에서 꺼 둔 기능)를 설치 경로에서 뺐습니다.
 
-- 설치: `gen5w.kr.bridge`(Iap2ServerApp·HKMC_DiPO·HKMC_GPM ODEX의 경로 정보 API)와 `gen5w.kr.core`(HUD 앱)만.
+- 설치: `gen5w.kr.bridge`(순정 PhoneProjection 요청 앱과 필요한 DiPO·HKMC_GPM 경로 패치)와 `gen5w.kr.core`(HUD 앱)만.
 - 설치 안 함, 이미 있으면 순정 복원: 무선 기능 선언·핫스팟(`services.odex`, system_server)·무선 오디오(`libCarPlayAudio.so`)·시동 안내 타이머(`SystemUI.odex`).
 - 무선 지원 검사를 아예 실행하지 않고 유선 전용으로 설치합니다.
 - 부트가드는 2회 연속 부팅 실패에서 복구합니다(기본형은 3회).
@@ -66,18 +66,16 @@ USB의 `NEMESIS.data`는 `type=execute`, `path=NEMESIS.sh`입니다. USB를 꽂�
 `gen5w-kr-safe-wireless.zip`은 부팅에 꼭 필요한 시스템 파일(시동 동의 화면 `SystemUI.odex`, system_server의 `services.odex`)을 순정으로 두고 무선 CarPlay·Android Auto는 유지하는 구성입니다. system_server가 순정이면 Android가 올라오므로 부트가드·USB 복구 경로가 살아 있습니다.
 
 - 설치: 무선 CarPlay·Android Auto 기능 선언 2개·무선 오디오·bridge·core. 무선 지원 검사는 기본형과 같이 실행하며, 지원되지 않으면 유선 전용으로 설치합니다.
-- 핫스팟 모듈(`services.odex` 프로필 패치)은 설치하지 않습니다. 대신 맞춤 모드(`/data/nemesis/gen5wkr.ap-match`)를 씁니다. 무선 연결을 시작할 때 bridge가 순정 Wi-Fi 서비스로 핫스팟을 켜면서 CarPlay용 이름·암호를 넣습니다. 순정 서비스가 켤 때 이 값을 일반 핫스팟 설정으로도 저장하므로, bridge는 핫스팟이 켜진 직후(또는 깨끗하게 실패한 직후) 원래 일반 이름·암호를 순정 저장 기능(`setWifiApConfiguration`)으로 다시 저장합니다. 켜진 핫스팟은 CarPlay 값을 그대로 씁니다. 그 사이 다른 쪽이 설정을 바꿨으면 되돌리지 않습니다. 켜는 도중 전원이 꺼지면 일반 핫스팟 이름·암호가 CarPlay 값으로 남을 수 있습니다.
-- 기본형·동글형도 같은 맞춤 모드를 씁니다(`services.odex`는 순정 유지). 기본형·동글형은 일반 핫스팟 메뉴를 위해 핫스팟 기능 선언(`gen5wkr.ap-hotspot-feature` 표시)을 유지합니다.
+- 핫스팟 모듈(`services.odex` 프로필 패치)은 설치하지 않습니다. 무선 bridge는 V039 순정 PhoneProjection에 연결을 요청하며 별도 AP·RFCOMM·iAP2 연결을 만들거나 핫스팟 이름·암호를 바꾸지 않습니다. AP와 접속 정보 처리는 순정 PhoneProjection에 맡깁니다.
+- 일반 핫스팟 설정을 CarPlay 값으로 덮어쓰지는 않습니다. 다만 순정 PhoneProjection이 저장된 접속 정보를 실제 적용해 휴대폰과 차량 AP를 일치시키는지는 실차에서 확인되지 않았습니다. 이전 Wi-Fi 이름 불일치가 해결됐다고 볼 수 없으며 SSID·암호는 기록하지 않습니다.
+- 기본형·동글형은 일반 핫스팟 메뉴를 위한 순정 기능 선언(`gen5wkr.ap-hotspot-feature` 표시)을 유지합니다.
 - 핫스팟 기능 선언(`com.hkmc.software.wifihotspot.xml`)도 넣지 않습니다. V039 정적 분석에서 이 기능은 상태표시줄 아이콘·핫스팟 메뉴·텔레매틱스 앱과 핫스팟이 이미 켜진 뒤의 Wi-Fi 처리에만 쓰였고, 무선 CarPlay·AA 앱과 부팅 중 핫스팟 복원은 무선 CarPlay·AA 기능만 확인했습니다.
 - 이전 `services.odex` 핫스팟 패치가 설치돼 있으면 되돌리지 않고 설치를 거부합니다. 공식 업데이트로 순정 복구한 뒤 설치합니다.
 - 설치 안 함, 이미 있으면 순정 복원: 시동 안내 타이머(`gen5w.kr.timer`)와 블루링크 안내 숨기기(`gen5w.kr.bluelink`).
 - Wi-Fi 클라이언트(`android.hardware.wifi.xml`)는 켜지 않습니다. USB에 `GEN5W-WIFI-CLIENT`가 있으면 설치를 거부합니다. 이 파일은 벽돌이 난 V039 차량에 추가됐던 파일이고, 부팅 중 Wi-Fi를 켜는 경로를 엽니다.
 - 부트가드는 2회 연속 부팅 실패에서 복구합니다. `SystemUI.odex`·`services.odex`가 순정으로 확인되지 않으면 설치하지 않습니다.
-- 순정 Wi-Fi 서비스는 핫스팟 켜짐 상태(`Settings.Global wifi_ap_on`)를 저장해 두었다가, 무선 기능 선언이 있으면 다음 부팅 중에 system_server가 직접 핫스팟을 켭니다. 이 경로는 한국 펌웨어에서 실행된 적이 없어서, bridge는 핫스팟을 켠 직후 이 값을 0으로 되돌립니다. 그래서 핫스팟은 부팅이 끝난 뒤 bridge가 켤 때만 켜집니다(값을 지우기 전 1~2초 사이에 전원이 꺼지면 다음 부팅 한 번은 순정 경로를 탑니다).
-- 순정 한국 펌웨어는 Wi-Fi 드라이버(`/system/wifi/bcmdhd.ko`)를 올리지 않습니다. 그래서 bridge가 처음 핫스팟을 켤 때가 그 차에서 드라이버가 처음 올라가는 때입니다. 핫스팟 시작 가드: bridge가 시작 직전에 부팅 id를 `/data/nemesis/gen5wkr.apguard/attempt`에 남기고, 깨끗한 실패 때 바로, 성공 때는 45초 유지 후 지웁니다. 다음 부팅에 이전 부팅의 기록이 남아 있으면 시작 중 재부팅으로 셉니다. 3번 연속이면 `gen5wkr.apguard.off`를 만들어 무선을 끄고 유선만 남깁니다. 성공하면 횟수는 0이 되고, 다시 설치하거나 제거하면 가드가 초기화됩니다. 점검(check)이 이 상태를 보고합니다.
-- CarPlay 이름은 1~32바이트에 제어문자 없음, 암호는 8~63자 출력 가능한 ASCII만 받습니다. netd가 이 값을 `hostapd.conf`에 그대로 쓰기 때문입니다.
-- 맞춤 모드에서는 핫스팟 모듈 없이 bridge가 시작됩니다. 설치 후 재부팅 전(`gen5wkr.noreboot`)에는 기다립니다.
-- 미검증: 맞춤 모드의 실제 무선 연결은 실차에서 확인되지 않았습니다.
+- 무선 시작 가드는 핫스팟이 아니라 bridge 프로세스의 반복 시작을 제한합니다. 시작 실패가 한도를 넘으면 `gen5wkr.apguard.off`를 만들어 bridge를 멈추고 유선 기능만 남깁니다. 제거·재설치 때 가드를 초기화하며 점검 결과에 상태를 표시합니다.
+- 이 브랜치에서 무선 연결은 순정 PhoneProjection 요청·상태 확인까지만 코드로 구성했습니다. 서비스 접근 권한, SSID·암호 일치, 실제 AP 연결 및 CarPlay 완료는 실차 미확인입니다.
 
 ## 작업 선택
 

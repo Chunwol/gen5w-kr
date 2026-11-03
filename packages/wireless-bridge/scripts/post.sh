@@ -8,11 +8,10 @@ apguard_reset || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 save_original && stage_clear || exit 1
-if [ "$BRIDGE_STATE" = stock ]; then
-    [ ! -L "$STATE/replacement" ] || exit 1
-    rm -f "$STATE/replacement" || exit 1
-    "$TOOL" apply "$STATE/original" "$STATE/replacement" && patched "$STATE/replacement" || { restore_target; exit 1; }
-    replace_target "$STATE/replacement" patched "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || { restore_target; exit 1; }
+if [ "$BRIDGE_STATE" = patched ]; then
+    # A previous bridge build replaced the OEM service entry point. Restore the
+    # byte-verified stock app before asking PhoneProjection to own the session.
+    replace_target "$STATE/original" original "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || { restore_target; exit 1; }
 fi
 if [ "$DIPO_STATE" != patched ]; then
     [ ! -L "$STATE/diporeplacement" ] || { restore_target; exit 1; }
@@ -32,12 +31,12 @@ if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ "$GPM_STATE" = stock ]; then
         exit 1
     fi
 fi
-patched "$TARGET" && dipo_patched "$DIPO_TARGET" && { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || { restore_target; exit 1; }
+original "$TARGET" && dipo_patched "$DIPO_TARGET" && { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || { restore_target; exit 1; }
 rm -f "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" || exit 1
 [ ! -L "$STOPPING" ] && rm -f "$STOPPING" || exit 1
 wipe_dalvik || { restore_target || log 'FAIL bridge: cache cleanup failed; originals retained'; exit 1; }
 sync
 sys_ro || exit 1
 trap - EXIT
-log 'APPLIED bridge: stock service shim verified; real transport remains untested'
+log 'APPLIED bridge: app requests OEM PhoneProjection; Wi-Fi and CarPlay remain unverified'
 [ -n "$BRIDGE_TEST_SYS" ] || [ -f "$NOREBOOT" ] || exec /system/bin/reboot

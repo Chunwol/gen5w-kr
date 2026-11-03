@@ -11,6 +11,5 @@ if [ -z "$BRIDGE_TEST_SYS" ] && [ ! -f "$NOREBOOT" ]; then
 fi
 inspect || exit $?
 [ -f "$SCRIPT_DIR/../app/bridge.dex" ] && [ ! -L "$SCRIPT_DIR/../app/bridge.dex" ] &&
-    [ -f "$SCRIPT_DIR/../app/wireless-host.apk" ] && [ ! -L "$SCRIPT_DIR/../app/wireless-host.apk" ] &&
-    [ -f "$SYS/framework/com.tcc.iap2.jar" ] || { log 'FAIL bridge: host, broker or iAP2 runtime absent'; exit 1; }
+    [ -f "$SCRIPT_DIR/../app/wireless-host.apk" ] && [ ! -L "$SCRIPT_DIR/../app/wireless-host.apk" ] || { log 'FAIL bridge: stock projection host absent'; exit 1; }
 log 'READY bridge: exact stock APK/ODEX pair and recovery ownership verified'

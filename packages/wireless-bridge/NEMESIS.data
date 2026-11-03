@@ -1,9 +1,9 @@
 [nemesis]
 version=1.0
 id=gen5w.kr.bridge
-name=Gen5W KR - external iAP2 Bluetooth bridge
-package-version=0.3.26
-short-desc=무선 CarPlay 블루투스 연결·재연결 보정
+name=Gen5W KR - OEM PhoneProjection bridge
+package-version=0.3.27
+short-desc=순정 PhoneProjection 무선 CarPlay 연결 요청·상태 확인
 depends=!wireless.projection,!enhanced.projection
 types=application,service
 preinstall=scripts/pre.sh

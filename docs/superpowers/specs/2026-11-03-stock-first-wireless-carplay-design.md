@@ -8,17 +8,27 @@ This is a design change from the earlier stock-first design with a timed direct 
 
 ## Confirmed problem boundary
 
-The v0.3.25 vehicle report failed in `BluetoothSocket.connect()` for the advertised CAFE service before AP setup, native iAP2 authentication, or DiPO startup. v0.3.25 also trusted a non-null cached UUID list without starting a fresh SDP query; v0.3.26 fixes that cache defect. The current bridge still opens RFCOMM directly and bypasses the V039 `PhoneProjection`/`PPManager` preparation flow.
+The v0.3.25 vehicle report failed in `BluetoothSocket.connect()` for the advertised CAFE service before AP setup, native iAP2 authentication, or DiPO startup. v0.3.25 also trusted a non-null cached UUID list without starting a fresh SDP query; v0.3.26 fixed that cache defect, but the direct transport remained unsuitable. The new bridge removes that transport and asks V039 PhoneProjection to use its own saved profile.
 
 The V039 framework dump contains the `phoneprojection` service mapping and `PPManager` wrappers for `isCPAutoConnectionAvailableDevice(String)`, `isCarPlaySupportOOB()`, `requestConnectSPP(String)`, and `requestDisconnectSPP(String)`. Their availability in the dump does not prove this app can invoke them at runtime; permission and Binder behavior must be diagnosed on the vehicle.
 
-The current bridge package also applies authored patches to `/system/app/Iap2ServerApp.odex` and `/system/app/HKMC_DiPO.odex`, and may patch `/system/app/HKMC_GPM.odex`. Those existing package effects must be audited and kept separate from the new stock request path. The new path must not require changing `PhoneProjection`, Bluetooth, framework, LK, or other OEM source/binaries.
+### Captured V039 request-path findings
+
+The `PPManager.requestConnectSPP(String)` route is not a usable entry point in the captured V039 build: the registered `isCPAutoConnectionAvailableDevice(String)` listener returns `false`, and its callback does not establish an SPP socket in the inspected bytecode. The bridge does not call it.
+
+A separate OEM UI path is present and is now used. `WirelessAlertDialogActivity` sends `com.daudio.app.PhoneProjection.Wireless.SEND_CONNECTION_PHONEPROJECTION` with the `deviceAddress` extra. `WirelessPhoneProjectionService.onCreate()` registers a dynamic receiver for that exact action, and its receiver looks up the active user's `WLDeviceInfo` and routes a matching wireless profile through the OEM connectivity or hotspot handler. That handler uses the saved profile and calls the OEM `PPManager.connectPP(...)` path. The bridge sends the same action only to the PhoneProjection package and only after confirming the connected address matches a saved CarPlay profile whose wireless and auto-connect settings are already enabled. It never changes those settings or the saved Wi-Fi name/key.
+
+This establishes a source-backed OEM request route, not proof of runtime acceptance: the receiver is dynamic, so its service must be registered when the request arrives; reflection and broadcast delivery must work on the installed V039 image; and the profile's saved Wi-Fi credentials must match the phone. Those points remain for vehicle validation. The old `requestConnectSPP` route stays unused.
+
+The stock-only bridge does not write the hotspot SSID or key. Consequently, it does not itself correct a previous Wi-Fi name/credential mismatch. Whether the OEM stack's saved profile matches the phone remains unknown and requires an actual vehicle connection test; do not overwrite profile values as a speculative fix.
+
+The package restores `/system/app/Iap2ServerApp.odex` to its verified original when upgrading from the older custom bridge. It still applies the existing `/system/app/HKMC_DiPO.odex` call-key patch, which also rewrites an obsolete receiver action that this bridge no longer sends, and may patch `/system/app/HKMC_GPM.odex` for Android Auto HUD. These are app-level ODEX edits, not part of the OEM connection request. They remain hash-gated and reversible, but are still a real system modification and require vehicle validation. No boot-critical ODEX, framework, LK, kernel, PhoneProjection, or Bluetooth binary is changed.
 
 ## Goals
 
 - Request OEM PhoneProjection SPP/WPP preparation for an eligible bonded CarPlay device.
 - Never initiate the project's direct RFCOMM, custom native iAP2, or custom AP-setup path for that generation.
-- Report request invocation, gate/OOB observations, OEM progress, and failure categories without logging device identifiers.
+- Report OEM action submission, OEM-connected state, and failure categories without logging device identifiers.
 - Cancel stale attempts on candidate loss, wired/foreign projection, Bluetooth shutdown, or service shutdown.
 - Keep the change reversible through the existing package lifecycle and do not deploy it to the vehicle in this task.
 
@@ -31,24 +41,24 @@ The current bridge package also applies authored patches to `/system/app/Iap2Ser
 
 ## Architecture
 
-### `StockProjectionAdapter`
+### `PhoneProjectionAccess`
 
-Add an app-side adapter used by `WirelessBridge`. It obtains `context.getSystemService("phoneprojection")` and invokes the V039 `PPManager` wrappers reflectively, so the APK does not link private framework classes.
+The app-side adapter uses reflection so the APK does not statically link private framework classes. It reads the current `UserProfileManager` user type and calls `PPManager.getWLDeviceInfo(address, "", userType)`. A request is allowed only when the result matches the connected address, has `TYPE_CARPLAY`, and both `getWLDOnOff()` and `getWLDAutoConnection()` are true. Missing, mismatched, disabled, or auto-connect-off profiles fail closed.
 
-For each candidate generation it:
+For each candidate generation the adapter:
 
-1. Reads `isCPAutoConnectionAvailableDevice(address)` and `isCarPlaySupportOOB()` when available.
-2. Calls `requestConnectSPP(address)` at most once for that generation when the OEM service and method are available. A normal return means only that invocation returned; it is not evidence that the OEM accepted or completed the connection.
-3. Maps exceptions to stable categories (`service-unavailable`, `method-unavailable`, `security`, `invocation`) without logging exception text or addresses.
-4. Calls `requestDisconnectSPP(address)` only if the bridge can prove it owns an outstanding request and cancellation cannot affect an OEM-owned active session. If that ownership cannot be established, it invalidates its local generation and does not call OEM disconnect.
+1. Observes `getWirelessConnectState()` and `getCPConnectedBTAddress()`; only the V039 connected state for the same address counts as active. The same candidate's `CONNECTING` state is polled without sending a duplicate request; a different/unknown address, cancel state, or unknown state fails closed.
+2. Immediately before sending, rechecks under the session lock that the same candidate generation still owns a pending request, the request has not timed out, and the bridge is not shutting down or wired. It then sends the OEM UI action `com.daudio.app.PhoneProjection.Wireless.SEND_CONNECTION_PHONEPROJECTION`, package-scoped to `com.daudio.app.phoneprojection`, with `deviceAddress`, at most once for that generation. This is the action sent by the captured OEM PhoneProjection UI and received by its dynamically registered service receiver.
+3. Treats a successful `sendBroadcast` return as `oem-action-sent`, never as connection success. Only a later OEM connected-state observation is reported as active.
+4. Maps exceptions to stable categories without logging exception text or device identifiers. A missing dynamic receiver is indistinguishable from an unconsumed broadcast until timeout and remains a vehicle-validation risk.
 
-An OEM gate value of `false` is reported as a blocked/unsupported stock attempt. It never authorizes a direct transport attempt.
+The adapter does not use `requestConnectSPP`, call OEM disconnect, toggle profile settings, or write Wi-Fi credentials. Cancellation invalidates local generations and does not tear down an OEM-owned session.
 
 ### Stock-only ownership
 
-Remove the direct-transport start from the wireless bridge flow: no `createRfcommSocketToServiceRecord`, custom `Iap2SvcInit`/`receiveConnect`, or custom hotspot AP setup is started by the CarPlay connection attempt. The bridge may observe OEM state only through signals whose V039 source and app-level delivery are verified. Broadcast strings found in a dump are not sufficient proof that a broadcast is sent, externally receivable, or safely device-matchable.
+The wireless bridge has no `createRfcommSocketToServiceRecord`, custom `Iap2SvcInit`/`receiveConnect`, or custom hotspot AP setup. The OEM action is permitted because both its UI sender and dynamically registered receiver are present in the captured V039 bytecode; delivery and acceptance by the live service still require vehicle validation.
 
-Until reliable OEM progress/completion signals are verified, diagnostics distinguish `request-invoked` from `projection-active`; they must not report a successful connection based only on method return, A2DP/HFP, a running process, or an iAP2 marker of unknown ownership.
+Diagnostics distinguish `oem-action-sent` from `projection-active`; they must not report a successful connection based only on broadcast submission, a remembered connected address without `PHONEPROJECTION_CONNECT_STATE_CONNECTED`, A2DP/HFP, a running process, or an iAP2 marker of unknown ownership.
 
 One generation token owns the candidate and all local observation/callback state. Wired/foreign projection, ACL loss, Bluetooth off, or shutdown invalidates it before cleanup. Late callbacks from old generations are ignored.
 
@@ -61,9 +71,9 @@ The new stock request path itself must not require system ODEX replacement. Befo
 Log a stable, address-free sequence:
 
 - `path=stock event=service result={available|unavailable}`
-- `path=stock event=state gate={true|false|unknown} oob={true|false|unknown}`
-- `path=stock event=request result={invoked|blocked|method-unavailable|security|invocation}`
-- `path=stock event=progress source={verified-source}` only for a source verified in V039 and delivered to this app
+- `path=stock event=request result={oem-action-sent|profile-unavailable|profile-mismatch|profile-disabled|auto-connect-disabled|cancelled|security|invocation}`
+- `path=stock event=progress source={phoneprojection-state}` only after the OEM reports the candidate as connected
+- `path=stock event=progress result=connecting` while the same candidate is already in the OEM connecting state; this is observation only and does not start a second request
 - `path=stock event=result={projection-active|timeout|cancelled|unavailable}`
 - `path=stock event=cancel reason={wired|foreign|acl-lost|bluetooth-off|shutdown}`
 
@@ -74,7 +84,8 @@ Do not log MAC/Bluetooth addresses, phone names, serial numbers, SSID, passwords
 ### Pure JVM tests
 
 - One stock request is made at most once per generation.
-- Gate false, service unavailable, method unavailable, security exception, and invocation exception never call direct transport.
+- Missing/mismatched/non-CarPlay/disabled/auto-connect-off profile, stale/expired request, service unavailable, security exception, and invocation exception never send the OEM action or call direct transport.
+- An eligible profile sends exactly the source-verified action, scoped to the OEM package, with only the connected address extra.
 - A returned request invocation does not mark projection active.
 - A verified stock progress/completion event is associated with the current generation; stale-generation events are ignored.
 - Candidate loss, wired/foreign projection, Bluetooth off, and shutdown cancel local observation and prevent later callbacks from publishing success.
@@ -92,7 +103,7 @@ Do not log MAC/Bluetooth addresses, phone names, serial numbers, SSID, passwords
 
 Do not declare solved until a vehicle report proves:
 
-- PPManager service/method access outcome and gate/OOB values.
+- Profile lookup and OEM action delivery outcome.
 - OEM request progress and final projection state, or a clear fail-closed result.
 - No private direct RFCOMM or custom native-iAP2 start was attempted.
 - No overlapping connection owner and no phone identifiers in diagnostics.

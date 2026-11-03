@@ -15,11 +15,15 @@ rm -rf "$PKG/.build"; mkdir -p "$PKG/.build/stubs" "$PKG/.build/classes" "$PKG/a
 # Compile our app with the stub sources on the sourcepath: a source class always
 # overrides a same-named class in android.jar, so our extra fields/methods win.
 stubpath="$PKG/stubs"
-extra_sources=()
 if [ "$PKG" = packages/wireless-bridge ]; then
     stubpath="probe/stubs${sep}packages/wireless-bridge/stubs"
+    sourcepath="$PKG/src${sep}$stubpath"
+    sources="$PKG/src/kr/gen5w/wireless/BridgeHostService.java $PKG/src/kr/gen5w/wireless/WirelessBridge.java $PKG/src/kr/gen5w/wireless/PhoneProjectionAccess.java $PKG/src/kr/gen5w/wireless/StockProjectionSession.java"
+else
+    sourcepath="$stubpath"
+    sources=$(find "$PKG/src" -name '*.java')
 fi
-javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR" -sourcepath "$stubpath" -d "$PKG/.build/classes" $(find "$PKG/src" -name '*.java') "${extra_sources[@]}"
+javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR" -sourcepath "$sourcepath" -d "$PKG/.build/classes" $sources
 [ -f "$PKG/.build/classes/${MAIN//.//}.class" ] || { echo "missing main class $MAIN" >&2; exit 1; }
 # The stub classes end up compiled too (javac follows the sourcepath); keep only
 # our app classes for d8 so nothing from android.* is packaged.

@@ -8,7 +8,7 @@ import android.os.Process;
 import java.io.File;
 import java.io.FileOutputStream;
 
-/** Android-managed process for registered receivers and iAP2 binding. */
+/** Android-managed process for Bluetooth receivers and OEM PhoneProjection requests. */
 public final class BridgeHostService extends Service {
     private WirelessBridge bridge;
 

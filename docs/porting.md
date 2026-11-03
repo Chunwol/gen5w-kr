@@ -172,8 +172,8 @@ ccNC(ccIC, 고급형 6세대 등)는 Gen5W와 완전히 다른 차세대 인포�
 
 1. 지원 이슈에 모델·연식·지역·정확한 펌웨어·필요 모듈을 적습니다. 제조사 파일과 개인 자료는 제출하지 않습니다.
 2. 소유자가 합법적으로 확보한 원본을 개인 환경에서 분석합니다. 다른 프로젝트 코드·패치 바이트는 사용하지 않습니다. 공개 검토에는 파일 경로, 전체 SHA256, 필요한 ABI·상수·시그니처 사실과 자체 작성 코드만 사용합니다.
-3. 무선 설정은 `packages/wireless-enable/scripts/common.sh`의 기능·featurexml 감지, hotspot은 별도 Connectivity 값, HUD는 `packages/core/scripts/pre.sh`의 API/route 조건을 확인합니다. 알 수 없는 조건은 우회하지 않습니다.
-4. bridge는 `tools/iap2/control_patch.py`, `dipo_patch.py`에서 해당 원본 메타데이터에 맞는 자체 레시피를 생성합니다. JSON 프로필, `tools/iap2/build.py`, `packages/wireless-bridge/scripts/{recipe,common}.sh`의 버전 선택과 helper 목록을 함께 확장합니다. APK/ODEX 쌍·의존성·GC맵·체크섬과 변경 범위를 개인 환경에서 대조합니다.
+3. 무선 설정은 `packages/wireless-enable/scripts/common.sh`의 기능·featurexml 감지와 순정 PhoneProjection API 접근을 확인하고, HUD는 `packages/core/scripts/pre.sh`의 API/route 조건을 확인합니다. SSID·암호 일치 여부는 실차 확인이 필요하며 알 수 없는 조건은 우회하지 않습니다.
+4. bridge의 무선 요청 경로는 V039 PhoneProjection API를 반사 호출하며, 자체 RFCOMM·iAP2·AP 경로를 실행하지 않습니다. DiPO/GPM 패치는 별도 기능으로 분리해 원본 메타데이터·APK/ODEX 쌍·의존성·GC맵·체크섬과 변경 범위를 대조합니다.
 5. audio는 `tools/audio`의 자체 형식 알림과 원본/변환기 프로필, `packages/audio-format/scripts`의 버전 선택을 확장합니다. 다른 차종에 코나 오프셋을 그대로 적용하지 않습니다.
 6. 등록/교차 버전 거부·재설치·부분 실패·제거 시 원본 동일성·데이터 초기화 후 복구 사례를 기존 tests에 추가합니다. 제조사 바이트 대신 합성 입력을 사용하며, 전체 빌드와 검증은 기존 CI에서 수행합니다.
 7. 이 문서의 지원 표에 정확한 원본 조합과 확인 범위를 적어 지원 요청에 남깁니다. CI 성공을 실차 성공으로 표시하지 않습니다. 실제 차량 확인 결과는 이후 별도 기록합니다.

@@ -4,9 +4,7 @@
     <uses-sdk android:minSdkVersion="18" android:targetSdkVersion="19" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.INTERNET" />
     <application android:label="Gen5W KR wireless" android:allowBackup="false">
-        <uses-library android:name="com.tcc.iap2" android:required="true" />
         <service android:name="kr.gen5w.wireless.BridgeHostService" android:exported="false" />
     </application>
 </manifest>
