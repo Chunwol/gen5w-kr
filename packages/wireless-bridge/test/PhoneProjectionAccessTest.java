@@ -85,6 +85,10 @@ public final class PhoneProjectionAccessTest {
         state = PhoneProjectionAccess.inspect(provider, "candidate");
         check(state.otherProjectionActive,
                 "unrecognized OEM connection states fail closed");
+        manager.wirelessState = 4;
+        state = PhoneProjectionAccess.inspect(provider, "candidate");
+        check(state.otherProjectionActive,
+                "state outside V039 service range fails closed");
         check(PhoneProjectionAccess.inspect(provider(null), "candidate").result ==
                 StockProjectionSession.Result.SERVICE_UNAVAILABLE, "missing OEM service classified");
         PhoneProjectionAccess.ServiceProvider denied = new PhoneProjectionAccess.ServiceProvider() {

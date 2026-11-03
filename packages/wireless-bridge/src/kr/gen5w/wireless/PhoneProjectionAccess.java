@@ -12,7 +12,6 @@ public final class PhoneProjectionAccess {
     private static final int STATE_CANCEL = 1;
     private static final int STATE_CONNECTING = 2;
     private static final int STATE_CONNECTED = 3;
-    private static final int STATE_DISCONNECTED = 4;
     public static final String OEM_PACKAGE = "com.daudio.app.phoneprojection";
     public static final String OEM_CONNECT_ACTION =
             "com.daudio.app.PhoneProjection.Wireless.SEND_CONNECTION_PHONEPROJECTION";
@@ -60,8 +59,7 @@ public final class PhoneProjectionAccess {
             boolean connecting = wirelessState == STATE_CONNECTING && addressMatches;
             // CANCEL, unknown states, or any non-idle state owned by another/unknown
             // address fail closed; only the same candidate's CONNECTING state is polled.
-            boolean other = !active && !connecting && wirelessState != STATE_NONE &&
-                    wirelessState != STATE_DISCONNECTED;
+            boolean other = !active && !connecting && wirelessState != STATE_NONE;
             return new StockProjectionSession.Observation(StockProjectionSession.Result.INVOKED,
                     true, active, connecting, other);
         } catch (NoSuchMethodException e) {
