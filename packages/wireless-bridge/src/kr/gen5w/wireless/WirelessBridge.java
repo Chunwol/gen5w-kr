@@ -267,20 +267,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         return false;
     }
     static String safe(String value) {
-        if ("candidate".equals(value) || "cancel".equals(value) || "service".equals(value) ||
-                "state".equals(value) || "request".equals(value) || "result".equals(value) ||
-                "progress".equals(value)) return value;
-        if ("ready".equals(value) || "acl-lost".equals(value) || "wired".equals(value) ||
-                "foreign".equals(value) || "shutdown".equals(value) || "invoked".equals(value) ||
-                "service-unavailable".equals(value) || "method-unavailable".equals(value) ||
-                "security".equals(value) || "invocation".equals(value) || "timeout".equals(value) ||
-                "projection-active".equals(value) || "foreign-active".equals(value) ||
-                "connecting".equals(value) ||
-                "stale-request".equals(value) ||
-                "unavailable".equals(value) || "gate-denied".equals(value) ||
-                "oob-supported".equals(value) || "oob-unavailable".equals(value) ||
-                "oob-unknown".equals(value)) return value;
-        return "other";
+        return StockProjectionSession.safeDiagnosticToken(value);
     }
     static void log(String message) { Log.i(TAG, message); }
 }

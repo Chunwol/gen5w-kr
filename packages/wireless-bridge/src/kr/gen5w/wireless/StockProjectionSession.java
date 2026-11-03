@@ -252,6 +252,26 @@ public final class StockProjectionSession {
     public synchronized Phase phase() { return phase; }
     public synchronized String candidate() { return candidate; }
 
+    /** Keep stable diagnostic labels while redacting arbitrary identifiers and text. */
+    public static String safeDiagnosticToken(String value) {
+        if ("candidate".equals(value) || "cancel".equals(value) || "service".equals(value) ||
+                "state".equals(value) || "request".equals(value) || "result".equals(value) ||
+                "progress".equals(value)) return value;
+        if ("ready".equals(value) || "acl-lost".equals(value) || "wired".equals(value) ||
+                "foreign".equals(value) || "shutdown".equals(value) || "invoked".equals(value) ||
+                "service-unavailable".equals(value) || "method-unavailable".equals(value) ||
+                "security".equals(value) || "invocation".equals(value) || "timeout".equals(value) ||
+                "projection-active".equals(value) || "foreign-active".equals(value) ||
+                "connecting".equals(value) || "stale-request".equals(value) ||
+                "unavailable".equals(value) || "gate-denied".equals(value) ||
+                "oob-supported".equals(value) || "oob-unavailable".equals(value) ||
+                "oob-unknown".equals(value) || "profile-unavailable".equals(value) ||
+                "profile-mismatch".equals(value) || "profile-disabled".equals(value) ||
+                "auto-connect-disabled".equals(value) || "cancelled".equals(value) ||
+                "oem-action-sent".equals(value)) return value;
+        return "other";
+    }
+
     private static String resultName(Result value) {
         if (value == null) return "invocation";
         switch (value) {

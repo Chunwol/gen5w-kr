@@ -173,6 +173,24 @@ public final class StockProjectionSessionTest {
                 connectingTimeoutPort.requests == 0,
                 "stalled same-candidate OEM connection fails closed without a parallel request");
 
+        check("profile-unavailable".equals(
+                        StockProjectionSession.safeDiagnosticToken("profile-unavailable")),
+                "diagnostics preserve a missing saved profile result");
+        check("profile-mismatch".equals(
+                        StockProjectionSession.safeDiagnosticToken("profile-mismatch")),
+                "diagnostics preserve a mismatched profile result");
+        check("profile-disabled".equals(
+                        StockProjectionSession.safeDiagnosticToken("profile-disabled")),
+                "diagnostics preserve a disabled profile result");
+        check("auto-connect-disabled".equals(
+                        StockProjectionSession.safeDiagnosticToken("auto-connect-disabled")),
+                "diagnostics preserve an auto-connect setting result");
+        check("oem-action-sent".equals(
+                        StockProjectionSession.safeDiagnosticToken("oem-action-sent")),
+                "diagnostics distinguish OEM request delivery from connection success");
+        check("other".equals(StockProjectionSession.safeDiagnosticToken("phone-a")),
+                "diagnostics redact device identifiers");
+
         System.out.println("PASS StockProjectionSessionTest");
     }
 }
