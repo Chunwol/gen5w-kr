@@ -31,7 +31,7 @@ bump() {
 }
 # The same conditions as SystemUI's own check, read from its state line.
 passes() {
-    local field
+    local field profile
     case "$1" in *'mScreenEnabled : true,'*) ;; *) return 1;; esac
     for field in 'mIsEarlyCamOn : false,' 'mIsReverseOn : false,' 'mAccStatus : 0,' \
         'mShowLocaleDialog : false,' 'mIsUpdateCompleteViewOn : false ' 'mIsValet : false,'; do
@@ -45,7 +45,10 @@ passes() {
     # SystemUI also refuses while no driver profile is chosen (index -1) on units
     # with user profiles. Its failure line comes after the state line, too late
     # for an immediate close, so refuse here on -1 regardless.
-    case "$1" in *'mInitDriverIdx : -1,'*) return 1;; esac
+    case "$1" in *'mInitDriverIdx : '*) ;; *) return 1;; esac
+    profile=${1#*'mInitDriverIdx : '}
+    case "$profile" in *,*) profile=${profile%%,*};; *) return 1;; esac
+    case "$profile" in ''|*[!0-9]*) return 1;; esac
     return 0
 }
 # Android refuses broadcasts before boot completes ("Cannot broadcast before

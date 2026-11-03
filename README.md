@@ -1,3 +1,6 @@
+> [!CAUTION]
+> **지금은 설치하지 마세요.** 실차 검증과 문제 수정을 진행 중입니다. 검증이 끝나면 설치 가능 여부를 안내하겠습니다.
+
 <div align="center">
 
 # 🚗 Gen5W KR
@@ -11,11 +14,18 @@
 [![Build and verify](https://github.com/Chunwol/gen5w-kr/actions/workflows/ci.yml/badge.svg)](https://github.com/Chunwol/gen5w-kr/actions/workflows/ci.yml)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 ![Firmware](https://img.shields.io/badge/firmware-V039.001.260902-informational)
-![Vehicle test](https://img.shields.io/badge/%EC%8B%A4%EC%B0%A8-%EB%AF%B8%EA%B2%80%EC%A6%9D-orange)
+![Vehicle test](https://img.shields.io/badge/%EC%8B%A4%EC%B0%A8-%EA%B2%80%EC%A6%9D%20%EC%A4%91-orange)
 
 [📖 설치 가이드](docs/beginner-guide.md) · [🚘 지원 차량](docs/porting.md) · [✅ 설치 결과 알려주기](https://github.com/Chunwol/gen5w-kr/issues/new?template=result.yml) · [🐞 문제 신고](https://github.com/Chunwol/gen5w-kr/issues/new/choose) · [⭐ 스타 누르기](https://github.com/Chunwol/gen5w-kr/stargazers) · [💖 개발 후원](https://github.com/sponsors/Chunwol)
 
 </div>
+
+> [!IMPORTANT]
+> **실차 검증 중**입니다. 검증이 끝나면 결과와 지원 여부를 안내하겠습니다.
+>
+> 동일한 공식 5W 시스템 업데이트 패키지를 사용하는 검증 후보: 더 뉴 그랜저, 2021 베뉴, 2020 벨로스터 N, 더 뉴 싼타페, DN8 쏘나타, 올 뉴 아반떼, 더 뉴 아이오닉, 더 뉴 코나, 팰리세이드.
+>
+> 해당 V039 사양이 대상이며, 차종·연식·옵션에 따른 무선 연결과 계기판·HUD 지원은 확인 중입니다.
 
 > [!CAUTION]
 > **메인보드 교체 위험:** 실차에서 검증하지 않은 실험입니다. 설치 후 부팅이 조금이라도 비정상(로고/꺼짐 반복)이면 복구가 안 되어 **메인보드(헤드유닛) 교체**가 필요할 수 있습니다(실제 사례 있음). [설치 전 복구 준비 체크리스트](docs/pre-install-recovery-checklist.md)를 모두 마치고, 위험을 감수할 때만 설치하세요.
@@ -35,7 +45,7 @@
 
 ## 📌 프로젝트 상태
 
-개발을 마쳤습니다. 기능 추가 계획은 없으며, 실차 확인 결과와 오류 제보에 따른 수정만 합니다. 모든 기능은 PC 모의 시험과 CI를 통과했지만 **실차에서는 아직 확인하지 않았습니다**. 최신 버전은 [릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서, 변경 내역은 [CHANGELOG](CHANGELOG.md)에서 볼 수 있습니다.
+현재 실차 검증을 진행하고 있습니다. 차종별 지원 여부와 기능 동작을 확인한 뒤 결과를 안내하겠습니다. 최신 버전은 [릴리스](https://github.com/Chunwol/gen5w-kr/releases)에서, 변경 내역은 [CHANGELOG](CHANGELOG.md)에서 볼 수 있습니다.
 
 ## 📥 다운로드
 

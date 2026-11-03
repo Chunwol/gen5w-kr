@@ -76,6 +76,8 @@ jobs:
         run: |
           set -euo pipefail
           cat > notes.md <<'NOTES'
+          > **실차 시험 중: 일반 설치를 중단해 주세요.** 무선 브리지 수정본은 실차에서 아직 검증되지 않았으며 부팅 불량 시 복구가 보장되지 않습니다.
+
           ## 무엇을 받나요?
 
           | 순서 | 파일 | 설명 |
@@ -100,4 +102,6 @@ jobs:
 
           두 판 모두 시동 주의 안내를 조건이 맞으면 바로 넘기고, 블루링크 미가입 안내를 숨깁니다. **실차에서는 아직 확인하지 않았습니다.** 설치 전에 저장소의 [설치 가이드](https://github.com/Chunwol/gen5w-kr/blob/main/docs/beginner-guide.md)와 복구 준비 체크리스트를 읽어 주세요.
           NOTES
-          gh release create "$VERSION" --target "$SOURCE_SHA" --title "Gen5W KR $VERSION" --notes-file notes.md files/gen5w-kr-check.zip files/gen5w-kr-standard.zip files/gen5w-kr-dongle.zip files/gen5w-kr-source.zip files/gen5w-kr-dongle-gpl-source.tar.xz files/RELEASE-SHA256SUMS
+          release_type=()
+          if [[ "$VERSION" == *-* ]]; then release_type+=(--prerelease --latest=false); fi
+          gh release create "$VERSION" "${release_type[@]}" --target "$SOURCE_SHA" --title "Gen5W KR $VERSION" --notes-file notes.md files/gen5w-kr-check.zip files/gen5w-kr-standard.zip files/gen5w-kr-dongle.zip files/gen5w-kr-source.zip files/gen5w-kr-dongle-gpl-source.tar.xz files/RELEASE-SHA256SUMS

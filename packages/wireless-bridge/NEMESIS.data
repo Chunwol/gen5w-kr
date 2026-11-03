@@ -2,13 +2,18 @@
 version=1.0
 id=gen5w.kr.bridge
 name=Gen5W KR - external iAP2 Bluetooth bridge
-package-version=0.3.21
+package-version=0.3.22
 short-desc=무선 CarPlay 블루투스 연결·재연결 보정
 depends=!wireless.projection,!enhanced.projection
-types=service
+types=application,service
 preinstall=scripts/pre.sh
 postinstall=scripts/post.sh
 preuninstall=scripts/preun.sh
+
+[app.0]
+kind=apk
+path=app/wireless-host.apk
+package=kr.gen5w.wirelesshost
 
 [service.0]
 name=bridge

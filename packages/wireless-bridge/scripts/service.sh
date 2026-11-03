@@ -76,31 +76,69 @@ while [ ! -f "$STOPPING" ]; do
 done
 # Wireless runs only on a working guard; if it cannot be kept, stay wired-only.
 apguard_boot || { [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
-bridge_backoff=2
+broker_pid=
+host_started=no
+pause_pid=
+pause() {
+    sleep "$1" &
+    pause_pid=$!
+    wait "$pause_pid" || :
+    pause_pid=
+}
+stop_runtime() {
+    # NEMESIS can SIGKILL the supervisor shortly after SIGTERM; stop the
+    # privileged child before the potentially slow ActivityManager call.
+    [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
+    broker_pid=
+    if [ "$host_started" = yes ]; then
+        am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 || :
+        host_started=no
+    fi
+}
+terminate_runtime() {
+    # NEMESIS may force-kill its service after 200 ms. Do not leave the broker
+    # behind while waiting for ActivityManager to stop the host service.
+    trap - EXIT
+    [ -n "$pause_pid" ] && kill "$pause_pid" 2>/dev/null || :
+    [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
+    if [ "$host_started" = yes ]; then
+        am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 &
+    fi
+    exit 0
+}
+trap 'terminate_runtime' HUP INT TERM
+trap 'stop_runtime' EXIT
 while [ ! -f "$STOPPING" ]; do
     if [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ] || [ -e "$APG_OFF" ]; then
+        stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
-        sleep 2
+        pause 2
         continue
     fi
     # Dongle edition: stay wired until the USB Wi-Fi interface exists.
     if [ "$(getprop persist.gen5w.wifi.backend 2>/dev/null)" = dongle ] && [ ! -e "${BRIDGE_TEST_NET:-/sys/class/net}/wlan0" ]; then
+        stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
-        sleep 2
+        pause 2
         continue
     fi
     # The feature files take effect only after the installer's reboot. Wireless
     # runs only in match mode (services.odex stays stock; the bridge sets the AP).
     if [ -e "$DATA/nemesis/gen5wkr.noreboot" ] ||
        [ ! -f "$AP_MATCH" ] || [ -L "$AP_MATCH" ] || [ "$(cat "$AP_MATCH" 2>/dev/null)" != match ]; then
+        stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
-        sleep 2
+        pause 2
         continue
     fi
-    "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar app_process /system/bin kr.gen5w.wireless.WirelessBridge" >/dev/null 2>&1
+    if [ -z "$broker_pid" ] || ! kill -0 "$broker_pid" 2>/dev/null; then
+        "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &
+        broker_pid=$!
+    fi
+    if am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1; then
+        host_started=yes
+    fi
     [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
     [ -f "$STOPPING" ] && exit 0
-    sleep "$bridge_backoff"
-    [ "$bridge_backoff" -ge 5 ] || bridge_backoff=$((bridge_backoff + 1))
-    [ "$bridge_backoff" -le 5 ] || bridge_backoff=5
+    pause 5
 done

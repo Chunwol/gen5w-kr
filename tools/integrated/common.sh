@@ -204,6 +204,7 @@ restore_prior() {
     hook "$id" postinstall
 }
 rollback_transaction() {
+    progress '문제가 생겨 이전 상태로 되돌리는 중입니다. USB를 빼지 마세요.'
     local id rc=0 prc
     [ -f "$TX/prior/complete" ] || { report 'REFUSED incomplete snapshot; no rollback mutation'; return 1; }
     # Restore the mode before re-registering services from the snapshot.
@@ -281,6 +282,7 @@ acquire() {
 # VEHICLE-UNVERIFIED: the force-normal command path is not confirmed on a real
 # unit. Validate on the mock harness and one car before any production use.
 cold_reboot() {
+    progress '완료했습니다. 곧 재부팅합니다. 재부팅 후 USB를 빼도 됩니다.'
     sync
     [ "${IT_NO_REBOOT:-0}" = 1 ] && return 0
     [ -x /system/bin/d_audio ] && /system/bin/d_audio -c reboot force_normal 2>/dev/null && return 0
@@ -478,9 +480,22 @@ begin_steps() {
     { [ -f "$AP_MATCH" ] && echo match; [ -f "$AP_FEATURE" ] && echo feature; :; } > "$TX/prior/ap-markers" || return 1
     echo 1 > "$TX/prior/complete" && sync
 }
+# On-screen progress, so nobody pulls the USB while a step is still running.
+progress() {
+    [ -x /system/bin/am ] || return 0
+    /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR: $1"         --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || true
+}
+step_name() {
+    case "$1" in
+        gen5w.kr.wireless) echo '무선 연결';; gen5w.kr.audio) echo '무선 오디오';; gen5w.kr.bridge) echo '블루투스 연결';;
+        gen5w.kr.core) echo '계기판·HUD 길안내';; gen5w.kr.timer) echo '시동 안내';; gen5w.kr.bluelink) echo '블루링크 안내';;
+        gen5w.kr.dongle) echo 'USB Wi-Fi 동글';; *) echo "$1";;
+    esac
+}
 install_transaction() {
-    local id info rc wireless_ready removed_prior
+    local id info rc wireless_ready removed_prior step=0 steps=0
     reset_results
+    progress '설치를 시작합니다. 끝나고 재부팅될 때까지 USB를 빼거나 시동을 끄지 마세요.'
     # Safe editions install only onto the exact state a same-build pre-install
     # check (gen5w-kr-check) recorded and approved. Runs before any change.
     if keeps_systemui; then
@@ -627,6 +642,8 @@ install_transaction() {
             [ ! -L "$WIRELESS_OFF" ] && rm -f "$WIRELESS_OFF" || { rollback_transaction; return 1; }
         fi
         : > "$TX/attempt.$id"; sync
+        step=$((step + 1)); steps=0; for info in $IDS; do steps=$((steps + 1)); done
+        progress "설치 중 ($step/$steps) $(step_name "$id"). USB를 빼지 마세요."
         safe_remove "$id" || {
             result "$id" failed; rollback_transaction; return 1;
         }

@@ -144,6 +144,7 @@ D_SEEN=$(dongle_seen)
 # plugged in, turn it on for up to 8 s and off again, as the installer does.
 # Settings only (svc wifi); no file is written.
 W_PROBE=skipped
+[ "$MODE" = verify ] || [ ! -x /system/bin/am ] || /system/bin/am broadcast -a com.hkmc.intent.action.TOAST     -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR 점검 중입니다(최대 1분). 완료 알림이 뜰 때까지 USB를 빼지 마세요."     --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1
 if [ "$W_HW" != yes ] && [ "$D_SEEN" != yes ] && [ "$(settings get global wifi_on 2>/dev/null | clean)" = 0 ] &&
    command -v svc >/dev/null 2>&1; then
     W_PROBE=not-found

@@ -22,6 +22,7 @@ cp probe/build/gen5w-probe.apk probe/package/app/gen5w-probe.apk
 "$PY" -I tools/mkpkg.py packages/audio-format dist/gen5w.kr.audio.zip
 "$PY" -I tools/iap2/build.py --ndk "$NDK"
 bash tools/build-dex.sh packages/wireless-bridge kr.gen5w.wireless.WirelessBridge bridge.dex
+bash tools/build-wireless-host.sh
 "$PY" -I tools/mkpkg.py packages/wireless-bridge dist/gen5w.kr.bridge.zip
 
 # HUD core and stock-warning timer, then the public USB bundles.

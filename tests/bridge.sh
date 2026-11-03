@@ -68,6 +68,10 @@ done
 cat > "$W/bin/nemesis" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$BRIDGE_TEST_FIXTURE/calls"
+if [ "$1" = root ] && [ "${BRIDGE_TEST_HOLD_BROKER:-0}" = 1 ]; then
+    echo "$$" > "$BRIDGE_TEST_FIXTURE/broker-pid"
+    exec sleep 30
+fi
 [ "$2" != "${BRIDGE_TEST_REMOUNT_FAIL:-never}" ]
 EOF
 cat > "$W/bin/mv" <<'EOF'
@@ -84,6 +88,12 @@ cat > "$W/bin/getprop" <<'EOF'
 #!/bin/sh
 echo 1
 EOF
+cat > "$W/bin/am" <<'EOF'
+#!/bin/sh
+echo "am $*" >> "$BRIDGE_TEST_FIXTURE/calls"
+# Let the background broker stub record its invocation before the supervisor exits.
+sleep 0.1
+EOF
 chmod +x "$W/bin/"*
 # Deliberately leave extracted native helpers 0644; lifecycle must make them executable.
 chmod 644 "$W/pkg/bin/"*
@@ -98,6 +108,8 @@ cp "$W/fixture/v035-original" "$TARGET"; cp "$W/fixture/v035-apk" "$APK"
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 if run pre; then bad 'missing daemon payload refused'; else ok 'missing daemon payload refused'; fi
 touch "$W/pkg/app/bridge.dex" "$W/sys/framework/com.tcc.iap2.jar"
+if run pre; then bad 'missing host APK refused'; else ok 'missing host APK refused'; fi
+touch "$W/pkg/app/wireless-host.apk"
 for version in v035 v039; do
 cp "$W/fixture/$version-original" "$TARGET"; cp "$W/fixture/$version-apk" "$APK"
 cp "$W/fixture/dipo-$version-original" "$DIPO"; cp "$W/fixture/dipo-$version-apk" "$DIPOAPK"
@@ -195,8 +207,32 @@ before=$(wc -l < "$W/fixture/calls")
 check 'bridge waits without the match marker' run service
 check 'no match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
 echo match > "$W/data/nemesis/gen5wkr.ap-match"
-check 'service starts system-uid daemon' run service
-check 'daemon classpath and class exact' grep -q 'root 1000 -c CLASSPATH=.*/app/bridge.dex:/system/framework/com.tcc.iap2.jar app_process /system/bin kr.gen5w.wireless.WirelessBridge' "$W/fixture/calls"
+check 'service starts broker and Android host' run service
+check 'broker runs as system UID' grep -q 'root 1000 -c CLASSPATH=.*/app/bridge.dex:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker' "$W/fixture/calls"
+check 'registered Android host is started' grep -q '^am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
+check 'Android host stops with the supervisor' grep -q '^am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
+# NEMESIS sends SIGTERM, then SIGKILL after 200 ms. Exercise the supervisor
+# while it is waiting, rather than only its normal one-shot exit.
+: > "$W/fixture/calls"
+BRIDGE_TEST_ONCE= BRIDGE_TEST_HOLD_BROKER=1 mksh "$W/pkg/scripts/service.sh" >/dev/null 2>&1 &
+supervisor=$!
+for _i in 1 2 3 4 5 6 7 8 9 10; do
+    grep -q '^am startservice' "$W/fixture/calls" && break
+    sleep 0.1
+done
+sleep 0.3
+broker_pid=$(cat "$W/fixture/broker-pid" 2>/dev/null || :)
+kill -TERM "$supervisor" 2>/dev/null || :
+sleep 0.2
+if kill -0 "$supervisor" 2>/dev/null; then
+    bad 'supervisor responds promptly to SIGTERM'
+    kill -KILL "$supervisor" 2>/dev/null || :
+else
+    ok 'supervisor responds promptly to SIGTERM'
+fi
+wait "$supervisor" 2>/dev/null || :
+check 'SIGTERM requests Android host stop' grep -q '^am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"
+check 'SIGTERM stops privileged broker' eval '[ -n "$broker_pid" ] && ! kill -0 "$broker_pid" 2>/dev/null'
 before=$(wc -l < "$W/fixture/calls")
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'bridge waits while installation needs a reboot' run service

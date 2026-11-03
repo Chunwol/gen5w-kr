@@ -1,5 +1,6 @@
 package kr.gen5w.wireless;
 
+import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -11,12 +12,10 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
-import android.net.wifi.IWifiManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelUuid;
-import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.util.Log;
 import com.tcc.iap2.IIap2Listener;
@@ -38,10 +37,10 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import kr.gen5w.hotspot.AndroidWifiAp;
 import kr.gen5w.hotspot.ApProfiles;
+import kr.gen5w.hotspot.ApBrokerClient;
 
-/** Runs as system through NEMESIS/app_process. Own RFCOMM transport, OEM iAP2
+/** Runs in an Android-managed app process. Own RFCOMM transport, OEM iAP2
  * authentication and OEM CarPlay projection. Logs contain no phone addresses,
  * keys, message bodies, UUIDs received from phones, or route names.
  */
@@ -62,7 +61,6 @@ public final class WirelessBridge implements WirelessSession.Port {
     final ThreadPoolExecutor writes=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(32));
     final WirelessSession.Resource<BluetoothSocket> transport=new WirelessSession.Resource<BluetoothSocket>();
     final AtomicInteger queuedBytes=new AtomicInteger();
-    final ApProfiles apProfiles=new ApProfiles();
     IIap2Service iap;
     ComponentName server;
     boolean bound, registered;
@@ -75,13 +73,7 @@ public final class WirelessBridge implements WirelessSession.Port {
     long provisionGeneration=-1, provisionDeadline, provisionNext;
 
     WirelessBridge(Context context) { this.context=context; main=new Handler(Looper.getMainLooper()); }
-    public static void main(String[] args) throws Exception {
-        Looper.prepareMainLooper();
-        Class<?> at=Class.forName("android.app.ActivityThread");
-        Object thread=at.getMethod("systemMain").invoke(null);
-        Context context=(Context)at.getMethod("getSystemContext").invoke(thread);
-        WirelessBridge bridge=new WirelessBridge(context); bridge.run(); Looper.loop();
-    }
+    final BroadcastReceiver stopReceiver=new BroadcastReceiver(){ public void onReceive(Context c,Intent i){shutdown();}};
     void run() {
         IntentFilter f=new IntentFilter();
         f.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);f.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
@@ -97,14 +89,13 @@ public final class WirelessBridge implements WirelessSession.Port {
         context.registerReceiver(events,f,null,main);
         IntentFilter stop=new IntentFilter("kr.gen5w.wireless.STOP_BRIDGE");
         stop.addAction(Intent.ACTION_SHUTDOWN);
-        context.registerReceiver(new BroadcastReceiver(){ public void onReceive(Context c,Intent i){shutdown();}},
-                stop,"android.permission.SHUTDOWN",main);
+        context.registerReceiver(stopReceiver,stop,"android.permission.SHUTDOWN",main);
         refreshWired();bind();main.post(tick);
     }
     void bind() {
         if(bound || shuttingDown)return;
         try { bound=context.bindService(new Intent("com.remote.service.IAP2SERVICE").setPackage("com.tcc.iap2server"),connection,Context.BIND_AUTO_CREATE); }
-        catch(RuntimeException e){log("bind unavailable");}
+        catch(RuntimeException e){log("bind unavailable: "+e.getClass().getName());}
     }
     final ServiceConnection connection=new ServiceConnection(){
         public void onServiceConnected(ComponentName name,IBinder binder){
@@ -218,7 +209,7 @@ public final class WirelessBridge implements WirelessSession.Port {
                     }
                     else closeSocket(ready);
                 }});
-            }catch(Exception e){closeSocket(opened);fail(g,"transport open failed");}
+            }catch(Exception e){closeSocket(opened);log("transport exception: "+e.getClass().getName());fail(g,"transport open failed");}
         }},"gen5w-bt-open").start();
     }
     public void start(long g){
@@ -361,12 +352,10 @@ public final class WirelessBridge implements WirelessSession.Port {
     }
     void ensureHotspot(final long g) throws Exception{
         requireCurrent(g);
-        IWifiManager wifi=IWifiManager.Stub.asInterface(ServiceManager.getService("wifi"));
-        if(wifi==null)throw new IllegalStateException();
         ApProfiles.Guard guard=new ApProfiles.Guard(){
             public void check(){requireCurrent(g);}
         };
-        apProfiles.ensure(new AndroidWifiAp(wifi,this,guard),guard);
+        ApBrokerClient.ensure(guard);
         requireCurrent(g);
     }
     void retryProvision(boolean force){
@@ -405,10 +394,14 @@ public final class WirelessBridge implements WirelessSession.Port {
         if(session.current(g)){log(reason);session.failed(g,now());}
     }});}
     void shutdown(){
+        if(shuttingDown)return;
         shuttingDown=true;session.shutdown();writes.shutdownNow();
+        main.removeCallbacks(tick);
         if(iap!=null && listener!=null)try{iap.Iap2SvcStopMain(listener);}catch(Exception ignored){}
         if(bound)try{context.unbindService(connection);}catch(RuntimeException ignored){}
-        System.exit(0);
+        try{context.unregisterReceiver(events);}catch(RuntimeException ignored){}
+        try{context.unregisterReceiver(stopReceiver);}catch(RuntimeException ignored){}
+        if(context instanceof Service)((Service)context).stopSelf();
     }
     static void closeSocket(BluetoothSocket s){if(s!=null)try{s.close();}catch(Exception ignored){}}
     static long now(){return SystemClock.elapsedRealtime();}

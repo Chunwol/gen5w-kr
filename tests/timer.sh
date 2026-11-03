@@ -51,6 +51,12 @@ feed "$OK|0.3" 'D/ConsentScreen(  1): Locale Setting Button pressed or refresh d
 check 'language button cancels' eval '! closed'
 feed "${OK/mInitDriverIdx : 0,/mInitDriverIdx : -1,}|2"; run
 check 'no driver profile chosen never arms' eval '! closed'
+feed "${OK/mInitDriverIdx : 0, /}|2"; run
+check 'missing driver profile never arms' eval '! closed'
+feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|0.2" "$OK|2"; run
+check 'safe state after reverse arms again' closed
+feed "${OK/mIsValet : false/mIsValet : true}|0.2" "$OK|2"; run
+check 'safe state after valet arms again' closed
 feed "$OK|0.3" 'D/ConsentScreen(  1): confirm() : ConsentScreen is going to close|2'; run
 check 'user agree before the delay sends nothing' eval '! closed'
 feed "$OK|0.6" "$OK|0.6" "$OK|2"; run

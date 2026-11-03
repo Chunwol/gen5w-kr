@@ -42,7 +42,7 @@ def audit(path):
             data=z.read(name)
             if p.suffix=='.dex':classes(data)
             if p.suffix=='.apk':
-                assert p.name in {'gen5w-core.apk','gen5w-probe.apk'}, 'unexpected APK'
+                assert p.name in {'gen5w-core.apk','gen5w-probe.apk','wireless-host.apk'}, 'unexpected APK'
                 with zipfile.ZipFile(BytesIO(data)) as apk:classes(apk.read('classes.dex'))
             if data[:4]==b'\x7fELF':
                 assert data[4]==1 and struct.unpack_from('<H',data,18)[0]==40, 'non-ARM shipped binary'

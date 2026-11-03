@@ -1,12 +1,12 @@
 # 외부 iAP2 / Android Auto 프로젝션 bridge 설치·복구
 
-`gen5w.kr.bridge`는 자체 작성한 작은 stock iAP2 service 제어 shim, DiPO의 dormant wireless receiver 제어 shim, Android Auto(GPM) TBT 제어 shim과 `app_process` Java daemon을 묶는 NEMESIS 모듈입니다. 제조사 APK/ODEX/Java 구현은 포함하지 않습니다. 실제 연결·인증·세션 로직은 daemon과 기존 순정 native 경로에서 처리합니다.
+`gen5w.kr.bridge`는 자체 작성한 iAP2·DiPO·Android Auto(GPM) 제어 shim, 무선 연결 앱 서비스와 핫스팟 보조 프로세스를 묶는 NEMESIS 모듈입니다. 제조사 APK/ODEX/Java 구현은 포함하지 않습니다. 실제 연결·인증·세션 로직은 앱 서비스와 기존 순정 native 경로에서 처리합니다.
 
 ## 적용 조건
 
 `/system/app/Iap2ServerApp.odex`의 전체 해시가 helper `iap2-patch-v035` 또는 `iap2-patch-v039`의 원본/수정본 중 하나와 같아야 합니다. `/system/app/HKMC_DiPO.odex`도 동일 버전 `dipo-patch-v035`/`dipo-patch-v039`에 맞아야 합니다. V039 사양에서는 Android Auto HUD 활성화를 위한 `/system/app/HKMC_GPM.odex`도 `gpm-patch-v039`에 의해 함께 검증·적용됩니다. APK 전체 해시는 해당 버전의 `BRIDGE_APK_V035_SHA`/`BRIDGE_APK_V039_SHA`, `BRIDGE_DIPO_APK_V035_SHA`/`BRIDGE_DIPO_APK_V039_SHA`, `BRIDGE_GPM_APK_V039_SHA`로 검사합니다. 원본 APK는 수정하지 않습니다. 새 파일·교차 버전 조합은 설치 전 exit 77로 건너뜁니다. 이미 소유한 파일이 달라졌거나 어느 백업이든 훼손됐으면 실패하며 대상 파일들을 덮어쓰지 않습니다.
 
-helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. daemon DEX와 iAP2 runtime JAR 존재도 설치 전에 확인합니다.
+helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. 브리지 DEX, 호스트 APK와 iAP2 runtime JAR 존재도 설치 전에 확인합니다.
 
 ## 백업과 수명주기
 
@@ -21,12 +21,12 @@ helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 
 
 설치 도중 stock Iap2Server를 종료하지 않습니다. 단독(standalone) NEMESIS 설치는 거부합니다. 통합 설치만 부트가드를 준비하고, 모든 통합 단계는 점검 전에 `/data/nemesis/gen5wkr.noreboot`를 만들어 마지막 재부팅을 직접 합니다. 인접 ODEX가 유지되므로 Dalvik cache를 삭제하지 않습니다.
 
-## daemon
+## 실행 구조
 
-NEMESIS background 서비스 `scripts/service.sh`가 매번 두 stock APK/수정 ODEX와 소유 원본 쌍을 검증합니다. 한쪽만 수정된 상태에서는 시작하지 않습니다. `sys.boot_completed=1` 이후 `nemesis root 1000 -c`를 통해 system UID로 시작합니다. Classpath는 패키지 `app/bridge.dex`와 `/system/framework/com.tcc.iap2.jar`입니다. shell 명령에 넣는 패키지 경로는 ASCII 문자·숫자·`_./-`만 허용합니다. daemon 내부에서 Binder 재연결을 처리하며, 프로세스가 끝나면 supervisor가 2~30초 backoff로 재시작합니다. transport 내용이나 전화기 식별자는 로그에 출력하지 않습니다.
+NEMESIS의 `scripts/service.sh`는 원본·수정 파일과 백업을 확인하고, 부팅 완료 후 Android가 관리하는 `BridgeHostService`를 시작합니다. 블루투스 이벤트 수신과 iAP2 바인딩은 이 앱 프로세스에서 처리합니다. 핫스팟 제어는 system UID의 `ApBroker`가 담당하며, 로컬 소켓 양쪽에서 상대 UID를 확인합니다. 앱이 연결을 끊으면 진행 중인 요청을 취소합니다. 소켓에는 명령과 결과만 전달하며 Wi-Fi 비밀번호는 전달하지 않습니다. 이 구조의 실차 동작은 아직 확인하지 않았습니다.
 
-제거는 `/data/nemesis/gen5wkr.bridge.stopping`을 만든 뒤 `kr.gen5w.wireless.STOP_BRIDGE`를 방송하고 2초 기다립니다. daemon receiver는 `android.permission.SHUTDOWN`으로 보호됩니다. supervisor는 표식이 있으면 시작·재시작하지 않습니다. 다음 설치가 성공한 뒤에만 표식을 지웁니다.
+제거는 `/data/nemesis/gen5wkr.bridge.stopping`을 만든 뒤 `kr.gen5w.wireless.STOP_BRIDGE`를 방송하고 2초 기다립니다. 수신기는 `android.permission.SHUTDOWN`으로 보호됩니다. supervisor는 표식이 있으면 앱과 보조 프로세스를 중지하고 재시작하지 않습니다. 다음 설치가 성공한 뒤에만 표식을 지웁니다.
 
 ## PC 검증
 
-2026-10-27 WSL의 실제 mksh에서 `bash tests/bridge.sh`: 87개 통과, 실패 0. 합성 원본/수정본으로 두 버전의 두 파일 설치·재설치·reset 복구·원상복원, 해시/교차 버전/소유/각 백업 불일치, 첫/둘째 파일 rename 실패와 rollback, 두 방향의 부분 적용 쌍 복구, 중단 stage, 심볼릭 링크, remount 실패, daemon 기동·중지 표식·변경 firmware/불완전 쌍 거부를 확인했습니다. 제조사 원본을 저장소나 시험 fixture에 넣지 않았습니다. 실제 ARM helper·DEX 빌드/서명·통합 설치 시험은 별도 전체 검증에서 수행하며, 실차 무선 연결은 아직 확인하지 않았습니다.
+`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 162개가 통과했습니다. 앱 UID 검증과 연결 종료 시 요청 취소도 JVM에서 시험했습니다. APK 빌드·서명은 확인했지만, Android 4.4 차량에서 프로세스 간 연결·iAP2·무선 CarPlay는 아직 확인하지 않았습니다.
