@@ -17,7 +17,8 @@ exit 0
 SH
 chmod +x "$W/nemesis"
 # Simulate the installed per-profile native tools without distributing OEM files.
-for entry in 'gen5w.kr.bridge:iap2-patch-v039' 'gen5w.kr.bridge:dipo-patch-v039' \
+for entry in 'gen5w.kr.bridge:iap2-route-patch-v039' 'gen5w.kr.bridge:iap2-route-patch-v035' \
+    'gen5w.kr.bridge:iap2-patch-v039' 'gen5w.kr.bridge:iap2-patch-v035' 'gen5w.kr.bridge:dipo-patch-v039' \
     'gen5w.kr.bridge:gpm-patch-v039' 'gen5w.kr.audio:audio-patch'; do
     id=${entry%%:*}; tool=${entry#*:}
     mkdir -p "$DATA/nemesis/apps/$id/bin"

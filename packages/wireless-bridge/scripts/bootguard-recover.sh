@@ -159,7 +159,9 @@ dongle_preflight() {
     DONGLE_PLAN=yes
 }
 recovery_roots_valid && wireless_preflight && dongle_preflight &&
-preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
+preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" \
+    "$_apps/gen5w.kr.bridge/bin/iap2-route-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-route-patch-v035" \
+    "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035" &&
 preflight_gpm &&
 preflight_optional_pair "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" gen5w.kr.audio audio "$_apps/gen5w.kr.audio/bin/audio-patch" "$_apps/gen5w.kr.audio/bin/audio-patch-v035" || {

@@ -20,7 +20,7 @@ if [ "$_step" -lt 999 ]; then
     _bridge=$DATA/nemesis/apps/gen5w.kr.bridge
     _matched=no
     for _version in v035 v039; do
-        _tool=$_bridge/bin/iap2-patch-$_version
+        _tool=$_bridge/bin/iap2-route-patch-$_version
         if [ -x "$_tool" ] && "$_tool" patched "$SYS/app/Iap2ServerApp.odex"; then _matched=yes; break; fi
     done
     [ "$_matched" = yes ] || { echo 'SKIP core: matching route-capability bridge unavailable'; exit 77; }

@@ -23,6 +23,8 @@ CarPlay의 회전·거리·차선 정보를 순정 `NavigationCluster`로 전달
 
 KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜므로 순정 요청에 의존하지 않습니다. Core의 자체 요청만으로 순정의 꺼진 route capability를 켤 수는 없습니다. 이 환경에서는 bridge의 해시 검증된 route capability shim이 함께 설치되어야 하며, capability가 광고되지 않으면 성공으로 표시하지 않고 기다립니다. wired HUD도 동일한 route capability 조건이 적용됩니다.
 
+순정 지도 화면을 닫아도 순정의 목적지 안내 상태가 남아 있으면 CarPlay 회전·차선·거리 HUD는 순정 표시를 덮지 않도록 대기합니다. 순정 `State_Destination=0`이 확인된 뒤에만 CarPlay 안내를 전송합니다. 과속·카메라 경고는 별도 순정 API 채널이며 앱이 그 API나 순정 음소거를 변경하지 않습니다. 순정 경고와 CarPlay HUD의 동시 표출 및 지도를 닫은 상태의 실제 전환은 차량에서 확인해야 합니다.
+
 좌측 통행 회전교차로는 순정에서 확인한 일반 원형 `C0`를 사용합니다. 좌측 통행 방향별 코드가 증명되지 않아 출구 방향 세부 표시는 제공하지 않습니다.
 
 거리 출력은 status 필드10의 미터 값을 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`로 전달합니다. 현재 구현은 1,000m 미만을 미터(`scale=0`), 그 이상을 킬로미터(`scale=1`, 최대 `32767.9`km)로 변환합니다. V039의 `ClusterService`는 거리 정수부를 전송하면서 소수 첫째 자리도 별도 필드에 넣습니다. 실제 계기판·HUD 표시와 V039 순정 GPM의 입력 방식은 확인이 필요합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 `distanceErr=-3`을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다. 다음 회전 아이콘은 `updateTPTurnListNew`의 두 번째 슬롯과 `updateTBTInfo`의 `sideStreet`에 전달하며, `combiSideStreet`는 V039 범위 검사(`0~4`)에 맞춰 `0`을 전달합니다. 고속도로 전용 표시는 현재 구현하지 않았으며, IC·JC·TG 등은 일반 회전 안내로 표시합니다. 순정 고속도로 경로의 코드 조사는 [V039 HUD 코드 대조](v039-cluster-review.md)에 있습니다.

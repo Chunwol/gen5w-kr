@@ -29,6 +29,16 @@ EOF
 chmod 755 "$U/checks/gen5w.kr.timer/bin/sha256-check"
 tool gen5w.kr.audio audio-patch
 for t in iap2 dipo gpm; do tool gen5w.kr.bridge $t-patch-v039; done
+cat > "$U/checks/gen5w.kr.bridge/bin/iap2-route-patch-v039" <<'EOF'
+#!/bin/sh
+case "$1" in original) grep -q '^stock' "$2";; patched) grep -q '^route-capability' "$2";; *) exit 2;; esac
+EOF
+chmod 755 "$U/checks/gen5w.kr.bridge/bin/iap2-route-patch-v039"
+cat > "$U/checks/gen5w.kr.bridge/bin/iap2-patch-v039" <<'EOF'
+#!/bin/sh
+case "$1" in original) grep -q '^stock' "$2";; patched) grep -q '^legacy-control' "$2";; *) exit 2;; esac
+EOF
+chmod 755 "$U/checks/gen5w.kr.bridge/bin/iap2-patch-v039"
 cat > "$B/getprop" <<'EOF'
 #!/bin/sh
 case "$1" in ro.build.product) echo OSHEV.KOR;; ro.build.display.id) echo V039.001.260902;; *) echo;; esac
@@ -96,6 +106,16 @@ check 'shows the NEMESIS version' grep -q -- '- NEMESIS 버전: 1.16.3' "$U/GEN5
 rm -rf "$S/xbin"; run
 check 'wireless code found' grep -qx 'wireless_code=yes' "$U/GEN5W-REPORT/CHECK.txt"
 check 'nothing on the unit changed' test "$before" = "$(snapshot)"
+
+stock; echo route-capability > "$S/app/Iap2ServerApp.odex"; run
+check 'check classifies current route-only iAP2 capability' grep -qx 'iap2_odex=route-capability-v039' "$U/GEN5W-REPORT/CHECK.txt"
+check 'unowned route-only capability is refused' grep -q 'RouteGuidance 기능 선언이 바뀌어 있는데 순정 백업이 없습니다' "$U/GEN5W-REPORT/CHECK.md"
+mkdir -p "$S/etc/gen5w-kr-backup/bridge"; run
+check 'owned route-only capability is recognized for update' grep -qx 'verdict=install' "$U/GEN5W-REPORT/CHECK.txt"
+rm -rf "$S/etc/gen5w-kr-backup"
+stock; echo legacy-control > "$S/app/Iap2ServerApp.odex"; run
+check 'check distinguishes legacy service-control shim' grep -qx 'iap2_odex=legacy-control-v039' "$U/GEN5W-REPORT/CHECK.txt"
+check 'unowned legacy service-control shim is refused' grep -q '이전 무선 제어 수정이 있지만 순정 백업이 없습니다' "$U/GEN5W-REPORT/CHECK.md"
 
 echo junk > "$S/priv-app/SystemUI.odex"
 check 'unknown SystemUI fails' eval '! run'

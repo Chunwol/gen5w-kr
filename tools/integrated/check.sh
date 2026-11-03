@@ -68,6 +68,25 @@ verify() {
     fi
     echo unknown
 }
+# iAP2 has two distinct historical patches. Prefer the current capability-only
+# verifier and report the older service-control shim separately.
+verify_iap2() {
+    local file=$SYS/app/Iap2ServerApp.odex dir=checks/gen5w.kr.bridge/bin version kind tool
+    [ -f "$file" ] && [ ! -L "$file" ] || { echo missing; return; }
+    for version in v039 v035; do
+        for kind in route iap2; do
+            if [ "$kind" = route ]; then tool=$dir/iap2-route-patch-$version; else tool=$dir/iap2-patch-$version; fi
+            [ -f "$tool" ] && [ ! -L "$tool" ] && chmod 755 "$tool" 2>/dev/null
+            [ -x "$tool" ] || continue
+            "$tool" original "$file" >/dev/null 2>&1 && { echo stock-$version; return; }
+            if "$tool" patched "$file" >/dev/null 2>&1; then
+                if [ "$kind" = route ]; then echo route-capability-$version; else echo legacy-control-$version; fi
+                return
+            fi
+        done
+    done
+    echo unknown
+}
 # Boot-critical files no edition changes: compare with the stock SHA-256 only.
 verify_hash() {
     local file=$SYS/$1 tool=checks/gen5w.kr.timer/bin/sha256-check
@@ -131,7 +150,7 @@ check_progress 2 '순정 파일 확인 중'
 S_HOTSPOT=$(verify_hash framework/services.odex 63cf432dd4597a916ce9faa0c26b5f7ad29affba3976cf4c8cf316dc16107c4f 64fe8286ff39ba52223bf04d7c98fe7e4c2579ad06a090f7a4b80a34faa1e0ca)
 S_SYSUI=$(verify_hash priv-app/SystemUI.odex 97e7e258df34d76ed61a714f83de4bf0fbc3d6b6188055c941ad2689f72595af 3de39c29f10c8db3ec786f59378f5b716b04e6be473b42989f40ef828ef0867b)
 S_AUDIO=$(verify lib/libCarPlayAudio.so gen5w.kr.audio audio-patch audio-patch-v035)
-S_IAP2=$(verify app/Iap2ServerApp.odex gen5w.kr.bridge iap2-patch-v039 iap2-patch-v035)
+S_IAP2=$(verify_iap2)
 S_DIPO=$(verify app/HKMC_DiPO.odex gen5w.kr.bridge dipo-patch-v039 dipo-patch-v035)
 S_GPM=$(verify app/HKMC_GPM.odex gen5w.kr.bridge gpm-patch-v039 gpm-patch-v035)
 fact services_odex "$S_HOTSPOT"
@@ -249,6 +268,8 @@ for pair in "Iap2ServerApp:$S_IAP2" "HKMC_DiPO:$S_DIPO" "HKMC_GPM:$S_GPM"; do
     case "${pair#*:}" in
         stock-v039) ;;
         patched-v039) owned bridge || block "${pair%%:*} 파일이 이미 바뀌어 있는데 이 도구의 백업이 없습니다. 공식 V039 업데이트로 순정 복구 후 다시 점검하세요.";;
+        route-capability-v039) owned bridge || block 'Iap2ServerApp.odex의 RouteGuidance 기능 선언이 바뀌어 있는데 순정 백업이 없습니다. 공식 V039 업데이트로 순정 복구 후 다시 점검하세요.';;
+        legacy-control-v039) owned bridge || block 'Iap2ServerApp.odex에 이전 무선 제어 수정이 있지만 순정 백업이 없습니다. 공식 V039 업데이트로 순정 복구 후 다시 점검하세요.';;
         *-v035) ;;
         *) if owned bridge; then warn "${pair%%:*} 파일이 이전 버전 패치 상태로 보입니다(${pair#*:}). 설치기가 백업으로 판단합니다."
            else block "${pair%%:*} 파일을 순정 V039로 확인하지 못했습니다(${pair#*:}). 공식 V039 업데이트로 순정 복구 후 다시 점검하세요."; fi;;

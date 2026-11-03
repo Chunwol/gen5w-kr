@@ -61,7 +61,7 @@
 
 **Files:** modify `tools/iap2/control_patch.py`, `tools/iap2/dipo_patch.py`, their tests, and `packages/wireless-bridge` lifecycle scripts/data as needed. Preserve GPM AA HUD and DiPO call-key fallback if independently patchable.
 
-- [x] Restore the old Iap2ServerApp shim to its exact captured original during upgrade; the new runtime does not bind or call it.
+- [x] Replace the old Iap2ServerApp service-control shim with the exact stock-derived capability-only Wi-FiInformation/RouteGuidance recipe. OEM service methods remain unchanged; Core's route capability gate accepts only the new helper.
 - [x] Remove the obsolete DiPO wireless dispatch from V035/V039 recipes while retaining the independent call-key fallback. Regenerated both hash-bound recipes from stock ODEX bytes whose whole-file SHA-256 values match the reviewed source profiles; lifecycle recognizes both previously shipped recipes per version.
 - [x] Keep GPM patch separate for Android Auto HUD and retain verified-backup install/update/remove recovery.
 - [x] Mock lifecycle tests confirm refused unknown/damaged states and exact restore. Source audit confirms no boot-critical targets in this package's write allowlist.

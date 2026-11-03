@@ -8,10 +8,16 @@ apguard_reset || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 save_original && stage_clear || exit 1
-if [ "$BRIDGE_STATE" = patched ]; then
-    # A previous bridge build replaced the OEM service entry point. Restore the
-    # byte-verified stock app before asking PhoneProjection to own the session.
+if [ "$BRIDGE_STATE" = legacy-patched ]; then
+    # Remove the former custom service-control shim before handing projection
+    # ownership to OEM PhoneProjection.
     replace_target "$STATE/original" original "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || { restore_target; exit 1; }
+fi
+if [ "$BRIDGE_STATE" != route-patched ]; then
+    [ ! -L "$STATE/replacement" ] || { restore_target; exit 1; }
+    rm -f "$STATE/replacement" || { restore_target; exit 1; }
+    "$ROUTE_TOOL" apply "$STATE/original" "$STATE/replacement" && route_patched "$STATE/replacement" || { restore_target; exit 1; }
+    replace_target "$STATE/replacement" patched "$TARGET" "$ROUTE_TOOL" "$STATE/original" "$STATE/staging" || { restore_target; exit 1; }
 fi
 if [ "$DIPO_STATE" != patched ]; then
     [ ! -L "$STATE/diporeplacement" ] || { restore_target; exit 1; }
@@ -31,12 +37,12 @@ if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ "$GPM_STATE" = stock ]; then
         exit 1
     fi
 fi
-original "$TARGET" && dipo_patched "$DIPO_TARGET" && { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || { restore_target; exit 1; }
+route_patched "$TARGET" && dipo_patched "$DIPO_TARGET" && { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || { restore_target; exit 1; }
 rm -f "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" || exit 1
 [ ! -L "$STOPPING" ] && rm -f "$STOPPING" || exit 1
 wipe_dalvik || { restore_target || log 'FAIL bridge: cache cleanup failed; originals retained'; exit 1; }
 sync
 sys_ro || exit 1
 trap - EXIT
-log 'APPLIED bridge: app requests OEM PhoneProjection; Wi-Fi and CarPlay remain unverified'
+log 'APPLIED bridge: OEM PhoneProjection path retained; iAP2 Wi-Fi/RouteGuidance capabilities enabled; live connection and HUD remain unverified'
 [ -n "$BRIDGE_TEST_SYS" ] || [ -f "$NOREBOOT" ] || exec /system/bin/reboot

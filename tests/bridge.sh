@@ -7,6 +7,8 @@ mkdir -p "$W/pkg/scripts" "$W/pkg/bin" "$W/pkg/app" "$W/sys/app" "$W/sys/framewo
 cp packages/wireless-bridge/scripts/*.sh "$W/pkg/scripts/" 2>/dev/null || true
 printf 'stock035\n' > "$W/fixture/v035-original"; printf 'patched035\n' > "$W/fixture/v035-patched"
 printf 'stock039\n' > "$W/fixture/v039-original"; printf 'patched039\n' > "$W/fixture/v039-patched"
+printf 'legacy035\n' > "$W/fixture/v035-legacy"
+printf 'legacy039\n' > "$W/fixture/v039-legacy"
 printf 'apk035\n' > "$W/fixture/v035-apk"; printf 'apk039\n' > "$W/fixture/v039-apk"
 for version in v035 v039; do
     echo "dipo-$version-original" > "$W/fixture/dipo-$version-original"
@@ -35,7 +37,19 @@ cat > "$W/pkg/bin/iap2-patch-$version" <<'EOF'
 #!/bin/sh
 version=${0##*-}
 case "$1" in
-original|patched) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-$1";;
+original) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original";;
+patched) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-legacy";;
+verify) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$3";;
+apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original" && cp "$BRIDGE_TEST_FIXTURE/$version-legacy" "$3";;
+*) exit 2;;
+esac
+EOF
+cat > "$W/pkg/bin/iap2-route-patch-$version" <<'EOF'
+#!/bin/sh
+version=${0##*-}
+case "$1" in
+original) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original";;
+patched) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-patched";;
 verify) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$3";;
 apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original" && cp "$BRIDGE_TEST_FIXTURE/$version-patched" "$3";;
 *) exit 2;;
@@ -104,7 +118,7 @@ TARGET=$W/sys/app/Iap2ServerApp.odex; APK=$W/sys/app/Iap2ServerApp.apk
 DIPO=$W/sys/app/HKMC_DiPO.odex; DIPOAPK=$W/sys/app/HKMC_DiPO.apk
 GPM=$W/sys/app/HKMC_GPM.odex; GPMAPK=$W/sys/app/HKMC_GPM.apk
 PERSIST=$W/sys/etc/gen5w-kr-backup/bridge; MARK=$W/data/nemesis/backup/gen5w.kr.bridge
-run() { mksh "$W/pkg/scripts/$1.sh" >/dev/null 2>&1; }
+run() { mksh "$W/pkg/scripts/$1.sh" >"$W/last-run" 2>&1; rc=$?; if [ "$rc" != 0 ] && [ -n "${BRIDGE_TEST_VERBOSE:-}" ]; then cat "$W/last-run"; fi; return "$rc"; }
 cp "$W/fixture/v035-original" "$TARGET"; cp "$W/fixture/v035-apk" "$APK"
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 if run pre; then bad 'missing daemon payload refused'; else ok 'missing daemon payload refused'; fi
@@ -120,9 +134,9 @@ fi
 chmod 600 "$DIPO"
 chmod 640 "$TARGET"
 check "$version pre accepts exact pair" run pre
-check "$version helpers made executable" test -x "$W/pkg/bin/iap2-patch-$version"
+check "$version route helper made executable" test -x "$W/pkg/bin/iap2-route-patch-$version"
 check "$version install" run post
-check "$version OEM iAP2 entry restored to stock" cmp -s "$TARGET" "$W/fixture/$version-original"
+check "$version iAP2 route-only capability applied" cmp -s "$TARGET" "$W/fixture/$version-patched"
 check "$version DiPO patched exact" cmp -s "$DIPO" "$W/fixture/dipo-$version-patched"
 if [ -f "$W/pkg/bin/gpm-patch-$version" ]; then
     check "$version GPM patched exact" cmp -s "$GPM" "$W/fixture/gpm-$version-patched"
@@ -191,7 +205,7 @@ unset BRIDGE_TEST_REMOUNT_FAIL
 check 'install for backup corruption test' run post
 echo corrupt > "$PERSIST/original"
 if run preun; then bad 'corrupt backup refuses uninstall'; else ok 'corrupt backup refuses uninstall'; fi
-check 'corrupt backup target retained' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'corrupt backup target retained' cmp -s "$TARGET" "$W/fixture/v039-patched"
 cp "$W/fixture/v039-original" "$PERSIST/original"
 check 'cleanup corruption fixture' run preun
 cp "$W/fixture/v039-original" "$TARGET"
@@ -319,7 +333,7 @@ check 'resume iAP patched DiPO original pair' run post
 check 'resumed DiPO patched exact' cmp -s "$DIPO" "$W/fixture/dipo-v039-patched"
 cp "$W/fixture/v039-original" "$TARGET"
 check 'resume iAP original DiPO patched pair' run post
-check 'resumed iAP remains stock exact' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'resumed iAP route capability restored' cmp -s "$TARGET" "$W/fixture/v039-patched"
 check 'cleanup partial pairs' run preun
 touch "$W/fixture/fail-dipo-mv"
 if run post; then bad 'second target failure rejected'; else ok 'second target failure rejected'; fi
@@ -328,11 +342,11 @@ check 'second failure leaves DiPO original' cmp -s "$DIPO" "$W/fixture/dipo-v039
 check 'retry second target failure' run post
 echo corrupt > "$PERSIST/dipooriginal"
 if run preun; then bad 'corrupt DiPO backup refuses pair restore'; else ok 'corrupt DiPO backup refuses pair restore'; fi
-check 'corrupt DiPO backup leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'corrupt DiPO backup leaves iAP route capability intact' cmp -s "$TARGET" "$W/fixture/v039-patched"
 cp "$W/fixture/dipo-v039-original" "$PERSIST/dipooriginal"
 cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 if run post; then bad 'DiPO APK drift refused'; else ok 'DiPO APK drift refused'; fi
-check 'DiPO APK drift leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'DiPO APK drift leaves iAP route capability intact' cmp -s "$TARGET" "$W/fixture/v039-patched"
 cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
 cp "$W/fixture/dipo-v039-original" "$DIPO"
 before=$(wc -l < "$W/fixture/calls")
@@ -341,7 +355,7 @@ check 'partial pair launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "
 check 'resume partial pair after boot refusal' run post
 echo foreign > "$DIPO"
 if run preun; then bad 'foreign DiPO refuses restore pair'; else ok 'foreign DiPO refuses restore pair'; fi
-check 'foreign DiPO leaves iAP stock' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'foreign DiPO leaves iAP route capability intact' cmp -s "$TARGET" "$W/fixture/v039-patched"
 cp "$W/fixture/dipo-v039-patched" "$DIPO"
 check 'cleanup foreign fixture' run preun
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
@@ -355,6 +369,19 @@ check 'older GPM uses its own patch' cmp -s "$GPM" "$W/fixture/gpm-v035-patched"
 check 'independent GPM pair uninstall' run preun
 check 'independent GPM original restored' cmp -s "$GPM" "$W/fixture/gpm-v035-original"
 cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
+# Updating the legacy full control shim must remove that code and retain only
+# the stock-compatible Wi-Fi/RouteGuidance feature declaration.
+cp "$W/fixture/v039-legacy" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+mkdir -p "$PERSIST"
+echo gen5w.kr.bridge:v039-1 > "$PERSIST/owner"
+cp "$W/fixture/v039-original" "$PERSIST/original"
+cp "$W/fixture/dipo-v039-original" "$PERSIST/dipooriginal"
+check 'legacy iAP2 control shim recognized for update' run pre
+check 'legacy iAP2 shim upgraded to route-only capability' run post
+check 'legacy control shim absent after update' cmp -s "$TARGET" "$W/fixture/v039-patched"
+check 'route-only capability removal restores exact original' eval 'run preun && cmp -s "$TARGET" "$W/fixture/v039-original"'
+
 # Upgrade both previously shipped DiPO recipes for both supported system versions.
 for version in v035 v039; do
     for legacy in previous previous2; do
@@ -392,7 +419,7 @@ check 'removal clears the start guard' eval 'test ! -e "$W/data/nemesis/gen5wkr.
 check 'removal leaves stock ODEX' cmp -s "$TARGET" "$W/fixture/v039-original"
 run post; reinstall_system
 check 'reinstall after system reinstall' run post
-check 'reinstall keeps OEM iAP2 stock' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'reinstall restores route-only capability' cmp -s "$TARGET" "$W/fixture/v039-patched"
 check 'removal after that reinstall restores stock' eval 'run preun && cmp -s "$TARGET" "$W/fixture/v039-original"'
 run post; reinstall_system; echo other-firmware > "$TARGET"
 check 'removal on other firmware clears our copies' run preun
@@ -401,5 +428,8 @@ check 'other firmware runtime copies cleared' test ! -e "$MARK"
 cp "$W/fixture/v039-original" "$TARGET"; run post; rm -rf "$PERSIST"
 if run preun; then bad 'patched ODEX without journal refused'; else ok 'patched ODEX without journal refused'; fi
 check 'refusal keeps runtime copies' cmp -s "$MARK/original" "$W/fixture/v039-original"
+cp "$W/fixture/v039-patched" "$TARGET"
+if run pre; then bad 'route capability ODEX without journal refused'; else ok 'route capability ODEX without journal refused'; fi
+check 'unowned route capability creates no system journal' test ! -e "$PERSIST"
 
 done_tests bridge

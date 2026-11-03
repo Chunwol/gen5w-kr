@@ -29,4 +29,19 @@ check "core refuses another installed HUD extension" eval '! run'
 rm -d "$W/data/nemesis/apps/wireless.carplay.aa"
 echo 'echo 110' > "$W/bin/getprop"
 check "core refuses unpatched regional route capability" eval '! run'
+mkdir -p "$W/data/nemesis/apps/gen5w.kr.bridge/bin"
+cat > "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-patch-v039" <<'EOF'
+#!/bin/sh
+[ "$1" = patched ] && grep -q '^legacy$' "$2"
+EOF
+chmod +x "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-patch-v039"
+echo legacy > "$W/sys/app/Iap2ServerApp.odex"
+check "core refuses legacy wireless-control shim without route-only verifier" eval '! run'
+cat > "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-route-patch-v039" <<'EOF'
+#!/bin/sh
+[ "$1" = patched ] && grep -q '^route-only$' "$2"
+EOF
+chmod +x "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-route-patch-v039"
+echo route-only > "$W/sys/app/Iap2ServerApp.odex"
+check "core accepts route-only capability with matching verifier" run
 done_tests core

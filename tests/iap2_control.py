@@ -10,6 +10,7 @@ import zlib
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools/iap2'))
 from control_patch import Dex,make_recipe
+from route_patch import make_capability_recipe
 
 def execute(data,intent):
     regs,ins,outs,tries,debug,count=struct.unpack_from('<HHHHII',data)
@@ -65,6 +66,23 @@ def main():
         assert start[0][0]!=stop[0][0];checks+=1
         # Route + Wi-Fi assignments use the proven constant-one register v3.
         assert sum(bytes(x['bytes'])==b'\x67\x03' for x in recipe['patches'])==4;checks+=1
+        route=json.loads((ROOT/'tools/iap2'/f'route-{version}.json').read_text())
+        assert route['original_sha256']==recipe['original_sha256'];checks+=1
+        assert route['patched_sha256']!=recipe['patched_sha256'];checks+=1
+        assert len(route['patches'])==6;checks+=1
+        assert sum(bytes(x['bytes'])==b'\x67\x03' for x in route['patches'])==4;checks+=1
     for path in a.stock:audit_private(path)
+    for path in a.stock:
+        raw=path.read_bytes(); route,changed=make_capability_recipe(raw)
+        version=path.parent.parent.name.split('_')[0]
+        assert json.loads((ROOT/'tools/iap2'/f'route-{version}.json').read_text())==route
+        before=Dex(raw);after=Dex(changed)
+        service='Lcom/tcc/iap2server/Iap2Service;->'
+        for name in ('onStartCommand(Landroid/content/Intent;II)I','debugTrigger()V'):
+            left=before.code[service+name][0]; right=after.code[service+name][0]
+            left_size=struct.unpack_from('<I',raw,before.base+left+12)[0]
+            right_size=struct.unpack_from('<I',changed,after.base+right+12)[0]
+            assert raw[before.base+left:before.base+left+16+2*left_size] == changed[after.base+right:after.base+right+16+2*right_size]
+        print('PASS route-only recipe preserves OEM service methods:',version)
     print('PASS iAP2 control:',checks,'dispatch/capability checks')
 if __name__=='__main__':main()

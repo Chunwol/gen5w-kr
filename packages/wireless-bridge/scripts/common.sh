@@ -1,4 +1,4 @@
-# Own hash-gated stock service shim; no OEM executable bytes in this package.
+# Own hash-gated iAP2 capabilities; no OEM executable bytes in this package.
 SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd) || exit 1
@@ -46,8 +46,10 @@ wipe_dalvik() {
     done
     return 0
 }
-original() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" original "$1"; }
-patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
+original() { [ -f "$1" ] && [ ! -L "$1" ] && { "$TOOL" original "$1" 2>/dev/null || "$ROUTE_TOOL" original "$1"; }; }
+route_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$ROUTE_TOOL" patched "$1"; }
+legacy_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
+patched() { route_patched "$1" || legacy_patched "$1"; }
 dipo_original() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" original "$1"; }
 dipo_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" patched "$1"; }
 dipo_previous() {
@@ -86,7 +88,7 @@ inspect() {
     done
     # NEMESIS extracts native files as 0644; only our fixed helper names change mode.
     for bridge_version in v035 v039; do
-        for bridge_kind in iap2 dipo gpm; do
+        for bridge_kind in iap2 iap2-route dipo gpm; do
             bridge_tool=$SCRIPT_DIR/../bin/$bridge_kind-patch-$bridge_version
             if [ -f "$bridge_tool" ] && [ ! -L "$bridge_tool" ]; then chmod 755 "$bridge_tool" || return 1; fi
         done
@@ -104,18 +106,21 @@ inspect() {
         VERSION=
         for bridge_version in v035 v039; do
             TOOL=$SCRIPT_DIR/../bin/iap2-patch-$bridge_version
+            ROUTE_TOOL=$SCRIPT_DIR/../bin/iap2-route-patch-$bridge_version
             if original "$TARGET" || patched "$TARGET"; then VERSION=$bridge_version; break; fi
         done
         [ -n "$VERSION" ] || { log 'SKIP bridge: unknown stock ODEX hash'; return 77; }
     fi
     TOOL=$SCRIPT_DIR/../bin/iap2-patch-$VERSION
+    ROUTE_TOOL=$SCRIPT_DIR/../bin/iap2-route-patch-$VERSION
     DIPO_TOOL=$SCRIPT_DIR/../bin/dipo-patch-$VERSION
     GPM_TOOL=
     GPM_VERSION=
     GPM_APK_SHA=
     OWNER=gen5w.kr.bridge:$VERSION-1
     if original "$TARGET"; then BRIDGE_STATE=stock
-    elif patched "$TARGET"; then BRIDGE_STATE=patched
+    elif route_patched "$TARGET"; then BRIDGE_STATE=route-patched
+    elif legacy_patched "$TARGET"; then BRIDGE_STATE=legacy-patched
     else log 'FAIL bridge: owned target changed'; return 1; fi
     if dipo_original "$DIPO_TARGET"; then DIPO_STATE=stock
     elif dipo_patched "$DIPO_TARGET"; then DIPO_STATE=patched
@@ -176,7 +181,8 @@ inspect() {
             fi
         fi
     fi
-    if [ "$BRIDGE_STATE" = patched ] || [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = previous ]; then
+    if [ "$BRIDGE_STATE" = route-patched ] || [ "$BRIDGE_STATE" = legacy-patched ] ||
+       [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = previous ]; then
         [ "$BRIDGE_OWNED" = yes ] && original "$STATE/original" && dipo_original "$STATE/dipooriginal" || { log 'FAIL bridge: patch lacks owned original pair'; return 1; }
     fi
     if [ "$GPM_STATE" = patched ]; then
@@ -230,7 +236,7 @@ stage_clear_one() {
     rm -f "$stage_marker"
 }
 stage_clear() {
-    stage_clear_one "$STAGE" "$STATE/staging" "$TOOL" &&
+    stage_clear_one "$STAGE" "$STATE/staging" "$ROUTE_TOOL" &&
         stage_clear_one "$DIPO_TARGET.gen5w-kr-bridge.tmp" "$STATE/dipostaging" "$DIPO_TOOL" &&
         { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || stage_clear_one "$GPM_TARGET.gen5w-kr-bridge.tmp" "$STATE/gpmstaging" "$GPM_TOOL"; }
 }
