@@ -23,6 +23,7 @@ GEN=$RUN/generation
 stock_systemui || { log 'timer: SystemUI.odex is not a recognised stock file; stock 10 second timer kept'; exit 0; }
 [ ! -L "$RUN" ] || exit 1
 mkdir -p "$RUN" || exit 1
+log 'timer: started, listening for ConsentScreen state'
 # Each event takes the next number; a pending close fires only if no event followed it.
 bump() {
     gen=$(cat "$GEN" 2>/dev/null)
@@ -51,6 +52,18 @@ passes() {
     case "$profile" in ''|*[!0-9]*) return 1;; esac
     return 0
 }
+# Fixed reason labels only; do not retain the SystemUI state line.
+reject_reason() {
+    case "$1" in *'mScreenEnabled : true,'*) ;; *) echo screen; return;; esac
+    case "$1" in *'mIsEarlyCamOn : false,'*) ;; *) echo camera; return;; esac
+    case "$1" in *'mIsReverseOn : false,'*) ;; *) echo reverse; return;; esac
+    case "$1" in *'mAccStatus : 0,'*) ;; *) echo accessory; return;; esac
+    case "$1" in *'mShowLocaleDialog : false,'*) ;; *) echo locale; return;; esac
+    case "$1" in *'mIsUpdateCompleteViewOn : false '*) ;; *) echo update; return;; esac
+    case "$1" in *'mIsValet : false,'*) ;; *) echo valet; return;; esac
+    case "$1" in *'mIsPowerOn : true,'*|*'mIsCalling : true,'*|*'mIsBtCalling : true,'*|*'mIsEmergency : true,'*|*'mIsDipoCalling : true'*) ;; *) echo power; return;; esac
+    echo profile
+}
 # Android refuses broadcasts before boot completes ("Cannot broadcast before
 # boot completed"), and a cold start can show the screen that early. Wait up
 # to 30 s for boot, then send only if no event came in meanwhile.
@@ -66,11 +79,13 @@ arm() {
             done
             sleep "$DELAY"
             [ "$(cat "$GEN" 2>/dev/null)" = "$mine" ] || exit 0
+            log 'timer: sending close request after boot'
             "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
         ) &
         return
     fi
     if [ "$DELAY" = 0 ]; then
+        log 'timer: sending close request'
         "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
         return
     fi
@@ -78,6 +93,7 @@ arm() {
         mine=$gen
         sleep "$DELAY"
         [ "$(cat "$GEN" 2>/dev/null)" = "$mine" ] || exit 0
+        log 'timer: sending delayed close request'
         "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
     ) &
 }
@@ -99,15 +115,23 @@ newer() {
 }
 while :; do
     bump
-    "$LOGCAT" -b system -v time -s ConsentScreen:V 2>/dev/null | while IFS= read -r line; do
+    "$LOGCAT" -b system -v time -s ConsentScreen:V 2>/dev/null | { last_decision=; while IFS= read -r line; do
         newer "$line" || continue
         case "$line" in
-            *'mScreenEnabled : '*) if passes "$line"; then arm; else bump; fi;;
+            *'mScreenEnabled : '*)
+                if passes "$line"; then
+                    [ "$last_decision" = accepted ] || log 'timer: state accepted'
+                    last_decision=accepted; arm
+                else
+                    reason=$(reject_reason "$line")
+                    [ "$last_decision" = "rejected:$reason" ] || log "timer: state rejected reason=$reason"
+                    last_decision="rejected:$reason"; bump
+                fi;;
             *'ConsentScreenTimeout is not executed'*|*'Locale Setting Button pressed'*|\
             *'confirm() : ConsentScreen is going to close'*|*'handleMessage : MSG_CLOSE_CONSENT'*|\
             *'Not auto-close specification'*|*'ConsentScreen is null'*) bump;;
         esac
-    done
+    done; }
     passes=$((passes + 1))
     [ -z "$TIMER_TEST_ONCE" ] || [ "$passes" -lt "$TIMER_TEST_ONCE" ] || { wait; exit 0; }
     sleep "${TIMER_TEST_PAUSE:-5}"

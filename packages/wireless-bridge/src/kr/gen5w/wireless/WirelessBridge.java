@@ -194,13 +194,14 @@ public final class WirelessBridge implements WirelessSession.Port {
         closeSocket(previous);
         new Thread(new Runnable(){public void run(){
             BluetoothSocket opened=null;
+            String stage="socket-setup";
             try{
                 if(adapter==null || service==null)throw new IllegalStateException();
                 requireCurrent(g);
                 opened=adapter.getRemoteDevice(address).createRfcommSocketToServiceRecord(service);
                 synchronized(WirelessBridge.this){requireCurrent(g);if(!transport.attach(g,opened))throw new IllegalStateException();}
-                adapter.cancelDiscovery();opened.connect();
-                requireCurrent(g);ensureHotspot(g);requireCurrent(g);
+                adapter.cancelDiscovery();stage="socket-connect";opened.connect();
+                stage="ap-setup";requireCurrent(g);ensureHotspot(g);requireCurrent(g);
                 final BluetoothSocket ready=opened;
                 main.post(new Runnable(){public void run(){
                     if(session.current(g) && transport.owns(g,ready)){
@@ -209,7 +210,7 @@ public final class WirelessBridge implements WirelessSession.Port {
                     }
                     else closeSocket(ready);
                 }});
-            }catch(Exception e){closeSocket(opened);log("transport exception: "+e.getClass().getName());fail(g,"transport open failed");}
+            }catch(Exception e){closeSocket(opened);log("transport failure stage="+stage+" type="+e.getClass().getName());fail(g,"transport open failed");}
         }},"gen5w-bt-open").start();
     }
     public void start(long g){

@@ -2,6 +2,7 @@ package kr.gen5w.hotspot;
 
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
+import android.util.Log;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 
@@ -10,14 +11,17 @@ public final class ApBrokerClient {
     private ApBrokerClient() { }
     public static void ensure(ApProfiles.Guard guard) throws Exception {
         LocalSocket socket = new LocalSocket();
+        String stage = "connect";
         try {
             guard.check();
             socket.connect(new LocalSocketAddress(ApBroker.SOCKET));
+            stage = "peer-check";
             if (socket.getPeerCredentials().getUid() != 1000)
                 throw new SecurityException("untrusted AP broker");
             socket.setSoTimeout(200);
             socket.getOutputStream().write('E');
             socket.getOutputStream().flush();
+            stage = "response";
             while (true) {
                 guard.check();
                 try {
@@ -27,6 +31,9 @@ public final class ApBrokerClient {
                     return;
                 } catch (SocketTimeoutException ignored) { }
             }
+        } catch (Exception e) {
+            Log.i("Gen5wWireless", "AP broker failure stage=" + stage + " type=" + e.getClass().getName());
+            throw e;
         } finally { try { socket.close(); } catch (IOException ignored) { } }
     }
 }

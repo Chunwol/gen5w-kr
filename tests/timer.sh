@@ -31,16 +31,19 @@ feed() {
 run() {
     rm -rf "$PKG/run"; : > "$W/am.log"
     TIMER_TEST_SYS=$W/sys TIMER_TEST_DELAY=1 TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am \
-    TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" >/dev/null 2>&1
+    TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" > "$W/timer.log" 2>&1
 }
 closed() { grep -q CLOSE_CONSENTSCREEN_FORCE "$W/am.log"; }
 
 feed "$OK|2"; run
 check 'passing stock check closes after the short delay' closed
+check 'timer logs startup and accepted state' eval 'grep -q "timer: started" "$W/timer.log" && grep -q "timer: state accepted" "$W/timer.log"'
+check 'timer logs close request' grep -q 'timer: sending delayed close request' "$W/timer.log"
 feed "$OK|0" 'D/ConsentScreen(  1): ConsentScreenTimeout is not executed because it shouldn'"'"'t be closed yet|2'; run
 check 'stock failure line cancels' eval '! closed'
 feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|2"; run
 check 'reverse gear never arms' eval '! closed'
+check 'unsafe state is logged without the state contents' eval 'grep -q "timer: state rejected reason=reverse" "$W/timer.log" && ! grep -q "mIsReverseOn" "$W/timer.log"'
 feed "${OK/mAccStatus : 0,/mAccStatus : 10,}|2"; run
 check 'non-zero ACC status never arms' eval '! closed'
 feed "${OK/mIsPowerOn : true/mIsPowerOn : false}|2"; run

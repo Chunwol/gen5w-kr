@@ -153,7 +153,7 @@ while [ ! -f "$STOPPING" ]; do
         stop_runtime
         exit 1
     elif [ "$RETRY_ACTION" = start ]; then
-        "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &
+        "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" 2>&1 &
         broker_pid=$!
     fi
     RETRY_COUNT=$host_count; RETRY_STABLE=$host_stable
