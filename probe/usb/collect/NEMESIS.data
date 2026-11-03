@@ -2,5 +2,5 @@
 version=1.0
 type=execute
 id=gen5w.kr.probe.collect
-name=Copy the Gen5W probe log to USB
+name=Copy Gen5W diagnostic logs to USB
 compat=gen5w

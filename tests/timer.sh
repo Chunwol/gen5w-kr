@@ -13,6 +13,8 @@ echo stock > "$W/sys/priv-app/SystemUI.odex"
 cat > "$W/am" <<'A'
 #!/bin/sh
 echo "$*" >> "$TIMER_AM_LOG"
+echo 'Broadcast completed: result=0'
+exit "${TIMER_AM_EXIT:-0}"
 A
 chmod 755 "$W/am"
 # Boot state: $W/booted holds sys.boot_completed (1 unless a test changes it).
@@ -20,7 +22,7 @@ echo 1 > "$W/booted"
 printf '#!/bin/sh
 cat "%s/booted"
 ' "$W" > "$W/getprop"; chmod 755 "$W/getprop"
-export TIMER_TEST_GETPROP=$W/getprop TIMER_BOOT_WAIT=3
+export TIMER_TEST_GETPROP=$W/getprop
 OK='D/ConsentScreen(  1): mScreenEnabled : true, mIsEarlyCamOn : false, mIsReverseOn : false, mIsPowerOn : true, mIsCalling : false, mIsBtCalling : false, mAccStatus : 0, mShowLocaleDialog : false, mIsUpdateCompleteViewOn : false mIsValet : false, mIsEmergency : false, mInitDriverIdx : 0, mIsDipoCalling : false'
 # Feed lines with gaps; $1.. are "line|seconds-before-next".
 feed() {
@@ -31,6 +33,7 @@ feed() {
 run() {
     rm -rf "$PKG/run"; : > "$W/am.log"
     TIMER_TEST_SYS=$W/sys TIMER_TEST_DELAY=1 TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am \
+    TIMER_BOOT_WAIT=${TEST_OLD_BOOT_WAIT-3} TIMER_TEST_BOOT_WAIT=${TEST_BOOT_WAIT-3} \
     TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" > "$W/timer.log" 2>&1
 }
 closed() { grep -q CLOSE_CONSENTSCREEN_FORCE "$W/am.log"; }
@@ -39,6 +42,7 @@ feed "$OK|2"; run
 check 'passing stock check closes after the short delay' closed
 check 'timer logs startup and accepted state' eval 'grep -q "timer: started" "$W/timer.log" && grep -q "timer: state accepted" "$W/timer.log"'
 check 'timer logs close request' grep -q 'timer: sending delayed close request' "$W/timer.log"
+check 'timer records close broadcast command completion' grep -q 'timer: close broadcast command completed' "$W/timer.log"
 feed "$OK|0" 'D/ConsentScreen(  1): ConsentScreenTimeout is not executed because it shouldn'"'"'t be closed yet|2'; run
 check 'stock failure line cancels' eval '! closed'
 feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|2"; run
@@ -99,6 +103,9 @@ echo 0 > "$W/booted"; feed "$OK|5"; run
 check 'boot never completing sends nothing' eval '! closed'
 echo 0 > "$W/booted"; feed "$OK|0.5" 'D/ConsentScreen(  1): Locale Setting Button pressed or refresh dialog|4'; ( sleep 1.5; echo 1 > "$W/booted" ) & run; wait
 check 'event while waiting for boot cancels' eval '! closed'
+echo 1 > "$W/booted"
+echo 0 > "$W/booted"; feed "$OK|5"; ( sleep 2; echo 1 > "$W/booted" ) & TEST_OLD_BOOT_WAIT=1 TEST_BOOT_WAIT= run; wait
+check 'slow boot is not abandoned at the old 30-second limit' closed
 echo 1 > "$W/booted"
 echo "== timer: $pass passed, $fail failed"
 [ "$fail" = 0 ]

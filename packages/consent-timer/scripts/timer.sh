@@ -69,28 +69,43 @@ reject_reason() {
     echo profile
 }
 # Android refuses broadcasts before boot completes ("Cannot broadcast before
-# boot completed"), and a cold start can show the screen that early. Wait up
-# to 30 s for boot, then send only if no event came in meanwhile.
+# boot completed"), and a cold start can show the screen that early. Wait for
+# boot, then send only if no event came in meanwhile.
 booted() { [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; }
+send_close() {
+    local output rc
+    output=$("$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE 2>&1)
+    rc=$?
+    case "$output" in
+        *'Broadcast completed'*) log 'timer: close broadcast command completed';;
+        *) log "timer: close broadcast incomplete exit=$rc";;
+    esac
+}
 arm() {
     bump
     if ! booted; then
         (
             mine=$gen; n=0
             while ! booted; do
-                n=$((n + 1)); [ "$n" -le "${TIMER_BOOT_WAIT:-30}" ] || exit 0
+                [ "$(cat "$GEN" 2>/dev/null)" = "$mine" ] || exit 0
+                # Production waits until boot completes. A timeout here could
+                # abandon an already-visible consent screen on a slow boot.
+                # The optional limit exists only to keep the shell test bounded.
+                if [ -n "${TIMER_TEST_BOOT_WAIT:-}" ]; then
+                    n=$((n + 1)); [ "$n" -le "$TIMER_TEST_BOOT_WAIT" ] || exit 0
+                fi
                 sleep 1
             done
             sleep "$DELAY"
             [ "$(cat "$GEN" 2>/dev/null)" = "$mine" ] || exit 0
             log 'timer: sending close request after boot'
-            "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
+            send_close
         ) &
         return
     fi
     if [ "$DELAY" = 0 ]; then
         log 'timer: sending close request'
-        "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
+        send_close
         return
     fi
     (
@@ -98,7 +113,7 @@ arm() {
         sleep "$DELAY"
         [ "$(cat "$GEN" 2>/dev/null)" = "$mine" ] || exit 0
         log 'timer: sending delayed close request'
-        "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE >/dev/null 2>&1
+        send_close
     ) &
 }
 # logcat has no -T on this unit, so a restarted logcat replays the whole buffer.
