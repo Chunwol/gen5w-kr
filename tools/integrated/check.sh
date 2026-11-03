@@ -42,6 +42,13 @@ clean() {
 first_line() { local line=; IFS= read -r line < "$1" || [ -n "$line" ] || return 1; print -r -- "$line"; }
 prop() { getprop "$1" 2>/dev/null | clean; }
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
+check_progress() {
+    local am_bin=${CK_TEST_AM:-/system/bin/am}
+    [ "$MODE" = check ] && [ -f GEN5W-CHECK-ONLY ] && [ -x "$am_bin" ] || return 0
+    "$am_bin" broadcast -a com.hkmc.intent.action.TOAST \
+        -e com.hkmc.intent.extra.TOAST_MESSAGE "점검 ($1/5) $2. 완료까지 USB를 빼지 마세요." \
+        --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || true
+}
 
 # Verdict of the bundled verifiers for one target: stock-v039, patched-v039,
 # stock-v035, patched-v035, unknown or missing.
@@ -106,6 +113,7 @@ wireless_code() {
 }
 
 # --- facts -----------------------------------------------------------------
+check_progress 1 '차량 정보 확인 중'
 fact bundle_revision "$(first_line BUILD-REVISION 2>/dev/null | clean)"
 fact firmware "$(prop ro.build.product)"
 fact display_id "$(prop ro.build.display.id)"
@@ -119,6 +127,7 @@ NEM_VER=$("$SYS/xbin/nemesis" version 2>/dev/null | clean)
 case "$NEM_VER" in ''|*[!0-9.]*) NEM_VER=unknown;; esac
 fact nemesis_version "$NEM_VER"
 
+check_progress 2 '순정 파일 확인 중'
 S_HOTSPOT=$(verify_hash framework/services.odex 63cf432dd4597a916ce9faa0c26b5f7ad29affba3976cf4c8cf316dc16107c4f 64fe8286ff39ba52223bf04d7c98fe7e4c2579ad06a090f7a4b80a34faa1e0ca)
 S_SYSUI=$(verify_hash priv-app/SystemUI.odex 97e7e258df34d76ed61a714f83de4bf0fbc3d6b6188055c941ad2689f72595af 3de39c29f10c8db3ec786f59378f5b716b04e6be473b42989f40ef828ef0867b)
 S_AUDIO=$(verify lib/libCarPlayAudio.so gen5w.kr.audio audio-patch audio-patch-v035)
@@ -135,6 +144,7 @@ for f in framework/services.odex priv-app/SystemUI.odex lib/libCarPlayAudio.so a
     [ -f "$SYS/$f" ] && fact "md5:$f" "$(digest "$SYS/$f")"
 done
 
+check_progress 3 'Wi-Fi와 동글 확인 중'
 W_CODE=$(wireless_code)
 W_HW=$(wifi_seen)
 fact wireless_code "$W_CODE"
@@ -144,7 +154,7 @@ D_SEEN=$(dongle_seen)
 # plugged in, turn it on for up to 8 s and off again, as the installer does.
 # Settings only (svc wifi); no file is written.
 W_PROBE=skipped
-[ "$MODE" = verify ] || [ ! -x /system/bin/am ] || /system/bin/am broadcast -a com.hkmc.intent.action.TOAST     -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR 점검 중입니다(최대 1분). 완료 알림이 뜰 때까지 USB를 빼지 마세요."     --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1
+[ "$MODE" = verify ] || [ -f GEN5W-CHECK-ONLY ] || [ ! -x /system/bin/am ] || /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR 점검 중입니다(최대 1분). 완료 알림이 뜰 때까지 USB를 빼지 마세요." --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1
 if [ "$W_HW" != yes ] && [ "$D_SEEN" != yes ] && [ "$(settings get global wifi_on 2>/dev/null | clean)" = 0 ] &&
    command -v svc >/dev/null 2>&1; then
     W_PROBE=not-found
@@ -187,6 +197,7 @@ else
     fact featurexml_strip_lines unknown
 fi
 
+check_progress 4 '설치 상태 확인 중'
 PKGS=
 if [ -d "$APPS" ]; then
     for d in "$APPS"/*; do
@@ -305,6 +316,7 @@ if [ "$MODE" = verify ]; then
     exit 0
 fi
 
+check_progress 5 '점검 결과 저장 중'
 {
     echo '# 설치 전 점검 결과'
     echo

@@ -34,7 +34,7 @@ cat > "$B/getprop" <<'EOF'
 case "$1" in ro.build.product) echo OSHEV.KOR;; ro.build.display.id) echo V039.001.260902;; *) echo;; esac
 EOF
 printf '#!/bin/sh\necho 0\n' > "$B/settings"
-printf '#!/bin/sh\nexit 0\n' > "$B/am"
+printf '#!/bin/sh\necho "$*" >> "$CK_TEST_AM_LOG"\nexit 0\n' > "$B/am"
 printf '#!/bin/sh\nexit 0\n' > "$B/dmesg"
 chmod 755 "$B"/*
 stock() {
@@ -43,11 +43,24 @@ stock() {
 }
 run() {
     rm -rf "$U/GEN5W-REPORT"
-    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_SYSFS=$F CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
+    : > "$W/am.log"
+    (cd "$U" && IT_DATA=$D IT_SYSTEM=$S CK_TEST_SYSFS=$F CK_TEST_AM="$B/am" CK_TEST_AM_LOG="$W/am.log" CK_TEST_PATH="$B:$GEN5W_UNIT_SHIM/bin:/usr/bin:/bin" "$SH" ./check.sh) >/dev/null 2>&1
 }
 snapshot() { (cd "$W" && find sys data -type f -exec md5sum {} + | sort); }
 
 stock
+touch "$U/GEN5W-CHECK-ONLY"
+check 'check edition runs with progress' run
+for step in 1 2 3 4 5; do
+    check "check edition shows step $step" grep -q "점검 ($step/5)" "$W/am.log"
+done
+check 'check edition announces completion' grep -q '점검 완료' "$W/am.log"
+: > "$W/am.log"
+check 'internal verification still succeeds' bash -c 'cd "$1" && IT_DATA="$2" IT_SYSTEM="$3" CK_TEST_SYSFS="$4" CK_TEST_AM="$5/am" CK_TEST_AM_LOG="$6" CK_TEST_PATH="$5:$7/bin:/usr/bin:/bin" "$8" ./check.sh --verify >/dev/null 2>&1' _ "$U" "$D" "$S" "$F" "$B" "$W/am.log" "$GEN5W_UNIT_SHIM" "$SH"
+check 'internal verification shows no progress' test ! -s "$W/am.log"
+rm "$U/GEN5W-CHECK-ONLY"
+check 'ordinary check runs without check-only marker' run
+check 'no step progress outside check edition' eval '! grep -q "점검 (.*\/5)" "$W/am.log"'
 before=$(snapshot)
 check 'stock V039 passes' run
 check 'verdict says install' grep -q '판정: 설치 가능' "$U/GEN5W-REPORT/CHECK.md"
