@@ -16,6 +16,8 @@ grep -q 'SEND_CONNECTION_PHONEPROJECTION' packages/wireless-bridge/src/kr/gen5w/
 grep -q 'getWLDeviceInfo' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getWLDAutoConnection' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getCPConnectedBTAddress' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
+grep -Fq 'com.hkmc.software.connectivity.carplay_wireless' packages/wireless-enable/files/permissions/com.hkmc.software.connectivity.carplay_wireless.xml
+grep -Fq 'com.hkmc.software.connectivity.androidauto_wireless' packages/wireless-enable/files/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml
 grep -q 'WirelessBridge.java' tools/build-dex.sh
 grep -q 'PhoneProjectionAccess.java' tools/build-dex.sh
 echo 'PASS stock-only PhoneProjection source audit'
