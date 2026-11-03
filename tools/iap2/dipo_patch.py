@@ -1,8 +1,8 @@
-"""Generate an authored dispatch inside one stock DiPO receiver branch.
+"""Generate the independent call-key fallback without changing projection startup.
 
-The existing wireless action body and one missing-call-state branch change. Receiver
-registration, comparison, other actions, stock creation/start methods and native
-transport logic remain byte-identical. OEM bytes are never emitted in a recipe.
+Only the missing-call-state branch in DipoService.i(II)V changes. The OEM wireless
+receiver, its actions, stock session start path, and native transport remain intact.
+OEM bytes are never emitted in a recipe.
 """
 import argparse
 import hashlib
@@ -12,8 +12,6 @@ import struct
 import zlib
 from control_patch import Dex, finalize
 
-ACTION = 'com.daudio.app.dipo.carplaymagiccode.wireless'
-NEXT_ACTION = 'com.daudio.app.dipo.carplaymagiccode.routeguidance'
 RECEIVER = 'Lcom/daudio/app/dipo/service/y;'
 SERVICE = 'Lcom/daudio/app/dipo/service/DipoService;'
 CALL_MARKER = "onKeyForService() performPhoneKey Call Key - hasn't PTTKey during CarPlay Calling"
@@ -48,48 +46,6 @@ def instructions(words):
 
 def signed(value, bits):
     return value - (1 << bits) if value & (1 << (bits - 1)) else value
-
-
-def locate_body(words, strings):
-    decoded = instructions(words)
-    matches = [pc for pc, op, _ in decoded if op == 0x1a and strings[words[pc + 1]] == ACTION]
-    if len(matches) != 1: raise ValueError('wireless action must be unique')
-    action = matches[0]
-    # Stock metadata must identify String.equals via execute-inline #3, then
-    # move-result and an if-eqz that skips this whole inner body.
-    if words[action + 2] & 255 != 0xee or words[action + 3] != 3 or words[action + 5] & 255 != 0x0a or words[action + 6] & 255 != 0x38:
-        raise ValueError('unsupported wireless action comparison')
-    if words[action + 5] >> 8 != words[action + 6] >> 8:
-        raise ValueError('comparison register mismatch')
-    branch = action + 6
-    begin, end = branch + 2, branch + signed(words[branch + 1], 16)
-    boundaries = {pc for pc, _, _ in decoded}
-    if begin not in boundaries or end not in boundaries or end <= begin:
-        raise ValueError('invalid matched body extent')
-    if words[end] & 255 != 0x1a or strings[words[end + 1]] != NEXT_ACTION:
-        raise ValueError('next receiver action differs')
-    for pc, op, _ in decoded:
-        if begin <= pc < end: continue
-        targets = []
-        if op == 0x28: targets.append(pc + signed(words[pc] >> 8, 8))
-        elif op == 0x29 or 0x32 <= op <= 0x3d: targets.append(pc + signed(words[pc + 1], 16))
-        elif op == 0x2a: targets.append(pc + signed(words[pc + 1] | words[pc + 2] << 16, 32))
-        elif op in (0x2b, 0x2c):
-            payload = pc + signed(words[pc + 1] | words[pc + 2] << 16, 32)
-            count = words[payload + 1]
-            start = payload + (4 if op == 0x2b else 2 + 2 * count)
-            targets.extend(pc + signed(words[start + 2 * i] | words[start + 2 * i + 1] << 16, 32) for i in range(count))
-        if any(begin <= target < end for target in targets):
-            raise ValueError('another receiver branch enters replaced body')
-    return begin, end
-
-
-def dispatch_words(receiver, field, start_method, capacity):
-    if not 0 <= receiver <= 15: raise ValueError('receiver outside iget register encoding')
-    words = [0x54 | receiver << 12, field, 0x0112,
-             0x206e, start_method, 0x0010, 0x000e]
-    if capacity < len(words): raise ValueError('insufficient matched body extent')
-    return words + [0] * (capacity - len(words))
 
 
 def call_fallback(words, strings, fields):
@@ -127,23 +83,6 @@ def call_fallback(words, strings, fields):
 
 def make_recipe(raw):
     dex = Dex(raw)
-    name = RECEIVER + '->onReceive(Landroid/content/Context;Landroid/content/Intent;)V'
-    offset = dex.code[name][0]
-    registers, ins, outs, tries, _, count = struct.unpack_from('<HHHHII', dex.data, offset)
-    if ins != 3 or registers < ins or outs < 2 or tries:
-        raise ValueError('unsupported receiver frame/exception table')
-    words = list(struct.unpack_from('<' + 'H' * count, dex.data, offset + 16))
-    begin, end = locate_body(words, dex.strings)
-    field_count, field_offset = struct.unpack_from('<II', dex.data, 80)
-    fields = []
-    for i in range(field_count):
-        owner, kind, label = struct.unpack_from('<HHI', dex.data, field_offset + i * 8)
-        fields.append((dex.types[owner], dex.strings[label], dex.types[kind]))
-    field = fields.index((RECEIVER, 'R', SERVICE))
-    start_method = dex.methods.index(SERVICE + '->I(Z)V')
-    own = dispatch_words(registers - ins, field, start_method, end - begin)
-    body = struct.pack('<' + 'H' * len(own), *own)
-    absolute = dex.base + offset + 16 + begin * 2
     call_offset = dex.code[SERVICE + '->i(II)V'][0]
     call_registers, call_ins, _, call_tries, _, call_count = struct.unpack_from('<HHHHII', dex.data, call_offset)
     if (call_registers, call_ins, call_tries) != (11, 3, 0):
@@ -151,9 +90,8 @@ def make_recipe(raw):
     call_words = struct.unpack_from('<'+'H'*call_count, dex.data, call_offset+16)
     call_pc, own_branch = call_fallback(call_words, dex.strings, dex.fields)
     call_absolute = dex.base+call_offset+16+call_pc*2
-    recipe,result=finalize(raw,dex,[(absolute,body),
-        (call_absolute,struct.pack('<HH',*own_branch))],[RECEIVER,SERVICE])
-    recipe['id']='dipo-wireless-start-call-2'
+    recipe,result=finalize(raw,dex,[(call_absolute,struct.pack('<HH',*own_branch))],[SERVICE])
+    recipe['id']='dipo-call-key-fallback-1'
     return recipe,result
 
 
@@ -166,7 +104,7 @@ def main():
     recipe, result = make_recipe(args.original.read_bytes())
     args.recipe.write_text(json.dumps(recipe, indent=2) + '\n', encoding='utf-8', newline='\n')
     if args.private_output: args.private_output.write_bytes(result)
-    print('Generated own DiPO inner-branch dispatch:', recipe['original_sha256'])
+    print('Generated call-key fallback recipe:', recipe['original_sha256'])
 
 
 if __name__ == '__main__': main()

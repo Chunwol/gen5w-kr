@@ -12,6 +12,7 @@ for version in v035 v039; do
     echo "dipo-$version-original" > "$W/fixture/dipo-$version-original"
     echo "dipo-$version-patched" > "$W/fixture/dipo-$version-patched"
     echo "dipo-$version-previous" > "$W/fixture/dipo-$version-previous"
+    echo "dipo-$version-previous2" > "$W/fixture/dipo-$version-previous2"
     echo "dipo-$version-apk" > "$W/fixture/dipo-$version-apk"
 done
 for version in v035 v039; do
@@ -26,8 +27,8 @@ BRIDGE_DIPO_APK_V035_SHA=dipo-v035-apk
 BRIDGE_DIPO_APK_V039_SHA=dipo-v039-apk
 BRIDGE_GPM_APK_V035_SHA=gpm-v035-apk
 BRIDGE_GPM_APK_V039_SHA=gpm-v039-apk
-BRIDGE_DIPO_PREVIOUS_V035_SHA=dipo-v035-previous
-BRIDGE_DIPO_PREVIOUS_V039_SHA=dipo-v039-previous
+BRIDGE_DIPO_PREVIOUS_V035_SHAS="dipo-v035-previous dipo-v035-previous2"
+BRIDGE_DIPO_PREVIOUS_V039_SHAS="dipo-v039-previous dipo-v039-previous2"
 EOF
 for version in v035 v039; do
 cat > "$W/pkg/bin/iap2-patch-$version" <<'EOF'
@@ -354,21 +355,25 @@ check 'older GPM uses its own patch' cmp -s "$GPM" "$W/fixture/gpm-v035-patched"
 check 'independent GPM pair uninstall' run preun
 check 'independent GPM original restored' cmp -s "$GPM" "$W/fixture/gpm-v035-original"
 cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
-# Upgrade from the exact previous DiPO output, retaining its owned original.
-cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
-cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
-check 'prepare owned previous patch' run post
-cp "$W/fixture/dipo-v039-previous" "$DIPO"
-check 'previous DiPO accepted at preflight' run pre
-check 'previous DiPO upgraded from original backup' run post
-check 'upgrade produces current DiPO' cmp -s "$DIPO" "$W/fixture/dipo-v039-patched"
-check 'upgrade preserves stock backup' cmp -s "$PERSIST/dipooriginal" "$W/fixture/dipo-v039-original"
-cp "$W/fixture/dipo-v039-previous" "$DIPO"
-check 'previous DiPO can be restored directly' run preun
-check 'previous restore is stock exact' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
-cp "$W/fixture/dipo-v039-previous" "$DIPO"
-if run post; then bad 'unowned previous DiPO refused'; else ok 'unowned previous DiPO refused'; fi
-check 'unowned previous creates no backup' test ! -d "$PERSIST"
+# Upgrade both previously shipped DiPO recipes for both supported system versions.
+for version in v035 v039; do
+    for legacy in previous previous2; do
+        cp "$W/fixture/$version-original" "$TARGET"; cp "$W/fixture/$version-apk" "$APK"
+        cp "$W/fixture/dipo-$version-original" "$DIPO"; cp "$W/fixture/dipo-$version-apk" "$DIPOAPK"
+        check "$version $legacy setup owned package" run post
+        cp "$W/fixture/dipo-$version-$legacy" "$DIPO"
+        check "$version $legacy accepted at preflight" run pre
+        check "$version $legacy upgraded from original backup" run post
+        check "$version $legacy produces current DiPO" cmp -s "$DIPO" "$W/fixture/dipo-$version-patched"
+        check "$version $legacy preserves stock backup" cmp -s "$PERSIST/dipooriginal" "$W/fixture/dipo-$version-original"
+        cp "$W/fixture/dipo-$version-$legacy" "$DIPO"
+        check "$version $legacy direct restore" run preun
+        check "$version $legacy restore is stock exact" cmp -s "$DIPO" "$W/fixture/dipo-$version-original"
+        cp "$W/fixture/dipo-$version-$legacy" "$DIPO"
+        if run post; then bad "$version unowned $legacy refused"; else ok "$version unowned $legacy refused"; fi
+        check "$version unowned $legacy creates no backup" test ! -d "$PERSIST"
+    done
+done
 
 # Firmware reinstall: stock ODEX files and no system journal, but our runtime
 # copies and start-guard state still in /data.

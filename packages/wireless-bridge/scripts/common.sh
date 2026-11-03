@@ -51,13 +51,18 @@ patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
 dipo_original() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" original "$1"; }
 dipo_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" patched "$1"; }
 dipo_previous() {
-    typeset previous_sha
+    typeset previous_shas previous_sha
     case "$VERSION" in
-        v035) previous_sha=${BRIDGE_DIPO_PREVIOUS_V035_SHA:-};;
-        v039) previous_sha=${BRIDGE_DIPO_PREVIOUS_V039_SHA:-};;
+        v035) previous_shas=${BRIDGE_DIPO_PREVIOUS_V035_SHAS:-};;
+        v039) previous_shas=${BRIDGE_DIPO_PREVIOUS_V039_SHAS:-};;
         *) return 1;;
     esac
-    [ -n "$previous_sha" ] && [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" verify "$1" "$previous_sha"
+    [ -n "$previous_shas" ] && [ -f "$1" ] && [ ! -L "$1" ] || return 1
+    for previous_sha in $previous_shas; do
+        [ -n "$previous_sha" ] || continue
+        "$DIPO_TOOL" verify "$1" "$previous_sha" && return 0
+    done
+    return 1
 }
 gpm_original() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" original "$1"; }
 gpm_patched() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" patched "$1"; }

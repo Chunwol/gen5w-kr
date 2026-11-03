@@ -4,7 +4,7 @@
 
 ## 적용 조건
 
-대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. `/system/app/Iap2ServerApp.odex`가 이전 사용자 정의 bridge 상태이면 검증된 원본으로 되돌립니다. `/system/app/HKMC_DiPO.odex`에는 기존 핸들 통화 키 보완을 적용하며, 이 패치에는 새 브리지가 사용하지 않는 과거 무선 요청 분기도 포함됩니다. V039의 `/system/app/HKMC_GPM.odex`는 Android Auto HUD용 패치를 적용합니다. 이 ODEX 수정들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. APK는 수정하지 않습니다. 지원하지 않는 해시·교차 버전 조합은 설치 전 건너뛰고, 이미 소유한 파일이나 백업이 달라졌으면 덮어쓰지 않고 중단합니다.
+대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. `/system/app/Iap2ServerApp.odex`가 이전 사용자 정의 bridge 상태이면 검증된 원본으로 되돌립니다. `/system/app/HKMC_DiPO.odex`에는 독립된 핸들 통화 키 보완만 적용합니다. 순정 무선 receiver와 기존 무선 action 분기는 바꾸지 않습니다. 이전 DiPO 수정본은 해시로 식별해 저장된 순정 백업에서 새 수정본으로 교체하거나 순정 바이트로 복원합니다. V039의 `/system/app/HKMC_GPM.odex`는 Android Auto HUD용 패치를 적용합니다. 이 ODEX 수정들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. APK는 수정하지 않습니다. 지원하지 않는 해시·교차 버전 조합은 설치 전 건너뛰고, 이미 소유한 파일이나 백업이 달라졌으면 덮어쓰지 않고 중단합니다.
 
 helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. 브리지 DEX와 호스트 APK가 있는지 설치 전에 확인합니다.
 
