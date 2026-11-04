@@ -28,7 +28,7 @@ echo 'exit 0' >> "$W/bin/sync"
 chmod +x "$W/bin/sync"
 python3 - "$W/usb/packages" <<'PY'
 import zipfile,sys,hashlib,pathlib
-for m in ['dongle','wireless','audio','bridge','core','timer','bluelink']:
+for m in ['dongle','wireless','audio','bridge','core','timer','bluelink','drivelog']:
  with zipfile.ZipFile(sys.argv[1]+'/gen5w.kr.'+m+'.zip','w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+m+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
   # Injected failures belong to the incoming build (bundle checks/), never to an
@@ -50,7 +50,8 @@ PY
 mkdir -p "$W/sys/framework" "$W/sys/priv-app"; echo stock > "$W/sys/framework/services.odex"; echo stock > "$W/sys/priv-app/SystemUI.odex"
 run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
 check 'integrated install all modules' run install
-check 'six registered module trees' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'seven registered standard module trees' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
+check 'logger is registered independently of the Probe app' test -f "$W/data/nemesis/apps/gen5w.kr.drivelog/NEMESIS.data"
 check 'standard registers the Bluelink reminder service' test -f "$W/data/nemesis/apps/gen5w.kr.bluelink/NEMESIS.data"
 check 'standard leaves services.odex stock' grep -qx stock "$W/sys/framework/services.odex"
 check 'standard registers the service-only timer' test -f "$W/data/nemesis/apps/gen5w.kr.timer/NEMESIS.data"
@@ -79,11 +80,11 @@ if [ "${IT_TRANSACTION_ONLY:-0}" = 1 ]; then done_tests 'integrated transaction 
 export IT_SKIP=gen5w.kr.wireless
 check 'unavailable wireless continues installing independent features' run update
 unset IT_SKIP
-check 'wired fallback retains bridge core timer and bluelink only' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 4
+check 'wired fallback retains bridge core timer bluelink and logger' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 check 'wired fallback disables Bluetooth transport' test -f "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'wired fallback reports bridge route support' grep -q '유선 HUD 기반' "$W/usb/GEN5W-REPORT/RESULT.md"
 check 'rollback wired fallback' run rollback
-check 'rollback restores all six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'rollback restores all seven standard modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 check 'rollback restores prior wireless mode' test ! -e "$W/data/nemesis/gen5wkr.wireless-disabled"
 # Update to a next build whose checks do not recognise the earlier build's files:
 # the earlier build removes itself first, so the new checks see stock files.
@@ -108,7 +109,7 @@ check 'wireless mode restored after normal update' test ! -e "$W/data/nemesis/ge
 
 echo usb > "$W/usb/GEN5W-BACKEND"
 check 'unavailable USB backend is refused before transaction mutation' eval '! run update'
-check 'backend refusal preserves installed modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'backend refusal preserves installed modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 rm "$W/usb/GEN5W-BACKEND"
 export IT_SKIP=gen5w.kr.audio
 check 'unsupported audio continues with supported modules' run update
@@ -129,7 +130,7 @@ check 'failed update shown as restored' grep -q '실패 후 이전 상태로 원
 check 'explicit rollback' run rollback
 check 'update after explicit rollback' run update
 echo dongle > "$W/usb/GEN5W-VARIANT"
-check 'dongle variant installs seven modules' run update
+check 'dongle variant installs eight modules' run update
 check 'dongle variant registers dongle module' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
 check 'dongle variant reports dongle feature' grep -q 'USB Wi-Fi 동글 드라이버' "$W/usb/GEN5W-REPORT/RESULT.md"
 echo dongle_old > "$W/data/nemesis/apps/gen5w.kr.dongle/old.txt"
@@ -138,9 +139,9 @@ check 'dongle variant update failure rolls back dongle' eval '! run update'
 unset IT_FAIL
 check 'prior dongle retained after rollback' grep -qx dongle_old "$W/data/nemesis/apps/gen5w.kr.dongle/old.txt"
 rm -f "$W/usb/GEN5W-VARIANT"
-check 'return to standard variant removes dongle and keeps six modules' run update
+check 'return to standard variant removes dongle and keeps seven modules' run update
 check 'standard variant removes dongle registration' test ! -e "$W/data/nemesis/apps/gen5w.kr.dongle"
-check 'standard variant retains six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'standard variant retains seven modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 check 'rollback after dongle to standard transition restores dongle' run rollback
 check 'dongle registration restored after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
 check 'return to standard variant again' run update
@@ -152,7 +153,7 @@ echo safe > "$W/usb/GEN5W-VARIANT"
 rm -rf "$W/usb/GEN5W-REPORT"
 check 'safe edition refuses without a pre-install check report' eval '! run update'
 check 'missing report reason' grep -q 'no pre-install check report' "$W/data/nemesis/gen5w-kr-integrated/report"
-check 'refusal without report changes no modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'refusal without report changes no modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 check 'pre-install check passes on stock' run check
 check 'check report says install' grep -qx 'verdict=install' "$W/usb/GEN5W-REPORT/CHECK.txt"
 cp "$W/usb/GEN5W-REPORT/CHECK.txt" "$W/check.saved"
@@ -170,7 +171,7 @@ check 'unchanged unit matching the report counts as verified' eval 'run update |
 check 'rollback after verified safe install' run rollback
 run check
 check 'safe edition installs' run update
-check 'safe edition keeps only bridge and core' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 2
+check 'safe edition keeps bridge core and standalone logger' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 3
 check 'safe edition registers bridge' test -f "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
 check 'safe edition registers core' test -f "$W/data/nemesis/apps/gen5w.kr.core/NEMESIS.data"
 for m in wireless audio timer bluelink; do
@@ -180,13 +181,13 @@ check 'safe edition marks wireless disabled' test -f "$W/data/nemesis/gen5wkr.wi
 check 'safe edition plans wired-only without the wireless preflight' eval 'grep "^PLAN " "$W/data/nemesis/gen5w-kr-integrated/report" | tail -n 1 | grep -q "PLAN wired-only"'
 check 'safe edition arms boot guard at 2 failures' grep -qx 2 "$W/data/nemesis/gen5wkr.bootguard/max"
 check 'safe edition commits' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
-check 'rollback from safe edition restores six modules' run rollback
-check 'six modules back after safe rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'rollback from safe edition restores seven modules' run rollback
+check 'seven modules back after safe rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 echo patched > "$W/sys/priv-app/SystemUI.odex"
 check 'check blocks a SystemUI that is not recognised stock' eval '! run check'
 check 'check report says block' grep -qx 'verdict=block' "$W/usb/GEN5W-REPORT/CHECK.txt"
 check 'safe edition refuses when SystemUI is not recognised stock' eval '! run update'
-check 'refused safe edition keeps six modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'refused safe edition keeps seven modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 check 'refused safe edition reports the reason' grep -q 'REFUSED pre-install check guard' "$W/data/nemesis/gen5w-kr-integrated/report"
 echo stock > "$W/sys/priv-app/SystemUI.odex"
 # Safe-wireless edition: wireless CarPlay/AA kept, SystemUI and services.odex stock, guard at 2.
@@ -199,7 +200,7 @@ check 'safe-wireless refusal reports the reason' grep -q 'does not enable the Wi
 check 'safe-wireless refusal installs nothing' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
 rm -f "$W/usb/GEN5W-WIFI-CLIENT"
 check 'safe-wireless edition installs' run update
-check 'safe-wireless keeps four modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 4
+check 'safe-wireless keeps five modules including logger' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 5
 for m in wireless audio bridge core; do
     check "safe-wireless registers $m" test -f "$W/data/nemesis/apps/gen5w.kr.$m/NEMESIS.data"
 done
@@ -229,7 +230,7 @@ check 'standard boot guard limit stays 3' eval 'rm -f "$W/usb/GEN5W-VARIANT"; ru
 export IT_PRE_FAIL=gen5w.kr.audio
 check 'explicit preinstall refusal reported' eval '! run update'
 unset IT_PRE_FAIL
-check 'preinstall refusal preserves prior modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'preinstall refusal preserves prior modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 # Failure happens only in incoming payload; old snapshot hooks remain valid.
 cp "$W/usb/checks/gen5w.kr.audio/scripts/post.sh" "$W/post.saved"
 echo 'exit 1' > "$W/usb/checks/gen5w.kr.audio/scripts/post.sh"

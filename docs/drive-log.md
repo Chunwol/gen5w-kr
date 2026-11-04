@@ -1,0 +1,13 @@
+# USB 주행 진단 기록
+
+통합 패키지의 `gen5w.kr.drivelog` 서비스는 `/storage/usb0/GEN5W-DEBUG-ON` 표식이 있는 경우에만 작동합니다. Android 부팅 완료를 기다린 뒤 `/proc/mounts`에서 `/storage/usb0`가 `vfat` 또는 `exfat`로 실제 마운트됐는지, `/sys/dev/block/<major>:<minor>/uevent`의 장치 경로에 USB가 있는지 확인합니다. 확인할 수 없거나 `GEN5W-DEBUG-OFF`가 있으면 쓰지 않습니다. Probe 앱이나 HUD 앱이 없어도 서비스는 설치될 수 있지만, 이벤트 로그는 해당 앱이 실행되어 전용 이벤트를 내보낼 때만 생깁니다.
+
+기록 위치는 USB의 `GEN5W-DRIVELOG/`뿐입니다. 파일은 1 MiB씩 최대 32개이며 원형으로 가장 오래된 세그먼트를 덮어씁니다. 기록 전 여유 공간이 64 MiB보다 적으면 중단합니다. 일주일 보존을 보장하지 않습니다. 쓰기 실패, 표식 제거, mount source 변경 또는 분리가 관찰되면 idle 상태에서도 최대 2초 안에 읽기 파이프를 닫습니다. 검증한 마운트 디렉터리로 이동한 뒤 상대 경로만 사용하므로 분리 후 `/storage/usb0` 아래에 드러나는 일반 디렉터리로 쓰기를 전환하지 않습니다. 기존 파일은 소유 표식과 정해진 `segment-NN.log` 형식이 맞는 경우에만 순환 관리하며, 다른 파일은 삭제하지 않습니다. 전원 중단 시 `.cursor.tmp`가 남으면 순환 상태가 모호하므로 이를 지우거나 자동 복구하지 않고 기록을 중단합니다.
+
+이 로그는 원시 logcat, payload, 경로명, 도로명, 주소, Bluetooth 주소, 기기명, SSID를 수집하지 않습니다. 앱이 새 `Gen5wDrive` 태그로 내보내는 고정 숫자 형식만 받아 timestamp(부팅 후 monotonic milliseconds), Bluetooth/session 상태 코드, HUD owner 코드, 내비게이션 maneuver 유형·각도·주행 방향·junction 유형·거리·출력 icon, 안내 상태/거리/lane count 및 출력 lane frame의 비트 값을 기록합니다. 수집 시작보다 이전 timestamp가 붙은 logcat 잔여 행은 무시합니다. 출력 이벤트는 앱이 stock API 호출에서 정상 반환했음을 뜻하며 실제 계기판 표시를 확인했다는 뜻은 아닙니다.
+
+각 행은 `D1|uptime_ms|source|event|a|b|c|d|e|f`입니다. `source=1`은 wireless bridge, `2`는 HUD core입니다. 이벤트 `1`은 bridge session event이며 `a`는 candidate/cancel/result/service/progress/request 코드(1–6), `b`는 등록된 결과 코드(1 ready, 2 ACL lost, 3 wired, 4 foreign, 5 timeout, 6 unavailable, 7 projection active, 8 connecting, 9 foreign active, 10 stale request, 11 OEM action sent, 12 shutdown, 13 invocation, 14 service unavailable, 15 method unavailable, 16 security, 17 profile unavailable, 18 profile mismatch, 19 profile disabled, 20 auto-connect disabled, 21 cancelled)입니다. 이벤트 `2`는 ACL 연결 상태이며 `a=1` 연결, `a=0` 해제입니다. 이벤트 `20`의 `a`는 HUD owner(1 stock, 2 CarPlay, 3 AA, 4 unknown), `21`은 route status/distance/lane index/lane total/visible/has-distance, `22`는 maneuver type/angle/driving side/junction type/distance/icon을 담습니다. 이벤트 `24`는 TBT 출력 icon/두 번째 icon/distance/success, `25`는 출력 lane frame의 비영(非零) byte 위치와 값(요약행 `a=81`은 header), `26`은 turn-list 출력의 icon count/최대 세 icon/success/frame length, `27`은 cluster API 오류 범주(1 runtime, 2 linkage)입니다. 상태상 입력되지 않은 값은 `-1` 또는 `0`으로 남습니다.
+
+경로 문자열을 저장하지 않아도 maneuver 종류, 거리, 차선 정보와 반복된 timestamp가 결합되면 주행 구간이나 경로를 추론할 가능성이 있습니다. 공유 전 필요한 범위만 남기고 검토하십시오. 기존 `GEN5W-DEBUG-ON` 일회성 수집기는 별도의 `DEBUG.txt`를 만들며 원시 로그와 민감한 문자열을 포함할 수 있습니다. 이 새 순환 기록의 필터는 기존 수집물에 적용되지 않습니다.
+
+실제 차량에서의 vold mount source·sysfs symlink 표기, exFAT 지원, SELinux/파일 접근 권한, `logcat -v raw`와 `read -t` 호환성, 서비스 관리자 재시작 동작은 차량 검증이 필요합니다. Android 4.4 기반 환경에서 이를 검증하지 않고 보장하지 않습니다.

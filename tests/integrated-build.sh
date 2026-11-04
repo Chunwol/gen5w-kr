@@ -4,7 +4,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d); mkdir "$W/dist"
 python3 - "$W/dist" <<'PY'
 import pathlib,sys,zipfile
-for module in ['wireless','audio','bridge','core','timer','bluelink']:
+for module in ['wireless','audio','bridge','core','timer','bluelink','drivelog']:
  p=pathlib.Path(sys.argv[1])/('gen5w.kr.'+module+'.zip')
  with zipfile.ZipFile(p,'w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+module+'\n')
@@ -22,6 +22,7 @@ check 'build standard' python3 "$ROOT/tools/integrated/build.py" --skip-native -
 check 'standard ships no SystemUI or services.odex patch package' eval '! ls "$W/standard/packages" | grep -Eq "gen5w.kr.(notice|hotspot|consent)"'
 check 'standard includes the service-only timer' test -f "$W/standard/packages/gen5w.kr.timer.zip"
 check 'standard includes the Bluelink reminder service' test -f "$W/standard/packages/gen5w.kr.bluelink.zip"
+check 'standard includes the standalone USB drive logger' test -f "$W/standard/packages/gen5w.kr.drivelog.zip"
 check 'backend is explicitly builtin' grep -qx builtin "$W/standard/GEN5W-BACKEND"
 python3 - "$W/dist" <<'PY'
 import pathlib,sys,zipfile

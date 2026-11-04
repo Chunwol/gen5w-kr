@@ -68,7 +68,7 @@ chmod +x "$W/bin/sync"
 
 python3 - "$MNT/packages" <<'PY'
 import zipfile,sys,hashlib,pathlib
-for m in ['wireless','audio','bridge','core','timer','bluelink']:
+for m in ['wireless','audio','bridge','core','timer','bluelink','drivelog']:
  with zipfile.ZipFile(sys.argv[1]+'/gen5w.kr.'+m+'.zip','w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+m+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\n')
   z.writestr('scripts/pre.sh','[ "$IT_PRE_FAIL" != "gen5w.kr.'+m+'" ] || exit 1\n[ "$IT_SKIP" != "gen5w.kr.'+m+'" ] || exit 77\nexit 0\n')
@@ -86,18 +86,18 @@ PY
 run() { (cd "$MNT" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
 
 check 'FAT32 mount install without chmod aborts' run install
-check 'all six module trees registered on vehicle from FAT32' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'all seven module trees registered on vehicle from FAT32' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 check 'transaction committed on FAT32' grep -qx committed "$W/data/nemesis/gen5w-kr-integrated/state"
 check 'dashboard created on FAT32 USB' test -f "$MNT/GEN5W-REPORT/RESULT.html"
 check 'issue doc created on FAT32 USB' test -f "$MNT/GEN5W-REPORT/ISSUE.md"
 
 # Test update on FAT32
 check 'update on FAT32' run update
-check 'modules retained after FAT32 update' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'modules retained after FAT32 update' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 
 # Test rollback on FAT32
 check 'rollback on FAT32' run rollback
-check 'modules restored after FAT32 rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 6
+check 'modules restored after FAT32 rollback' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 
 # Test remove on FAT32
 check 'remove all modules from FAT32' run remove

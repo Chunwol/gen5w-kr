@@ -165,6 +165,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
 
     void connected(BluetoothDevice device) {
         if (device == null || device.getBondState() != BluetoothDevice.BOND_BONDED) return;
+        DriveLog.bridge(2, 1, 0, 0, 0, 0, 0);
         String address = device.getAddress();
         linked.add(address);
         falseConnectionSince.remove(address.toUpperCase(java.util.Locale.US));
@@ -173,6 +174,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
 
     void disconnected(BluetoothDevice device) {
         if (device == null) return;
+        DriveLog.bridge(2, 0, 0, 0, 0, 0, 0);
         String address = device.getAddress();
         BluetoothCandidateScan.disconnected(linked, falseConnectionSince, address, session, now());
     }
@@ -257,6 +259,44 @@ public final class WirelessBridge implements StockProjectionSession.Port {
 
     public void event(String name, String result) {
         log("path=stock event=" + safe(name) + " result=" + safe(result));
+        int nameCode = eventCode(name);
+        int resultCode = resultCode(result);
+        if (nameCode != 0 && resultCode != 0) DriveLog.bridge(1, nameCode, resultCode, 0, 0, 0, 0);
+    }
+
+    private static int eventCode(String name) {
+        if ("candidate".equals(name)) return 1;
+        if ("cancel".equals(name)) return 2;
+        if ("result".equals(name)) return 3;
+        if ("service".equals(name)) return 4;
+        if ("progress".equals(name)) return 5;
+        if ("request".equals(name)) return 6;
+        return 0;
+    }
+
+    private static int resultCode(String result) {
+        if ("ready".equals(result)) return 1;
+        if ("acl-lost".equals(result)) return 2;
+        if ("wired".equals(result)) return 3;
+        if ("foreign".equals(result)) return 4;
+        if ("timeout".equals(result)) return 5;
+        if ("unavailable".equals(result)) return 6;
+        if ("projection-active".equals(result)) return 7;
+        if ("connecting".equals(result)) return 8;
+        if ("foreign-active".equals(result)) return 9;
+        if ("stale-request".equals(result)) return 10;
+        if ("oem-action-sent".equals(result)) return 11;
+        if ("shutdown".equals(result)) return 12;
+        if ("invocation".equals(result)) return 13;
+        if ("service-unavailable".equals(result)) return 14;
+        if ("method-unavailable".equals(result)) return 15;
+        if ("security".equals(result)) return 16;
+        if ("profile-unavailable".equals(result)) return 17;
+        if ("profile-mismatch".equals(result)) return 18;
+        if ("profile-disabled".equals(result)) return 19;
+        if ("auto-connect-disabled".equals(result)) return 20;
+        if ("cancelled".equals(result)) return 21;
+        return 0;
     }
 
     void shutdown() {

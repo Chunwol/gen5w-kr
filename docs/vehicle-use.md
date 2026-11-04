@@ -23,6 +23,10 @@ Wi-Fi 클라이언트는 기본 꺼짐입니다. 필요한 경우에만 USB 루�
 
 NEMESIS의 **Gen5W KR diagnostic log collector**를 실행하면 USB에 `GEN5WKR_PROBE_날짜-시간` 폴더가 생깁니다. 기본 수집에는 순정 `ConsentScreen` 시스템 로그와 타이머 판정 로그가 포함됩니다. 더 자세한 로그가 필요하면 USB 루트에 빈 `GEN5W-DEBUG-ON` 파일을 만든 뒤 다시 실행하세요. `DEBUG.txt`에는 logcat 버퍼와 Bluetooth·Wi-Fi 상태 등 확장 정보가 저장됩니다. 끄려면 `GEN5W-DEBUG-ON`을 지우거나 `GEN5W-DEBUG-OFF` 파일을 만드세요. 상세 로그에는 휴대폰·차량 식별정보가 포함될 수 있으니 이슈에 올리기 전에 열어 보고 가리세요.
 
+## opt-in USB 주행 진단 로그
+
+통합 설치본의 `gen5w.kr.drivelog` 서비스는 부팅 완료 후 USB 루트에 빈 `GEN5W-DEBUG-ON` 파일이 있고 `GEN5W-DEBUG-OFF`가 없을 때에만 숫자형 HUD·연결 이벤트를 기록합니다. USB가 `/storage/usb0`에 실제로 마운트되어 있고 USB 장치임을 확인할 수 있어야 합니다. USB 루트의 `GEN5W-DRIVELOG/`에 1 MiB 세그먼트 최대 32개를 순환 기록하며 여유 공간이 64 MiB 아래로 내려가면 멈춥니다. 일주일 보존을 보장하지 않습니다. 중단하려면 DEBUG-ON을 제거하거나 DEBUG-OFF를 추가하고 USB를 안전하게 분리하세요. 기록 항목과 경로 추론 가능성은 [주행 로그 범위와 한계](drive-log.md)를 확인하세요.
+
 ## 무선 미지원 차량
 
 설치기가 처음에 자동 판별합니다. 무선 장치를 확인하지 못하면 새 설치는 유선 기능으로 진행합니다. 이미 설치한 무선 설정과 복구 기록이 정상이고 장치 확인만 불확실한 경우에는 기존 무선 설정을 유지합니다. 기록이 손상됐으면 설치를 중단합니다. 결과는 `GEN5W-REPORT/RESULT.html`에서 확인하세요.

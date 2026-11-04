@@ -37,7 +37,7 @@ PY
     printf '#!/bin/sh\nexit 0\n' > "$W/bin/sync"; chmod +x "$W/bin/sync"
     python3 - "$W/usb/packages" <<'PY'
 import zipfile,sys,hashlib,pathlib
-for m in ['dongle','wireless','audio','bridge','core','timer','bluelink']:
+for m in ['dongle','wireless','audio','bridge','core','timer','bluelink','drivelog']:
     pid='gen5w.kr.'+m
     with zipfile.ZipFile(sys.argv[1]+'/'+pid+'.zip','w') as z:
         z.writestr('NEMESIS.data','[nemesis]\nid='+pid+'\nversion=new\npreinstall=scripts/pre.sh\npostinstall=scripts/post.sh\npreuninstall=scripts/preun.sh\n')

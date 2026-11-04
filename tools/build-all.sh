@@ -38,6 +38,9 @@ cp packages/audio-format/bin/audio-patch packages/consent-timer/bin/sha256-check
 # Bluelink monthly reminder hider (service only, part of standard and dongle).
 "$PY" -I tools/mkpkg.py packages/bluelink-quiet dist/gen5w.kr.bluelink.zip
 
+# Optional numeric-only driving log; standalone so it does not require either APK.
+"$PY" -I tools/mkpkg.py packages/drive-log dist/gen5w.kr.drivelog.zip
+
 # USB Wi-Fi dongle package (stock Wi-Fi HAL unchanged; bcmdhd stand-in module)
 "$PY" -I tools/usb-wifi/build_dongle_zip.py
 

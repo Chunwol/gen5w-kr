@@ -92,6 +92,7 @@ public final class CoreService extends Service {
                             TurnFrame.tbtDistanceScale(meters),
                             0,
                             0);
+                    DriveLog.core(24, icon, secondIcon, meters, 1, 0, 0);
                     writeDebugLog("TBT: 1st=0x" + Integer.toHexString(icon)
                             + " 2nd=0x" + Integer.toHexString(secondIcon)
                             + " dist=" + meters + "m");
@@ -104,6 +105,7 @@ public final class CoreService extends Service {
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     cluster.updateLaneInfo(frame);
+                    logLaneBits(frame);
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
@@ -113,6 +115,10 @@ public final class CoreService extends Service {
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     cluster.updateTPTurnListNew(frame);
+                    DriveLog.core(26, frame.length > 1 ? frame[1] & 255 : -1,
+                            frame.length > 2 ? frame[2] & 255 : -1,
+                            frame.length > 3 ? frame[3] & 255 : -1, 1, frame.length,
+                            frame.length > 4 ? frame[4] & 255 : -1);
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
@@ -183,6 +189,8 @@ public final class CoreService extends Service {
                 : next == StockGuidance.ACTIVE ? "STOCK" : "UNKNOWN";
         if (!owner.equals(ownerState)) {
             ownerState = owner;
+            DriveLog.core(20, "STOCK".equals(owner) ? 1 : "CARPLAY".equals(owner) ? 2
+                    : "AA".equals(owner) ? 3 : 4, 0, 0, 0, 0, 0);
             Log.i(TAG, "HUD owner=" + owner);
             try {
                 java.io.FileOutputStream out = openFileOutput("hud-owner.status", MODE_PRIVATE);
@@ -203,6 +211,7 @@ public final class CoreService extends Service {
     private boolean outputError(Throwable e) {
         cluster = null;
         session.invalidateOutput();
+        DriveLog.core(27, e instanceof LinkageError ? 2 : 1, 0, 0, 0, 0, 0);
         Log.w(TAG, "cluster output failed: " + e.getClass().getSimpleName());
         return false;
     }
@@ -345,6 +354,8 @@ public final class CoreService extends Service {
                     Maneuver m = GuidanceParser.maneuver(fields, null);
                     if (m != null) {
                         int icon = ClusterIcon.of(m);
+                        DriveLog.core(22, m.type, m.exitAngle, m.drivingSide,
+                                m.junctionType, m.distanceMeters, icon);
                         String line = "MANEUVER: comp=" + m.component + " idx=" + m.index + " type=" + m.type
                                 + " angle=" + m.exitAngle + " side=" + m.drivingSide + " junc=" + m.junctionType
                                 + " -> icon=0x" + Integer.toHexString(icon);
@@ -353,6 +364,8 @@ public final class CoreService extends Service {
                 } else if (what == GuidanceParser.STATUS) {
                     GuidanceParser.Status s = GuidanceParser.status(fields);
                     if (s != null) {
+                        DriveLog.core(21, s.state, s.distanceToNext, s.laneIndex,
+                                s.laneTotal, s.laneVisible ? 1 : 0, s.hasDistance ? 1 : 0);
                         String line = "STATUS: comp=" + s.component + " state=" + s.state
                                 + " dist=" + s.distanceToNext
                                 + " curr=" + java.util.Arrays.toString(s.current);
@@ -370,6 +383,23 @@ public final class CoreService extends Service {
 
     private void writeDebugLog(String line) {
         Log.i("Gen5wNavi", line);
+    }
+    private void logLaneBits(byte[] frame) {
+        if (frame == null || frame.length != 81) return;
+        for (int i = 1; i <= 10; i++) {
+            int value = frame[i] & 255;
+            if (value != 0) DriveLog.core(25, i, value, 0, 0, 0, 0);
+        }
+        for (int i = 0x13; i < 0x2b; i++) {
+            int value = frame[i] & 255;
+            if (value != 0) DriveLog.core(25, i, value, 0, 0, 0, 0);
+        }
+        for (int i = 0x43; i <= 0x46; i++) {
+            int value = frame[i] & 255;
+            if (value != 0) DriveLog.core(25, i, value, 0, 0, 0, 0);
+        }
+        DriveLog.core(25, 81, frame[1] & 255, frame[2] & 255, frame[3] & 255,
+                frame[4] & 255, 0);
     }
     private void disconnected() {
         main.removeCallbacks(routeRetry);

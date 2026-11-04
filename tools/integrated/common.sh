@@ -12,7 +12,7 @@ BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 # Present with the match marker: still declare the stock hotspot feature (menu).
 AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
-IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink'
+IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink gen5w.kr.drivelog'
 ALL_IDS=$IDS
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS"
 VARIANT=standard
@@ -31,7 +31,7 @@ if [ -f GEN5W-BACKEND ]; then
     BACKEND=${BACKEND%$'\r'}
 fi
 if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
-    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink'
+    IDS='gen5w.kr.dongle gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink gen5w.kr.drivelog'
     ALL_IDS=$IDS
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
@@ -41,7 +41,7 @@ GEN5W_FORCE_DONGLE=
 export GEN5W_FORCE_DONGLE
 # Safe editions leave SystemUI (the boot-critical consent screen) stock.
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
-REVERSE='gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
+REVERSE='gen5w.kr.drivelog gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 report() {
@@ -491,6 +491,7 @@ step_name() {
     case "$1" in
         gen5w.kr.wireless) echo '무선 연결';; gen5w.kr.audio) echo '무선 오디오';; gen5w.kr.bridge) echo '블루투스 연결';;
         gen5w.kr.core) echo '계기판·HUD 길안내';; gen5w.kr.timer) echo '시동 안내';; gen5w.kr.bluelink) echo '블루링크 안내';;
+        gen5w.kr.drivelog) echo 'USB 주행 진단 로그';;
         gen5w.kr.dongle) echo 'USB Wi-Fi 동글';; *) echo "$1";;
     esac
 }

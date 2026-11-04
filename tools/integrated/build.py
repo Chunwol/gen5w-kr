@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a deterministic integrated USB tree from the six final dist ZIPs."""
+"""Build a deterministic integrated USB tree from the final dist ZIPs."""
 import argparse
 import configparser
 import hashlib
@@ -17,7 +17,8 @@ REPO_URL = 'https://github.com/Chunwol/gen5w-kr/blob/main/'
 # Installing, using and recovering. Everything else in docs/ is for developers.
 USER_DOCS = ['beginner-guide.md', 'vehicle-use.md', 'porting.md', 'notices.md',
              'pre-install-recovery-checklist.md', 'bluelink.md', 'wireless-recovery.md',
-             'recovery.md', 'bootloader-recovery.md', 'validation.md', 'licensing.md']
+             'recovery.md', 'bootloader-recovery.md', 'validation.md', 'licensing.md',
+             'drive-log.md']
 LINK = re.compile(r'\]\(([^)#\s]+)(#[^)\s]*)?\)')
 
 
@@ -40,7 +41,7 @@ def link_missing_docs(output):
             md.write_text(new, encoding='utf-8', newline='\n')
 
 
-IDS =['gen5w.kr.' + x for x in ('wireless', 'audio', 'bridge', 'core', 'timer', 'bluelink')]
+IDS =['gen5w.kr.' + x for x in ('wireless', 'audio', 'bridge', 'core', 'timer', 'bluelink', 'drivelog')]
 
 
 def compiler():
