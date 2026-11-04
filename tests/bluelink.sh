@@ -46,6 +46,13 @@ run pre; check 'pre skips other Bluelink builds (77)' test $? = 77
 dismissed; run post; run quiet
 check 'other builds keep the stock reminder' has 'value="1761955200000"'
 echo vrm > "$W/sys/app/HKMC_TAppVRM.odex"
+# The built-in values are the official V039 files' md5 (from the V039 system image).
+check 'built-in VRM md5 is the official V039 value' grep -q 'VRM_V039=${BL_TEST_VRM_MD5:-5689fb31a761a5696eb2bbe0801a0f77}' "$PKG/scripts/common.sh"
+check 'built-in service md5 is the official V039 value' grep -q 'SERVICE_V039=${BL_TEST_SERVICE_MD5:-0778d4b95ee51a97a555aec4fdcc6c3f}' "$PKG/scripts/common.sh"
+echo changed > "$W/sys/app/HKMC_TAppVRM.odex"
+out=$(PATH=$W/bin:$PATH BL_TEST_DATA=$W/data BL_TEST_SYS=$W/sys BL_TEST_VRM_MD5=$VRM BL_TEST_SERVICE_MD5=$SVC mksh "$PKG/scripts/pre.sh" 2>&1)
+check 'skip message shows this unit md5 values' eval '[[ "$out" == *"VRM=$(md5sum "$W/sys/app/HKMC_TAppVRM.odex" | cut -d" " -f1)"* && "$out" == *"SERVICE=$SVC"* ]]'
+echo vrm > "$W/sys/app/HKMC_TAppVRM.odex"
 
 # Car that pressed "30 일간 보지 않기" before.
 fresh; dismissed

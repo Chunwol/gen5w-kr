@@ -14,7 +14,7 @@ case "$1" in
 esac
 SH
 chmod +x "$W/nemesis"
-for name in wireless audio bridge core timer bluelink; do
+for name in wireless audio bridge core timer bluelink drivelog; do
     touch "$W/work/packages/gen5w.kr.$name.zip"
 done
 cat > "$W/work/exercise.sh" <<'SH'

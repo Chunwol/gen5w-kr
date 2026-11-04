@@ -20,8 +20,9 @@ ORIG=$STATE/orig-lines
 STOPPING=$STATE/stopping
 # 2100-01-01 00:00 UTC in milliseconds
 FAR=4102444800000
-VRM_V039=${BL_TEST_VRM_MD5:-b1c36d37f705073c96666a9985d3ba0c}
-SERVICE_V039=${BL_TEST_SERVICE_MD5:-150edee377c86d2c47298197b0c4da7a}
+# md5 of the stock V039 odex files, taken from the official V039 system image (system.ext4).
+VRM_V039=${BL_TEST_VRM_MD5:-5689fb31a761a5696eb2bbe0801a0f77}
+SERVICE_V039=${BL_TEST_SERVICE_MD5:-0778d4b95ee51a97a555aec4fdcc6c3f}
 log() { echo "$1"; }
 file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || return 1; set -- $_l; echo "$1"; }
 # The reminder logic above was read from these exact stock builds only.
