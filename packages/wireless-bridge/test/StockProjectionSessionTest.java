@@ -272,7 +272,46 @@ public final class StockProjectionSessionTest {
                 "inspection completing after bootstrap deadline cannot dispatch connection");
     }
 
+    private static void bootstrapDispatchRequiresCurrentEligibleGeneration() {
+        final int[] sends = {0};
+        StockProjectionSession.RequestAction action = new StockProjectionSession.RequestAction() {
+            public void send() { sends[0]++; }
+        };
+        Attempt current = new Attempt();
+        current.missingProfile();
+        check(current.session.dispatchIfBootstrapAllowed(current.port.generation, "phone-a", 2, action),
+                "current bootstrap executes");
+        check(!current.session.dispatchIfBootstrapAllowed(current.port.generation, "phone-a", 2, action),
+                "duplicate bootstrap dispatch is denied before its callback");
+        current.finishBootstrap();
+        check(!current.session.dispatchIfBootstrapAllowed(current.port.generation, "phone-a", 3, action),
+                "completed bootstrap cannot dispatch twice");
+        Attempt stale = new Attempt();
+        stale.missingProfile();
+        long old = stale.port.generation;
+        stale.session.lost("phone-a", 2);
+        check(!stale.session.dispatchIfBootstrapAllowed(old, "phone-a", 3, action), "stale bootstrap denied");
+        Attempt wired = new Attempt();
+        wired.missingProfile();
+        wired.session.environment(true, false, 2);
+        check(!wired.session.dispatchIfBootstrapAllowed(wired.port.generation, "phone-a", 3, action),
+                "wired bootstrap denied");
+        Attempt foreign = new Attempt();
+        foreign.missingProfile();
+        foreign.session.environment(false, true, 2);
+        check(!foreign.session.dispatchIfBootstrapAllowed(foreign.port.generation, "phone-a", 3, action),
+                "foreign owner bootstrap denied");
+        Attempt expired = new Attempt();
+        expired.missingProfile();
+        check(!expired.session.dispatchIfBootstrapAllowed(expired.port.generation, "phone-a", 5001, action),
+                "expired bootstrap operation denied at deadline");
+        check(!expired.session.dispatchIfBootstrapAllowed(expired.port.generation, "phone-b", 2, action),
+                "wrong candidate bootstrap denied");
+        check(sends[0] == 1, "only the eligible current bootstrap executes once");
+    }
+
     public static void main(String[] args) {
+        bootstrapDispatchRequiresCurrentEligibleGeneration();
         missingProfileBootstrapsOncePerGeneration();
         profileAppearanceDispatchesOnceForCarPlay();
         profileAppearanceDispatchesOnceForAndroidAuto();

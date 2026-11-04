@@ -35,6 +35,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
     final ExecutorService oemCalls = Executors.newFixedThreadPool(2);
     volatile boolean cable;
     volatile boolean shuttingDown;
+    volatile ProjectionWifiAccess.ApProgress apProgress = ProjectionWifiAccess.ApProgress.UNKNOWN;
     boolean eventsRegistered;
     boolean stopRegistered;
 
@@ -53,6 +54,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         registerAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         registerAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         registerAction("android.hardware.usb.action.USB_STATE");
+        registerAction("android.net.wifi.WIFI_AP_STATE_CHANGED");
         registerAction("com.hkmc.intent.action.SYSTEM_POWERON");
         IntentFilter stop = new IntentFilter("kr.gen5w.wireless.STOP_BRIDGE");
         stop.addAction(Intent.ACTION_SHUTDOWN);
@@ -96,6 +98,10 @@ public final class WirelessBridge implements StockProjectionSession.Port {
     final BroadcastReceiver events = new BroadcastReceiver() {
         public void onReceive(Context c, Intent i) {
             String action = i.getAction();
+            if ("android.net.wifi.WIFI_AP_STATE_CHANGED".equals(action)) {
+                apProgress = ProjectionWifiAccess.classifyApState(i.getIntExtra("wifi_state", -1));
+                event("wifi", apResult(apProgress));
+            }
             BluetoothDevice device = (BluetoothDevice) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
             if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
                 connected(device);
@@ -210,22 +216,80 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         try {
             oemCalls.execute(new Runnable() {
                 public void run() {
-                    final StockProjectionSession.Observation state = PhoneProjectionAccess.inspect(
+                    StockProjectionSession.Observation projection = PhoneProjectionAccess.inspect(
                             new PhoneProjectionAccess.ServiceProvider() {
                                 public Object get(String name) { return context.getSystemService(name); }
-                            }, address);
+                            }, context, address);
+                    ProjectionWifiAccess.CredentialStatus status = inspectWifiCredentials();
+                    StockProjectionSession.WifiCredentialState credentials =
+                            status == ProjectionWifiAccess.CredentialStatus.PRESENT
+                            ? StockProjectionSession.WifiCredentialState.PRESENT
+                            : status == ProjectionWifiAccess.CredentialStatus.MISSING
+                            ? StockProjectionSession.WifiCredentialState.MISSING
+                            : StockProjectionSession.WifiCredentialState.UNKNOWN;
+                    final StockProjectionSession.Observation state = new StockProjectionSession.Observation(
+                            projection.result, projection.serviceAvailable, projection.profileType,
+                            projection.profileState, projection.active, projection.connecting,
+                            projection.otherActive, credentials, apState(apProgress));
                     main.post(new Runnable() {
-                        public void run() { session.inspected(generation, state, now()); }
+                        public void run() {
+                            if (!session.current(generation) || shuttingDown) return;
+                            event("platform", state.profileType == PhoneProjectionAccess.TYPE_CARPLAY
+                                    ? "platform-carplay" : state.profileType == PhoneProjectionAccess.TYPE_ANDROID_AUTO
+                                    ? "platform-android-auto" : "platform-unknown");
+                            event("profile", profileResult(state.profileState));
+                            event("wifi", state.credentials == StockProjectionSession.WifiCredentialState.PRESENT
+                                    ? "wifi-credentials-present" : state.credentials == StockProjectionSession.WifiCredentialState.MISSING
+                                    ? "wifi-credentials-missing" : "wifi-credentials-unknown");
+                            session.inspected(generation, state, now());
+                        }
                     });
                 }
             });
         } catch (RuntimeException e) {
-            session.inspected(generation, new StockProjectionSession.Observation(
-                    StockProjectionSession.Result.INVOCATION, false, false, false), now());
+            main.post(new Runnable() {
+                public void run() { session.inspected(generation, new StockProjectionSession.Observation(
+                        StockProjectionSession.Result.INVOCATION, false, false, false), now()); }
+            });
         }
     }
 
-    public void requestConnect(final long generation, final String address) {
+    public void bootstrap(final long generation, final String address) {
+        try {
+            oemCalls.execute(new Runnable() {
+                public void run() {
+                    final StockProjectionSession.BootstrapResult[] result = {
+                        StockProjectionSession.BootstrapResult.CANCELLED
+                    };
+                    session.dispatchIfBootstrapAllowed(generation, address, now(),
+                            new StockProjectionSession.RequestAction() {
+                                public void send() {
+                                    if (shuttingDown || cable) return;
+                                    result[0] = PhoneProjectionAccess.bootstrap(
+                                            new PhoneProjectionAccess.ServiceProvider() {
+                                                public Object get(String name) { return context.getSystemService(name); }
+                                            }, context, new PhoneProjectionAccess.ActionSender() {
+                                                public boolean send(String action, String packageName, String extra, String value) {
+                                                    sendOemAction(action, packageName, extra, value);
+                                                    return true;
+                                                }
+                                            }, address);
+                                }
+                            });
+                    main.post(new Runnable() {
+                        public void run() { session.bootstrapped(generation, result[0], now()); }
+                    });
+                }
+            });
+        } catch (RuntimeException e) {
+            main.post(new Runnable() {
+                public void run() { session.bootstrapped(generation,
+                        StockProjectionSession.BootstrapResult.INVOCATION, now()); }
+            });
+        }
+    }
+
+    public void requestConnect(final long generation, final String address, final int profileType) {
         try {
             oemCalls.execute(new Runnable() {
                 public void run() {
@@ -235,16 +299,16 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                             }, context, new PhoneProjectionAccess.ActionSender() {
                                 public boolean send(final String action, final String packageName,
                                         final String extra, final String value) {
-                                    if (shuttingDown || cable) return false;
-                                    return session.dispatchIfRequestAllowed(generation, address, now(),
+                                    final boolean[] sent = {false};
+                                    session.dispatchIfRequestAllowed(generation, address, now(),
                                             new StockProjectionSession.RequestAction() {
                                                 public void send() {
-                                                    Intent intent = new Intent(action);
-                                                    intent.setPackage(packageName);
-                                                    intent.putExtra(extra, value);
-                                                    context.sendBroadcast(intent);
+                                                    if (shuttingDown || cable) return;
+                                                    sendOemAction(action, packageName, extra, value);
+                                                    sent[0] = true;
                                                 }
                                             });
+                                    return sent[0];
                                 }
                             }, address);
                     main.post(new Runnable() {
@@ -253,7 +317,56 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                 }
             });
         } catch (RuntimeException e) {
-            session.requested(generation, StockProjectionSession.RequestResult.INVOCATION, now());
+            main.post(new Runnable() {
+                public void run() { session.requested(generation,
+                        StockProjectionSession.RequestResult.INVOCATION, now()); }
+            });
+        }
+    }
+
+    private ProjectionWifiAccess.CredentialStatus inspectWifiCredentials() {
+        try {
+            return ProjectionWifiAccess.inspect(context.getSystemService("wifi")).status;
+        } catch (RuntimeException e) {
+            return ProjectionWifiAccess.CredentialStatus.UNKNOWN;
+        }
+    }
+
+    private void sendOemAction(String action, String packageName, String extra, String value) {
+        Intent intent = new Intent(action);
+        intent.setPackage(packageName);
+        intent.putExtra(extra, value);
+        context.sendBroadcast(intent);
+    }
+
+    private static int apState(ProjectionWifiAccess.ApProgress progress) {
+        switch (progress) {
+            case OFF: return 11;
+            case ENABLING: return 12;
+            case READY: return 13;
+            case FAILED: return 14;
+            default: return 0;
+        }
+    }
+
+    private static String apResult(ProjectionWifiAccess.ApProgress progress) {
+        switch (progress) {
+            case OFF: return "wifi-ap-off";
+            case ENABLING: return "wifi-ap-enabling";
+            case READY: return "wifi-ap-ready";
+            case FAILED: return "wifi-ap-failed";
+            default: return "wifi-ap-unknown";
+        }
+    }
+
+    private static String profileResult(StockProjectionSession.ProfileState profile) {
+        switch (profile) {
+            case READY: return "profile-ready";
+            case MISSING: return "profile-missing";
+            case DISABLED: return "profile-disabled";
+            case AUTO_CONNECT_DISABLED: return "auto-connect-disabled";
+            case UNSUPPORTED: return "profile-unsupported";
+            default: return "profile-unknown";
         }
     }
 
@@ -271,6 +384,10 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if ("service".equals(name)) return 4;
         if ("progress".equals(name)) return 5;
         if ("request".equals(name)) return 6;
+        if ("bootstrap".equals(name)) return 7;
+        if ("platform".equals(name)) return 8;
+        if ("profile".equals(name)) return 9;
+        if ("wifi".equals(name)) return 10;
         return 0;
     }
 
@@ -296,6 +413,27 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if ("profile-disabled".equals(result)) return 19;
         if ("auto-connect-disabled".equals(result)) return 20;
         if ("cancelled".equals(result)) return 21;
+        if ("platform-carplay".equals(result)) return 22;
+        if ("platform-android-auto".equals(result)) return 23;
+        if ("platform-unknown".equals(result)) return 24;
+        if ("profile-ready".equals(result)) return 25;
+        if ("profile-missing".equals(result)) return 26;
+        if ("profile-unknown".equals(result)) return 27;
+        if ("profile-unsupported".equals(result)) return 28;
+        if ("oem-requested".equals(result)) return 29;
+        if ("profile-bootstrap-timeout".equals(result)) return 30;
+        if ("wifi-ap-timeout".equals(result)) return 31;
+        if ("projection-timeout".equals(result)) return 32;
+        if ("request-timeout".equals(result)) return 33;
+        if ("wifi-credentials-unavailable".equals(result)) return 34;
+        if ("wifi-credentials-present".equals(result)) return 35;
+        if ("wifi-credentials-missing".equals(result)) return 36;
+        if ("wifi-credentials-unknown".equals(result)) return 37;
+        if ("wifi-ap-off".equals(result)) return 38;
+        if ("wifi-ap-enabling".equals(result)) return 39;
+        if ("wifi-ap-ready".equals(result)) return 40;
+        if ("wifi-ap-failed".equals(result)) return 41;
+        if ("wifi-ap-unknown".equals(result)) return 42;
         return 0;
     }
 
@@ -319,6 +457,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         return false;
     }
     static String safe(String value) {
+        if (eventCode(value) != 0 || resultCode(value) != 0) return value;
         return StockProjectionSession.safeDiagnosticToken(value);
     }
     static void log(String message) { Log.i(TAG, message); }

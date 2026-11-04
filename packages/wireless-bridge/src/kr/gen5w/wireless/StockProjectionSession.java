@@ -96,6 +96,7 @@ public final class StockProjectionSession {
     private boolean inspectionPending;
     private boolean bootstrapIssued;
     private boolean bootstrapPending;
+    private boolean bootstrapDispatched;
     private boolean connectIssued;
     private boolean connectAccepted;
     private boolean observedConnecting;
@@ -362,6 +363,7 @@ public final class StockProjectionSession {
         bootstrapIssued = false;
         bootstrapPending = false;
         connectIssued = false;
+        bootstrapDispatched = false;
         connectAccepted = false;
         observedConnecting = false;
         requestPending = false;
@@ -384,6 +386,15 @@ public final class StockProjectionSession {
     /** Linearizes the final eligibility check with dispatch to prevent late OEM broadcasts. */
     public synchronized boolean dispatchIfRequestAllowed(long value, String address, long now, RequestAction action) {
         if (action == null || now >= inspectionDeadline || !requestAllowed(value, address)) return false;
+        action.send();
+        return true;
+    }
+    /** Covers both OEM bootstrap operations with the same final ownership check. */
+    public synchronized boolean dispatchIfBootstrapAllowed(long value, String address, long now, RequestAction action) {
+        if (action == null || now >= inspectionDeadline || !current(value) || address == null ||
+                !address.equals(candidate) || !bootstrapPending || bootstrapDispatched || phase != Phase.BOOTSTRAP_REQUESTED ||
+                wired || foreignProjection) return false;
+        bootstrapDispatched = true;
         action.send();
         return true;
     }

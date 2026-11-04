@@ -2,6 +2,10 @@
 set -u
 cd "$(dirname "$0")/.."
 . tests/lib.sh
+bridge_source=packages/wireless-bridge/src/kr/gen5w/wireless/WirelessBridge.java
+check 'bridge subscribes to OEM AP progress' grep -Fq 'registerAction("android.net.wifi.WIFI_AP_STATE_CHANGED")' "$bridge_source"
+check 'bootstrap final generation gate is wired' grep -Fq 'session.dispatchIfBootstrapAllowed(' "$bridge_source"
+check 'saved profile final generation gate is wired' grep -Fq 'session.dispatchIfRequestAllowed(' "$bridge_source"
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/pkg/scripts" "$W/pkg/bin" "$W/pkg/app" "$W/sys/app" "$W/sys/framework" "$W/data" "$W/bin" "$W/fixture"
 cp packages/wireless-bridge/scripts/*.sh "$W/pkg/scripts/" 2>/dev/null || true
