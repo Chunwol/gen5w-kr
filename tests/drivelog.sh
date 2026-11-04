@@ -10,6 +10,13 @@ ok() { echo "PASS $1"; }
 
 [ -f "$COMMON" ] || fail 'common helper exists'
 . "$COMMON"
+if ! command -v print >/dev/null 2>&1; then
+    print() {
+        [ "$1" = -r ] && shift
+        [ "$1" = -- ] && shift
+        printf '%s\n' "$*"
+    }
+fi
 
 USB=$W/usb
 MOUNTS=$W/mounts
@@ -58,16 +65,30 @@ dl_validate_record 'D1|9999999999999|2|21|12|-45|1|7|850|66' || fail 'accepts lo
 [ "$(dl_record_uptime "$record")" = 12345 ] || fail 'extracts monotonic record time'
 dl_record_after 12345 "$record" || fail 'accepts record at opt-in timestamp'
 if dl_record_after 12346 "$record"; then fail 'rejects pre-opt-in retained logcat row'; fi
+long_record='D1|2147484000|2|21|12|-45|1|7|850|66'
+dl_record_after 2147483999 "$long_record" || fail 'compares uptime beyond signed 32-bit milliseconds'
+if dl_record_after 2147484001 "$long_record"; then fail 'rejects pre-opt-in row beyond signed 32-bit milliseconds'; fi
 if dl_validate_record 'D1|12345|2|21|12|-45|1|7|850|66|path=Main St'; then fail 'rejects route text'; fi
 if dl_validate_record 'D1|12345|2|21|12|-45|1|7|850|mac=AA:BB:CC:DD:EE:FF'; then fail 'rejects address/text field'; fi
 if dl_validate_record 'D1|12345678901234|2|21|12|-45|1|7|850|66'; then fail 'rejects oversized timestamp'; fi
 ok 'accepts bounded numeric schema and rejects extra text fields'
+[ "$(dl_size_from_ls '-rw-r--r-- 1000 1000 1234 Jan 01 00:00 segment-00.log')" = 1234 ] || fail 'reads exact byte size from Android toolbox ls layout'
+[ "$(dl_size_from_ls '-rw-r--r-- 1 user group 1234 Jan 01 00:00 segment-00.log')" = 1234 ] || fail 'reads exact byte size from GNU ls layout'
+if dl_size_from_ls '-rw-r--r-- 1 user group unknown Jan 01 00:00 segment-00.log'; then
+    fail 'rejects an unparseable ls size'
+fi
+ok 'parses exact segment byte size across ls layouts'
 printf '12.34 1.00\n' > "$W/uptime"
 DL_PROC_UPTIME="$W/uptime"
 [ "$(dl_uptime_ms)" = 12340 ] || fail 'reads monotonic milliseconds for opt-in boundary'
+printf '2147484.00 1.00\n' > "$W/uptime"
+[ "$(dl_uptime_ms)" = 2147484000 ] || fail 'builds long uptime milliseconds without 32-bit arithmetic'
 ok 'reads uptime and ignores retained logcat rows from before opt-in'
 dl_read_timeout 10000 12000 || fail 'recognizes idle reader timeout'
 if dl_read_timeout 10000 10010; then fail 'distinguishes EOF from idle timeout'; fi
+dl_read_timeout 2147483000 2147484000 || fail 'recognizes long-uptime timeout without overflow'
+if dl_read_timeout 2147483000 2147483999; then fail 'requires a full timeout at long uptime'; fi
+dl_read_timeout 9999999999 10000000999 || fail 'handles decimal carry at long uptime'
 ok 'distinguishes idle poll from reader EOF'
 if command -v mksh >/dev/null 2>&1; then
     cat > "$W/read-probe.mksh" <<'EOF'
@@ -80,6 +101,22 @@ IFS= read -t 1 -r value
 EOF
     (sleep 1.2; printf 'ready\n') | mksh "$W/read-probe.mksh" || fail 'mksh reader times out, resumes, and exits on EOF'
     ok 'mock logcat reader resumes after idle and terminates at EOF'
+    printf '2147484.00 1.00\n' > "$W/uptime"
+    DL_TESTING=1 DL_SEGMENT_BYTES_OVERRIDE=40 DL_SEGMENTS_OVERRIDE=2 DL_MIN_FREE_KB_OVERRIDE=64 \
+        DL_PROC_UPTIME="$W/uptime" mksh -c '
+            . "$1"
+            [ "$(dl_uptime_ms)" = 2147484000 ] || exit 1
+            rec="D1|2147484000|2|21|12|-45|1|7|850|66"
+            dl_record_after 2147483999 "$rec" || exit 2
+            dl_read_timeout 2147483000 2147484000 || exit 3
+            dl_write_record "$3" "$rec" 128 || exit 4
+            sz=$(dl_size_from_ls "$(LC_ALL=C ls -ln "$3/segment-00.log")") || exit 5
+            expected=$(( ${#rec} + 1 ))
+            [ "$sz" = "$expected" ] || exit 6
+            dl_write_record "$3" "$rec" 128 || exit 7
+            [ -f "$3/segment-01.log" ] || exit 8
+        ' drive-log-mksh "$COMMON" "$W/uptime" "$W/mksh-ring" || fail 'mksh handles long uptime and exact ls byte size'
+    ok 'mksh R43 executes long-uptime comparisons and segment byte sizing'
 fi
 
 RING=$W/ring
