@@ -95,16 +95,16 @@ def audit_dongle(path):
 
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
 packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.dongle.zip']
-assert len(packages)==7, f'expected 7 packages, got {len(packages)}: {[p.name for p in packages]}'
+assert len(packages)==8, f'expected 8 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 audit_dongle(root/'gen5w.kr.dongle.zip')
 with zipfile.ZipFile(root/'usb-integrated.zip') as z:
     assert z.testzip() is None
-    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==6
-print('AUDITED six-module integrated installer; no OEM/private inputs required')
+    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==7
+print('AUDITED seven-module integrated installer; no OEM/private inputs required')
 assert not (root/'gen5w.kr.consent.zip').exists(), 'local notice-disabling package in distribution'
 assert not (root/'gen5w-kr-skip-consent.zip').exists(), 'local edition in distribution'
-for variant,count in [('standard',6),('dongle',7)]:
+for variant,count in [('standard',7),('dongle',8)]:
     with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
         assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
@@ -117,7 +117,7 @@ for variant,count in [('standard',6),('dongle',7)]:
         docs = sorted(n for n in z.namelist() if n.startswith('docs/'))
         assert docs == sorted('docs/' + d for d in ['beginner-guide.md', 'vehicle-use.md', 'porting.md', 'notices.md',
             'pre-install-recovery-checklist.md', 'bluelink.md', 'wireless-recovery.md', 'recovery.md',
-            'bootloader-recovery.md', 'validation.md', 'licensing.md']), ('developer documents on the USB', docs)
+            'bootloader-recovery.md', 'validation.md', 'licensing.md', 'drive-log.md']), ('developer documents on the USB', docs)
         assert not any(n in z.namelist() for n in ['처음설치.md', '사용방법.md', '라이선스와소스.md', 'AGENTS.md'])
         for n in z.namelist():
             if not n.endswith('.md'):
