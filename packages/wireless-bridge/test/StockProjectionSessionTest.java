@@ -216,6 +216,62 @@ public final class StockProjectionSessionTest {
         check(a.port.bootstraps == 2, "new generation gets its own single bootstrap");
     }
 
+    private static void repeatedConnectingObservationRestoresWaitingPhase() {
+        Attempt a = new Attempt();
+        a.port.inspect(a.session, 1, 1, StockProjectionSession.ProfileState.READY,
+                false, true, false, StockProjectionSession.WifiCredentialState.PRESENT, 11);
+        check(a.session.phase() == StockProjectionSession.Phase.WAITING_WIFI,
+                "first OEM connecting observation enters Wi-Fi wait");
+        a.session.tick(1001);
+        a.port.inspect(a.session, 1002, 1, StockProjectionSession.ProfileState.READY,
+                false, true, false, StockProjectionSession.WifiCredentialState.PRESENT, 11);
+        check(a.session.phase() == StockProjectionSession.Phase.WAITING_WIFI,
+                "repeated connecting observation restores the waiting phase after inspection");
+        a.session.tick(StockProjectionSession.WIFI_TIMEOUT_MS + 2);
+        check("wifi-ap-timeout".equals(a.port.lastEvent),
+                "repeated connecting observations do not reset the original Wi-Fi deadline");
+    }
+
+    private static void oemConnectingRetainsOwnershipWithoutAcceptedRequest() {
+        Attempt a = new Attempt();
+        a.port.inspect(a.session, 1, 1, StockProjectionSession.ProfileState.READY,
+                false, true, false, StockProjectionSession.WifiCredentialState.MISSING, 11);
+        check(a.session.hasPendingOemOwnership(),
+                "OEM-initiated connection retains candidate ownership without a controller request");
+        a.session.tick(1001);
+        a.port.inspect(a.session, 1002, 1, StockProjectionSession.ProfileState.READY,
+                false, true, false, StockProjectionSession.WifiCredentialState.MISSING, 11);
+        check(a.session.phase() == StockProjectionSession.Phase.WAITING_WIFI &&
+                        a.session.hasPendingOemOwnership(),
+                "ongoing OEM connection remains pending across inspection polls");
+        check(!"wifi-credentials-unavailable".equals(a.port.lastEvent),
+                "OEM connecting state alone does not establish an accepted controller request");
+    }
+
+    private static void oemConnectingDoesNotDiagnoseMissingCredentials() {
+        Attempt a = new Attempt();
+        a.port.inspect(a.session, 1, 1, StockProjectionSession.ProfileState.READY,
+                false, true, false, StockProjectionSession.WifiCredentialState.MISSING, 11);
+        a.session.tick(1001);
+        a.port.inspect(a.session, 1002, 1, StockProjectionSession.ProfileState.READY,
+                false, true, false, StockProjectionSession.WifiCredentialState.MISSING, 11);
+        check(!"wifi-credentials-unavailable".equals(a.port.lastEvent),
+                "OEM connecting alone cannot report missing credentials without accepted request");
+    }
+
+    private static void lateBootstrapInspectionCannotDispatchConnect() {
+        Attempt a = new Attempt();
+        a.missingProfile();
+        a.finishBootstrap();
+        long deadline = 1 + StockProjectionSession.PROFILE_BOOTSTRAP_TIMEOUT_MS;
+        a.session.tick(deadline - 100);
+        a.port.inspect(a.session, deadline + 1, 1, StockProjectionSession.ProfileState.READY,
+                false, false, false, StockProjectionSession.WifiCredentialState.PRESENT, 11);
+        check(a.session.phase() == StockProjectionSession.Phase.FAILED && a.port.requests == 0 &&
+                        "profile-bootstrap-timeout".equals(a.port.lastEvent),
+                "inspection completing after bootstrap deadline cannot dispatch connection");
+    }
+
     public static void main(String[] args) {
         missingProfileBootstrapsOncePerGeneration();
         profileAppearanceDispatchesOnceForCarPlay();
@@ -225,6 +281,10 @@ public final class StockProjectionSessionTest {
         bootstrapWifiAndFinalTimeoutsAreDistinct();
         wiredAndStaleCallbacksCancel();
         restartStartsFromInspectionWithoutPendingState();
+        repeatedConnectingObservationRestoresWaitingPhase();
+        oemConnectingRetainsOwnershipWithoutAcceptedRequest();
+        oemConnectingDoesNotDiagnoseMissingCredentials();
+        lateBootstrapInspectionCannotDispatchConnect();
         System.out.println("PASS StockProjectionSessionTest");
     }
 }

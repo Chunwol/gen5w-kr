@@ -97,6 +97,8 @@ public final class StockProjectionSession {
     private boolean bootstrapIssued;
     private boolean bootstrapPending;
     private boolean connectIssued;
+    private boolean connectAccepted;
+    private boolean observedConnecting;
     private boolean requestPending;
     private int profileType;
     private WifiCredentialState credentials = WifiCredentialState.UNKNOWN;
@@ -151,6 +153,16 @@ public final class StockProjectionSession {
 
     public synchronized void tick(long now) {
         if (candidate == null || wired || foreignProjection || terminal()) return;
+        boolean waitingForBootstrapProfile = phase == Phase.WAITING_PROFILE ||
+                phase == Phase.BOOTSTRAP_REQUESTED ||
+                (phase == Phase.INSPECTING && (inspectionReturnPhase == Phase.WAITING_PROFILE ||
+                        inspectionReturnPhase == Phase.BOOTSTRAP_REQUESTED));
+        if (bootstrapIssued && waitingForBootstrapProfile && bootstrapDeadline > 0 &&
+                now >= bootstrapDeadline) {
+            inspectionPending = false;
+            fail("profile-bootstrap-timeout");
+            return;
+        }
         if (inspectionPending && now >= inspectionDeadline) {
             inspectionPending = false;
             fail("timeout");
@@ -203,6 +215,12 @@ public final class StockProjectionSession {
         inspectionPending = false;
         Phase previousPhase = inspectionReturnPhase;
         inspectionReturnPhase = Phase.IDLE;
+        if (bootstrapIssued && (previousPhase == Phase.WAITING_PROFILE ||
+                previousPhase == Phase.BOOTSTRAP_REQUESTED) && bootstrapDeadline > 0 &&
+                now >= bootstrapDeadline) {
+            fail("profile-bootstrap-timeout");
+            return;
+        }
         if (observation == null || observation.result != Result.INVOKED || !observation.serviceAvailable) {
             fail("unavailable");
             port.event("service", resultName(observation == null ? Result.INVOCATION : observation.result));
@@ -220,7 +238,8 @@ public final class StockProjectionSession {
             port.event("result", "foreign-active");
             return;
         }
-        if (previousPhase == Phase.WAITING_WIFI && credentials == WifiCredentialState.MISSING) {
+        if (connectAccepted && previousPhase == Phase.WAITING_WIFI &&
+                !observation.connecting && credentials == WifiCredentialState.MISSING) {
             phase = Phase.BLOCKED;
             port.event("result", "wifi-credentials-unavailable");
             return;
@@ -255,15 +274,18 @@ public final class StockProjectionSession {
             }
             profileType = observation.profileType;
             if (observation.connecting) {
+                observedConnecting = true;
                 if (previousPhase != Phase.WAITING_WIFI) {
-                    phase = Phase.WAITING_WIFI;
                     requestDeadline = now + REQUEST_TIMEOUT_MS;
                     wifiDeadline = now + WIFI_TIMEOUT_MS;
                 }
+                phase = Phase.WAITING_WIFI;
                 nextPoll = now + POLL_INTERVAL_MS;
                 port.event("progress", "connecting");
                 return;
             }
+            observedConnecting = false;
+            bootstrapDeadline = 0;
             if (!connectIssued) {
                 connectIssued = true;
                 requestPending = true;
@@ -319,6 +341,7 @@ public final class StockProjectionSession {
             }
             return;
         }
+        connectAccepted = true;
         phase = Phase.WAITING_WIFI;
         requestDeadline = now + REQUEST_TIMEOUT_MS;
         wifiDeadline = now + WIFI_TIMEOUT_MS;
@@ -339,6 +362,8 @@ public final class StockProjectionSession {
         bootstrapIssued = false;
         bootstrapPending = false;
         connectIssued = false;
+        connectAccepted = false;
+        observedConnecting = false;
         requestPending = false;
         profileType = 0;
         credentials = WifiCredentialState.UNKNOWN;
@@ -366,7 +391,7 @@ public final class StockProjectionSession {
     public synchronized Phase phase() { return phase; }
     public synchronized String candidate() { return candidate; }
     public synchronized boolean hasPendingOemOwnership() {
-        return (bootstrapIssued || connectIssued) && !terminal() && candidate != null;
+        return (bootstrapIssued || connectIssued || observedConnecting) && !terminal() && candidate != null;
     }
 
     /** Keep stable diagnostic labels while redacting arbitrary identifiers and text. */
