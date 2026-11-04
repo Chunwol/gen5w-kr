@@ -31,7 +31,7 @@ step 110의 route capability는 별도 검증된 iAP2 shim으로 활성화해야
 
 순정 `NativeCall.sendClusterParser`는 `0xF2` 형식을 `NavigationCluster.updateTPTurnListNew`로 전달한다. `libExSLNavi`의 `NaviDrivingAssistManager::sendClusterTBTListTPInfo_Android`에서 87바이트 버퍼, `F2` 헤더, byte 1의 회전 필드 수, byte 2~4의 아이콘, byte 5부터 UTF-16LE 이름을 확인했다. 비움은 `F2,00` 형식이다. 이 내부 TP 데이터는 순정 서비스를 통해 전달하며 직접 CAN을 전송하지 않는다.
 
-일반 회전 아이콘은 순정 DiPO의 ManeuverType 처리에서 확인했다: 왼쪽 `46`, 오른쪽 `43`, 직진 `41`, 좌측 통행이 아닌 U턴 `48`, 완만한 좌/우 `47/42`, 급한 좌/우 `45/44` (16진수). `ClusterIcon`은 자체 규칙으로 각도 누락과 정확하지 않은 각도를 보완한다.
+일반 회전 아이콘은 V039 순정 DiPO의 `RouteGuidanceAnalyzer`에서 확인했습니다: 왼쪽 `46`, 오른쪽 `43`, 직진 `41`, 우측통행 U턴 `48`, 완만한 좌/우 `47/42`, 급한 좌/우 `45/44`(16진수)입니다. 같은 분기표는 통행 방향·교차로 종류·출구각을 함께 검사합니다. `ClusterIcon`도 이 조합만 허용하며 각도 누락이나 비정확한 각도를 자체 보완하지 않습니다.
 
 확인 위치: `scratchpad/iap2lib/smali/com/tcc/iap2/Iap2Const$NotiType.smali`, `$RouteGuidanceUpdate`, `$RouteGuidanceManeuverUpdate`, `$LaneGuidanceInformation`, `$LaneInformation`, `$DrivingSide`, `$RouteGuidanceState`. 원본 자료는 저장소 밖에 보관한다.
 
@@ -43,10 +43,10 @@ step 110의 route capability는 별도 검증된 iAP2 shim으로 활성화해야
 
 이 packing은 순정 변환 함수 `0x1936dc4`의 `0x1937218`(i*3), `0x1937650`(방향 저장), `0x193723c`(i 단위 증가), `0x193766a/0x1937676`(j*2, 폭2), `0x1937682`(possibility byte 저장)로 확인했습니다. 즉 possibility 위치는 `3+2*i`가 아닙니다.
 
-방향 식별자는 순정 Baidu `convertDirectiontoAngleCode`와 `ConvertGuidance` 두 native 변환표를 대조하여 다음과 같이 연결했습니다: 0°→1, -45°→2, -90°→3, +45°→4, +90°→5, -135°→6, +135°→7, ±180°→8. 이는 두 표 사이의 의미를 대응한 추론이며 iAP2에서 F1까지 동일 각도를 주입한 실차 검증은 아직 없습니다. 그 외 각도는 추측하지 않고 차선을 비웁니다.
+방향 식별자는 순정 Baidu `convertDirectiontoAngleCode`와 `ConvertGuidance` 두 native 변환표를 대조하여 다음과 같이 연결했습니다: 0°→1, -45°→2, -90°→3, +45°→4, +90°→5, -135°→6, +135°→7, ±180°→8. 이는 두 표 사이의 의미 대응이며 iAP2에서 F1까지 동일 각도를 넣은 실차 검증은 아직 없습니다. 그 외 각도는 추측하지 않고 차선을 비웁니다.
 
 차선 index는 0..N-1 또는 1..N만 허용하고 슬롯은 0..N-1로 변환합니다. 부분 갱신을 위해 캐시에는 원본 index를 보존합니다. index 오름차순이 물리적 왼쪽→오른쪽이라는 것은 현재 명시적 가정입니다. 순정 자료에서 그 물리적 순서의 증명은 찾지 못했습니다.
 
-순정 DiPO switch에서 ContinueToFollowTheRoad(5)는 `AC`로 확인했습니다. ExitFerry(16)→직진41, ChangeFerry(17)→페리B0, ChangeHighway(51)→계속주행AC는 순정에 직접 대응이 없는 항목에 대한 자체 의미 기반 대체 정책입니다. 회전교차로 타입6/7/19/28..46은 각도와 통행 방향으로 선택하며 출구 번호로 방향을 추정하지 않습니다.
+순정 DiPO switch에서 ContinueToFollowTheRoad(5)는 `AC`로 확인했습니다. 순정에 직접 대응하지 않는 ExitFerry(16), ChangeFerry(17), ChangeHighway(51)에는 자체 대체 아이콘을 만들지 않습니다. 회전교차로도 순정 분기에서 실제 처리하는 타입 19, 28, 29, 31~35와 정확한 각도 조합만 사용하며 출구 번호로 방향을 추정하지 않습니다.
 
-좌측 통행 회전교차로는 순정 DiPO `pswitch_34f`에서 angle0의 `C0`만 확인했습니다. `+0x60` 등 숫자 가족을 추정하지 않고 모든 알려진 각도에 일반 좌측 통행 원형 `C0`를 표시합니다. 따라서 좌측 통행에서는 출구 방향 세부 표시가 제한됩니다.
+좌측 통행 회전교차로는 순정 DiPO `pswitch_34f`에서 타입 31, junction 1, angle 0의 `C0`만 확인했습니다. 다른 타입·각도에 `C0`를 확대 적용하지 않습니다.

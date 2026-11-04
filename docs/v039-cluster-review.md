@@ -2,6 +2,14 @@
 
 이 문서의 분석 자료 전체가 V039에서 왔다고 보증하지 않습니다. 다른 펌웨어와 실차 표시 결과도 별도 확인이 필요합니다. 순정 바이너리나 디컴파일 코드는 배포하지 않습니다.
 
+## V039 GPM·DiPO 원본 대조
+
+추가 대조에 사용한 V039 원본은 `HKMC_GPM.odex` 1,851,472 bytes, SHA-256 `caee2cdf77a101d9b103d850658c85c4ed922e863d6566166b87037a11fd55c8`과 `HKMC_DiPO.odex` 919,848 bytes, SHA-256 `950b5575603e50aea9894b3568e80e21b3a354a6c812c3991010ab3e0cb9fe90`입니다.
+
+GPM의 `GpmNaviTBTManager`에서 `onNextTurn`, `onNextTurnDistance`, `setTurnDisplayType`, `setRampDisplayType`, `setRoundAboutDisplayType`, `setDistanceValue`와 `NavigationCluster.updateTBTInfo` 전달 경로를 확인했습니다. 미터 입력은 1,000m부터 1,000으로 나눈 km float와 km scale을 사용합니다. 일반 회전·램프·회전교차로 분기는 [HUD](hud.md)에 반영했습니다.
+
+DiPO의 `RouteGuidanceAnalyzer`에서 iAP2 ManeuverType 1~53 switch와 driving side·junction type·exit angle 조건을 확인했습니다. 현재 `ClusterIcon`은 이 분기에서 실제 출력하는 조합만 사용합니다. 순정에 없는 타입 대체, 도로명 어휘 분류, 비정확한 각도 보간은 제거했습니다.
+
 ## 고속도로 표시
 
 보유한 V039 시스템 이미지 (SHA-256 `3801ce49a1d98e1b925f382d5e88f66f2d7e3dcd7de1a477a528a4ab7e7e026d`) 안 `/framework/automotive-service.odex` (4,931,848 bytes, SHA-256 `5e4319ec72975b2592f7a2302b3ab9c3c948372905f468971da31476f935620d`)의 원시 코드 항목을 직접 확인했습니다. ODEX 머리말에서 DEX 시작 위치는 `0x28`입니다. `ClusterService.updateTPHighwayMode(...)`는 코드 항목 DEX 위치 `0xaa674` (ODEX 위치 `0xaa69c`), 코드 단위 110개이며 코드 단위 24–25의 `0213 fff2`가 `const/16 v2, -14` (`0xF2`)입니다. 명시 호출 중 MICOM 전송 호출은 없고, 끝의 빠른 가상 호출(코드 단위 103)은 가상 함수 슬롯 145를 부르지만 대상 메서드는 미확정입니다. 이 메서드 자체는 직접 송신을 증명하지 않습니다.

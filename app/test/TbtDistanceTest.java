@@ -15,7 +15,7 @@ public final class TbtDistanceTest {
     static Item list(int...values){Item i=new Item();i.id=13;i.ints=values;return i;}
     public static void main(String[]args){
         Output out=new Output();GuidanceSession session=new GuidanceSession(out);
-        session.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,1),n(3,2)));
+        session.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,1),n(3,2),n(8,0),n(9,0),n(11,90)));
         session.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),n(1,1),list(1),n(10,350)));
         check(out.icon==0x43 && out.meters==350);
         session.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),n(10,300)));
@@ -24,7 +24,7 @@ public final class TbtDistanceTest {
         check(out.meters==300 && out.calls==sent);
         session.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),list(2)));
         check(out.icon==0 && out.meters==-1);
-        session.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,2),n(3,1),n(5,999)));
+        session.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,2),n(3,1),n(5,999),n(8,0),n(9,0),n(11,-90)));
         check(out.icon==0x46 && out.meters==-1); // leg length is not distance remaining
         session.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),list(1, 2)));
         check(out.icon==0x43 && out.secondIcon==0x46);
@@ -42,7 +42,7 @@ public final class TbtDistanceTest {
         Output flaky=new Output();GuidanceSession retry=new GuidanceSession(flaky);
         retry.retryOutput();check(flaky.calls==0 && flaky.turnCalls==0 && flaky.laneCalls==0);
         flaky.accept=false;
-        retry.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,1),n(3,2)));
+        retry.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,1),n(3,2),n(8,0),n(9,0),n(11,90)));
         retry.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),n(1,1),list(1),n(10,150)));
         check(flaky.turnFrame==null);
         flaky.accept=true;retry.retryOutput();

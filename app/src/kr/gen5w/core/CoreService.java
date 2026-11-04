@@ -616,18 +616,20 @@ public final class CoreService extends Service {
                 String road = intent.getStringExtra("road");
                 String desc = intent.getStringExtra("desc");
                 int type = intent.getIntExtra("type", 3);
+                int drivingSide = intent.getIntExtra("driving_side", Maneuver.UNKNOWN_DRIVING_SIDE);
+                int junctionType = intent.getIntExtra("junction_type", -1);
+                int exitAngle = intent.getIntExtra("exit_angle", Maneuver.UNKNOWN_ANGLE);
                 DriveLog.core(32, type, icon, second, dist,
                         road == null ? 0 : 1, desc == null ? 0 : 1);
                 if (clear || dist < 0) {
                     renderAaTbt(0, 0, -1, null);
                     return;
                 }
-                if (icon <= 0 && (road != null || desc != null)) {
+                if (icon <= 0) {
                     Maneuver m = new Maneuver();
-                    m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
+                    m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
+                    m.exitAngle = exitAngle; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
-                } else if (icon > 0 && (road != null || desc != null)) {
-                    icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
                 // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
@@ -684,6 +686,8 @@ public final class CoreService extends Service {
             String road = null, desc = null;
             long dist = -1;
             int type = 3, icon = 0, second = 0;
+            int drivingSide = Maneuver.UNKNOWN_DRIVING_SIDE, junctionType = -1;
+            int exitAngle = Maneuver.UNKNOWN_ANGLE;
             boolean clear = false;
             String mediaTrack = null, mediaArtist = null;
             int laneCount = 0;
@@ -698,6 +702,9 @@ public final class CoreService extends Service {
                 else if (line.startsWith("DESC:")) desc = line.substring(5).trim();
                 else if (line.startsWith("DIST:")) try { dist = Long.parseLong(line.substring(5).trim()); } catch (Exception ignored) {}
                 else if (line.startsWith("TYPE:")) try { type = Integer.parseInt(line.substring(5).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("DRIVING_SIDE:")) try { drivingSide = Integer.parseInt(line.substring(13).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("JUNCTION_TYPE:")) try { junctionType = Integer.parseInt(line.substring(14).trim()); } catch (Exception ignored) {}
+                else if (line.startsWith("EXIT_ANGLE:")) try { exitAngle = Integer.parseInt(line.substring(11).trim()); } catch (Exception ignored) {}
                 else if (line.startsWith("ICON:")) try { icon = Integer.decode(line.substring(5).trim()); } catch (Exception ignored) {}
                 else if (line.startsWith("2ND:")) try { second = Integer.decode(line.substring(4).trim()); } catch (Exception ignored) {}
                 else if (line.startsWith("TRACK:")) mediaTrack = line.substring(6).trim();
@@ -737,12 +744,11 @@ public final class CoreService extends Service {
             if (clear || dist < 0) {
                 if (mediaTrack == null) renderAaTbt(0, 0, -1, null);
             } else {
-                if (icon <= 0 && (road != null || desc != null)) {
+                if (icon <= 0) {
                     Maneuver m = new Maneuver();
-                    m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
+                    m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
+                    m.exitAngle = exitAngle; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
-                } else if (icon > 0 && (road != null || desc != null)) {
-                    icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
                 // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);

@@ -26,7 +26,7 @@ bridge는 핫스팟 SSID·암호를 읽거나 수정하지 않습니다. 순정 
 
 ## 길안내
 
-CarPlay 길안내는 `core`가 `com.remote.service.IAP2SERVICE`에 별도 이름 `gen5wkr.core`로 등록합니다. 순정 소비자의 등록을 대체하지 않습니다. 등록된 안내 component를 조회하고 `Iap2SvcStartRouteGuidanceUpdate`를 명시적으로 요청합니다. 알림 `0x78/0x79/0x7a`를 상태·회전·차선으로 처리하며, 6대 도로 유형(지하차도·고가차도·터널·요금소·휴게소·IC/JC) 전수 어휘 매핑 엔진을 통해 순정 심볼 코드로 변환합니다.
+CarPlay 길안내는 `core`가 `com.remote.service.IAP2SERVICE`에 별도 이름 `gen5wkr.core`로 등록합니다. 순정 소비자의 등록을 대체하지 않습니다. 등록된 안내 component를 조회하고 `Iap2SvcStartRouteGuidanceUpdate`를 명시적으로 요청합니다. 알림 `0x78/0x79/0x7a`를 상태·회전·차선으로 처리하며, V039 순정 DiPO와 같은 구조화된 타입·통행 방향·교차로 종류·출구각 조합만 순정 심볼 코드로 변환합니다. 도로명 어휘로 안내 종류를 추정하지 않습니다.
 
 Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch`로 우회하여, Google 표준 네비게이션 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 활성화하도록 구성합니다. 사용자 스마트폰에 별도 앱을 설치하지 않는 경로지만, Google 지도·티맵·네이버 지도·카카오내비의 실제 TBT 수신과 차량 표시는 앱·운영체제별 실차 검증 전까지 확정하지 않습니다.
 

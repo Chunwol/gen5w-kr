@@ -14,11 +14,10 @@ public final class TurnFrame {
 
     /**
      * Converts distance in meters to the float value expected by stock
-     * NavigationCluster.updateTBTInfo. V039's ClusterService converts this
-     * float to an integer and separately encodes a tenths digit; the resulting
-     * physical display is unverified, as is equivalence to V039 GPM.
+     * NavigationCluster.updateTBTInfo. This follows V039
+     * GpmNaviTBTManager.setDistanceValue for a distance supplied in meters.
      * < 1000m uses meters (scale=0); >= 1000m converts to km (scale=1) and clamps
-     * to 32767.9f so signed 16-bit conversion in ClusterService never overflows.
+     * to 32767.9f so the downstream signed 16-bit path cannot overflow.
      */
     public static float tbtDistanceValue(long meters) {
         if (meters < 0) return 0f;

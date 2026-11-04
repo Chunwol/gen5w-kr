@@ -19,7 +19,10 @@ public final class GuidanceSessionTest {
     }
     static Maneuver m(int index, int type) {
         Maneuver m = new Maneuver(); m.component = 1; m.index = index;
-        m.type = type; m.drivingSide = 0; m.afterRoad = "도로"; return m;
+        m.type = type; m.drivingSide = 0; m.junctionType = 0; m.exitAngle = 0;
+        if (type == 1) m.exitAngle = -90;
+        else if (type == 2) m.exitAngle = 90;
+        m.afterRoad = "도로"; return m;
     }
     static GuidanceParser.Status s(int state, String source, int... indices) {
         GuidanceParser.Status s = new GuidanceParser.Status();
@@ -64,11 +67,12 @@ public final class GuidanceSessionTest {
             session.maneuver(m(8, 1)); session.status(s(1, "지도 B", 8)); session.status(s(state, "지도 B", 8));
             check("non-guidance state clears " + state, blank(sink));
         }
-        check("turn type fallback with missing angle", ClusterIcon.of(m(0,1)) == 0x46 && ClusterIcon.of(m(0,2)) == 0x43);
+        Maneuver missing = m(0,1); missing.exitAngle = Maneuver.UNKNOWN_ANGLE;
+        check("missing angle is not guessed", ClusterIcon.of(missing) == ClusterIcon.NONE);
         Maneuver curve = m(0,1); curve.exitAngle = -77;
-        check("non-exact curve angle falls back to left", ClusterIcon.of(curve) == 0x46);
+        check("non-stock curve angle is not guessed", ClusterIcon.of(curve) == ClusterIcon.NONE);
         curve.exitAngle = -25;
-        check("shallow left uses slight arrow", ClusterIcon.of(curve) == 0x47);
+        check("shallow text-free angle is not guessed", ClusterIcon.of(curve) == ClusterIcon.NONE);
         check("known unsupported type returns none", ClusterIcon.of(m(0,999)) == ClusterIcon.NONE);
         byte[] frame = TurnFrame.encode(new int[]{0x46,0x43,0x41}, "한글");
         check("turn frame header and icon slots", frame.length == 87 && frame[0] == (byte)0xf2 && frame[1] == 3 && frame[4] == 0x41);
@@ -76,14 +80,14 @@ public final class GuidanceSessionTest {
         check("invalid first icon clears frame", Arrays.equals(TurnFrame.encode(new int[]{-1}, "x"), TurnFrame.clear()));
         session.disconnect();
         session.message(GuidanceParser.STATUS, Arrays.asList(n(0,1,2), n(1,1), n(13,4)));
-        session.message(GuidanceParser.MANEUVER, Arrays.asList(n(0,1,2), n(1,4), n(3,2)));
+        session.message(GuidanceParser.MANEUVER, Arrays.asList(n(0,1,2), n(1,4), n(3,2), n(8,0), n(9,0), n(11,90)));
         check("component-id list selects a consistent component", (sink.turns[2] & 255) == 0x43);
         session.message(GuidanceParser.MANEUVER, Arrays.asList(n(1,4), n(5,200)));
         check("partial maneuver update preserves type", (sink.turns[2] & 255) == 0x43);
         session.message(GuidanceParser.STATUS, Arrays.asList(n(1,3)));
         check("component omitted in status uses active component", blank(sink));
         session.message(GuidanceParser.STATUS, Arrays.asList(n(0,1), n(1,1), n(13,7)));
-        session.message(GuidanceParser.MANEUVER, Arrays.asList(n(0,1), n(1,7), n(3,1)));
+        session.message(GuidanceParser.MANEUVER, Arrays.asList(n(0,1), n(1,7), n(3,1), n(8,0), n(9,0), n(11,-90)));
         session.message(GuidanceParser.STATUS, Arrays.asList(n(0,1), n(13)));
         check("empty current list explicitly clears", blank(sink));
         Maneuver exit = m(0, 23); exit.afterRoad = "동탄IC";
@@ -98,9 +102,9 @@ public final class GuidanceSessionTest {
         Maneuver round = m(0, 28); round.junctionType = 1; round.exitAngle = 135;
         check("roundabout uses angle rather than exit ordinal", ClusterIcon.of(round) == 0x64);
         round.type = 46; round.exitAngle = 90;
-        check("nineteenth roundabout exit retains direction", ClusterIcon.of(round) == 0x63);
-        round.drivingSide = 1;
-        check("left-driving roundabout uses verified generic circle", ClusterIcon.of(round) == 0xc0);
+        check("unsupported nineteenth exit is not interpolated", ClusterIcon.of(round) == ClusterIcon.NONE);
+        round.type = 31; round.exitAngle = 0; round.drivingSide = 1;
+        check("left-driving stock roundabout code", ClusterIcon.of(round) == 0xc0);
         round.drivingSide = 0; round.exitAngle = Maneuver.UNKNOWN_ANGLE;
         check("unknown roundabout direction clears", ClusterIcon.of(round) == ClusterIcon.NONE);
         round.type = 19; round.exitAngle = -180;

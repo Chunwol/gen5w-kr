@@ -11,7 +11,7 @@ public final class Maneuver {
     public int exitAngle = UNKNOWN_ANGLE;
     public int junctionType = -1;
     public long distanceMeters = -1;
-    public String afterRoad; // name of the road after the turn (used for over/underpass etc.)
+    public String afterRoad; // name of the road after the turn; never used to invent maneuver type
     public String desc;      // free-text description if present
     public String appSource; // source app bundle/identifier if known (e.g. Naver, TMAP, Kakao)
 }

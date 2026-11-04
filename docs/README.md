@@ -26,7 +26,7 @@
 | [초기화·재설치 후 복구](recovery.md) | 원본 보관, 공장초기화·시스템 재설치 뒤 제거·재설치 |
 | [부트 안전장치 비교](boot-safety.md) | NEMESIS·Leafia 및 다른 5W 프로그램의 검증·복구 기준 |
 | [부트로더 복구 경로](bootloader-recovery.md) | fastboot 읽기 확인과 외부 순정 이미지 복구 도구 |
-| [HUD](hud.md) · [iAP2](iap2-fields.md) | 길안내 수신·변환·출력 |
+| [HUD](hud.md) · [iAP2](iap2-fields.md) · [지도 앱 변환 계층](navigation-app-evidence.md) | 길안내 수신·변환·출력과 앱별 정적 근거 |
 | [순정 내비와 HUD 우선순위](hud-ownership.md) | 순정 내비 경로 안내와 HUD 출력 상태 제어 |
 | [Bluetooth](bt-wireless-start.md) · [설치 제어부](bridge-install.md) · [DiPO](dipo-control.md) | 무선 시작과 순정 서비스 연결 |
 | [오디오](audio.md) | 압축 오디오 형식과 원본 검사 |

@@ -1,52 +1,58 @@
-# HUD 길안내 앱 (app/)
+# HUD 길안내
 
-CarPlay의 회전·거리·차선 정보를 순정 `NavigationCluster`로 전달합니다. 자체 CAN 전송이나 제조사 구현 포함은 없습니다.
+`core`는 CarPlay RouteGuidance의 회전·거리·차선 정보를 순정 `NavigationCluster`에 전달합니다. Android Auto는 순정 `HKMC_GPM`의 Google NavigationStatus 경로를 사용합니다. 자체 CAN 전송은 하지 않습니다.
 
-- `GuidanceParser`: 순정 상수의 상태 `0x78`, 회전 `0x79`, 차선 `0x7a` 알림. component 생략·배열, 부분 갱신, unsigned 거리, 중복·불완전 필드를 처리합니다.
-- `GuidanceSession`: 상태의 현재 회전 목록(13)과 현재 차선 집합(16)을 별도로 선택합니다. 차선 표시(18)가 참일 때만 차선을 보냅니다. 지도 변경·component 변경·재탐색·도착·연결 해제는 양쪽 캐시와 표시를 지웁니다. 회전 목록 변경 시 차선 선택이 함께 오지 않으면 차선 캐시를 버립니다.
-- `ClusterIcon`: 일반 회전, 완만/급한 회전, U턴, 진입/진출, 도착, 고가/지하, 요금소, 휴게소, 페리, 고속도로 변경과 회전교차로를 처리합니다. NoTurn(0)과 알 수 없는 타입은 비웁니다. 회전교차로 1~19 출구는 출구 번호를 방향으로 오인하지 않고 각도·통행 방향을 사용합니다. 두 값 중 하나가 없으면 비웁니다.
-- `TurnFrame`: 87바이트 F2, 3개 아이콘과 UTF-16LE 도로명. 비움은 `F2,00`입니다.
-- `LaneFrame`: 81바이트 F1. 1~8개 차선에 각각 최대 3개 방향과 추천을 담습니다. index는 0 또는 1부터 연속이어야 하고 프레임 슬롯은 0부터 정규화합니다. 중복·간격·지원하지 않는 각도·존재하지 않는 강조 방향·4개 이상 방향은 전체 차선을 비웁니다.
-- `LaneBits`: 추천 방향이 있는 차선으로 고가/지하 마스크를 만듭니다. 도로명/설명에서 인식한 고가/지하 유형에 따라 적용합니다.
-- `CoreService`: 별도 listener `gen5wkr.core`로 복사한 메시지를 전달합니다. 연결 세대가 다른 대기 알림을 버립니다. 종료 시 자기 listener만 해제합니다.
-- `GuidanceRequest`: 등록 후 native count/list API에서 실제 광고된 component 이름을 얻어 `Iap2SvcStartRouteGuidanceUpdate(names,true,true)`를 요청합니다. 식별/인증/연결 알림과 5초 재시도로 준비 지연을 처리하며 성공은 연결 세대당 한 번만 요청합니다. 공용 `StopRouteGuidanceUpdate`는 호출하지 않습니다.
-- `NativeWarningSupport`: 실행 중 firmware의 순정 경고·경고 거리·제한속도 출력 메서드 선언을 읽어 호환 여부를 따로 기록합니다. API 존재와 실제 경고 수신을 구분하며 경고 출력 메서드는 호출하지 않습니다. 카메라 HUD 중계 기능을 새로 구현한 것은 아닙니다.
-- `HudVariant`: 순정 차량 설정의 HUD 옵션을 읽어 켜짐·꺼짐·미확인으로 기록합니다. API 또는 설정 파일이 준비되지 않았거나 접근할 수 없으면 미확인으로 남을 수 있으며, 이를 HUD 미장착으로 판단하지 않습니다. 설정값은 HUD의 실제 장착이나 표시 성공을 증명하지 않으며, 계기판 출력을 제한하지 않습니다. 설치 결과에는 마지막으로 조회한 상태가 표시됩니다.
+## CarPlay 입력과 상태
 
-`GuidanceSession.Sink`는 기존 회전 전용 소비자를 유지합니다. `LaneSink extends Sink`를 구현하면 `lanes(byte[])`도 호출합니다. 동일한 프레임은 성공적으로 전송된 뒤에만 중복 억제합니다. 실패한 전송은 다음 갱신에서 재시도합니다.
+- `GuidanceParser`는 V039 `com.tcc.iap2`의 알림 `0x78`(상태), `0x79`(회전), `0x7a`(차선)를 파싱합니다.
+- `GuidanceSession`은 현재 회전 목록과 현재 차선 안내 index를 따로 관리합니다. 지도·component 변경, 재탐색, 도착, 연결 종료 때 이전 회전·거리·차선을 지웁니다.
+- 부분 갱신은 기존 필드를 유지합니다. 필드가 누락됐다고 각도나 방향을 0으로 만들지 않습니다.
+- 순정 내비가 안내 중이거나 상태를 확인할 수 없으면 CarPlay 출력을 보류합니다. 순정 안내가 끝나면 최신 CarPlay 상태를 다시 보냅니다.
 
-출력 실패는 새 길안내 메시지가 없어도 1초 간격으로 최신 목표 프레임만 재시도합니다. 회전·차선·거리의 실패한 지움도 보존하며, cluster 바인딩 오류가 나면 세 채널을 다시 전송합니다. 한 번도 안내/지움 요청을 받지 않은 세션은 재시도 타이머만으로 임의 출력을 만들지 않습니다. NoTurn과 알 수 없는 회전 유형은 도로명에 특수 도로 키워드가 있어도 비우고, 명시적 회전 방향은 도로명의 좌우 표현보다 우선합니다.
+## V039 회전 아이콘
 
-순정에서 직접 대응하지 않는 ExitFerry(16)는 직진, ChangeFerry(17)는 페리, ChangeHighway(51)는 계속 주행 아이콘을 쓰는 자체 의미 기반 대체 규칙입니다. 회전교차로의 비정확한 각도는 확인한 순정 각도 앵커 사이의 가까운 구간을 사용합니다. 이 규칙과 index 오름차순이 물리적 좌→우라는 가정은 실차 최종 확인 대상입니다.
+`ClusterIcon`은 V039 `HKMC_DiPO.odex`의 `RouteGuidanceAnalyzer` 분기를 그대로 옮겼습니다. 입력은 `ManeuverType`, `DrivingSide`, `JunctionType`, `JunctionExitAngle` 네 구조화 필드뿐입니다. 도로명·설명·앱 이름으로 아이콘을 바꾸지 않습니다.
 
-파싱·상태 처리·프레임 변환은 JVM에서 검증하고, APK/DEX 구성과 서명은 CI에서 검사합니다. 실제 차량 확인 항목은 [검증 범위](validation.md)에 정리합니다.
+확인된 주요 대응은 다음과 같습니다.
 
-KR step 110 순정 DiPO는 route listener 등록을 step 999 이상에서만 켜므로 순정 요청에 의존하지 않습니다. Core의 자체 요청만으로 순정의 꺼진 route capability를 켤 수는 없습니다. 이 환경에서는 bridge의 해시 검증된 route capability shim이 함께 설치되어야 하며, capability가 광고되지 않으면 성공으로 표시하지 않고 기다립니다. wired HUD도 동일한 route capability 조건이 적용됩니다.
+| 입력 | 클러스터 아이콘 |
+|---|---:|
+| 직진 | `41` |
+| 일반 좌·우회전 | `46` / `43` |
+| 완만한 좌·우회전 | `47` / `42` |
+| 급한 좌·우회전 | `45` / `44` |
+| 우측통행 U턴 | `48` |
+| 계속 주행 | `AC` |
+| 진입 램프 | `A0` |
+| 좌·우 진출 램프 | `A5` / `A4` |
+| 고속도로 변경 좌·우 | `AE` / `AD` |
 
-순정 지도 화면을 닫아도 순정의 목적지 안내 상태가 남아 있으면 CarPlay 회전·차선·거리 HUD는 순정 표시를 덮지 않도록 대기합니다. 순정 `State_Destination=0`이 확인된 뒤에만 CarPlay 안내를 전송합니다. 과속·카메라 경고는 별도 순정 API 채널이며 앱이 그 API나 순정 음소거를 변경하지 않습니다. 순정 경고와 CarPlay HUD의 동시 표출 및 지도를 닫은 상태의 실제 전환은 차량에서 확인해야 합니다.
+회전교차로는 순정이 실제 처리하는 타입과 정확한 각도 조합만 표시합니다. 일반 `OffRamp(8)`, 일반 회전교차로 진입·나가기(6·7), 출구 번호만 있고 순정 각도 조합이 없는 타입, `ChangeHighway(51)` 등 순정 DiPO가 보내지 않는 조합은 비웁니다. 모든 타입에 임의의 화살표를 만드는 대체 규칙은 없습니다.
 
-좌측 통행 회전교차로는 순정에서 확인한 일반 원형 `C0`를 사용합니다. 좌측 통행 방향별 코드가 증명되지 않아 출구 방향 세부 표시는 제공하지 않습니다.
+IC·JC·TG·휴게소라는 글자는 경로 의미를 증명하지 못합니다. 명시적인 램프 타입은 표시하지만, 장소명만 보고 요금소·휴게소·고속도로 전용 화면을 만들지 않습니다. 앱별 정적 분석 결과와 남은 한계는 [지도 앱 변환 계층](navigation-app-evidence.md)에 정리합니다.
 
-거리 출력은 status 필드10의 미터 값을 보존하여 `NavigationCluster.updateTBTInfo(IIFFIIIII)`로 전달합니다. 현재 구현은 1,000m 미만을 미터(`scale=0`), 그 이상을 킬로미터(`scale=1`, 최대 `32767.9`km)로 변환합니다. 기존 `ClusterService` 분석용 smali 자료에서는 거리 정수부와 소수 첫째 자리의 별도 포장이 관찰됐지만, 그 입력 파일의 해시가 V039 원본 ODEX와 연결되지 않아 V039 동작으로 확정하지 않습니다. 앱의 1,900m 입력은 현재 `1.9f`이며, 실제 계기판·HUD 표시와 순정 GPM 입력 방식은 확인이 필요합니다. 거리가 생략된 부분 갱신은 유지하고, 회전 선택·지도·연결이 바뀌면 비웁니다. 미확인 거리에는 `distanceErr=-3`을 사용하며 정적인 회전 구간 길이를 현재 남은 거리로 대신하지 않습니다. 다음 회전 아이콘은 `updateTPTurnListNew`의 두 번째 슬롯과 `updateTBTInfo`의 `sideStreet`에 전달하며, `combiSideStreet`는 기존 분석 자료의 범위 검사(`0~4`)에 맞춰 `0`을 사용합니다. 이 범위와 실제 표시는 V039 원본 및 실차에서 확인해야 합니다. 고속도로 전용 표시는 현재 구현하지 않았으며, IC·JC·TG 등은 일반 회전 안내로 표시합니다. 순정 고속도로 경로의 코드 조사는 [V039 HUD 코드 대조](v039-cluster-review.md)에 있습니다.
+## 거리와 다음 회전
 
-Android Auto(AA)용 `gpm-patch-v039`는 대상 GPM ODEX의 `stepofspec == 999` 조건 분기를 바꾸는 해시 확인 패치입니다. 이는 패치 정의와 적용 코드의 범위이며, 실제 실행 중 신호 수신이나 화면 표시를 증명하지 않습니다. 기존 `GpmNaviTBTManager` 분석용 디컴파일 자료에서는 회전(`onNextTurn`)·거리(`onNextTurnDistance`) 처리기와 `NavigationCluster` 전달 경로가 관찰됐지만, V039 원본에서 그 메서드 흐름은 확인되지 않았습니다. 신호 수신, 출력 메서드 호출, 계기판·HUD 출력은 별도로 검증해야 합니다. 이와 별개로 `CoreService`는 보조 외부 입력 인터페이스(`kr.gen5w.action.AA_TBT`, `kr.gen5w.action.AA_LANE`, `gen5wkr.aa.tbt` 로컬 소켓)를 제공하여 외부 브리지나 보조 송신기가 연결된 경우 한국 도로 어휘 보정(`ClusterIcon.refineManeuver`)과 단순 차선 프레임(`LaneFrame.encodeSimple`)을 렌더링할 수 있습니다. 순정 `HKMC_GPM` 단독 실행의 실제 TBT 출력도 확인되지 않았습니다.
+상태 필드 10의 다음 회전 거리를 사용합니다. V039 `GpmNaviTBTManager.setDistanceValue`와 동일하게 1,000m 미만은 미터(`scale=0`), 그 이상은 km float(`scale=1`)로 전달합니다. 예를 들어 1,900m는 `1.9f` km입니다. 음수나 미확인 거리는 `distanceErr=-3`으로 비웁니다.
 
-순정 내비 안내 중에는 CarPlay HUD 출력을 양보합니다. 상태 조회가 실패해도 출력·지우기를 보류하고, 안내 종료 후 최신 CarPlay 정보를 다시 전송합니다. 앱은 순정 내비의 음소거를 변경하지 않습니다. 과속·카메라 경고의 동시 표출은 실차 확인 대상입니다. [HUD 우선순위](hud-ownership.md)와 [V039 코드 대조 결과](v039-cluster-review.md)를 참고하세요.
+현재·다음 아이콘은 `updateTPTurnListNew`의 첫 두 슬롯과 `updateTBTInfo`의 `displayType`·`sideStreet`에 전달합니다. `combiSideStreet`는 V039 허용 범위에 맞춰 0을 사용합니다. 실제 계기판의 소수점 표시와 두 번째 아이콘은 실차 확인 항목입니다.
 
-핸들 통화 버튼의 보완 범위와 확인 항목은 [CarPlay 핸들 통화 버튼](wireless-call-button.md)을 참고하세요.
+## 차선
 
-## Android Auto 펌웨어 구분
+`LaneFrame`은 확인한 순정 81바이트 F1 형식을 만듭니다. 최대 8개 차선, 차선당 최대 3개 방향을 담고 highlighted angle만 추천 차선으로 표시합니다. 중복 index, index 간격, 지원하지 않는 각도, 존재하지 않는 강조 방향, 4개 이상 방향은 전체 차선을 비웁니다.
 
-순정 GPM HUD 활성화 도구는 V035와 V039를 별도 빌드하며, GPM 자체의 검증된 APK/ODEX 쌍으로 선택합니다. iAP2·DiPO와 참조 버전이 달라도 GPM의 두 파일이 서로 맞는 기존 지원 조합은 유지하고, 파일이 서로 섞인 조합은 거부합니다. 이전 배포의 gpm-v039 프로필은 V035 원본을 잘못 참조했습니다. 이번 수정은 두 실제 원본으로 프로필을 분리한 것이며, 카메라 경고 중계나 고속도로 전용 화면 구현은 아닙니다.
+방향 표는 두 순정 native 변환표를 대조한 결과입니다. iAP2 각도에서 F1까지 동일한 의미가 유지되는지는 실차에서 확인합니다. 고가·지하 마스크 형식은 확인했지만, 현재 회전 의미를 텍스트로 추정하지 않으므로 구조화된 고가·지하 유형이 없는 입력에는 마스크를 만들지 않습니다.
 
-아이폰 CarPlay와 안드로이드 Android Auto의 유선/무선 성공 여부는 각각 확인합니다. 무선 CarPlay의 성공이 무선 AA 지원을 증명하지 않습니다.
+## Android Auto
 
-## IC·JC·TG 입력 해석 보완
+V039 `HKMC_GPM.odex`에서 `onNextTurn`, `onNextTurnDistance`, `setTurnDisplayType`, `setRampDisplayType`, `setRoundAboutDisplayType`와 `NavigationCluster.updateTBTInfo` 호출을 직접 확인했습니다. GPM은 Google NavigationStatus의 구조화된 회전 종류·방향·거리 단위를 순정 아이콘으로 변환합니다. `ROUNDABOUT_ENTER`와 `FERRY_TRAIN`은 순정 코드에서도 클러스터에 보내지 않습니다.
 
-- CarPlay의 명시적 램프 타입(8/9/22/23)은 기존 기본 매핑을 유지합니다. 도로명에 다른 IC·TG·휴게소가 있어도 램프 종류를 바꾸지 않습니다. 타입 22/23의 좌·우 진출과 타입 9의 진입 코드는 순정 DiPO 분기와 대조했습니다. 타입 8의 일반 진출 A3은 기존 자체 대체 정책이며 순정 DiPO의 직접 매핑이라고 주장하지 않습니다.
-- IC·JC 또는 고속도로 이름만 있으면 진입으로 바꾸지 않습니다. 텍스트 보완에 쓰는 진입·진출 표현은 기존 표현을 재사용하며, 이 보완은 실차 확인된 순정 동작과 구분합니다.
-- AA 보조 입력은 이미 받은 램프·요금소·휴게소 등 전용 아이콘을 보존합니다. 일반 화살표의 좌·우도 도로명으로 뒤집지 않습니다. 다음 회전에는 현재 도로명을 적용하지 않습니다.
-- 순정 AA `GpmNaviTBTManager.setRampDisplayType`은 ON_RAMP/OFF_RAMP와 TurnSide로 A0~A5를 선택합니다. 이 경로는 이번 보조 입력 수정의 적용 대상이 아니며 패치하지 않았습니다.
-- 새 경계 검사는 합성 입력입니다. 네이버지도·카카오맵·티맵의 특정 버전에서 수집한 패킷이나 실차 성공 기록이 아닙니다. 새 고속도로 전용 화면·휴게소 목록을 구현한 것도 아닙니다.
+`gpm-patch-v039`는 V039 원본 해시가 맞을 때 route 기능 제한 분기만 변경합니다. `CoreService`의 선택적 보조 입력은 송신자가 이미 준 아이콘을 그대로 사용합니다. 아이콘이 없으면 `TYPE`, `DRIVING_SIDE`, `JUNCTION_TYPE`, `EXIT_ANGLE`이 모두 순정 조합을 이룰 때만 변환합니다. 도로명으로 TG·IC·방향을 재해석하지 않습니다.
 
-공식 [CarPlay 메타데이터 설명](https://developer.apple.com/videos/play/wwdc2025/216/)과 [Android Maneuver API](https://developer.android.com/reference/androidx/car/app/navigation/model/Maneuver)는 구조화된 안내 종류를 제공합니다. 최신 AndroidX 종류 번호를 구형 GPM wire enum이나 이 앱의 CarPlay 타입 번호와 같다고 가정하지 않습니다. 이번 변경의 숫자 대조는 보유 순정 코드가 기준입니다.
+## 출력과 검증 경계
+
+출력은 `updateTBTInfo`, `updateTPTurnListNew`, `updateTPCrossroadName`, `updateLaneInfo`를 사용합니다. 실패한 최신 회전·거리·차선과 지움 요청은 다시 시도합니다. 한 번도 입력받지 않은 세션이 임의 출력을 만들지는 않습니다.
+
+고속도로 전용 `updateTPHighwayMode` 경로는 앱 입력과 V039 실제 출력이 연결됐다는 증거가 없어 호출하지 않습니다. 순정 과속·카메라 경고는 별도 순정 채널이며 이 앱이 생성하거나 음소거하지 않습니다.
+
+JVM 검사는 파싱·상태·V039 분기표·프레임 변환을 검증하고 APK 빌드는 Android 4.4 호환 코드를 확인합니다. 네이버지도·티맵·카카오내비의 Android/iPhone 실차 표시 성공, 순정 경고와의 동시 표출, 차선의 물리적 좌우 순서, 고속도로 전용 화면은 [실차 검증](validation.md)이 끝나기 전까지 지원 확정으로 표시하지 않습니다.

@@ -23,6 +23,7 @@ javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApProfiles.java packages/wireless-bridge/test/ApProfilesTest.java \
     probe/src/kr/gen5w/probe/Item.java probe/src/kr/gen5w/probe/Dump.java probe/test/DumpTest.java
 java -cp "$work" HudTest
+java -cp "$work" V039DipoIconTest
 java -cp "$work" HudVariantTest
 java -cp "$work" AaRouteCacheTest
 java -cp "$work" HighwayIconTest

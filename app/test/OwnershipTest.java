@@ -15,6 +15,7 @@ public final class OwnershipTest {
     }
     static void route(GuidanceSession session,int turn) {
         Maneuver m=new Maneuver(); m.component=1; m.index=1; m.type=turn; m.afterRoad="road";
+        m.drivingSide=0; m.junctionType=0; m.exitAngle=turn==1 ? -90 : turn==2 ? 90 : 0;
         session.maneuver(m);
         GuidanceParser.Status s=new GuidanceParser.Status();
         s.component=1; s.state=1; s.hasState=true; s.hasCurrent=true; s.current=new int[]{1};
