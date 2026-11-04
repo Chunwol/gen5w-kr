@@ -167,6 +167,8 @@ check 'interrupted transaction warns' eval 'run && grep -q "state=applying" "$U/
 rm -rf "$D/nemesis/gen5w-kr-integrated/prior"
 echo recovery-required > "$D/nemesis/gen5w-kr-integrated/state"
 check 'transaction recovery-required blocks install' eval '! run && grep -q "state=recovery-required" "$U/GEN5W-REPORT/CHECK.md"'
+echo future-state > "$D/nemesis/gen5w-kr-integrated/state"
+check 'unknown transaction state blocks install' eval '! run && grep -q "state=future-state" "$U/GEN5W-REPORT/CHECK.md" && grep -q "복구 자료를 보존" "$U/GEN5W-REPORT/CHECK.md"'
 rm -f "$D/nemesis/gen5w-kr-integrated/state"
 
 ln -s "$W/elsewhere" "$U/GEN5W-REPORT.tmp" 2>/dev/null; rm -rf "$U/GEN5W-REPORT"; ln -s "$W" "$U/GEN5W-REPORT"

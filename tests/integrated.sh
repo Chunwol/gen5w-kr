@@ -61,6 +61,21 @@ check 'transaction committed' grep -qx committed "$W/data/nemesis/gen5w-kr-integ
 check 'reboot suppression removed' test ! -e "$W/data/nemesis/gen5wkr.noreboot"
 check 'feature result dashboard generated' grep -q '적용 완료' "$W/usb/GEN5W-REPORT/RESULT.html"
 check 'issue attachment generated' test -f "$W/usb/GEN5W-REPORT/ISSUE.md"
+TX="$W/data/nemesis/gen5w-kr-integrated"
+rm -rf "$TX/prior"; mkdir "$TX/prior"; echo keep-me > "$TX/prior/preserve-marker"; : > "$TX/prior/complete"; : > "$TX/attempt.gen5w.kr.core"
+echo future-state > "$TX/state"
+check 'update refuses unknown transaction state' eval '! run update && grep -q "unknown transaction state" "$W/out"'
+check 'update preserves prior snapshot and journal on unknown state' eval 'grep -qx keep-me "$TX/prior/preserve-marker" && test -f "$TX/prior/complete" && test -f "$TX/attempt.gen5w.kr.core" && grep -qx future-state "$TX/state"'
+rm -f "$TX/attempt.gen5w.kr.core"
+calls_before=$(grep -cE '^(install|uninstall) ' "$W/data/calls" || true)
+check 'remove refuses unknown transaction state' eval 'echo future-state > "$TX/state" && ! run remove && grep -q "unknown transaction state" "$W/out"'
+check 'remove does not mutate packages on unknown state' test "$calls_before" = "$(grep -cE '^(install|uninstall) ' "$W/data/calls" || true)"
+check 'remove preserves prior snapshot on unknown state' eval 'grep -qx keep-me "$TX/prior/preserve-marker" && test -f "$TX/prior/complete" && grep -qx future-state "$TX/state"'
+echo capturing > "$TX/state"
+rm -rf "$TX/prior"; mkdir "$TX/prior"; echo incomplete > "$TX/prior/partial-marker"
+check 'capturing transaction can retry its snapshot' run update
+check 'capturing retry replaces the partial snapshot' eval 'grep -qx committed "$TX/state" && test -f "$TX/prior/complete" && test ! -e "$TX/prior/partial-marker"'
+if [ "${IT_TRANSACTION_ONLY:-0}" = 1 ]; then done_tests 'integrated transaction state'; exit $?; fi
 export IT_SKIP=gen5w.kr.wireless
 check 'unavailable wireless continues installing independent features' run update
 unset IT_SKIP

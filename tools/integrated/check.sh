@@ -298,7 +298,8 @@ case "$TXSTATE" in none|committed|rolled-back) ;;
         else
             block "이전 설치 작업의 백업이 완전하지 않습니다(state=$TXSTATE). 복구 상태를 확인한 뒤 다시 점검하세요."
         fi;;
-    *) warn "이전 설치 작업 상태를 확인하세요(state=$TXSTATE).";; esac
+    capturing) warn '이전 백업 수집이 중단됐습니다. 설치하면 백업을 다시 수집합니다.';;
+    *) block "알 수 없는 설치 상태입니다(state=$TXSTATE). 복구 자료를 보존하고 상태를 확인하세요.";; esac
 # NEMESIS Store packages that change the same things as ours (also refused in our depends=).
 CLASH=
 for n in $OTHER; do

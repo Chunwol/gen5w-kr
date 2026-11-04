@@ -456,6 +456,8 @@ begin_steps() {
                 report 'REFUSED unresolved system recovery required'
                 return 1
                 ;;
+            committed|rolled-back|capturing) ;;
+            *) report 'REFUSED unknown transaction state; preserve recovery data'; return 1;;
         esac
     fi
     state=$(cat "$TX/state" 2>/dev/null) || state=
