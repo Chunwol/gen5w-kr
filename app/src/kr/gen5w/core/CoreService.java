@@ -739,13 +739,7 @@ public final class CoreService extends Service {
             }
             DriveLog.core(32, type, icon, second, dist,
                     road == null ? 0 : 1, desc == null ? 0 : 1);
-            if (laneCount > 0) {
-                byte[] lf = LaneFrame.encodeSimple(laneCount, laneDirs, laneRec, icon > 0 ? icon : aaRoute.icon());
-                renderAaLane(lf);
-            }
-            if (clear || dist < 0) {
-                if (mediaTrack == null) renderAaTbt(0, 0, -1, null);
-            } else {
+            if (!clear && dist >= 0) {
                 if (icon <= 0) {
                     Maneuver m = new Maneuver();
                     m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
@@ -754,6 +748,14 @@ public final class CoreService extends Service {
                 } else {
                     icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
+            }
+            if (laneCount > 0) {
+                byte[] lf = LaneFrame.encodeSimple(laneCount, laneDirs, laneRec, icon > 0 ? icon : aaRoute.icon());
+                renderAaLane(lf);
+            }
+            if (clear || dist < 0) {
+                if (mediaTrack == null) renderAaTbt(0, 0, -1, null);
+            } else {
                 // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
             }

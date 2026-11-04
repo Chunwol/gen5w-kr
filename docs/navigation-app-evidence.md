@@ -99,7 +99,7 @@ iOS 앱은 `CPNavigationSession`, `CPManeuver`, `CPTravelEstimates`, `CPLane` �
 | `CPManeuverType` | 카카오 내부 enum (`w0 = 1..85`, 괄호는 Android raw 코드) |
 |---|---|
 | `StartRoute(11)` | `1: Start(100)` |
-| `ArriveAtDestinationLeft(10)` / `ArriveAtDestination(12)` | `2: Goal(101)` / `3: Via(1000)` |
+| `ArriveEndOfNavigation(10)` / `ArriveAtDestination(12)` | `2: Goal(101)` / `3: Via(1000)` |
 | `StraightAhead(3)` | `4: Straight(0)`, `16: OverPath(14)`, `17: UnderPath(15)`, `31: Direction12(29)`, `55: Tunnel(64)`, **`75: Tollgate(84)`**, **`76: NonstopTollgate(85)`**, `77: JoinAfterBranch(86)` |
 | `LeftTurn(1)` / `RightTurn(2)` | `5: LeftTurn(1)`, `28: Direction9(26)`, `54: UnprotectedLeftTurn(63)` / `6: RightTurn(2)`, `22: Direction3(20)` |
 | `UTurn(4)` | `7: UTurn(3)`, `25: Direction6(23)` |
@@ -148,20 +148,19 @@ iOS 앱은 `CPNavigationSession`, `CPManeuver`, `CPTravelEstimates`, `CPLane` �
 
 stripped Mach-O(`T map`)의 `__objc_stubs`와 `__swift5_fieldmd`(`0x1042cd7bc`, 143개 TBT enum 케이스 `0..142`)를 역추적해 실제 CarPlay setter 호출부(`0x100d5d68c` 및 `0x100d5e834`, 모두 `#available(iOS 17.4, *)` 가드 내부)와 변환표를 복원했습니다.
 
-| `CPManeuverType` (`0x1000f5cb0`, 테이블 `0x103a14744`) | 티맵 iOS 내부 TBT enum (`0..142`) |
+| `CPManeuverType` (`0x1000f5cb0`, 테이블 `0x103a14744`) | 티맵 iOS 내부 TBT enum (`0..142`, `__swift5_fieldmd` `0x1042cd7bc`) |
 |---|---|
-| `NoTurn(0)` (`nil` 반환 시 기본값 `0` 포함) | `turnPtMap(0)`, `strighit0(1)`, `turnPtTile(3)`, `hipassLeft/Right/Center(49..51)`, `dir1..dir12(73..84)`, `facility(89)` 등 그 밖의 케이스 |
-| `LeftTurn(1)` / `RightTurn(2)` | `left(5)`, `leftSide(8)`, `left8(9)`, `left9(10)` / `right(6)`, `rightSide(12)`, `right2(13)`, `right3(14)` |
-| `StraightAhead(3)` | `straight(4)`, `dir12(84)`, **`sa(85)`, `saIn(86)`, `tolExp(87)`, `tolNormal(88)`**, `startDir1..12(92..103)`, `dest(106)`, `underIn(123)`, `overOut(124)`, `tunnelIn(126)`, `driveWayIn(127)`, **`tollgate(140)`**, `end(141)` |
-| `UTurn(4)` | `uTurn(7)` |
-| `OnRamp(9)` | `icIn(109)`, `jcIn(112)`, `overIn(121)`, `SkyWayIn(129)` |
-| `OffRamp(10)` | `icOut(115)`, `jcOut(118)` |
-| `ArriveAtDestination(12)` | `via1..5(104, 136..139)` |
-| `KeepLeft(13)` | `leftIn(21)`, `leftOut(22)`, `dir10..11(82..83)`, `icInLeft(110)`, `jcInLeft(113)`, `underInLeft(122)`, `skyWayInLeft(130)`, `left1(134)` |
-| `KeepRight(14)` | `rightIn(23)`, `rightOut(24)`, `dir1..2(73..74)`, `icInRight(111)`, `jcInRight(114)`, `overInRight(120)`, `skyWayInRight(128)`, `right1(135)` |
-| `HighwayOffRampLeft/Right(22/23)` | `icOutLeft(116)`, `jcOutLeft(119)` / `icOutRight(117)`, `jcOutRight(120)` |
-| `SharpLeftTurn/RightTurn(47/48)` | `left10(11)` / `right4(15)` |
-| `SlightLeftTurn/RightTurn(49/50)` | `left11(25)` / `right1(16)` |
+| `nil` (`setManeuverType:` 미호출 → 기본값 `NoTurn(0)`) | `turnDir1..12(16..27)`, `lane3..10(35..42)`, `firstExit/secExit(43..44)`, **`hipassLeft/Right/Center(49..51)`**, `bridge(70)`, `ferryIn/Out(89..90)`, `startdir1..12(91..102)`, `destStr/Left/Right/posRight(103..106)`, `notice*(112..117)`, `goStraight..rdir12(120..138)`, `end(141)`, `na(142)` |
+| `LeftTurn(1)` / `RightTurn(2)` | `turnLeft(8)`, **`dir9(81)`** / `turnRight(9)`, `turnPturn(11)`, **`dir3(75)`** |
+| `StraightAhead(3)` | `turnPtMap/Tile(0..1)`, `turnNotSer*(2..4)`, `turnStr(7)`, `laneStr/Left/Right/1/2(30..34)`, `expInStr(54)`, `saexpInStr(60)`, `divergeMergeRoad(66)`, `underIn(67)`, `overIn(68)`, `tunnelIn(69)`, **`dir12(84)`**, **`sa(85)`, `saIn(86)`, `tolExp(87)`, `tolNormal(88)`**, `via1..5(107..111)`, `temp(139)`, **`tollgate(140)`** |
+| `UTurn(4)` / `UTurnAtRoundabout(19)` | `turnUturn(10)` / **`dir6(78)`** |
+| `OffRamp(8)` | `expOutStr(57)`, `saexpOutStr(63)` |
+| `StartRoute(11)` / `ArriveAtDestination(12)` | `start(118)` / `goal(119)` |
+| `KeepLeft(13)` / `KeepRight(14)` | `strLeft(6)`, `firstLaneLeft(47)`, `secLaneLeft(48)` / `strRight(5)`, `firstLaneRight(45)`, `secLaneRight(46)` |
+| `HighwayOffRampLeft/Right(22/23)` | `expOutLeft(56)`, `saexpOutLeft(62)` / `expOutRight(55)`, `saexpOutRight(61)` |
+| `SharpLeftTurn/RightTurn(47/48)` | `turnLeft8(12)`, **`dir7..8(79..80)`** / `turnRight4(15)`, **`dir4..5(76..77)`** |
+| `SlightLeftTurn/RightTurn(49/50)` | `turnLeft10(13)`, `turnStrLeft(29)`, `roadLeft(65)`, **`dir10..11(82..83)`** / `turnRight2(14)`, `turnStrRight(28)`, `roadRight(64)`, `underOut(71)`, `overOut(72)`, **`dir1..2(73..74)`** |
+| `ChangeHighwayLeft/Right(52/53)` | `expInLeft(53)`, `saexpInLeft(59)` / `expInRight(52)`, `saexpInRight(58)` |
 
 - `setJunctionType:`·`setJunctionElementAngles:`·`setJunctionExitAngle:`(`0x100d5d6e8..0x100d5e830`):
   - enum 케이스가 `73..84`(`dir1..dir12`, `(tag - 0x49) < 0xc`)일 때만 `setJunctionType: 1`(`CPJunctionTypeRoundabout`)을 호출하고, `setJunctionElementAngles:`와 `setJunctionExitAngle:`(`dir1·2` `+45°`, `dir3` `+90°`, `dir4·5` `+135°`, `dir6` `+180°`, `dir7·8` `-135°`, `dir9` `-90°`, `dir10·11` `-45°`, `dir12` `0°`)을 설정합니다.

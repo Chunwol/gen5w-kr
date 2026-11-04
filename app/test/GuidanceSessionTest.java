@@ -122,6 +122,11 @@ public final class GuidanceSessionTest {
         laneGroup.groups.add(Arrays.asList(n(0,0),n(1,2),n(2,0,90),n(3,90)));
         session.message(GuidanceParser.LANES, Arrays.asList(n(0,1),n(1,3),laneGroup));
         check("selected lane set reaches lane sink", sink.lanes != null && sink.lanes.length == 81 && sink.lanes[0] == (byte)0xf1 && sink.lanes[1] == 1);
+        Maneuver overM = m(7, 3); overM.afterRoad = "성산고가차도 진입";
+        session.maneuver(overM);
+        check("overpass maneuver sets OFF_OVER lane mask in LaneFrame", (sink.turns[2] & 255) == ClusterIcon.OVERPASS_ENTRY_LC && (sink.lanes[LaneBits.OFF_OVER] & 255) == 1);
+        session.maneuver(m(7, 3));
+        check("returning to normal straight clears OFF_OVER lane mask", (sink.lanes[LaneBits.OFF_OVER] & 255) == 0);
         int laneWrites = sink.laneWrites;
         session.message(GuidanceParser.STATUS, Arrays.asList(n(0,1)));
         check("unchanged lane frame suppressed", sink.laneWrites == laneWrites);

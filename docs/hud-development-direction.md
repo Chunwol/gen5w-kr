@@ -105,26 +105,26 @@ V039 `HKMC_GPM.odex` 역분석으로 확인한 Android Auto 내비게이션 데�
 
 ---
 
-## 4. 방향 3 — CarPlay (`iAP2 0x5202`) `ClusterIcon` 누락 케이스 보강
+## 4. 방향 3 — CarPlay (`iAP2 0x5202`) `ClusterIcon` 누락 케이스 보강 (구현 완료)
 
-3사 iOS 앱이 실제로 보내는 `CPManeuverType` 조합 중 순정 V039 `HKMC_DiPO.odex`(`RouteGuidanceAnalyzer`)가 분기를 빠뜨려 `NONE(-1)`이 되는 항목들과 헤드유닛 측 보강 설계입니다.
+3사 iOS 앱이 실제로 보내는 `CPManeuverType` 조합 중 순정 V039 `HKMC_DiPO.odex`(`RouteGuidanceAnalyzer`)가 분기를 빠뜨려 `NONE(-1)`이 되던 항목들을 `ClusterIcon.of(Maneuver)`에서 모두 보강했습니다.
 
-| 케이스 | 송신하는 앱 및 상황 | 순정 V039 `HKMC_DiPO` 동작 | 헤드유닛 `ClusterIcon.of` 보강 방향 |
+| 케이스 | 송신하는 앱 및 상황 | 순정 V039 `HKMC_DiPO` 동작 | 헤드유닛 `ClusterIcon.of` 보강 결과 |
 |---|---|---|---|
-| **`KeepLeft(13)` / `KeepRight(14)`** | **네이버·티맵 CarPlay**: 분기(`left/rightDirection`), 고가·지하 진입/측도, 티맵 좌·우 IC/JC 진입(`icInLeft/Right`, `jcInLeft/Right`) | case `13`, `14` 자체가 없어 `NONE` 반환 | `13` → 좌측 분기/유지(`0xa7` 또는 `0x47`), `14` → 우측 분기/유지(`0xa6` 또는 `0x42`) 매핑 |
-| **`OffRamp(8)` / `OffRamp(10)`** | **카카오 CarPlay**: 직진형 `OutHighway`/`OutCityway` → `8`<br>**티맵 CarPlay**: `icOut(115)`/`jcOut(118)` → `10` | `9`(`OnRamp` → `0xa0`), `22`(`0xa5`), `23`(`0xa4`)만 있고 `8`, `10`은 `NONE` | `8`, `10`(`d==0 && j==0 && a==0`) → 고속도로 진출(`0xa3` `IC_EXIT_C` 또는 `0xa4` `IC_EXIT_R`) 매핑 |
-| **`exitAngle` 미포함 일반 회전 (`1, 2, 47, 48, 49, 50`)** | **티맵·카카오·네이버 CarPlay**: 일반 좌/우회전(`1, 2`), 급회전(`47, 48`), 완만한 회전(`49, 50`)에서 앱이 `setJunctionExitAngle:`을 호출하지 않는 경우 | `a == -90`, `+90`, `±120`, `±60`, `±45` 등 정확한 각도가 없으면 `NONE` | 실차 `0x5202` 캡처에서 `exitAngle`이 `UNKNOWN_ANGLE` 또는 `0`으로 올 경우 타입별 기본 아이콘(`1→0x46`, `2→0x43`, `47→0x45`, `48→0x44`, `49→0x47`, `50→0x42`) fallback 제공 |
-| **`junctionType == 1` 회전교차로 (`type = 0` 또는 `6`)** | **카카오 CarPlay**: `type = 6`(`EnterRoundabout`) + `j = 1` + `exitAngle`<br>**네이버·티맵 CarPlay**: `type = 0`(`NoTurn`) + `j = 1` + `exitAngle` | `type = 19, 28..35`만 회전교차로로 처리하여 `type = 0, 6`은 `NONE` | `j == 1`이고 `type == 0 || type == 6`일 때 `exitAngle`만으로 회전교차로 방향 아이콘(`0x61..0x69`) 선택 |
-
-> **설계 원칙**: 순정 V039 `HKMC_DiPO` 회귀 테스트(`V039DipoIconTest`)와의 정합성을 유지하기 위해, 위 4가지 CarPlay 구조 보강은 실차 iAP2 `0x5202` 패킷 로그에서 iOS `CarPlay` 데몬의 각도·타입 직렬화 형태를 1회 확인한 즉시 해당 조건 분기를 활성화합니다.
+| **`KeepLeft(13)` / `KeepRight(14)`** | **네이버·티맵 CarPlay**: 분기(`left/rightDirection`, `strLeft/Right`, `first/secLaneLeft/Right`), 고가·지하 진입/측도 | case `13`, `14` 자체가 없어 `NONE` 반환 | `13` → `0x47`, `14` → `0x42` 매핑 |
+| **`OffRamp(8)` 및 `ArriveEndOfNavigation(10)`** | **카카오·티맵 CarPlay**: 직진형 `OutHighway`/`OutCityway`, 티맵 `expOutStr(57)`/`saexpOutStr(63)` → `8`<br>**카카오 CarPlay**: `Goal(101)` → `10` | `8`, `10` 모두 `NONE` | `8` → 가운데 진출(`0xa3` `IC_EXIT_C`), `10` → 목적지 도착(`0x70`) 매핑 |
+| **`exitAngle` 미포함 일반 회전 (`1, 2, 47, 48, 49, 50`)** | **티맵·카카오·네이버 CarPlay**: 일반 좌/우회전(`1, 2`), 급회전(`47, 48`), 완만한 회전(`49, 50`)에서 `setJunctionExitAngle:`을 호출하지 않는 경우 | 정확한 각도가 없으면 `NONE` | 각도가 없거나 `0`일 때 타입별 기본 아이콘(`1→0x46`, `2→0x43`, `47→0x45`, `48→0x44`, `49→0x47`, `50→0x42`) 출력 |
+| **시계방향 일반 교차로 (`type = 0` + `j = 0` + `exitAngle`)** | **네이버 CarPlay**: `direction1·3·4·8·9·11`을 `NoTurn(0)` + `Intersection(0)` + 각도(`±45°`, `±90°`, `±120°`)로 송신 | `case 0` 자체가 없어 `NONE` | `intersectionByAngle(a)`로 `±120°→0x45/0x44`, `±90°→0x46/0x43`, `±45°/±60°→0x47/0x42` 출력 |
+| **회전교차로·로터리 (`j = 1` + `type = 0, 1..3, 6, 19, 47..50` 및 카카오 `type = 6, j = 0`)** | **카카오 CarPlay**: `type = 6` + `j = 1`(회전교차로) 또는 `j = 0`(로터리) + `30°` 간격 각도<br>**네이버 CarPlay**: `type = 0` + `j = 1` + `30°` 간격 각도(`±30°..+180°`)<br>**티맵 CarPlay**: `dir1..12(73..84)`를 `type = 50, 2, 48, 19, 47, 1, 49, 3` + `j = 1` + `45°` 간격 각도(`+45°..+180°`, `-135°..0°`)로 송신 | `type = 19(-180°만), 28..35(45° 간격만)`만 처리하여 3사 회전교차로 대부분이 `NONE` | `roundaboutByAngle(a)`에서 순정 `45°` 간격과 3사 `30°`/`45°` 간격(`0°/360°→0x61`, `30°..90°→0x63`, `120°..150°→0x64`, `±180°→0x66`, `-90°/270°→0x69`, 좌측 대각선→`0x68`)을 모두 매핑 |
 
 ---
 
-## 5. 단계별 로드맵
+## 5. 단계별 로드맵 및 남은 개발 과제
 
 | 단계 | 작업 항목 | 상태 | 비고 |
 |---|---|---|---|
-| **Phase 1** | 도로명·안내문 텍스트 기반 TG(`0xb2`) · 휴게소/졸음쉼터(`0xb7`) 승격 (`ClusterIcon.of`, `ClusterIcon.refineManeuver`, `CoreService`) 및 JVM 테스트 검증 | **완료** | 직진(`0x41`, `0xac`) 및 CarPlay `NoTurn(0)`에서만 동작, 방향성 화살표 보존 |
-| **Phase 2** | `HKMC_GPM.odex` DEX 후킹 연동 (`GpmNaviTBTManager.onNextTurn` → `gen5wkr.aa.tbt` / `0xb2`·`0xb7` 승격) | 설계 완료 · 패키징 대기 | Android Auto 3사 앱 TG·휴게소 아이콘 및 교차로명 연동 |
-| **Phase 3** | CarPlay 실차 `0x5202` 1회 캡처 및 `ClusterIcon` 4대 누락 케이스(`13/14`, `8/10`, 무각도 `1/2/47..50`, `j=1` 회전교차로) fallback 활성화 | 설계 완료 · 실차 로그 대기 | iOS가 기본 각도를 합성하지 않는 항목 즉시 보강 |
-| **Phase 4** | `libautoreceiver_infobank.so` GAL 채널 `0x9` 네이티브 후킹 (`0x8006` `NavigationLane` 파싱 → `gen5wkr.aa.tbt` `LANE:`) | 설계 완료 | Android Auto 3사 앱 구조화 차선 및 티맵·카카오 하이패스 차로 HUD 표시 |
+| **Phase 1** | 도로명·안내문 텍스트 기반 TG(`0xb2`) · 휴게소/졸음쉼터(`0xb7`) 승격 + `"~삼거리/사거리"` 교차로 배제 (`ClusterIcon`, `CoreService`) | **완료** | 직진(`0x41`, `0xac`) 및 CarPlay `NoTurn(0)`에서만 동작, 방향성 화살표 보존 |
+| **Phase 2** | CarPlay `ClusterIcon` 5대 누락 케이스(`KeepLeft/Right 13/14`, `OffRamp 8`/`Arrive 10`, 무각도 회전 `1/2/47..50`, 네이버 시계방향 교차로 `type=0+j=0+angle`, 3사 회전교차로·로터리 `30°/45°` 전 각도) 보강 | **완료** | `V039DipoIconTest` 75개 벡터 포함 JVM 테스트 20종 전수 통과 |
+| **Phase 3** | **실차 주행 로그(`gen5w.kr.drivelog`) 검증** (CarPlay / Android Auto 3사 앱 실제 표시 및 오탐 여부 확인) | **다음 단계 (우선)** | 실차에서 iAP2 `0x5202`/`0x5203` 및 GPM 출력 상관 로그 확인 |
+| **Phase 4** | **`HKMC_GPM.odex` DEX 후킹 연동** (`GpmNaviTBTManager.onNextTurn` → `CoreService` `gen5wkr.aa.tbt` 또는 직접 `0xb2`·`0xb7` 승격) | 설계 완료 · Dalvik 검증 필요 | 순정 GPM 경로에서도 Android Auto TG(`0xb2`)·휴게소(`0xb7`) 아이콘 표시 |
+| **Phase 5** | **`libautoreceiver_infobank.so` GAL 채널 `0x9` 네이티브 후킹** (`0x8006` `NavigationLane` 파싱 → `gen5wkr.aa.tbt` `LANE:`) | 설계 완료 | Android Auto 3사 앱 구조화 차선 및 티맵·카카오 하이패스 추천 차로 HUD 표시 |
