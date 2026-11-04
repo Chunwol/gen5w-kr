@@ -33,7 +33,6 @@ public final class StockProjectionSession {
         }
         void event(String name, String result);
     }
-    public interface RequestAction { void send(); }
 
     public static final class Observation {
         public final Result result;
@@ -97,6 +96,8 @@ public final class StockProjectionSession {
     private boolean bootstrapIssued;
     private boolean bootstrapPending;
     private boolean bootstrapDispatched;
+    private boolean bootstrapInvocationClaimed;
+    private boolean requestClaimed;
     private boolean connectIssued;
     private boolean connectAccepted;
     private boolean observedConnecting;
@@ -364,6 +365,8 @@ public final class StockProjectionSession {
         bootstrapPending = false;
         connectIssued = false;
         bootstrapDispatched = false;
+        bootstrapInvocationClaimed = false;
+        requestClaimed = false;
         connectAccepted = false;
         observedConnecting = false;
         requestPending = false;
@@ -383,19 +386,25 @@ public final class StockProjectionSession {
         return current(value) && address != null && address.equals(candidate) && requestPending &&
                 phase == Phase.CONNECT_REQUESTED && !wired && !foreignProjection;
     }
-    /** Linearizes the final eligibility check with dispatch to prevent late OEM broadcasts. */
-    public synchronized boolean dispatchIfRequestAllowed(long value, String address, long now, RequestAction action) {
-        if (action == null || now >= inspectionDeadline || !requestAllowed(value, address)) return false;
-        action.send();
+    /** Consume one broadcast admission; callers perform external work after this returns. */
+    public synchronized boolean claimRequest(long value, String address, long now) {
+        if (requestClaimed || now >= inspectionDeadline || !requestAllowed(value, address)) return false;
+        requestClaimed = true;
         return true;
     }
-    /** Covers both OEM bootstrap operations with the same final ownership check. */
-    public synchronized boolean dispatchIfBootstrapAllowed(long value, String address, long now, RequestAction action) {
-        if (action == null || now >= inspectionDeadline || !current(value) || address == null ||
-                !address.equals(candidate) || !bootstrapPending || bootstrapDispatched || phase != Phase.BOOTSTRAP_REQUESTED ||
-                wired || foreignProjection) return false;
+    private boolean bootstrapAllowed(long value, String address, long now) {
+        return now < inspectionDeadline && current(value) && address != null && address.equals(candidate) &&
+                bootstrapPending && phase == Phase.BOOTSTRAP_REQUESTED && !wired && !foreignProjection;
+    }
+    public synchronized boolean claimBootstrapBroadcast(long value, String address, long now) {
+        if (bootstrapDispatched || !bootstrapAllowed(value, address, now)) return false;
         bootstrapDispatched = true;
-        action.send();
+        return true;
+    }
+    /** Recheck cancellation after the bootstrap broadcast, immediately before the Binder operation. */
+    public synchronized boolean claimBootstrapInvocation(long value, String address, long now) {
+        if (!bootstrapDispatched || bootstrapInvocationClaimed || !bootstrapAllowed(value, address, now)) return false;
+        bootstrapInvocationClaimed = true;
         return true;
     }
     public synchronized long generation() { return generation; }

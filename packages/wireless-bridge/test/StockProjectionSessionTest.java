@@ -1,4 +1,7 @@
 import kr.gen5w.wireless.StockProjectionSession;
+import kr.gen5w.wireless.PhoneProjectionAccess;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public final class StockProjectionSessionTest {
     private static void check(boolean value, String message) {
@@ -273,44 +276,213 @@ public final class StockProjectionSessionTest {
     }
 
     private static void bootstrapDispatchRequiresCurrentEligibleGeneration() {
-        final int[] sends = {0};
-        StockProjectionSession.RequestAction action = new StockProjectionSession.RequestAction() {
-            public void send() { sends[0]++; }
-        };
         Attempt current = new Attempt();
         current.missingProfile();
-        check(current.session.dispatchIfBootstrapAllowed(current.port.generation, "phone-a", 2, action),
+        check(current.session.claimBootstrapBroadcast(current.port.generation, "phone-a", 2),
                 "current bootstrap executes");
-        check(!current.session.dispatchIfBootstrapAllowed(current.port.generation, "phone-a", 2, action),
+        check(!current.session.claimBootstrapBroadcast(current.port.generation, "phone-a", 2),
                 "duplicate bootstrap dispatch is denied before its callback");
+        check(current.session.claimBootstrapInvocation(current.port.generation, "phone-a", 2),
+                "second bootstrap operation gets its own admission");
+        check(!current.session.claimBootstrapInvocation(current.port.generation, "phone-a", 2),
+                "second bootstrap admission cannot be reused");
         current.finishBootstrap();
-        check(!current.session.dispatchIfBootstrapAllowed(current.port.generation, "phone-a", 3, action),
+        check(!current.session.claimBootstrapBroadcast(current.port.generation, "phone-a", 3),
                 "completed bootstrap cannot dispatch twice");
         Attempt stale = new Attempt();
         stale.missingProfile();
         long old = stale.port.generation;
         stale.session.lost("phone-a", 2);
-        check(!stale.session.dispatchIfBootstrapAllowed(old, "phone-a", 3, action), "stale bootstrap denied");
+        check(!stale.session.claimBootstrapBroadcast(old, "phone-a", 3), "stale bootstrap denied");
         Attempt wired = new Attempt();
         wired.missingProfile();
         wired.session.environment(true, false, 2);
-        check(!wired.session.dispatchIfBootstrapAllowed(wired.port.generation, "phone-a", 3, action),
+        check(!wired.session.claimBootstrapBroadcast(wired.port.generation, "phone-a", 3),
                 "wired bootstrap denied");
         Attempt foreign = new Attempt();
         foreign.missingProfile();
         foreign.session.environment(false, true, 2);
-        check(!foreign.session.dispatchIfBootstrapAllowed(foreign.port.generation, "phone-a", 3, action),
+        check(!foreign.session.claimBootstrapBroadcast(foreign.port.generation, "phone-a", 3),
                 "foreign owner bootstrap denied");
         Attempt expired = new Attempt();
         expired.missingProfile();
-        check(!expired.session.dispatchIfBootstrapAllowed(expired.port.generation, "phone-a", 5001, action),
+        check(!expired.session.claimBootstrapBroadcast(expired.port.generation, "phone-a", 5001),
                 "expired bootstrap operation denied at deadline");
-        check(!expired.session.dispatchIfBootstrapAllowed(expired.port.generation, "phone-b", 2, action),
+        check(!expired.session.claimBootstrapBroadcast(expired.port.generation, "phone-b", 2),
                 "wrong candidate bootstrap denied");
-        check(sends[0] == 1, "only the eligible current bootstrap executes once");
+    }
+
+    private static void connectAdmissionIsConsumedOnce() {
+        Attempt a = new Attempt();
+        a.readyProfile(1, StockProjectionSession.WifiCredentialState.PRESENT);
+        check(a.session.claimRequest(a.port.generation, "phone-a", a.now + 1),
+                "current ready profile claims the broadcast permit");
+        check(!a.session.claimRequest(a.port.generation, "phone-a", a.now + 1),
+                "connect permit cannot be reused before its callback");
+    }
+
+    private static void await(CountDownLatch latch) {
+        try { check(latch.await(2, TimeUnit.SECONDS), "worker reached expected boundary"); }
+        catch (InterruptedException e) { throw new AssertionError(e); }
+    }
+
+    private static void blockedExternalOperationDoesNotBlockLifecycle() {
+        for (final boolean bootstrap : new boolean[] {true, false}) {
+            for (int operation = 0; operation < 4; operation++) {
+                final Attempt a = new Attempt();
+                if (bootstrap) a.missingProfile();
+                else a.readyProfile(1, StockProjectionSession.WifiCredentialState.PRESENT);
+                final long generation = a.port.generation;
+                final CountDownLatch entered = new CountDownLatch(1);
+                final CountDownLatch release = new CountDownLatch(1);
+                final CountDownLatch controlDone = new CountDownLatch(1);
+                final CountDownLatch workerDone = new CountDownLatch(1);
+                final int control = operation;
+                Thread worker = new Thread(new Runnable() {
+                    public void run() {
+                        boolean admitted = bootstrap
+                                ? a.session.claimBootstrapBroadcast(generation, "phone-a", a.now + 1)
+                                : a.session.claimRequest(generation, "phone-a", a.now + 1);
+                        if (admitted) { entered.countDown(); await(release); }
+                        if (bootstrap) a.session.bootstrapped(generation, StockProjectionSession.BootstrapResult.OEM_REQUESTED, a.now + 6001);
+                        else a.session.requested(generation, StockProjectionSession.RequestResult.OEM_ACTION_SENT, a.now + 6001);
+                        workerDone.countDown();
+                    }
+                });
+                worker.setDaemon(true);
+                worker.start();
+                await(entered);
+                Thread lifecycle = new Thread(new Runnable() {
+                    public void run() {
+                        if (control == 0) a.session.lost("phone-a", a.now + 2);
+                        else if (control == 1) a.session.environment(true, false, a.now + 2);
+                        else if (control == 2) a.session.shutdown();
+                        else a.session.tick(a.now + 6000);
+                        controlDone.countDown();
+                    }
+                });
+                lifecycle.setDaemon(true);
+                lifecycle.start();
+                boolean responsive;
+                try { responsive = controlDone.await(500, TimeUnit.MILLISECONDS); }
+                catch (InterruptedException e) { throw new AssertionError(e); }
+                finally { release.countDown(); }
+                await(controlDone);
+                await(workerDone);
+                check(responsive, (bootstrap ? "bootstrap" : "connect") +
+                        " blocked external operation must not delay lifecycle control " + control);
+                check(a.session.phase() == (control == 3 ? StockProjectionSession.Phase.FAILED :
+                                StockProjectionSession.Phase.CANCELLED),
+                        "late external completion cannot undo lifecycle control " + control);
+            }
+        }
+    }
+
+    public static final class BootstrapManager {
+        volatile int calls;
+        CountDownLatch entered;
+        CountDownLatch release;
+        public void requestConnectSPP(String address) {
+            calls++;
+            if (entered != null) { entered.countDown(); await(release); }
+        }
+    }
+
+    private static void blockedBinderDoesNotBlockShutdownOrReviveSession() {
+        final Attempt a = new Attempt();
+        a.missingProfile();
+        final long generation = a.port.generation;
+        final BootstrapManager manager = new BootstrapManager();
+        manager.entered = new CountDownLatch(1);
+        manager.release = new CountDownLatch(1);
+        final CountDownLatch completed = new CountDownLatch(1);
+        Thread worker = new Thread(new Runnable() {
+            public void run() {
+                StockProjectionSession.BootstrapResult result = PhoneProjectionAccess.bootstrap(
+                        new PhoneProjectionAccess.ServiceProvider() {
+                            public Object get(String name) { return manager; }
+                        }, new Object(), new PhoneProjectionAccess.ActionSender() {
+                            public boolean send(String action, String packageName, String extra, String address) {
+                                return a.session.claimBootstrapBroadcast(generation, address, 2);
+                            }
+                        }, "phone-a", new PhoneProjectionAccess.BootstrapAdmission() {
+                            public boolean claim() { return a.session.claimBootstrapInvocation(generation, "phone-a", 3); }
+                        });
+                a.session.bootstrapped(generation, result, 5);
+                completed.countDown();
+            }
+        });
+        worker.setDaemon(true);
+        worker.start();
+        await(manager.entered);
+        final CountDownLatch stopped = new CountDownLatch(1);
+        Thread shutdown = new Thread(new Runnable() {
+            public void run() { a.session.shutdown(); stopped.countDown(); }
+        });
+        shutdown.setDaemon(true);
+        shutdown.start();
+        boolean responsive;
+        try { responsive = stopped.await(500, TimeUnit.MILLISECONDS); }
+        catch (InterruptedException e) { throw new AssertionError(e); }
+        finally { manager.release.countDown(); }
+        await(stopped);
+        await(completed);
+        check(responsive && manager.calls == 1 && a.session.phase() == StockProjectionSession.Phase.CANCELLED &&
+                a.session.candidate() == null && a.port.requests == 0,
+                "blocked Binder permits shutdown and its stale completion cannot revive the session");
+    }
+
+    private static void cancellationBetweenBootstrapOperationsRejectsContinuation() {
+        for (int operation = 0; operation < 5; operation++) {
+            final Attempt a = new Attempt();
+            a.missingProfile();
+            final long generation = a.port.generation;
+            final BootstrapManager manager = new BootstrapManager();
+            final CountDownLatch broadcast = new CountDownLatch(1);
+            final CountDownLatch release = new CountDownLatch(1);
+            final CountDownLatch completed = new CountDownLatch(1);
+            final StockProjectionSession.BootstrapResult[] result = {null};
+            Thread worker = new Thread(new Runnable() {
+                public void run() {
+                    result[0] = PhoneProjectionAccess.bootstrap(new PhoneProjectionAccess.ServiceProvider() {
+                        public Object get(String name) { return manager; }
+                    }, new Object(), new PhoneProjectionAccess.ActionSender() {
+                        public boolean send(String action, String packageName, String extra, String address) {
+                            if (!a.session.claimBootstrapBroadcast(generation, address, 2)) return false;
+                            broadcast.countDown();
+                            await(release);
+                            return true;
+                        }
+                    }, "phone-a", new PhoneProjectionAccess.BootstrapAdmission() {
+                        public boolean claim() { return a.session.claimBootstrapInvocation(generation, "phone-a", 3); }
+                    });
+                    completed.countDown();
+                }
+            });
+            worker.setDaemon(true);
+            worker.start();
+            await(broadcast);
+            if (operation == 0) a.session.lost("phone-a", 3);
+            else if (operation == 1) a.session.environment(true, false, 3);
+            else if (operation == 2) a.session.environment(false, true, 3);
+            else if (operation == 3) a.session.shutdown();
+            else a.session.tick(6000);
+            StockProjectionSession.Phase cancelled = a.session.phase();
+            release.countDown();
+            await(completed);
+            check(result[0] == StockProjectionSession.BootstrapResult.CANCELLED && manager.calls == 0,
+                    "cancellation after admitted broadcast rejects later Binder operation " + operation);
+            a.session.bootstrapped(generation, StockProjectionSession.BootstrapResult.OEM_REQUESTED, 6001);
+            check(a.session.phase() == cancelled && a.port.requests == 0,
+                    "late bootstrap success cannot revive cancelled/expired attempt " + operation);
+        }
     }
 
     public static void main(String[] args) {
+        connectAdmissionIsConsumedOnce();
+        blockedBinderDoesNotBlockShutdownOrReviveSession();
+        cancellationBetweenBootstrapOperationsRejectsContinuation();
+        blockedExternalOperationDoesNotBlockLifecycle();
         bootstrapDispatchRequiresCurrentEligibleGeneration();
         missingProfileBootstrapsOncePerGeneration();
         profileAppearanceDispatchesOnceForCarPlay();

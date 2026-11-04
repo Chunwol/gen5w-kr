@@ -2,6 +2,8 @@ import kr.gen5w.wireless.PhoneProjectionAccess;
 import kr.gen5w.wireless.StockProjectionSession;
 
 public final class PhoneProjectionAccessTest {
+    private static final PhoneProjectionAccess.BootstrapAdmission ALLOW_BINDER =
+            new PhoneProjectionAccess.BootstrapAdmission() { public boolean claim() { return true; } };
     private static void check(boolean ok, String message) {
         if (!ok) throw new AssertionError(message);
     }
@@ -57,6 +59,13 @@ public final class PhoneProjectionAccessTest {
     public static void main(String[] args) {
         FakeManager manager = new FakeManager();
         PhoneProjectionAccess.ServiceProvider provider = provider(manager);
+        FakeActionSender admittedBroadcast = new FakeActionSender();
+        check(PhoneProjectionAccess.bootstrap(provider, new Object(), admittedBroadcast, "candidate",
+                new PhoneProjectionAccess.BootstrapAdmission() {
+                    public boolean claim() { return false; }
+                }) == StockProjectionSession.BootstrapResult.CANCELLED &&
+                admittedBroadcast.sends == 1 && manager.sppRequests == 0,
+                "denied continuation preserves admitted broadcast but prevents Binder invocation");
         FakeProfileSource profileSource = new FakeProfileSource();
         profileSource.profile = new PhoneProjectionAccess.Profile("candidate",
                 PhoneProjectionAccess.TYPE_CARPLAY, true, true);
@@ -202,7 +211,7 @@ public final class PhoneProjectionAccessTest {
                 "stale or timed-out attempt is cancelled immediately before OEM action");
         FakeActionSender bootstrapSender = new FakeActionSender();
         StockProjectionSession.BootstrapResult bootstrap = PhoneProjectionAccess.bootstrap(
-                provider, new Object(), bootstrapSender, "candidate");
+                provider, new Object(), bootstrapSender, "candidate", ALLOW_BINDER);
         check(bootstrap == StockProjectionSession.BootstrapResult.OEM_REQUESTED &&
                 bootstrapSender.sends == 1 &&
                 "android.bluetooth.device.action.START_SPP_CONNECT_FOR_CONNECTIVITY".equals(bootstrapSender.action) &&
@@ -215,12 +224,12 @@ public final class PhoneProjectionAccessTest {
         FakeActionSender cancelledBootstrapSender = new FakeActionSender();
         cancelledBootstrapSender.allowed = false;
         check(PhoneProjectionAccess.bootstrap(provider, new Object(), cancelledBootstrapSender,
-                "candidate") == StockProjectionSession.BootstrapResult.CANCELLED &&
+                "candidate", ALLOW_BINDER) == StockProjectionSession.BootstrapResult.CANCELLED &&
                 manager.sppRequests == requestsBeforeCancelledBootstrap,
                 "cancelled generation does not invoke requestConnectSPP");
         FakeActionSender unavailableMethodSender = new FakeActionSender();
         check(PhoneProjectionAccess.bootstrap(provider(new Object()), new Object(), unavailableMethodSender,
-                "candidate") == StockProjectionSession.BootstrapResult.METHOD_UNAVAILABLE &&
+                "candidate", ALLOW_BINDER) == StockProjectionSession.BootstrapResult.METHOD_UNAVAILABLE &&
                 unavailableMethodSender.sends == 0,
                 "missing requestConnectSPP method fails before bootstrap broadcast");
         System.out.println("PASS PhoneProjectionAccessTest");

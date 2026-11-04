@@ -9,8 +9,9 @@ require_bridge() {
 require_bridge 'registerAction("android.net.wifi.WIFI_AP_STATE_CHANGED")'
 require_bridge 'ProjectionWifiAccess.inspect('
 require_bridge 'private ProjectionWifiAccess.CredentialStatus inspectWifiCredentials()'
-require_bridge 'session.dispatchIfBootstrapAllowed('
-require_bridge 'session.dispatchIfRequestAllowed('
+require_bridge 'session.claimBootstrapBroadcast('
+require_bridge 'session.claimBootstrapInvocation('
+require_bridge 'session.claimRequest('
 require_bridge 'PhoneProjectionAccess.bootstrap('
 require_bridge 'session.bootstrapped('
 require_bridge 'ProjectionWifiAccess.ApProgress apProgress'
@@ -23,7 +24,7 @@ for forbidden in BluetoothSocket createRfcommSocketToServiceRecord Iap2SvcInit I
         exit 1
     fi
 done
-for forbidden in createRfcommSocket connectRfcomm Iap2Svc Iap2Transport AndroidAutoTransport java.net.Socket setWifiEnabled setWifiApEnabled setWifiApState setWifiApConfiguration startSoftAp stopSoftAp hostapd requestWLDeviceInfoAdd requestWLDeviceInfoUpdate; do
+for forbidden in RequestAction dispatchIfRequestAllowed dispatchIfBootstrapAllowed createRfcommSocket connectRfcomm Iap2Svc Iap2Transport AndroidAutoTransport java.net.Socket setWifiEnabled setWifiApEnabled setWifiApState setWifiApConfiguration startSoftAp stopSoftAp hostapd requestWLDeviceInfoAdd requestWLDeviceInfoUpdate; do
     if grep -q "$forbidden" "$wireless"/*.java; then
         echo "FAIL wireless sources contain forbidden mutation/transport: $forbidden"
         exit 1

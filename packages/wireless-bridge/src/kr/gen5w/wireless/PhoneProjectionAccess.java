@@ -25,6 +25,7 @@ public final class PhoneProjectionAccess {
     public interface ActionSender {
         boolean send(String action, String packageName, String extra, String address);
     }
+    public interface BootstrapAdmission { boolean claim(); }
 
     public static final class Profile {
         public final String address;
@@ -224,8 +225,9 @@ public final class PhoneProjectionAccess {
 
     /** Start the OEM first-registration path once; a request is not a profile or connection success. */
     public static StockProjectionSession.BootstrapResult bootstrap(
-            ServiceProvider services, Object context, ActionSender sender, String address) {
-        if (services == null || context == null || sender == null || address == null) {
+            ServiceProvider services, Object context, ActionSender sender, String address,
+            BootstrapAdmission admission) {
+        if (services == null || context == null || sender == null || address == null || admission == null) {
             return StockProjectionSession.BootstrapResult.INVOCATION;
         }
         final Object manager;
@@ -258,6 +260,7 @@ public final class PhoneProjectionAccess {
             return StockProjectionSession.BootstrapResult.INVOCATION;
         }
         try {
+            if (!admission.claim()) return StockProjectionSession.BootstrapResult.CANCELLED;
             request.invoke(manager, address);
             return StockProjectionSession.BootstrapResult.OEM_REQUESTED;
         } catch (InvocationTargetException e) {

@@ -258,26 +258,24 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         try {
             oemCalls.execute(new Runnable() {
                 public void run() {
-                    final StockProjectionSession.BootstrapResult[] result = {
-                        StockProjectionSession.BootstrapResult.CANCELLED
-                    };
-                    session.dispatchIfBootstrapAllowed(generation, address, now(),
-                            new StockProjectionSession.RequestAction() {
-                                public void send() {
-                                    if (shuttingDown || cable) return;
-                                    result[0] = PhoneProjectionAccess.bootstrap(
-                                            new PhoneProjectionAccess.ServiceProvider() {
-                                                public Object get(String name) { return context.getSystemService(name); }
-                                            }, context, new PhoneProjectionAccess.ActionSender() {
-                                                public boolean send(String action, String packageName, String extra, String value) {
-                                                    sendOemAction(action, packageName, extra, value);
-                                                    return true;
-                                                }
-                                            }, address);
+                    final StockProjectionSession.BootstrapResult result = PhoneProjectionAccess.bootstrap(
+                            new PhoneProjectionAccess.ServiceProvider() {
+                                public Object get(String name) { return context.getSystemService(name); }
+                            }, context, new PhoneProjectionAccess.ActionSender() {
+                                public boolean send(String action, String packageName, String extra, String value) {
+                                    if (!session.claimBootstrapBroadcast(generation, address, now()) ||
+                                            shuttingDown || cable) return false;
+                                    sendOemAction(action, packageName, extra, value);
+                                    return true;
+                                }
+                            }, address, new PhoneProjectionAccess.BootstrapAdmission() {
+                                public boolean claim() {
+                                    return session.claimBootstrapInvocation(generation, address, now()) &&
+                                            !shuttingDown && !cable;
                                 }
                             });
                     main.post(new Runnable() {
-                        public void run() { session.bootstrapped(generation, result[0], now()); }
+                        public void run() { session.bootstrapped(generation, result, now()); }
                     });
                 }
             });
@@ -299,16 +297,10 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                             }, context, new PhoneProjectionAccess.ActionSender() {
                                 public boolean send(final String action, final String packageName,
                                         final String extra, final String value) {
-                                    final boolean[] sent = {false};
-                                    session.dispatchIfRequestAllowed(generation, address, now(),
-                                            new StockProjectionSession.RequestAction() {
-                                                public void send() {
-                                                    if (shuttingDown || cable) return;
-                                                    sendOemAction(action, packageName, extra, value);
-                                                    sent[0] = true;
-                                                }
-                                            });
-                                    return sent[0];
+                                    if (!session.claimRequest(generation, address, now()) ||
+                                            shuttingDown || cable) return false;
+                                    sendOemAction(action, packageName, extra, value);
+                                    return true;
                                 }
                             }, address);
                     main.post(new Runnable() {
