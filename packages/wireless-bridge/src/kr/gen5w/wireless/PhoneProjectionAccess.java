@@ -97,9 +97,8 @@ public final class PhoneProjectionAccess {
             // CANCEL, unknown states, or any non-idle state owned by another/unknown
             // address fail closed; only the same candidate's CONNECTING state is polled.
             boolean other = !active && !connecting && wirelessState != STATE_NONE;
-            StockProjectionSession.ProfileState profileState = !addressMatches
-                    ? StockProjectionSession.ProfileState.UNKNOWN
-                    : !profile.enabled ? StockProjectionSession.ProfileState.DISABLED
+            StockProjectionSession.ProfileState profileState = !profile.enabled
+                    ? StockProjectionSession.ProfileState.DISABLED
                     : !profile.autoConnect ? StockProjectionSession.ProfileState.AUTO_CONNECT_DISABLED
                     : StockProjectionSession.ProfileState.READY;
             return new StockProjectionSession.Observation(StockProjectionSession.Result.INVOKED,

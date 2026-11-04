@@ -69,6 +69,25 @@ public final class PhoneProjectionAccessTest {
                 "CarPlay inspection uses only its connected-address getter");
         check(!state.projectionActiveForCandidate && !state.otherProjectionActive,
                 "empty connected address is not an active projection");
+        profileSource.profile = null;
+        state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
+        check(state.profileState == StockProjectionSession.ProfileState.MISSING,
+                "profile absence is observed while awaiting OEM bootstrap");
+        profileSource.profile = new PhoneProjectionAccess.Profile("candidate",
+                PhoneProjectionAccess.TYPE_CARPLAY, true, true);
+        state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
+        check(state.profileState == StockProjectionSession.ProfileState.READY &&
+                !state.projectionActiveForCandidate && !state.projectionConnectingForCandidate,
+                "saved CarPlay profile appearing after bootstrap is ready while projection is idle");
+        profileSource.profile = new PhoneProjectionAccess.Profile("candidate",
+                PhoneProjectionAccess.TYPE_ANDROID_AUTO, true, true);
+        state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
+        check(state.profileType == PhoneProjectionAccess.TYPE_ANDROID_AUTO &&
+                state.profileState == StockProjectionSession.ProfileState.READY &&
+                !state.projectionActiveForCandidate && !state.projectionConnectingForCandidate,
+                "saved Android Auto profile is ready while its connected address is empty");
+        profileSource.profile = new PhoneProjectionAccess.Profile("candidate",
+                PhoneProjectionAccess.TYPE_CARPLAY, true, true);
         manager.connected = null;
         state = PhoneProjectionAccess.inspect(provider, "candidate");
         check(state.result == StockProjectionSession.Result.INVOKED && !state.projectionActiveForCandidate,
@@ -113,10 +132,12 @@ public final class PhoneProjectionAccessTest {
         manager.aaConnected = "candidate";
         manager.wirelessState = 3;
         int cpCallsBeforeAndroidAuto = manager.cpGetterCalls;
+        int aaCallsBeforeAndroidAuto = manager.aaGetterCalls;
         state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
         check(state.profileType == PhoneProjectionAccess.TYPE_ANDROID_AUTO &&
                 state.projectionActiveForCandidate && !state.otherProjectionActive &&
-                manager.cpGetterCalls == cpCallsBeforeAndroidAuto && manager.aaGetterCalls == 1,
+                manager.cpGetterCalls == cpCallsBeforeAndroidAuto &&
+                manager.aaGetterCalls == aaCallsBeforeAndroidAuto + 1,
                 "Android Auto inspection uses only its own connected-address getter");
         profileSource.profile = new PhoneProjectionAccess.Profile("candidate", 7, true, true);
         state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
@@ -190,6 +211,18 @@ public final class PhoneProjectionAccessTest {
                 "bootstrap sends package-scoped ADDRESS and reports request only");
         check(manager.sppRequests == 1 && "candidate".equals(manager.sppAddress),
                 "bootstrap calls PPManager.requestConnectSPP exactly once");
+        int requestsBeforeCancelledBootstrap = manager.sppRequests;
+        FakeActionSender cancelledBootstrapSender = new FakeActionSender();
+        cancelledBootstrapSender.allowed = false;
+        check(PhoneProjectionAccess.bootstrap(provider, new Object(), cancelledBootstrapSender,
+                "candidate") == StockProjectionSession.BootstrapResult.CANCELLED &&
+                manager.sppRequests == requestsBeforeCancelledBootstrap,
+                "cancelled generation does not invoke requestConnectSPP");
+        FakeActionSender unavailableMethodSender = new FakeActionSender();
+        check(PhoneProjectionAccess.bootstrap(provider(new Object()), new Object(), unavailableMethodSender,
+                "candidate") == StockProjectionSession.BootstrapResult.METHOD_UNAVAILABLE &&
+                unavailableMethodSender.sends == 0,
+                "missing requestConnectSPP method fails before bootstrap broadcast");
         System.out.println("PASS PhoneProjectionAccessTest");
     }
 }
