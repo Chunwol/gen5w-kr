@@ -28,7 +28,7 @@ bridge는 핫스팟 SSID·암호를 읽거나 수정하지 않습니다. 순정 
 
 CarPlay 길안내는 `core`가 `com.remote.service.IAP2SERVICE`에 별도 이름 `gen5wkr.core`로 등록합니다. 순정 소비자의 등록을 대체하지 않습니다. 등록된 안내 component를 조회하고 `Iap2SvcStartRouteGuidanceUpdate`를 명시적으로 요청합니다. 알림 `0x78/0x79/0x7a`를 상태·회전·차선으로 처리하며, 6대 도로 유형(지하차도·고가차도·터널·요금소·휴게소·IC/JC) 전수 어휘 매핑 엔진을 통해 순정 심볼 코드로 변환합니다.
 
-Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch`로 우회하여, Google 표준 네비게이션 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 차량 네이티브 수준에서 활성화합니다. 이를 통해 사용자 스마트폰에 별도 앱을 설치하지 않고도 Google 지도·티맵·네이버 지도·카카오내비의 TBT 정보가 전달됩니다.
+Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch`로 우회하여, Google 표준 네비게이션 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 활성화하도록 구성합니다. 사용자 스마트폰에 별도 앱을 설치하지 않는 경로지만, Google 지도·티맵·네이버 지도·카카오내비의 실제 TBT 수신과 차량 표시는 앱·운영체제별 실차 검증 전까지 확정하지 않습니다.
 
 출력은 순정 `NavigationCluster`의 `updateTPTurnListNew`, `updateLaneInfo`, `updateTBTInfo`를 사용합니다. 2nd TBT(차기 회전 아이콘)는 `updateTPTurnListNew`의 두 번째 슬롯과 `updateTBTInfo`의 `sideStreet`에 전달합니다. `combiSideStreet`는 V039의 0~4 범위에 맞춰 0을 사용합니다. 출력이 실패하면 최신 정보나 지움 요청을 다시 보냅니다. 자체 CAN 프레임은 만들지 않습니다. 메시지 필드와 프레임 규격은 [iAP2](iap2-fields.md), [HUD](hud.md)를 참고하세요.
 
