@@ -104,9 +104,16 @@ dl_record_after() {
 
 dl_decimal_ge() {
     dl_number "$1" && dl_number "$2" || return 1
-    [ "${#1}" -gt "${#2}" ] && return 0
-    [ "${#1}" -lt "${#2}" ] && return 1
-    [[ "$1" = "$2" || "$1" > "$2" ]]
+    _dl_decimal_left=$1 _dl_decimal_right=$2
+    while [ "${#_dl_decimal_left}" -gt 1 ]; do
+        case "$_dl_decimal_left" in 0*) _dl_decimal_left=${_dl_decimal_left#0};; *) break;; esac
+    done
+    while [ "${#_dl_decimal_right}" -gt 1 ]; do
+        case "$_dl_decimal_right" in 0*) _dl_decimal_right=${_dl_decimal_right#0};; *) break;; esac
+    done
+    [ "${#_dl_decimal_left}" -gt "${#_dl_decimal_right}" ] && return 0
+    [ "${#_dl_decimal_left}" -lt "${#_dl_decimal_right}" ] && return 1
+    [[ "$_dl_decimal_left" = "$_dl_decimal_right" || "$_dl_decimal_left" > "$_dl_decimal_right" ]]
 }
 
 dl_increment_decimal() {

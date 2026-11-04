@@ -65,6 +65,7 @@ dl_validate_record 'D1|9999999999999|2|21|12|-45|1|7|850|66' || fail 'accepts lo
 [ "$(dl_record_uptime "$record")" = 12345 ] || fail 'extracts monotonic record time'
 dl_record_after 12345 "$record" || fail 'accepts record at opt-in timestamp'
 if dl_record_after 12346 "$record"; then fail 'rejects pre-opt-in retained logcat row'; fi
+if dl_record_after 12345 'D1|00000012344|2|21|12|-45|1|7|850|66'; then fail 'compares zero-padded timestamp numerically'; fi
 long_record='D1|2147484000|2|21|12|-45|1|7|850|66'
 dl_record_after 2147483999 "$long_record" || fail 'compares uptime beyond signed 32-bit milliseconds'
 if dl_record_after 2147484001 "$long_record"; then fail 'rejects pre-opt-in row beyond signed 32-bit milliseconds'; fi
