@@ -33,7 +33,7 @@ java -cp "$work" DumpTest
 java -cp "$work" WirelessSessionTest
 java -cp "$work" StockProjectionSessionTest
 java -cp "$work" PhoneProjectionAccessTest
-java -cp "$work" BluetoothCandidateScanTest
+java -cp "$work" kr.gen5w.wireless.BluetoothCandidateScanTest
 java -cp "$work" SdpRefreshTest
 java -cp "$work" TbtDistanceTest
 java -cp "$work" ApProfilesTest
