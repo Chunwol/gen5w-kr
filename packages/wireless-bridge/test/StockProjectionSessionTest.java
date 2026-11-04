@@ -53,7 +53,11 @@ public final class StockProjectionSessionTest {
                 "only the live request generation may emit the OEM action");
         port.requestResult = StockProjectionSession.RequestResult.OEM_ACTION_SENT;
         port.requestComplete(session, 2);
+        check(session.hasPendingOemOwnership(), "sent OEM action retains request ownership");
         session.tick(1002);
+        check(session.phase() == StockProjectionSession.Phase.INSPECTING &&
+                        session.hasPendingOemOwnership(),
+                "OEM ownership survives the REQUESTED-to-INSPECTING poll transition");
         port.reply(true, false, false);
         port.inspectionComplete(session, 1003);
         check(port.requests == 1, "normal return never triggers a repeated request");
@@ -65,6 +69,8 @@ public final class StockProjectionSessionTest {
         port.inspectionComplete(session, 2004);
         check(session.phase() == StockProjectionSession.Phase.ACTIVE,
                 "only OEM connected state marks projection active");
+        check(!session.hasPendingOemOwnership(),
+                "confirmed active projection is handled through foreign-owner inspection for other candidates");
 
         FakePort blockedPort = new FakePort();
         StockProjectionSession blocked = new StockProjectionSession(blockedPort);
@@ -112,6 +118,7 @@ public final class StockProjectionSessionTest {
         timeout.tick(StockProjectionSession.REQUEST_TIMEOUT_MS + 2);
         check(timeout.phase() == StockProjectionSession.Phase.FAILED,
                 "request timeout fails closed");
+        check(!timeout.hasPendingOemOwnership(), "timed-out request releases candidate-switch ownership");
         check(!timeout.requestAllowed(timeoutPort.requestedGeneration, "phone-timeout"),
                 "timed-out OEM request cannot emit a late action");
         check(timeoutPort.requests == 1, "timeout never starts another transport or OEM request");
@@ -151,7 +158,11 @@ public final class StockProjectionSessionTest {
         connectingPort.inspectionComplete(connecting, 1);
         check(connecting.phase() == StockProjectionSession.Phase.REQUESTED && connectingPort.requests == 0,
                 "same-candidate OEM CONNECTING state is observed without duplicating its request");
+        check(connecting.hasPendingOemOwnership(), "observed OEM connection owns the candidate attempt");
         connecting.tick(1001);
+        check(connecting.phase() == StockProjectionSession.Phase.INSPECTING &&
+                        connecting.hasPendingOemOwnership(),
+                "observed connection ownership survives a follow-up inspection");
         connectingPort.replyConnecting();
         connectingPort.inspectionComplete(connecting, 1002);
         check(connecting.phase() == StockProjectionSession.Phase.REQUESTED && connectingPort.requests == 0,

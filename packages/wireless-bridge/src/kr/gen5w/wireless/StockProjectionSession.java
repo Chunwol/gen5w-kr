@@ -251,6 +251,15 @@ public final class StockProjectionSession {
     public synchronized long generation() { return generation; }
     public synchronized Phase phase() { return phase; }
     public synchronized String candidate() { return candidate; }
+    /**
+     * True while an OEM request or same-device connection is unresolved,
+     * including INSPECTING between polls. ACTIVE, blocked, and failed states
+     * release this pending-attempt hold; a new candidate is inspected first.
+     */
+    public synchronized boolean hasPendingOemOwnership() {
+        return (requestIssued || observedConnecting) && phase != Phase.ACTIVE &&
+                phase != Phase.BLOCKED && phase != Phase.FAILED;
+    }
 
     /** Keep stable diagnostic labels while redacting arbitrary identifiers and text. */
     public static String safeDiagnosticToken(String value) {

@@ -14,7 +14,11 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +31,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
     final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
     final StockProjectionSession session = new StockProjectionSession(this);
     final Set<String> linked = new LinkedHashSet<String>();
+    final Map<String, Long> falseConnectionSince = new LinkedHashMap<String, Long>();
     final ExecutorService oemCalls = Executors.newFixedThreadPool(2);
     volatile boolean cable;
     volatile boolean shuttingDown;
@@ -114,10 +119,12 @@ public final class WirelessBridge implements StockProjectionSession.Port {
             } else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action) &&
                     i.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0) != BluetoothAdapter.STATE_ON) {
                 linked.clear();
+                falseConnectionSince.clear();
                 session.lost(null, now());
                 log("path=stock event=cancel reason=bluetooth-off");
             } else if ("com.hkmc.intent.action.SYSTEM_POWERON".equals(action)) {
                 linked.clear();
+                falseConnectionSince.clear();
                 session.lost(null, now());
                 log("path=stock event=reset reason=system-power-on");
             }
@@ -131,40 +138,43 @@ public final class WirelessBridge implements StockProjectionSession.Port {
     void scan() {
         if (adapter == null || !adapter.isEnabled()) {
             linked.clear();
+            falseConnectionSince.clear();
             if (session.candidate() != null) session.lost(null, now());
             return;
         }
         String hfp = null;
         try { hfp = (String) adapter.getClass().getMethod("getConnectedHfpAddr").invoke(adapter); }
         catch (Exception ignored) {}
-        Set<String> connectedNow = new LinkedHashSet<String>();
+        List<BluetoothCandidateScan.Device> devices = new ArrayList<BluetoothCandidateScan.Device>();
         for (BluetoothDevice device : adapter.getBondedDevices()) {
             if (device == null) continue;
-            String address = device.getAddress();
-            boolean connected = linked.contains(address) || (hfp != null && address.equalsIgnoreCase(hfp));
-            if (!connected) {
-                try { connected = ((Boolean) device.getClass().getMethod("isConnected").invoke(device)).booleanValue(); }
-                catch (Exception ignored) {}
-            }
-            if (connected) connectedNow.add(address);
+            final BluetoothDevice bonded = device;
+            devices.add(new BluetoothCandidateScan.Device() {
+                public String address() { return bonded.getAddress(); }
+                public Boolean isConnected() {
+                    try {
+                        return (Boolean) bonded.getClass().getMethod("isConnected").invoke(bonded);
+                    } catch (Exception ignored) {
+                        return null;
+                    }
+                }
+            });
         }
-        linked.retainAll(connectedNow);
-        linked.addAll(connectedNow);
-        offerCandidate();
+        BluetoothCandidateScan.reconcile(linked, falseConnectionSince, devices, hfp, session, now());
     }
 
     void connected(BluetoothDevice device) {
         if (device == null || device.getBondState() != BluetoothDevice.BOND_BONDED) return;
-        linked.add(device.getAddress());
+        String address = device.getAddress();
+        linked.add(address);
+        falseConnectionSince.remove(address.toUpperCase(java.util.Locale.US));
         offerCandidate();
     }
 
     void disconnected(BluetoothDevice device) {
         if (device == null) return;
         String address = device.getAddress();
-        linked.remove(address);
-        if (address.equals(session.candidate())) session.lost(address, now());
-        offerCandidate();
+        BluetoothCandidateScan.disconnected(linked, falseConnectionSince, address, session, now());
     }
 
     void offerCandidate() {
@@ -253,6 +263,8 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if (shuttingDown) return;
         shuttingDown = true;
         session.shutdown();
+        linked.clear();
+        falseConnectionSince.clear();
         main.removeCallbacks(tick);
         oemCalls.shutdownNow();
         if (eventsRegistered) try { context.unregisterReceiver(events); } catch (RuntimeException ignored) {}
