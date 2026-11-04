@@ -17,6 +17,30 @@ public final class V039DipoIconTest {
         passed++;
     }
     public static void main(String[] args) {
+        int U = Maneuver.UNKNOWN_ANGLE;
+        icon("left, no angle", 0x46, m(1, 0, 0, U));
+        icon("right, no angle", 0x43, m(2, 0, 0, U));
+        icon("sharp left, no angle", 0x45, m(47, 0, 0, U));
+        icon("sharp right, no angle", 0x44, m(48, 0, 0, U));
+        icon("slight left, no angle", 0x47, m(49, 0, 0, 0));
+        icon("slight right, no angle", 0x42, m(50, 0, 0, 0));
+        icon("keep left", 0x47, m(13, 0, 0, U));
+        icon("keep right", 0x42, m(14, 0, 0, U));
+        icon("off ramp without side uses the centre exit", ClusterIcon.IC_EXIT_C, m(8, 0, 0, U));
+        icon("off ramp 10 without side uses the centre exit", ClusterIcon.IC_EXIT_C, m(10, 0, 0, 0));
+        icon("left-hand traffic stays empty", ClusterIcon.NONE, m(13, 1, 0, U));
+        Maneuver rest = m(3, 0, 0, 0); rest.afterRoad = "안성휴게소";
+        icon("rest area text", ClusterIcon.REST_AREA, rest);
+        rest.afterRoad = "휴게소삼거리";
+        icon("junction name is not a rest area", 0x41, rest);
+        Maneuver toll = m(0, 0, 0, 0); toll.desc = "서울TG";
+        icon("toll text on no-turn", ClusterIcon.TOLL, toll);
+        icon("noturn roundabout 90", 0x63, m(0, 0, 1, 90));
+        icon("enter roundabout -90", 0x69, m(6, 0, 1, -90));
+        icon("enter roundabout 135", 0x64, m(6, 0, 1, 135));
+        icon("roundabout angle outside stock table stays empty", ClusterIcon.NONE, m(6, 0, 1, 30));
+        icon("roundabout without exit angle stays empty", ClusterIcon.NONE, m(6, 0, 1, U));
+        icon("odd angle on keep stays empty", ClusterIcon.NONE, m(14, 0, 0, 77));
         icon("left 90", 0x46, m(1, 0, 0, -90));
         icon("right 90", 0x43, m(2, 0, 0, 90));
         icon("left sharp 120", 0x45, m(1, 0, 0, -120));
@@ -48,10 +72,12 @@ public final class V039DipoIconTest {
         icon("change highway right", 0xad, m(53, 0, 0, 0));
 
         // V039 emits no cluster icon for these combinations. Do not invent one.
-        icon("generic off ramp unsupported", ClusterIcon.NONE, m(8, 0, 0, 0));
-        icon("left without exit angle unsupported", ClusterIcon.NONE,
+        icon("generic off ramp, centre exit", ClusterIcon.IC_EXIT_C, m(8, 0, 0, 0));
+        // Stock shows nothing without an exit angle; the type alone names the side, so the
+        // default icon is used (see the angle-less cases above).
+        icon("left without exit angle uses default", 0x46,
                 m(1, 0, 0, Maneuver.UNKNOWN_ANGLE));
-        icon("generic roundabout enter unsupported", ClusterIcon.NONE, m(6, 0, 1, 90));
+        icon("enter roundabout with stock angle", 0x63, m(6, 0, 1, 90));
         icon("ordinal alone does not imply angle", ClusterIcon.NONE, m(30, 0, 1, 90));
         icon("end road left unsupported", ClusterIcon.NONE, m(20, 0, 0, -90));
         icon("change highway generic unsupported", ClusterIcon.NONE, m(51, 0, 0, 0));

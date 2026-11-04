@@ -68,7 +68,9 @@ public final class GuidanceSessionTest {
             check("non-guidance state clears " + state, blank(sink));
         }
         Maneuver missing = m(0,1); missing.exitAngle = Maneuver.UNKNOWN_ANGLE;
-        check("missing angle is not guessed", ClusterIcon.of(missing) == ClusterIcon.NONE);
+        check("missing angle uses the type's default icon", ClusterIcon.of(missing) == 0x46);
+        missing.drivingSide = Maneuver.UNKNOWN_DRIVING_SIDE;
+        check("missing angle and side is not guessed", ClusterIcon.of(missing) == ClusterIcon.NONE);
         Maneuver curve = m(0,1); curve.exitAngle = -77;
         check("non-stock curve angle is not guessed", ClusterIcon.of(curve) == ClusterIcon.NONE);
         curve.exitAngle = -25;

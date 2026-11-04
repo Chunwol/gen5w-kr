@@ -53,8 +53,9 @@ public final class HudTest {
         lane.angles = new int[]{0,45,90,135};
         eq("four directions clear", LaneFrame.encode(lanes,0)[1], 0);
 
-        // Android Auto icons already mapped by the stock GPM must remain untouched.
-        eq("AA icon preserved against TG text", ClusterIcon.refineManeuver(0x41, "서울TG", ""), 0x41);
+        // Non-directional straight icons upgrade on TG / Rest Area text, while directional icons stay preserved.
+        eq("AA straight upgraded on TG text", ClusterIcon.refineManeuver(0x41, "서울TG", ""), ClusterIcon.TOLL);
+        eq("AA straight upgraded on rest area text", ClusterIcon.refineManeuver(0x41, "망향휴게소", ""), ClusterIcon.REST_AREA);
         eq("AA icon preserved against conflicting side", ClusterIcon.refineManeuver(0x43, "좌측 진출", ""), 0x43);
 
         byte[] simple = LaneFrame.encodeSimple(3, new int[]{0,90,-90},

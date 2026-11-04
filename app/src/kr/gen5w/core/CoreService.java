@@ -630,6 +630,8 @@ public final class CoreService extends Service {
                     m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
                     m.exitAngle = exitAngle; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
+                } else {
+                    icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
                 // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
@@ -749,6 +751,8 @@ public final class CoreService extends Service {
                     m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
                     m.exitAngle = exitAngle; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
+                } else {
+                    icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
                 // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
