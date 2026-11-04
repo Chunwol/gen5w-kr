@@ -14,8 +14,10 @@ javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/StockProjectionSession.java packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BluetoothCandidateScan.java \
+    packages/wireless-bridge/src/kr/gen5w/wireless/ProjectionWifiAccess.java \
     packages/wireless-bridge/test/StockProjectionSessionTest.java packages/wireless-bridge/test/PhoneProjectionAccessTest.java \
     packages/wireless-bridge/test/BluetoothCandidateScanTest.java \
+    packages/wireless-bridge/test/ProjectionWifiAccessTest.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/SdpRefresh.java packages/wireless-bridge/test/SdpRefreshTest.java \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApBrokerPolicy.java packages/wireless-bridge/test/ApBrokerPolicyTest.java \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApBrokerCancellation.java packages/wireless-bridge/test/ApBrokerCancellationTest.java \
@@ -36,6 +38,7 @@ java -cp "$work" WirelessSessionTest
 java -cp "$work" StockProjectionSessionTest
 java -cp "$work" PhoneProjectionAccessTest
 java -cp "$work" kr.gen5w.wireless.BluetoothCandidateScanTest
+java -cp "$work" kr.gen5w.wireless.ProjectionWifiAccessTest
 java -cp "$work" SdpRefreshTest
 java -cp "$work" TbtDistanceTest
 java -cp "$work" ApProfilesTest

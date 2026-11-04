@@ -18,7 +18,7 @@ stubpath="$PKG/stubs"
 if [ "$PKG" = packages/wireless-bridge ]; then
     stubpath="probe/stubs${sep}packages/wireless-bridge/stubs"
     sourcepath="$PKG/src${sep}$stubpath"
-    sources="$PKG/src/kr/gen5w/wireless/BridgeHostService.java $PKG/src/kr/gen5w/wireless/WirelessBridge.java $PKG/src/kr/gen5w/wireless/PhoneProjectionAccess.java $PKG/src/kr/gen5w/wireless/StockProjectionSession.java $PKG/src/kr/gen5w/wireless/BluetoothCandidateScan.java $PKG/src/kr/gen5w/wireless/DriveLog.java"
+    sources="$PKG/src/kr/gen5w/wireless/BridgeHostService.java $PKG/src/kr/gen5w/wireless/WirelessBridge.java $PKG/src/kr/gen5w/wireless/PhoneProjectionAccess.java $PKG/src/kr/gen5w/wireless/StockProjectionSession.java $PKG/src/kr/gen5w/wireless/BluetoothCandidateScan.java $PKG/src/kr/gen5w/wireless/ProjectionWifiAccess.java $PKG/src/kr/gen5w/wireless/DriveLog.java"
 else
     sourcepath="$stubpath"
     sources=$(find "$PKG/src" -name '*.java')
