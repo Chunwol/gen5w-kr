@@ -1,28 +1,23 @@
-# 무선 CarPlay 연결 요청
+# 무선 프로젝션 연결 요청
 
-무선 브리지는 Bluetooth로 이미 연결된 휴대폰의 주소를 확인한 뒤, 현재 사용자 프로필에 같은 주소의 CarPlay 항목이 저장되어 있고 무선 연결과 자동 연결이 켜져 있을 때만 순정 PhoneProjection에 연결을 요청합니다. 차량에 저장된 Wi-Fi 이름이나 암호는 읽거나 변경하지 않습니다.
+브리지는 Bluetooth로 연결된 휴대폰을 현재 연결 후보로 확인합니다. 저장된 순정 무선 프로필이 없으면 V039 PhoneProjection의 첫 등록 경로를 한 번 요청합니다. 이 경로는 PhoneProjection 앱에 한정한 `START_SPP_CONNECT_FOR_CONNECTIVITY` 동작과 `PPManager.requestConnectSPP(address)`를 사용합니다. 요청은 등록 또는 연결 성공을 뜻하지 않습니다.
 
-V039 원본 코드에서 PhoneProjection 화면이 사용하는 연결 요청과 동적 수신기를 확인했습니다. 브리지는 그 화면과 같은 `SEND_CONNECTION_PHONEPROJECTION` 동작을 PhoneProjection 앱에 한정해 전달합니다. `requestConnectSPP`의 외부 호출은 V039에서 연결을 시작하지 않아 사용하지 않습니다. 자체 Bluetooth 소켓, iAP2 연결, 핫스팟 생성도 실행하지 않습니다.
+프로필이 있으면 CarPlay와 Android Auto 유형을 구분해 해당 플랫폼의 순정 프로필과 연결 상태를 읽습니다. 프로필이 활성화되어 있고 자동 연결이 허용된 경우에만 순정 PhoneProjection 연결 요청을 보냅니다. 브리지는 연결 소켓, iAP2 세션, Android Auto 전송을 직접 소유하지 않습니다. 작업 세대, 연결 후보, 유선 연결, 다른 프로젝션 소유권, 요청 기한을 확인해 취소된 작업의 후속 요청을 막습니다.
 
-순정 수신기는 앱이 실행될 때만 등록되는 동적 리시버입니다. V039 매니페스트에는 `BOOT_COMPLETED` 수신기와 활성화된 `WirelessPhoneProjectionService`가 있고, 부팅 수신기는 한국형 사양 단계와 무선 지원 여부를 확인해 무선 서비스 초기화 경로를 택합니다. 무선 지원 판정은 Android Auto 무선 기능, CarPlay 무선 기능 또는 `ro.product.opt.useppwireless` 설정을 사용합니다. 이 프로젝트의 `wireless-enable` 모듈은 CarPlay·Android Auto 무선 기능 XML을 등록하고 재부팅을 요청하므로, 해당 모듈이 성공한 뒤 재부팅해야 순정 서비스가 연결 요청을 받을 준비를 할 수 있습니다. 브리지는 순정 서비스를 직접 시작하거나 그 기능 설정을 런타임에 바꾸지 않습니다.
+프로젝션 Wi-Fi 준비 상태도 별도로 관찰합니다. 진단에는 `ConnectivitySSID`·`ConnectivityPSK`의 존재 여부와 Wi-Fi AP 진행 상태만 남기며 자격 증명 값은 저장하거나 기록하지 않습니다. 일반 핫스팟의 `SSID`·`preSharedKey`는 별도 설정이므로 프로젝션 Wi-Fi 준비 판정에 대신 사용하지 않습니다. 브리지는 이 연결 흐름에서 프로젝션 Wi-Fi 자격 증명을 일반 핫스팟 값으로 덮어쓰지 않습니다.
 
-확보한 V039 시스템 이미지에서 `ro.product.opt.stepofspec=90`을 확인했습니다. 이는 한국형 무선 서비스 초기화의 사양 단계 조건을 만족합니다. 다만 차량에서 무선 기능 등록이 실제 반영됐는지, 순정 서비스가 부팅 후 동적 리시버를 등록했는지는 설치 후 진단 결과와 실차 연결로 확인해야 합니다.
-
-요청을 보냈다는 기록은 연결 성공을 뜻하지 않습니다. 브리지는 순정 서비스가 같은 휴대폰을 연결 상태로 보고할 때만 CarPlay 활성으로 판단합니다. 순정 서비스가 준비되지 않았거나, 사용자 프로필이 없거나, 자동 연결이 꺼져 있거나, 휴대폰의 Wi-Fi 정보가 순정 프로필과 맞지 않으면 연결되지 않을 수 있습니다. 자동 전환 경로가 실패해도 다른 연결 방식을 동시에 시도하지 않습니다.
-
-V039 Wi-Fi 구성에는 일반 핫스팟용 `SSID`·`preSharedKey`와 폰 프로젝션 연결용 `ConnectivitySSID`·`ConnectivityPSK`가 별도로 있습니다. 순정 PhoneProjection은 핫스팟 일반 설정과 별도의 `setWifiApEnabledForConnectivity` 경로를 사용합니다. 따라서 설정 화면에 보이는 핫스팟 이름이 CarPlay 연결에 쓰이는 이름과 다를 수 있으며, 두 값을 같게 덮어쓰면 안 됩니다.
-
-이 브리지는 두 설정을 읽거나 변경하지 않고 순정 PhoneProjection에 연결만 요청합니다. V039 소스에서 별도 설정 필드와 순정 AP 시작 경로는 확인했지만, 현재 휴대폰에 전달된 연결 이름·암호가 맞는지 또는 실제 AP 연결이 성공하는지는 차량에서 확인해야 합니다.
+V039 소스에서 순정 SPP 등록 요청과 CarPlay·Android Auto 프로필 경로, 별도 프로젝션 Wi-Fi 필드 및 AP 시작 경로를 확인했습니다. 이는 구현 근거이며 차량에서 순정 요청이 수락됐거나 등록·연결이 성공했다는 증거는 아닙니다. 차량의 `GEN5W-REPORT`에 프로필 등록·순정 연결 요청과 `projection-active`를 포함한 수락·활성 결과가 기록되기 전까지 실차 연결은 미검증입니다.
 
 ## 표시되는 진단 결과
 
 - `profile-unavailable`: 현재 사용자에게 저장된 프로필을 읽지 못했습니다.
-- `profile-mismatch`: 연결된 휴대폰에 맞는 CarPlay 프로필이 아닙니다.
+- `profile-mismatch`: 저장된 프로필 주소 또는 유형이 현재 연결 후보와 일치하지 않습니다.
 - `profile-disabled` 또는 `auto-connect-disabled`: 차량 설정에서 해당 프로필 또는 자동 연결이 꺼져 있습니다.
 - `cancelled`: 요청이 처리되는 동안 연결이 끊기거나 요청이 만료되어 순정 요청을 보내지 않았습니다.
-- `oem-action-sent`: 순정 앱에 연결 요청을 전달했습니다. 연결 성공 여부는 아직 확인되지 않았습니다.
+- `oem-action-sent`: 순정 앱에 저장된 프로필 연결 요청을 전달했습니다. 연결 성공 여부는 아직 확인되지 않았습니다.
+- `oem-requested`: 순정 첫 등록 경로의 요청 호출이 반환됐습니다. 프로필 등록이나 연결 성공을 뜻하지 않습니다.
 - `progress=connecting`: 순정 상태가 같은 휴대폰의 연결 진행 중이라고 보고했습니다. 브리지는 추가 연결 요청을 보내지 않고 상태만 확인합니다.
-- `projection-active`: 순정 PhoneProjection이 같은 휴대폰을 연결 상태로 보고했습니다.
+- `projection-active`: 순정 PhoneProjection이 같은 휴대폰을 프로젝션 연결 상태로 보고했습니다.
 - `timeout`: 정해진 시간 안에 순정 연결 상태가 확인되지 않았습니다.
 
-실차 검증을 마치기 전까지 이 기능의 연결 성공을 보장하지 않습니다. 시험 때는 `GEN5W-REPORT`의 진단 결과를 보관하고, 주소·휴대폰 이름·Wi-Fi 암호가 포함될 수 있는 상세 로그를 공개 이슈에 올리기 전 가리세요.
+`projection-active`와 관련 수락 결과를 담은 차량 진단 로그가 확인되기 전까지 차량 연결은 미검증입니다. 시험 때는 `GEN5W-REPORT`의 진단 결과를 보관하고, 주소·휴대폰 이름이 포함될 수 있는 상세 로그를 공개 이슈에 올리기 전 가리세요.
