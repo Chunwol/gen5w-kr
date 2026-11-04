@@ -7,201 +7,224 @@ public final class StockProjectionSessionTest {
 
     private static final class FakePort implements StockProjectionSession.Port {
         int inspections;
+        int bootstraps;
         int requests;
-        String requestedAddress;
-        long inspectedGeneration;
-        long requestedGeneration;
-        StockProjectionSession.Observation lastObservation;
-        StockProjectionSession.RequestResult requestResult;
+        long generation;
+        String address;
+        int profileType;
+        StockProjectionSession.BootstrapResult bootstrapResult =
+                StockProjectionSession.BootstrapResult.OEM_REQUESTED;
+        StockProjectionSession.RequestResult requestResult =
+                StockProjectionSession.RequestResult.OEM_ACTION_SENT;
+        String lastEvent;
+
         public void inspect(long generation, String address) {
             inspections++;
-            inspectedGeneration = generation;
+            this.generation = generation;
+            this.address = address;
         }
-        public void requestConnect(long generation, String address) {
+        public void bootstrap(long generation, String address) {
+            bootstraps++;
+            this.generation = generation;
+            this.address = address;
+        }
+        public void requestConnect(long generation, String address, int profileType) {
             requests++;
-            requestedGeneration = generation;
-            requestedAddress = address;
+            this.generation = generation;
+            this.address = address;
+            this.profileType = profileType;
         }
-        public void event(String name, String result) {}
-        void reply(boolean ignoredAutoSppGate, boolean active, boolean other) {
-            lastObservation = new StockProjectionSession.Observation(
-                    StockProjectionSession.Result.INVOKED, true, active, other);
+        public void event(String name, String result) { lastEvent = result; }
+
+        void inspect(StockProjectionSession session, long now, int type,
+                StockProjectionSession.ProfileState profile,
+                boolean active, boolean connecting, boolean otherActive,
+                StockProjectionSession.WifiCredentialState credentials, int apState) {
+            session.inspected(generation, new StockProjectionSession.Observation(
+                    StockProjectionSession.Result.INVOKED, true, type, profile,
+                    active, connecting, otherActive, credentials, apState), now);
         }
-        void replyConnecting() {
-            lastObservation = new StockProjectionSession.Observation(
-                    StockProjectionSession.Result.INVOKED, true, false, true, false);
-        }
-        void inspectionComplete(StockProjectionSession session, long now) {
-            session.inspected(inspectedGeneration, lastObservation, now);
+        void bootstrapComplete(StockProjectionSession session, long now) {
+            session.bootstrapped(generation, bootstrapResult, now);
         }
         void requestComplete(StockProjectionSession session, long now) {
-            session.requested(requestedGeneration, requestResult, now);
+            session.requested(generation, requestResult, now);
         }
     }
 
+    private static final class Attempt {
+        final FakePort port = new FakePort();
+        final StockProjectionSession session = new StockProjectionSession(port);
+        long now;
+        Attempt() {
+            session.candidate("phone-a", now);
+            session.tick(now);
+        }
+        void missingProfile() {
+            port.inspect(session, now + 1, 0, StockProjectionSession.ProfileState.MISSING,
+                    false, false, false, StockProjectionSession.WifiCredentialState.UNKNOWN, 11);
+            now += 1;
+        }
+        void finishBootstrap() {
+            port.bootstrapComplete(session, now + 1);
+            now += 1;
+        }
+        void readyProfile(int type, StockProjectionSession.WifiCredentialState credentials) {
+            now += StockProjectionSession.POLL_INTERVAL_MS;
+            session.tick(now);
+            port.inspect(session, now + 1, type, StockProjectionSession.ProfileState.READY,
+                    false, false, false, credentials, 11);
+            now += 1;
+        }
+        void acceptConnect() {
+            port.requestComplete(session, now + 1);
+            now += 1;
+        }
+        void startWifiWait(int type, StockProjectionSession.WifiCredentialState credentials) {
+            missingProfile();
+            finishBootstrap();
+            readyProfile(type, credentials);
+            acceptConnect();
+        }
+    }
+
+    private static void missingProfileBootstrapsOncePerGeneration() {
+        Attempt a = new Attempt();
+        a.missingProfile();
+        check(a.port.bootstraps == 1, "missing profile sends one bootstrap");
+        check(a.session.phase() == StockProjectionSession.Phase.BOOTSTRAP_REQUESTED,
+                "bootstrap request has its own phase");
+        a.port.bootstrapComplete(a.session, ++a.now);
+        a.session.tick(a.now + 1000);
+        a.port.inspect(a.session, a.now + 1001, 0, StockProjectionSession.ProfileState.MISSING,
+                false, false, false, StockProjectionSession.WifiCredentialState.UNKNOWN, 11);
+        check(a.port.bootstraps == 1, "polling does not repeat bootstrap in one generation");
+        check(a.session.phase() == StockProjectionSession.Phase.WAITING_PROFILE,
+                "profile may remain missing while the bootstrap deadline is pending");
+    }
+
+    private static void profileAppearanceDispatchesOnceForCarPlay() {
+        Attempt a = new Attempt();
+        a.missingProfile();
+        a.finishBootstrap();
+        a.readyProfile(1, StockProjectionSession.WifiCredentialState.PRESENT);
+        check(a.port.requests == 1 && a.port.profileType == 1,
+                "CarPlay profile dispatches one typed OEM request");
+        check(a.session.phase() == StockProjectionSession.Phase.CONNECT_REQUESTED,
+                "accepted profile advances to OEM request");
+        a.acceptConnect();
+        a.session.tick(a.now + StockProjectionSession.POLL_INTERVAL_MS);
+        a.port.inspect(a.session, a.now + StockProjectionSession.POLL_INTERVAL_MS + 1,
+                1, StockProjectionSession.ProfileState.READY, false, false, false,
+                StockProjectionSession.WifiCredentialState.PRESENT, 11);
+        check(a.port.requests == 1, "repeated CarPlay inspection does not dispatch a second request");
+    }
+
+    private static void profileAppearanceDispatchesOnceForAndroidAuto() {
+        Attempt a = new Attempt();
+        a.missingProfile();
+        a.finishBootstrap();
+        a.readyProfile(2, StockProjectionSession.WifiCredentialState.PRESENT);
+        check(a.port.requests == 1 && a.port.profileType == 2,
+                "Android Auto profile dispatches one typed OEM request");
+    }
+
+    private static void wifiUnknownIsNotMissing() {
+        Attempt a = new Attempt();
+        a.startWifiWait(1, StockProjectionSession.WifiCredentialState.UNKNOWN);
+        check(a.session.phase() == StockProjectionSession.Phase.WAITING_WIFI,
+                "unknown credentials do not fail an accepted OEM request");
+        check(!"wifi-credentials-unavailable".equals(a.port.lastEvent),
+                "unknown credentials are not diagnosed as missing");
+
+        Attempt missing = new Attempt();
+        missing.startWifiWait(1, StockProjectionSession.WifiCredentialState.MISSING);
+        check(missing.session.phase() == StockProjectionSession.Phase.WAITING_WIFI,
+                "missing credentials observed before request acceptance do not fail early");
+        missing.session.tick(missing.now + StockProjectionSession.POLL_INTERVAL_MS);
+        missing.port.inspect(missing.session, missing.now + StockProjectionSession.POLL_INTERVAL_MS + 1,
+                1, StockProjectionSession.ProfileState.READY, false, false, false,
+                StockProjectionSession.WifiCredentialState.MISSING, 11);
+        check(missing.session.phase() == StockProjectionSession.Phase.BLOCKED &&
+                        "wifi-credentials-unavailable".equals(missing.port.lastEvent),
+                "missing credentials after accepted request stop the current generation");
+    }
+
+    private static void activeWinsWhenApBroadcastWasMissed() {
+        Attempt a = new Attempt();
+        a.startWifiWait(1, StockProjectionSession.WifiCredentialState.PRESENT);
+        a.session.tick(a.now + StockProjectionSession.POLL_INTERVAL_MS);
+        a.port.inspect(a.session, a.now + StockProjectionSession.POLL_INTERVAL_MS + 1, 1,
+                StockProjectionSession.ProfileState.READY, true, false, false,
+                StockProjectionSession.WifiCredentialState.PRESENT, 11);
+        check(a.session.phase() == StockProjectionSession.Phase.ACTIVE,
+                "OEM connected state is active while AP state remains disabled");
+    }
+
+    private static void bootstrapWifiAndFinalTimeoutsAreDistinct() {
+        Attempt bootstrap = new Attempt();
+        bootstrap.missingProfile();
+        bootstrap.finishBootstrap();
+        bootstrap.session.tick(bootstrap.now + StockProjectionSession.PROFILE_BOOTSTRAP_TIMEOUT_MS);
+        check(bootstrap.session.phase() == StockProjectionSession.Phase.FAILED &&
+                        "profile-bootstrap-timeout".equals(bootstrap.port.lastEvent),
+                "profile bootstrap timeout reports its own boundary");
+
+        Attempt wifi = new Attempt();
+        wifi.startWifiWait(1, StockProjectionSession.WifiCredentialState.PRESENT);
+        wifi.session.tick(wifi.now + StockProjectionSession.WIFI_TIMEOUT_MS + 1);
+        check("wifi-ap-timeout".equals(wifi.port.lastEvent),
+                "inactive projection reports AP readiness timeout");
+
+        Attempt request = new Attempt();
+        request.startWifiWait(1, StockProjectionSession.WifiCredentialState.PRESENT);
+        request.session.tick(request.now + StockProjectionSession.POLL_INTERVAL_MS);
+        request.port.inspect(request.session, request.now + StockProjectionSession.POLL_INTERVAL_MS + 1,
+                1, StockProjectionSession.ProfileState.READY, false, false, false,
+                StockProjectionSession.WifiCredentialState.PRESENT,
+                StockProjectionSession.WIFI_AP_STATE_ENABLED);
+        request.session.tick(request.now + StockProjectionSession.REQUEST_TIMEOUT_MS + 1);
+        check("projection-timeout".equals(request.port.lastEvent),
+                "final projection timeout is distinct from profile and AP deadlines: " +
+                        request.port.lastEvent + "/" + request.session.phase());
+    }
+
+    private static void wiredAndStaleCallbacksCancel() {
+        Attempt a = new Attempt();
+        long oldGeneration = a.port.generation;
+        a.missingProfile();
+        a.session.environment(true, false, ++a.now);
+        check(a.session.phase() == StockProjectionSession.Phase.CANCELLED,
+                "wired ownership cancels the pending generation");
+        a.session.bootstrapped(oldGeneration, StockProjectionSession.BootstrapResult.OEM_REQUESTED, ++a.now);
+        check(a.port.requests == 0 && a.port.bootstraps == 1,
+                "late bootstrap callback cannot dispatch a connection");
+    }
+
+    private static void restartStartsFromInspectionWithoutPendingState() {
+        Attempt a = new Attempt();
+        a.missingProfile();
+        a.session.lost("phone-a", ++a.now);
+        a.session.candidate("phone-a", ++a.now);
+        a.session.tick(a.now);
+        check(a.session.phase() == StockProjectionSession.Phase.INSPECTING &&
+                        a.port.inspections == 2 && a.port.bootstraps == 1,
+                "new Bluetooth generation restarts at inspection");
+        check(!a.session.hasPendingOemOwnership(), "new generation has no inherited pending owner");
+        a.port.inspect(a.session, a.now + 1, 0, StockProjectionSession.ProfileState.MISSING,
+                false, false, false, StockProjectionSession.WifiCredentialState.UNKNOWN, 11);
+        check(a.port.bootstraps == 2, "new generation gets its own single bootstrap");
+    }
+
     public static void main(String[] args) {
-        FakePort port = new FakePort();
-        StockProjectionSession session = new StockProjectionSession(port);
-        session.candidate("phone-a", 0);
-        session.tick(0);
-        long first = port.inspectedGeneration;
-        port.reply(true, false, false);
-        port.inspectionComplete(session, 1);
-        check(port.requests == 1, "eligible device issues one OEM request");
-        check("phone-a".equals(port.requestedAddress), "request targets selected candidate");
-        check(session.requestAllowed(port.requestedGeneration, "phone-a"),
-                "only the live request generation may emit the OEM action");
-        port.requestResult = StockProjectionSession.RequestResult.OEM_ACTION_SENT;
-        port.requestComplete(session, 2);
-        check(session.hasPendingOemOwnership(), "sent OEM action retains request ownership");
-        session.tick(1002);
-        check(session.phase() == StockProjectionSession.Phase.INSPECTING &&
-                        session.hasPendingOemOwnership(),
-                "OEM ownership survives the REQUESTED-to-INSPECTING poll transition");
-        port.reply(true, false, false);
-        port.inspectionComplete(session, 1003);
-        check(port.requests == 1, "normal return never triggers a repeated request");
-        check(session.phase() == StockProjectionSession.Phase.REQUESTED,
-                "request return is not projection success");
-
-        session.tick(2003);
-        port.reply(true, true, false);
-        port.inspectionComplete(session, 2004);
-        check(session.phase() == StockProjectionSession.Phase.ACTIVE,
-                "only OEM connected state marks projection active");
-        check(!session.hasPendingOemOwnership(),
-                "confirmed active projection is handled through foreign-owner inspection for other candidates");
-
-        FakePort blockedPort = new FakePort();
-        StockProjectionSession blocked = new StockProjectionSession(blockedPort);
-        blocked.candidate("phone-b", 0);
-        blocked.tick(0);
-        blockedPort.reply(false, false, false);
-        blockedPort.inspectionComplete(blocked, 1);
-        check(blockedPort.requests == 1,
-                "auto-SPP gate does not block the distinct saved-profile OEM action");
-
-        FakePort racedGatePort = new FakePort();
-        StockProjectionSession racedGate = new StockProjectionSession(racedGatePort);
-        racedGate.candidate("phone-gate-race", 0);
-        racedGate.tick(0);
-        racedGatePort.reply(true, false, false);
-        racedGatePort.inspectionComplete(racedGate, 1);
-        racedGatePort.requestResult = StockProjectionSession.RequestResult.PROFILE_DISABLED;
-        racedGatePort.requestComplete(racedGate, 2);
-        check(racedGate.phase() == StockProjectionSession.Phase.BLOCKED,
-                "disabled saved profile blocks the current attempt");
-
-        FakePort stalePort = new FakePort();
-        StockProjectionSession stale = new StockProjectionSession(stalePort);
-        stale.candidate("phone-old", 0);
-        stale.tick(0);
-        long oldGeneration = stalePort.inspectedGeneration;
-        stale.lost("phone-old", 1);
-        stale.candidate("phone-new", 2);
-        stale.tick(2);
-        stalePort.reply(true, false, false);
-        stale.inspected(oldGeneration, stalePort.lastObservation, 3);
-        check(stalePort.requests == 0, "stale inspection cannot request for a new candidate");
-        stalePort.reply(true, false, false);
-        stalePort.inspectionComplete(stale, 4);
-        check(stalePort.requests == 1, "current candidate can request after stale reply is ignored");
-
-        FakePort timeoutPort = new FakePort();
-        StockProjectionSession timeout = new StockProjectionSession(timeoutPort);
-        timeout.candidate("phone-timeout", 0);
-        timeout.tick(0);
-        timeoutPort.reply(true, false, false);
-        timeoutPort.inspectionComplete(timeout, 1);
-        timeoutPort.requestResult = StockProjectionSession.RequestResult.OEM_ACTION_SENT;
-        timeoutPort.requestComplete(timeout, 2);
-        timeout.tick(StockProjectionSession.REQUEST_TIMEOUT_MS + 2);
-        check(timeout.phase() == StockProjectionSession.Phase.FAILED,
-                "request timeout fails closed");
-        check(!timeout.hasPendingOemOwnership(), "timed-out request releases candidate-switch ownership");
-        check(!timeout.requestAllowed(timeoutPort.requestedGeneration, "phone-timeout"),
-                "timed-out OEM request cannot emit a late action");
-        check(timeoutPort.requests == 1, "timeout never starts another transport or OEM request");
-
-        FakePort wiredPort = new FakePort();
-        StockProjectionSession wired = new StockProjectionSession(wiredPort);
-        wired.candidate("phone-wired", 0);
-        wired.environment(true, false, 1);
-        wired.tick(2);
-        check(wiredPort.inspections == 0, "wired connection suppresses stock request");
-        check(wired.phase() == StockProjectionSession.Phase.IDLE,
-                "wired change invalidates the pending generation");
-
-        FakePort latePort = new FakePort();
-        StockProjectionSession late = new StockProjectionSession(latePort);
-        late.candidate("phone-late", 0);
-        late.tick(0);
-        latePort.reply(true, false, false);
-        latePort.inspectionComplete(late, 1);
-        final int[] lateSends = new int[] { 0 };
-        boolean lateDispatched = late.dispatchIfRequestAllowed(latePort.requestedGeneration, "phone-late", 6000,
-                new StockProjectionSession.RequestAction() {
-                    public void send() { lateSends[0]++; }
-                });
-        check(!lateDispatched && lateSends[0] == 0,
-                "dispatch-time deadline check rejects late work even before the main-loop timeout tick");
-        late.requested(latePort.requestedGeneration, StockProjectionSession.RequestResult.CANCELLED, 6000);
-        late.tick(6001);
-        check(late.phase() == StockProjectionSession.Phase.FAILED && latePort.requests == 1,
-                "late cancelled request fails instead of retrying the OEM action");
-
-        FakePort connectingPort = new FakePort();
-        StockProjectionSession connecting = new StockProjectionSession(connectingPort);
-        connecting.candidate("phone-connecting", 0);
-        connecting.tick(0);
-        connectingPort.replyConnecting();
-        connectingPort.inspectionComplete(connecting, 1);
-        check(connecting.phase() == StockProjectionSession.Phase.REQUESTED && connectingPort.requests == 0,
-                "same-candidate OEM CONNECTING state is observed without duplicating its request");
-        check(connecting.hasPendingOemOwnership(), "observed OEM connection owns the candidate attempt");
-        connecting.tick(1001);
-        check(connecting.phase() == StockProjectionSession.Phase.INSPECTING &&
-                        connecting.hasPendingOemOwnership(),
-                "observed connection ownership survives a follow-up inspection");
-        connectingPort.replyConnecting();
-        connectingPort.inspectionComplete(connecting, 1002);
-        check(connecting.phase() == StockProjectionSession.Phase.REQUESTED && connectingPort.requests == 0,
-                "continued OEM connection progress remains pending");
-        connecting.tick(2002);
-        connectingPort.reply(false, false, false);
-        connectingPort.inspectionComplete(connecting, 2003);
-        check(connectingPort.requests == 1,
-                "one OEM request may be issued only after the prior same-device attempt becomes idle");
-
-        FakePort connectingTimeoutPort = new FakePort();
-        StockProjectionSession connectingTimeout = new StockProjectionSession(connectingTimeoutPort);
-        connectingTimeout.candidate("phone-connecting-timeout", 0);
-        connectingTimeout.tick(0);
-        connectingTimeoutPort.replyConnecting();
-        connectingTimeoutPort.inspectionComplete(connectingTimeout, 1);
-        connectingTimeout.tick(StockProjectionSession.REQUEST_TIMEOUT_MS + 1);
-        check(connectingTimeout.phase() == StockProjectionSession.Phase.FAILED &&
-                connectingTimeoutPort.requests == 0,
-                "stalled same-candidate OEM connection fails closed without a parallel request");
-
-        check("profile-unavailable".equals(
-                        StockProjectionSession.safeDiagnosticToken("profile-unavailable")),
-                "diagnostics preserve a missing saved profile result");
-        check("profile-mismatch".equals(
-                        StockProjectionSession.safeDiagnosticToken("profile-mismatch")),
-                "diagnostics preserve a mismatched profile result");
-        check("profile-disabled".equals(
-                        StockProjectionSession.safeDiagnosticToken("profile-disabled")),
-                "diagnostics preserve a disabled profile result");
-        check("auto-connect-disabled".equals(
-                        StockProjectionSession.safeDiagnosticToken("auto-connect-disabled")),
-                "diagnostics preserve an auto-connect setting result");
-        check("oem-action-sent".equals(
-                        StockProjectionSession.safeDiagnosticToken("oem-action-sent")),
-                "diagnostics distinguish OEM request delivery from connection success");
-        check("other".equals(StockProjectionSession.safeDiagnosticToken("phone-a")),
-                "diagnostics redact device identifiers");
-
+        missingProfileBootstrapsOncePerGeneration();
+        profileAppearanceDispatchesOnceForCarPlay();
+        profileAppearanceDispatchesOnceForAndroidAuto();
+        wifiUnknownIsNotMissing();
+        activeWinsWhenApBroadcastWasMissed();
+        bootstrapWifiAndFinalTimeoutsAreDistinct();
+        wiredAndStaleCallbacksCancel();
+        restartStartsFromInspectionWithoutPendingState();
         System.out.println("PASS StockProjectionSessionTest");
     }
 }

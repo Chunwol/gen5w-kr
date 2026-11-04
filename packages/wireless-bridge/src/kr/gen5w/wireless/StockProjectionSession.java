@@ -1,13 +1,23 @@
 package kr.gen5w.wireless;
 
-/** Owns one fail-closed OEM PhoneProjection request at a time. */
+/** Owns one generation-checked OEM projection bootstrap and connection attempt. */
 public final class StockProjectionSession {
+    public static final long PROFILE_BOOTSTRAP_TIMEOUT_MS = 60000L;
+    public static final long WIFI_TIMEOUT_MS = 30000L;
     public static final long REQUEST_TIMEOUT_MS = 20000L;
-    private static final long INSPECTION_TIMEOUT_MS = 5000L;
-    private static final long POLL_INTERVAL_MS = 1000L;
+    public static final long POLL_INTERVAL_MS = 1000L;
+    public static final int WIFI_AP_STATE_ENABLED = 13;
 
-    public enum Phase { IDLE, INSPECTING, REQUESTING, REQUESTED, ACTIVE, BLOCKED, FAILED }
+    private static final long INSPECTION_TIMEOUT_MS = 5000L;
+
+    public enum Phase {
+        IDLE, INSPECTING, BOOTSTRAP_REQUESTED, WAITING_PROFILE, CONNECT_REQUESTED,
+        WAITING_WIFI, ACTIVE, BLOCKED, FAILED, CANCELLED
+    }
     public enum Result { INVOKED, SERVICE_UNAVAILABLE, METHOD_UNAVAILABLE, SECURITY, INVOCATION }
+    public enum ProfileState { UNKNOWN, MISSING, READY, DISABLED, AUTO_CONNECT_DISABLED, UNSUPPORTED }
+    public enum WifiCredentialState { UNKNOWN, MISSING, PRESENT }
+    public enum BootstrapResult { OEM_REQUESTED, CANCELLED, SERVICE_UNAVAILABLE, METHOD_UNAVAILABLE, SECURITY, INVOCATION }
     public enum RequestResult {
         OEM_ACTION_SENT, PROFILE_UNAVAILABLE, PROFILE_MISMATCH, PROFILE_DISABLED,
         AUTO_CONNECT_DISABLED, CANCELLED, SERVICE_UNAVAILABLE, METHOD_UNAVAILABLE, SECURITY, INVOCATION
@@ -15,7 +25,12 @@ public final class StockProjectionSession {
 
     public interface Port {
         void inspect(long generation, String address);
-        void requestConnect(long generation, String address);
+        /** Legacy adapter; implementations may override the typed overload instead. */
+        default void requestConnect(long generation, String address) {}
+        default void bootstrap(long generation, String address) {}
+        default void requestConnect(long generation, String address, int profileType) {
+            requestConnect(generation, address);
+        }
         void event(String name, String result);
     }
     public interface RequestAction { void send(); }
@@ -23,23 +38,51 @@ public final class StockProjectionSession {
     public static final class Observation {
         public final Result result;
         public final boolean serviceAvailable;
+        public final int profileType;
+        public final ProfileState profileState;
+        public final boolean active;
+        public final boolean connecting;
+        public final boolean otherActive;
+        public final WifiCredentialState credentials;
+        public final int apState;
+
+        // Compatibility fields consumed by existing inspection callers during adapter migration.
         public final boolean projectionActiveForCandidate;
         public final boolean projectionConnectingForCandidate;
         public final boolean otherProjectionActive;
 
-        public Observation(Result result, boolean serviceAvailable,
-                boolean projectionActiveForCandidate, boolean otherProjectionActive) {
-            this(result, serviceAvailable, projectionActiveForCandidate, false, otherProjectionActive);
+        public Observation(Result result, boolean serviceAvailable, int profileType,
+                ProfileState profileState, boolean active, boolean connecting,
+                boolean otherActive, WifiCredentialState credentials, int apState) {
+            this.result = result == null ? Result.INVOCATION : result;
+            this.serviceAvailable = serviceAvailable;
+            this.profileType = profileType;
+            this.profileState = profileState == null ? ProfileState.UNKNOWN : profileState;
+            this.active = active;
+            this.connecting = connecting;
+            this.otherActive = otherActive;
+            this.credentials = credentials == null ? WifiCredentialState.UNKNOWN : credentials;
+            this.apState = apState;
+            this.projectionActiveForCandidate = active;
+            this.projectionConnectingForCandidate = connecting;
+            this.otherProjectionActive = otherActive;
         }
 
+        /** Compatibility constructor for the pre-bootstrap adapter. */
+        public Observation(Result result, boolean serviceAvailable,
+                boolean projectionActiveForCandidate, boolean otherProjectionActive) {
+            this(result, serviceAvailable, 1, ProfileState.READY,
+                    projectionActiveForCandidate, false, otherProjectionActive,
+                    WifiCredentialState.UNKNOWN, 11);
+        }
+
+        /** Compatibility constructor for the pre-bootstrap adapter. */
         public Observation(Result result, boolean serviceAvailable,
                 boolean projectionActiveForCandidate, boolean projectionConnectingForCandidate,
                 boolean otherProjectionActive) {
-            this.result = result == null ? Result.INVOCATION : result;
-            this.serviceAvailable = serviceAvailable;
-            this.projectionActiveForCandidate = projectionActiveForCandidate;
-            this.projectionConnectingForCandidate = projectionConnectingForCandidate;
-            this.otherProjectionActive = otherProjectionActive;
+            this(result, serviceAvailable, 1, ProfileState.READY,
+                    projectionActiveForCandidate, projectionConnectingForCandidate,
+                    otherProjectionActive, WifiCredentialState.UNKNOWN, 11);
         }
     }
 
@@ -47,13 +90,20 @@ public final class StockProjectionSession {
     private long generation;
     private String candidate;
     private Phase phase = Phase.IDLE;
+    private Phase inspectionReturnPhase = Phase.IDLE;
     private boolean wired;
     private boolean foreignProjection;
     private boolean inspectionPending;
+    private boolean bootstrapIssued;
+    private boolean bootstrapPending;
+    private boolean connectIssued;
     private boolean requestPending;
-    private boolean requestIssued;
-    private boolean observedConnecting;
+    private int profileType;
+    private WifiCredentialState credentials = WifiCredentialState.UNKNOWN;
+    private int apState;
     private long inspectionDeadline;
+    private long bootstrapDeadline;
+    private long wifiDeadline;
     private long requestDeadline;
     private long nextPoll;
 
@@ -67,13 +117,8 @@ public final class StockProjectionSession {
         if (address.equals(candidate)) return;
         generation++;
         candidate = address;
+        resetAttempt();
         phase = Phase.IDLE;
-        inspectionPending = false;
-        requestPending = false;
-        requestIssued = false;
-        observedConnecting = false;
-        inspectionDeadline = 0;
-        requestDeadline = 0;
         nextPoll = now;
         port.event("candidate", "ready");
     }
@@ -82,13 +127,8 @@ public final class StockProjectionSession {
         if (candidate == null || (address != null && !candidate.equals(address))) return;
         generation++;
         candidate = null;
-        phase = Phase.IDLE;
-        inspectionPending = false;
-        requestPending = false;
-        requestIssued = false;
-        observedConnecting = false;
-        inspectionDeadline = 0;
-        requestDeadline = 0;
+        resetAttempt();
+        phase = Phase.CANCELLED;
         nextPoll = now;
         port.event("cancel", "acl-lost");
     }
@@ -100,52 +140,60 @@ public final class StockProjectionSession {
         this.wired = wired;
         this.foreignProjection = foreignProjection;
         if (!blocked) return;
-        if (!wasBlocked || inspectionPending || requestPending || phase != Phase.IDLE) {
+        if (!wasBlocked || inspectionPending || bootstrapPending || requestPending || phase != Phase.IDLE) {
             generation++;
-            inspectionPending = false;
-            requestPending = false;
-            requestIssued = false;
-            observedConnecting = false;
-            phase = Phase.IDLE;
-            inspectionDeadline = 0;
-            requestDeadline = 0;
+            resetAttempt();
+            phase = Phase.CANCELLED;
             nextPoll = now;
             port.event("cancel", wired ? "wired" : "foreign");
         }
     }
 
     public synchronized void tick(long now) {
-        if (candidate == null || wired || foreignProjection) return;
+        if (candidate == null || wired || foreignProjection || terminal()) return;
         if (inspectionPending && now >= inspectionDeadline) {
             inspectionPending = false;
-            phase = Phase.FAILED;
-            port.event("result", "timeout");
+            fail("timeout");
+            return;
+        }
+        if (bootstrapPending && now >= inspectionDeadline) {
+            bootstrapPending = false;
+            fail("timeout");
+            return;
+        }
+        if (phase == Phase.BOOTSTRAP_REQUESTED || phase == Phase.WAITING_PROFILE) {
+            if (now >= bootstrapDeadline) {
+                fail("profile-bootstrap-timeout");
+                return;
+            }
+            if (!inspectionPending && now >= nextPoll) inspect(now);
             return;
         }
         if (requestPending && now >= inspectionDeadline) {
             requestPending = false;
-            phase = Phase.FAILED;
-            port.event("result", "timeout");
+            fail("request-timeout");
             return;
         }
-        if ((requestIssued || observedConnecting) && !requestPending && phase != Phase.ACTIVE &&
-                phase != Phase.BLOCKED && phase != Phase.FAILED && now >= requestDeadline) {
-            requestPending = false;
-            phase = Phase.FAILED;
-            port.event("result", "timeout");
+        if (phase == Phase.WAITING_WIFI) {
+            if (apState != WIFI_AP_STATE_ENABLED && now >= wifiDeadline) {
+                fail("wifi-ap-timeout");
+                return;
+            }
+            if (apState == WIFI_AP_STATE_ENABLED && now >= requestDeadline) {
+                fail("projection-timeout");
+                return;
+            }
+            if (!inspectionPending && now >= nextPoll) inspect(now);
             return;
         }
-        if (phase == Phase.IDLE) {
-            inspect(now);
-        } else if (phase == Phase.REQUESTED && !inspectionPending && now >= nextPoll) {
-            inspect(now);
-        }
+        if (phase == Phase.IDLE && now >= nextPoll) inspect(now);
     }
 
     private void inspect(long now) {
         if (candidate == null || inspectionPending || wired || foreignProjection) return;
         inspectionPending = true;
         inspectionDeadline = now + INSPECTION_TIMEOUT_MS;
+        inspectionReturnPhase = phase;
         phase = Phase.INSPECTING;
         port.inspect(generation, candidate);
     }
@@ -153,75 +201,127 @@ public final class StockProjectionSession {
     public synchronized void inspected(long callbackGeneration, Observation observation, long now) {
         if (!current(callbackGeneration) || !inspectionPending) return;
         inspectionPending = false;
+        Phase previousPhase = inspectionReturnPhase;
+        inspectionReturnPhase = Phase.IDLE;
         if (observation == null || observation.result != Result.INVOKED || !observation.serviceAvailable) {
-            phase = Phase.FAILED;
+            fail("unavailable");
             port.event("service", resultName(observation == null ? Result.INVOCATION : observation.result));
-            port.event("result", "unavailable");
             return;
         }
-        if (observation.projectionActiveForCandidate) {
-            observedConnecting = false;
+        credentials = observation.credentials;
+        apState = observation.apState;
+        if (observation.active) {
             phase = Phase.ACTIVE;
             port.event("result", "projection-active");
             return;
         }
-        if (observation.projectionConnectingForCandidate) {
-            if (!observedConnecting) {
-                requestDeadline = now + REQUEST_TIMEOUT_MS;
-                port.event("progress", "connecting");
-            }
-            observedConnecting = true;
-            phase = Phase.REQUESTED;
-            nextPoll = now + POLL_INTERVAL_MS;
-            return;
-        }
-        if (observation.otherProjectionActive) {
-            observedConnecting = false;
+        if (observation.otherActive) {
             phase = Phase.BLOCKED;
             port.event("result", "foreign-active");
             return;
         }
-        observedConnecting = false;
-        if (requestIssued) {
-            phase = Phase.REQUESTED;
-            nextPoll = now + POLL_INTERVAL_MS;
+        if (previousPhase == Phase.WAITING_WIFI && credentials == WifiCredentialState.MISSING) {
+            phase = Phase.BLOCKED;
+            port.event("result", "wifi-credentials-unavailable");
             return;
         }
-        requestIssued = true;
-        requestPending = true;
-        phase = Phase.REQUESTING;
-        inspectionDeadline = now + INSPECTION_TIMEOUT_MS;
-        port.requestConnect(generation, candidate);
+        if (observation.profileState == ProfileState.DISABLED ||
+                observation.profileState == ProfileState.AUTO_CONNECT_DISABLED ||
+                observation.profileState == ProfileState.UNSUPPORTED) {
+            phase = Phase.BLOCKED;
+            port.event("result", observation.profileState == ProfileState.AUTO_CONNECT_DISABLED ?
+                    "auto-connect-disabled" : "profile-disabled");
+            return;
+        }
+        if (observation.profileState == ProfileState.MISSING) {
+            if (!bootstrapIssued) {
+                bootstrapIssued = true;
+                bootstrapPending = true;
+                phase = Phase.BOOTSTRAP_REQUESTED;
+                inspectionDeadline = now + INSPECTION_TIMEOUT_MS;
+                bootstrapDeadline = now + PROFILE_BOOTSTRAP_TIMEOUT_MS;
+                port.bootstrap(generation, candidate);
+            } else {
+                phase = Phase.WAITING_PROFILE;
+                nextPoll = now + POLL_INTERVAL_MS;
+            }
+            return;
+        }
+        if (observation.profileState == ProfileState.READY) {
+            if (observation.profileType != 1 && observation.profileType != 2) {
+                phase = Phase.BLOCKED;
+                port.event("result", "profile-mismatch");
+                return;
+            }
+            profileType = observation.profileType;
+            if (observation.connecting) {
+                if (previousPhase != Phase.WAITING_WIFI) {
+                    phase = Phase.WAITING_WIFI;
+                    requestDeadline = now + REQUEST_TIMEOUT_MS;
+                    wifiDeadline = now + WIFI_TIMEOUT_MS;
+                }
+                nextPoll = now + POLL_INTERVAL_MS;
+                port.event("progress", "connecting");
+                return;
+            }
+            if (!connectIssued) {
+                connectIssued = true;
+                requestPending = true;
+                phase = Phase.CONNECT_REQUESTED;
+                inspectionDeadline = now + INSPECTION_TIMEOUT_MS;
+                port.requestConnect(generation, candidate, profileType);
+            } else if (previousPhase == Phase.WAITING_WIFI) {
+                phase = Phase.WAITING_WIFI;
+                nextPoll = now + POLL_INTERVAL_MS;
+            }
+        } else if (previousPhase == Phase.WAITING_PROFILE || previousPhase == Phase.BOOTSTRAP_REQUESTED) {
+            phase = Phase.WAITING_PROFILE;
+            nextPoll = now + POLL_INTERVAL_MS;
+        } else if (previousPhase == Phase.WAITING_WIFI) {
+            phase = Phase.WAITING_WIFI;
+            nextPoll = now + POLL_INTERVAL_MS;
+        } else {
+            phase = Phase.IDLE;
+            nextPoll = now + POLL_INTERVAL_MS;
+        }
+    }
+
+    public synchronized void bootstrapped(long callbackGeneration, BootstrapResult result, long now) {
+        if (!current(callbackGeneration) || !bootstrapPending || phase != Phase.BOOTSTRAP_REQUESTED) return;
+        bootstrapPending = false;
+        if (result != BootstrapResult.OEM_REQUESTED) {
+            phase = result == BootstrapResult.CANCELLED ? Phase.CANCELLED : Phase.FAILED;
+            port.event("bootstrap", bootstrapName(result));
+            if (result != BootstrapResult.CANCELLED) port.event("result", "unavailable");
+            return;
+        }
+        phase = Phase.WAITING_PROFILE;
+        nextPoll = now + POLL_INTERVAL_MS;
+        port.event("bootstrap", "oem-requested");
     }
 
     public synchronized void requested(long callbackGeneration, RequestResult result, long now) {
-        if (!current(callbackGeneration) || !requestPending) return;
+        if (!current(callbackGeneration) || !requestPending || phase != Phase.CONNECT_REQUESTED) return;
         requestPending = false;
-        if (result == RequestResult.CANCELLED) {
-            if (now >= inspectionDeadline) {
-                phase = Phase.FAILED;
-                port.event("result", "timeout");
-                return;
-            }
-            requestIssued = false;
-            phase = Phase.IDLE;
-            port.event("cancel", "stale-request");
-            return;
-        }
-        if (result == RequestResult.PROFILE_UNAVAILABLE || result == RequestResult.PROFILE_MISMATCH ||
-                result == RequestResult.PROFILE_DISABLED || result == RequestResult.AUTO_CONNECT_DISABLED) {
-            phase = Phase.BLOCKED;
-            port.event("request", requestName(result));
-            return;
-        }
+        inspectionReturnPhase = Phase.IDLE;
         if (result != RequestResult.OEM_ACTION_SENT) {
-            phase = Phase.FAILED;
-            port.event("request", requestName(result));
-            port.event("result", "unavailable");
+            if (result == RequestResult.PROFILE_UNAVAILABLE || result == RequestResult.PROFILE_MISMATCH ||
+                    result == RequestResult.PROFILE_DISABLED || result == RequestResult.AUTO_CONNECT_DISABLED) {
+                phase = Phase.BLOCKED;
+                port.event("request", requestName(result));
+            } else if (result == RequestResult.CANCELLED) {
+                phase = Phase.CANCELLED;
+                port.event("cancel", "stale-request");
+            } else {
+                phase = Phase.FAILED;
+                port.event("request", requestName(result));
+                port.event("result", "unavailable");
+            }
             return;
         }
-        phase = Phase.REQUESTED;
+        phase = Phase.WAITING_WIFI;
         requestDeadline = now + REQUEST_TIMEOUT_MS;
+        wifiDeadline = now + WIFI_TIMEOUT_MS;
         nextPoll = now + POLL_INTERVAL_MS;
         port.event("request", "oem-action-sent");
     }
@@ -229,18 +329,32 @@ public final class StockProjectionSession {
     public synchronized void shutdown() {
         generation++;
         candidate = null;
-        phase = Phase.IDLE;
-        inspectionPending = false;
-        requestPending = false;
-        requestIssued = false;
-        observedConnecting = false;
+        resetAttempt();
+        phase = Phase.CANCELLED;
         port.event("cancel", "shutdown");
     }
+
+    private void resetAttempt() {
+        inspectionPending = false;
+        bootstrapIssued = false;
+        bootstrapPending = false;
+        connectIssued = false;
+        requestPending = false;
+        profileType = 0;
+        credentials = WifiCredentialState.UNKNOWN;
+        apState = 0;
+        inspectionDeadline = bootstrapDeadline = wifiDeadline = requestDeadline = 0;
+    }
+
+    private boolean terminal() {
+        return phase == Phase.ACTIVE || phase == Phase.BLOCKED || phase == Phase.FAILED || phase == Phase.CANCELLED;
+    }
+    private void fail(String result) { phase = Phase.FAILED; port.event("result", result); }
 
     public synchronized boolean current(long value) { return candidate != null && generation == value; }
     public synchronized boolean requestAllowed(long value, String address) {
         return current(value) && address != null && address.equals(candidate) && requestPending &&
-                phase == Phase.REQUESTING && !wired && !foreignProjection;
+                phase == Phase.CONNECT_REQUESTED && !wired && !foreignProjection;
     }
     /** Linearizes the final eligibility check with dispatch to prevent late OEM broadcasts. */
     public synchronized boolean dispatchIfRequestAllowed(long value, String address, long now, RequestAction action) {
@@ -251,32 +365,27 @@ public final class StockProjectionSession {
     public synchronized long generation() { return generation; }
     public synchronized Phase phase() { return phase; }
     public synchronized String candidate() { return candidate; }
-    /**
-     * True while an OEM request or same-device connection is unresolved,
-     * including INSPECTING between polls. ACTIVE, blocked, and failed states
-     * release this pending-attempt hold; a new candidate is inspected first.
-     */
     public synchronized boolean hasPendingOemOwnership() {
-        return (requestIssued || observedConnecting) && phase != Phase.ACTIVE &&
-                phase != Phase.BLOCKED && phase != Phase.FAILED;
+        return (bootstrapIssued || connectIssued) && !terminal() && candidate != null;
     }
 
     /** Keep stable diagnostic labels while redacting arbitrary identifiers and text. */
     public static String safeDiagnosticToken(String value) {
         if ("candidate".equals(value) || "cancel".equals(value) || "service".equals(value) ||
-                "state".equals(value) || "request".equals(value) || "result".equals(value) ||
-                "progress".equals(value)) return value;
+                "state".equals(value) || "bootstrap".equals(value) || "request".equals(value) ||
+                "result".equals(value) || "progress".equals(value)) return value;
         if ("ready".equals(value) || "acl-lost".equals(value) || "wired".equals(value) ||
                 "foreign".equals(value) || "shutdown".equals(value) || "invoked".equals(value) ||
                 "service-unavailable".equals(value) || "method-unavailable".equals(value) ||
                 "security".equals(value) || "invocation".equals(value) || "timeout".equals(value) ||
+                "profile-bootstrap-timeout".equals(value) || "wifi-ap-timeout".equals(value) ||
+                "projection-timeout".equals(value) || "request-timeout".equals(value) ||
                 "projection-active".equals(value) || "foreign-active".equals(value) ||
                 "connecting".equals(value) || "stale-request".equals(value) ||
-                "unavailable".equals(value) || "gate-denied".equals(value) ||
-                "oob-supported".equals(value) || "oob-unavailable".equals(value) ||
-                "oob-unknown".equals(value) || "profile-unavailable".equals(value) ||
+                "unavailable".equals(value) || "profile-unavailable".equals(value) ||
                 "profile-mismatch".equals(value) || "profile-disabled".equals(value) ||
                 "auto-connect-disabled".equals(value) || "cancelled".equals(value) ||
+                "wifi-credentials-unavailable".equals(value) || "oem-requested".equals(value) ||
                 "oem-action-sent".equals(value)) return value;
         return "other";
     }
@@ -290,7 +399,17 @@ public final class StockProjectionSession {
             default: return "invocation";
         }
     }
-
+    private static String bootstrapName(BootstrapResult value) {
+        if (value == null) return "invocation";
+        switch (value) {
+            case OEM_REQUESTED: return "oem-requested";
+            case CANCELLED: return "cancelled";
+            case SERVICE_UNAVAILABLE: return "service-unavailable";
+            case METHOD_UNAVAILABLE: return "method-unavailable";
+            case SECURITY: return "security";
+            default: return "invocation";
+        }
+    }
     private static String requestName(RequestResult value) {
         if (value == null) return "invocation";
         switch (value) {
