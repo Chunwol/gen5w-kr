@@ -478,7 +478,52 @@ public final class StockProjectionSessionTest {
         }
     }
 
+    private static void delayedBootstrapCannotPollOrOverlap() {
+        for (boolean success : new boolean[] {true, false}) {
+            Attempt a = new Attempt();
+            a.missingProfile();
+            for (long t = 1001; t <= 4001; t += 1000) {
+                a.session.tick(t);
+                check(a.port.inspections == 1 && a.port.requests == 0 &&
+                        a.session.phase() == StockProjectionSession.Phase.BOOTSTRAP_REQUESTED,
+                        "ordinary ticks cannot poll over outstanding bootstrap");
+                a.port.inspect(a.session, t + 1, 1, StockProjectionSession.ProfileState.READY,
+                        false, false, false, StockProjectionSession.WifiCredentialState.PRESENT, 13);
+                check(a.port.requests == 0, "unsolicited ready profile cannot overlap bootstrap");
+            }
+            a.session.bootstrapped(a.port.generation, success ?
+                    StockProjectionSession.BootstrapResult.OEM_REQUESTED :
+                    StockProjectionSession.BootstrapResult.INVOCATION, 4500);
+            check(a.session.phase() == (success ? StockProjectionSession.Phase.WAITING_PROFILE :
+                    StockProjectionSession.Phase.FAILED), "delayed completion is accepted");
+            a.session.tick(5499);
+            check(a.port.inspections == 1, "profile polling starts one interval after completion");
+            a.session.tick(5500);
+            check(a.port.inspections == (success ? 2 : 1), "only successful bootstrap starts polling");
+            if (success) {
+                a.port.inspect(a.session, 5501, 1, StockProjectionSession.ProfileState.READY,
+                        false, false, false, StockProjectionSession.WifiCredentialState.PRESENT, 13);
+                check(a.port.requests == 1, "ready profile dispatches after bootstrap completion");
+            }
+        }
+        Attempt timeout = new Attempt();
+        timeout.missingProfile();
+        for (long t = 1001; t <= 5001; t += 1000) timeout.session.tick(t);
+        check(timeout.session.phase() == StockProjectionSession.Phase.FAILED &&
+                "timeout".equals(timeout.port.lastEvent) && timeout.port.inspections == 1,
+                "ordinary ticks do not extend independent bootstrap execution timeout");
+        Attempt skippedTicks = new Attempt();
+        skippedTicks.missingProfile();
+        skippedTicks.session.tick(StockProjectionSession.PROFILE_BOOTSTRAP_TIMEOUT_MS + 2);
+        check("timeout".equals(skippedTicks.port.lastEvent),
+                "bootstrap execution timeout stays independent when many ticks were missed");
+        timeout.port.bootstrapComplete(timeout.session, 5002);
+        check(timeout.session.phase() == StockProjectionSession.Phase.FAILED,
+                "late bootstrap completion cannot revive timed out execution");
+    }
+
     public static void main(String[] args) {
+        delayedBootstrapCannotPollOrOverlap();
         connectAdmissionIsConsumedOnce();
         blockedBinderDoesNotBlockShutdownOrReviveSession();
         cancellationBetweenBootstrapOperationsRejectsContinuation();

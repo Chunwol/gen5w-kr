@@ -7,6 +7,11 @@ import java.lang.reflect.Method;
 /** Read-only projection Wi-Fi credential-presence and AP-state observer. */
 public final class ProjectionWifiAccess {
     public enum CredentialStatus { UNKNOWN, MISSING, PRESENT }
+    public enum InterfaceStatus { UNKNOWN, MISSING, PRESENT }
+    public interface InterfaceSource {
+        String configuredName() throws Exception;
+        boolean present(String name) throws Exception;
+    }
     public enum ApProgress { UNKNOWN, OFF, ENABLING, READY, FAILED }
 
     public static final class CredentialObservation {
@@ -40,6 +45,30 @@ public final class ProjectionWifiAccess {
             return observation(CredentialStatus.UNKNOWN);
         } catch (RuntimeException e) {
             return observation(CredentialStatus.UNKNOWN);
+        }
+    }
+
+    /** Collapse the configured property and actual device presence immediately; never retain its name. */
+    public static InterfaceStatus inspectInterface() {
+        return inspectInterface(new InterfaceSource() {
+            public String configuredName() throws Exception {
+                return (String) Class.forName("android.os.SystemProperties")
+                        .getMethod("get", String.class).invoke(null, "wifi.interface");
+            }
+            public boolean present(String name) throws Exception {
+                return java.net.NetworkInterface.getByName(name) != null;
+            }
+        });
+    }
+
+    public static InterfaceStatus inspectInterface(InterfaceSource source) {
+        if (source == null) return InterfaceStatus.UNKNOWN;
+        try {
+            String name = source.configuredName();
+            if (name == null || name.trim().length() == 0) return InterfaceStatus.UNKNOWN;
+            return source.present(name) ? InterfaceStatus.PRESENT : InterfaceStatus.MISSING;
+        } catch (Exception e) {
+            return InterfaceStatus.UNKNOWN;
         }
     }
 

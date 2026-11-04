@@ -107,6 +107,7 @@ public final class StockProjectionSession {
     private int apState;
     private long inspectionDeadline;
     private long bootstrapDeadline;
+    private long bootstrapExecutionDeadline;
     private long wifiDeadline;
     private long requestDeadline;
     private long nextPoll;
@@ -153,8 +154,22 @@ public final class StockProjectionSession {
         }
     }
 
+    /** Apply a freshly observed ownership guard only to the generation that requested it. */
+    public synchronized boolean refreshOwnership(long value, boolean wired, boolean foreign, long now) {
+        if (!current(value)) return false;
+        environment(wired, foreign, now);
+        return current(value) && !wired && !foreign;
+    }
+
     public synchronized void tick(long now) {
         if (candidate == null || wired || foreignProjection || terminal()) return;
+        if (bootstrapPending) {
+            if (now >= bootstrapExecutionDeadline) {
+                bootstrapPending = false;
+                fail("timeout");
+            }
+            return;
+        }
         boolean waitingForBootstrapProfile = phase == Phase.WAITING_PROFILE ||
                 phase == Phase.BOOTSTRAP_REQUESTED ||
                 (phase == Phase.INSPECTING && (inspectionReturnPhase == Phase.WAITING_PROFILE ||
@@ -167,11 +182,6 @@ public final class StockProjectionSession {
         }
         if (inspectionPending && now >= inspectionDeadline) {
             inspectionPending = false;
-            fail("timeout");
-            return;
-        }
-        if (bootstrapPending && now >= inspectionDeadline) {
-            bootstrapPending = false;
             fail("timeout");
             return;
         }
@@ -259,7 +269,7 @@ public final class StockProjectionSession {
                 bootstrapIssued = true;
                 bootstrapPending = true;
                 phase = Phase.BOOTSTRAP_REQUESTED;
-                inspectionDeadline = now + INSPECTION_TIMEOUT_MS;
+                bootstrapExecutionDeadline = now + INSPECTION_TIMEOUT_MS;
                 bootstrapDeadline = now + PROFILE_BOOTSTRAP_TIMEOUT_MS;
                 port.bootstrap(generation, candidate);
             } else {
@@ -313,6 +323,10 @@ public final class StockProjectionSession {
     public synchronized void bootstrapped(long callbackGeneration, BootstrapResult result, long now) {
         if (!current(callbackGeneration) || !bootstrapPending || phase != Phase.BOOTSTRAP_REQUESTED) return;
         bootstrapPending = false;
+        if (now >= bootstrapExecutionDeadline) {
+            fail("timeout");
+            return;
+        }
         if (result != BootstrapResult.OEM_REQUESTED) {
             phase = result == BootstrapResult.CANCELLED ? Phase.CANCELLED : Phase.FAILED;
             port.event("bootstrap", bootstrapName(result));
@@ -373,7 +387,7 @@ public final class StockProjectionSession {
         profileType = 0;
         credentials = WifiCredentialState.UNKNOWN;
         apState = 0;
-        inspectionDeadline = bootstrapDeadline = wifiDeadline = requestDeadline = 0;
+        inspectionDeadline = bootstrapDeadline = bootstrapExecutionDeadline = wifiDeadline = requestDeadline = 0;
     }
 
     private boolean terminal() {
@@ -393,7 +407,7 @@ public final class StockProjectionSession {
         return true;
     }
     private boolean bootstrapAllowed(long value, String address, long now) {
-        return now < inspectionDeadline && current(value) && address != null && address.equals(candidate) &&
+        return now < bootstrapExecutionDeadline && current(value) && address != null && address.equals(candidate) &&
                 bootstrapPending && phase == Phase.BOOTSTRAP_REQUESTED && !wired && !foreignProjection;
     }
     public synchronized boolean claimBootstrapBroadcast(long value, String address, long now) {

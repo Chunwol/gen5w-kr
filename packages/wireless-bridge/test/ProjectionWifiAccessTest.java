@@ -31,7 +31,32 @@ public final class ProjectionWifiAccessTest {
         return ProjectionWifiAccess.inspect(new FakeWifiManager(new FakeConfig(ssid, psk)));
     }
 
+    private static void interfacePresenceIsDiagnosticOnly() {
+        String[] configured = {null, "", "  ", "configured", "configured", "configured"};
+        final Boolean[] present = {null, null, null, false, true, null};
+        ProjectionWifiAccess.InterfaceStatus[] expected = {
+            ProjectionWifiAccess.InterfaceStatus.UNKNOWN, ProjectionWifiAccess.InterfaceStatus.UNKNOWN,
+            ProjectionWifiAccess.InterfaceStatus.UNKNOWN, ProjectionWifiAccess.InterfaceStatus.MISSING,
+            ProjectionWifiAccess.InterfaceStatus.PRESENT, ProjectionWifiAccess.InterfaceStatus.UNKNOWN};
+        for (int i = 0; i < configured.length; i++) {
+            final String name = configured[i]; final Boolean exists = present[i];
+            check(ProjectionWifiAccess.inspectInterface(new ProjectionWifiAccess.InterfaceSource() {
+                public String configuredName() { return name; }
+                public boolean present(String value) {
+                    check("configured".equals(value), "look up configured interface without substituting another device");
+                    if (exists == null) throw new SecurityException();
+                    return exists.booleanValue();
+                }
+            }) == expected[i], "interface property and actual presence stay distinct " + i);
+        }
+        check(ProjectionWifiAccess.inspectInterface(new ProjectionWifiAccess.InterfaceSource() {
+            public String configuredName() { throw new SecurityException(); }
+            public boolean present(String value) { throw new AssertionError("unavailable property is not queried"); }
+        }) == ProjectionWifiAccess.InterfaceStatus.UNKNOWN, "unavailable property is unknown");
+    }
+
     public static void main(String[] args) throws Exception {
+        interfacePresenceIsDiagnosticOnly();
         check(ProjectionWifiAccess.inspect(null).status ==
                 ProjectionWifiAccess.CredentialStatus.UNKNOWN,
                 "missing Wi-Fi service is unknown");

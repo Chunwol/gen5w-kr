@@ -13,3 +13,13 @@
 경로 문자열을 저장하지 않아도 maneuver 종류, 거리, 차선 정보와 반복된 timestamp가 결합되면 주행 구간이나 경로를 추론할 가능성이 있습니다. 공유 전 필요한 범위만 남기고 검토하십시오. 기존 `GEN5W-DEBUG-ON` 일회성 수집기는 별도의 `DEBUG.txt`를 만들며 원시 로그와 민감한 문자열을 포함할 수 있습니다. 이 새 순환 기록의 필터는 기존 수집물에 적용되지 않습니다.
 
 실제 차량에서의 vold mount source·sysfs symlink 표기, exFAT 지원, SELinux/파일 접근 권한, `logcat -v raw`와 `read -t` 호환성, 서비스 관리자 재시작 동작은 차량 검증이 필요합니다. Android 4.4 기반 환경에서 이를 검증하지 않고 보장하지 않습니다.
+
+OEM wireless projection interface diagnostics use session event `1`, Wi-Fi category `a=10`, and these `b` codes. The configured name is never stored or logged. These observations do not control bootstrap admission or establish projection success.
+
+| b | Text result | Meaning |
+|---|---|---|
+| 43 | `wifi-interface-unknown` | Empty/unavailable `wifi.interface` property or unavailable interface lookup |
+| 44 | `wifi-interface-missing` | Configured interface has no actual network device |
+| 45 | `wifi-interface-present` | Configured interface exists as a network device |
+
+The OEM may create the interface during AP startup, so `missing` does not block bootstrap. `present` does not establish AP readiness or projection success.

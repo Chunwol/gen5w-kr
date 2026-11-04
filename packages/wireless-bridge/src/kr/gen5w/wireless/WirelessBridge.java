@@ -220,6 +220,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                             new PhoneProjectionAccess.ServiceProvider() {
                                 public Object get(String name) { return context.getSystemService(name); }
                             }, context, address);
+                    final ProjectionWifiAccess.InterfaceStatus interfaceStatus = ProjectionWifiAccess.inspectInterface();
                     ProjectionWifiAccess.CredentialStatus status = inspectWifiCredentials();
                     StockProjectionSession.WifiCredentialState credentials =
                             status == ProjectionWifiAccess.CredentialStatus.PRESENT
@@ -234,6 +235,9 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                     main.post(new Runnable() {
                         public void run() {
                             if (!session.current(generation) || shuttingDown) return;
+                            event("wifi", interfaceStatus == ProjectionWifiAccess.InterfaceStatus.PRESENT
+                                    ? "wifi-interface-present" : interfaceStatus == ProjectionWifiAccess.InterfaceStatus.MISSING
+                                    ? "wifi-interface-missing" : "wifi-interface-unknown");
                             event("platform", state.profileType == PhoneProjectionAccess.TYPE_CARPLAY
                                     ? "platform-carplay" : state.profileType == PhoneProjectionAccess.TYPE_ANDROID_AUTO
                                     ? "platform-android-auto" : "platform-unknown");
@@ -263,14 +267,16 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                                 public Object get(String name) { return context.getSystemService(name); }
                             }, context, new PhoneProjectionAccess.ActionSender() {
                                 public boolean send(String action, String packageName, String extra, String value) {
-                                    if (!session.claimBootstrapBroadcast(generation, address, now()) ||
+                                    if (!refreshOemOwnership(generation, address) ||
+                                            !session.claimBootstrapBroadcast(generation, address, now()) ||
                                             shuttingDown || cable) return false;
                                     sendOemAction(action, packageName, extra, value);
                                     return true;
                                 }
                             }, address, new PhoneProjectionAccess.BootstrapAdmission() {
                                 public boolean claim() {
-                                    return session.claimBootstrapInvocation(generation, address, now()) &&
+                                    return refreshOemOwnership(generation, address) &&
+                                            session.claimBootstrapInvocation(generation, address, now()) &&
                                             !shuttingDown && !cable;
                                 }
                             });
@@ -297,7 +303,8 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                             }, context, new PhoneProjectionAccess.ActionSender() {
                                 public boolean send(final String action, final String packageName,
                                         final String extra, final String value) {
-                                    if (!session.claimRequest(generation, address, now()) ||
+                                    if (!refreshOemOwnership(generation, address) ||
+                                            !session.claimRequest(generation, address, now()) ||
                                             shuttingDown || cable) return false;
                                     sendOemAction(action, packageName, extra, value);
                                     return true;
@@ -314,6 +321,18 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                         StockProjectionSession.RequestResult.INVOCATION, now()); }
             });
         }
+    }
+
+    /** Executor-only fresh ownership read; no external work is performed under the session monitor. */
+    private boolean refreshOemOwnership(long generation, String address) {
+        if (shuttingDown || !session.current(generation)) return false;
+        StockProjectionSession.Observation owner = PhoneProjectionAccess.inspect(
+                new PhoneProjectionAccess.ServiceProvider() {
+                    public Object get(String name) { return context.getSystemService(name); }
+                }, context, address);
+        boolean blocked = owner.result != StockProjectionSession.Result.INVOKED ||
+                !owner.serviceAvailable || owner.otherActive;
+        return session.refreshOwnership(generation, cable, blocked, now()) && !shuttingDown;
     }
 
     private ProjectionWifiAccess.CredentialStatus inspectWifiCredentials() {
@@ -426,6 +445,9 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if ("wifi-ap-ready".equals(result)) return 40;
         if ("wifi-ap-failed".equals(result)) return 41;
         if ("wifi-ap-unknown".equals(result)) return 42;
+        if ("wifi-interface-unknown".equals(result)) return 43;
+        if ("wifi-interface-missing".equals(result)) return 44;
+        if ("wifi-interface-present".equals(result)) return 45;
         return 0;
     }
 

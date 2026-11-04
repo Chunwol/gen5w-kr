@@ -45,3 +45,6 @@ java -cp "$work" ApProfilesTest
 java -cp "$work" ApBrokerPolicyTest
 java -cp "$work" ApBrokerCancellationTest
 java -cp "$work" ApBrokerParentTest
+
+PY=$(command -v python3 || command -v python)
+"$PY" tests/wireless_bridge_integration.py
