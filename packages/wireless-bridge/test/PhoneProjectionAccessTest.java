@@ -8,9 +8,16 @@ public final class PhoneProjectionAccessTest {
 
     public static final class FakeManager {
         String connected = "";
+        String aaConnected = "";
         int wirelessState;
-        public String getCPConnectedBTAddress() { return connected; }
+        int sppRequests;
+        String sppAddress;
+        int cpGetterCalls;
+        int aaGetterCalls;
+        public String getCPConnectedBTAddress() { cpGetterCalls++; return connected; }
+        public String getAAConnectedBTAddress() { aaGetterCalls++; return aaConnected; }
         public int getWirelessConnectState() { return wirelessState; }
+        public void requestConnectSPP(String address) { sppRequests++; sppAddress = address; }
     }
 
     private static PhoneProjectionAccess.ServiceProvider provider(final Object manager) {
@@ -20,6 +27,11 @@ public final class PhoneProjectionAccessTest {
     }
 
     private static final class FakeProfileProvider implements PhoneProjectionAccess.ProfileProvider {
+        PhoneProjectionAccess.Profile profile;
+        public PhoneProjectionAccess.Profile find(String address) { return profile; }
+    }
+
+    private static final class FakeProfileSource implements PhoneProjectionAccess.ProfileProvider {
         PhoneProjectionAccess.Profile profile;
         public PhoneProjectionAccess.Profile find(String address) { return profile; }
     }
@@ -45,9 +57,16 @@ public final class PhoneProjectionAccessTest {
     public static void main(String[] args) {
         FakeManager manager = new FakeManager();
         PhoneProjectionAccess.ServiceProvider provider = provider(manager);
-        StockProjectionSession.Observation state = PhoneProjectionAccess.inspect(provider, "candidate");
+        FakeProfileSource profileSource = new FakeProfileSource();
+        profileSource.profile = new PhoneProjectionAccess.Profile("candidate",
+                PhoneProjectionAccess.TYPE_CARPLAY, true, true);
+        StockProjectionSession.Observation state = PhoneProjectionAccess.inspect(
+                provider, profileSource, "candidate");
         check(state.result == StockProjectionSession.Result.INVOKED && state.serviceAvailable,
                 "OEM manager and required methods observed");
+        check(state.profileType == PhoneProjectionAccess.TYPE_CARPLAY && manager.cpGetterCalls == 1 &&
+                manager.aaGetterCalls == 0,
+                "CarPlay inspection uses only its connected-address getter");
         check(!state.projectionActiveForCandidate && !state.otherProjectionActive,
                 "empty connected address is not an active projection");
         manager.connected = null;
@@ -89,6 +108,22 @@ public final class PhoneProjectionAccessTest {
         state = PhoneProjectionAccess.inspect(provider, "candidate");
         check(state.otherProjectionActive,
                 "state outside V039 service range fails closed");
+        profileSource.profile = new PhoneProjectionAccess.Profile("candidate",
+                PhoneProjectionAccess.TYPE_ANDROID_AUTO, true, true);
+        manager.aaConnected = "candidate";
+        manager.wirelessState = 3;
+        int cpCallsBeforeAndroidAuto = manager.cpGetterCalls;
+        state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
+        check(state.profileType == PhoneProjectionAccess.TYPE_ANDROID_AUTO &&
+                state.projectionActiveForCandidate && !state.otherProjectionActive &&
+                manager.cpGetterCalls == cpCallsBeforeAndroidAuto && manager.aaGetterCalls == 1,
+                "Android Auto inspection uses only its own connected-address getter");
+        profileSource.profile = new PhoneProjectionAccess.Profile("candidate", 7, true, true);
+        state = PhoneProjectionAccess.inspect(provider, profileSource, "candidate");
+        check(state.result == StockProjectionSession.Result.INVOKED &&
+                state.profileState == StockProjectionSession.ProfileState.UNSUPPORTED &&
+                !state.projectionActiveForCandidate && state.otherProjectionActive,
+                "unsupported profile type fails closed");
         check(PhoneProjectionAccess.inspect(provider(null), "candidate").result ==
                 StockProjectionSession.Result.SERVICE_UNAVAILABLE, "missing OEM service classified");
         PhoneProjectionAccess.ServiceProvider denied = new PhoneProjectionAccess.ServiceProvider() {
@@ -120,30 +155,41 @@ public final class PhoneProjectionAccessTest {
         profiles.profile = new PhoneProjectionAccess.Profile("candidate",
                 PhoneProjectionAccess.TYPE_ANDROID_AUTO, true, true);
         check(PhoneProjectionAccess.requestProfileAction(profiles, sender, "candidate") ==
-                StockProjectionSession.RequestResult.PROFILE_MISMATCH && sender.sends == 1,
-                "Android Auto profile does not dispatch CarPlay");
+                StockProjectionSession.RequestResult.OEM_ACTION_SENT && sender.sends == 2,
+                "Android Auto dispatches the existing-profile OEM UI action");
         profiles.profile = new PhoneProjectionAccess.Profile("candidate",
                 PhoneProjectionAccess.TYPE_CARPLAY, false, true);
         check(PhoneProjectionAccess.requestProfileAction(profiles, sender, "candidate") ==
-                StockProjectionSession.RequestResult.PROFILE_DISABLED && sender.sends == 1,
+                StockProjectionSession.RequestResult.PROFILE_DISABLED && sender.sends == 2,
                 "disabled wireless profile is not silently enabled");
         profiles.profile = new PhoneProjectionAccess.Profile("candidate",
                 PhoneProjectionAccess.TYPE_CARPLAY, true, false);
         check(PhoneProjectionAccess.requestProfileAction(profiles, sender, "candidate") ==
-                StockProjectionSession.RequestResult.AUTO_CONNECT_DISABLED && sender.sends == 1,
+                StockProjectionSession.RequestResult.AUTO_CONNECT_DISABLED && sender.sends == 2,
                 "stock auto-connect opt-out is respected");
         PhoneProjectionAccess.ProfileProvider deniedProfile = new PhoneProjectionAccess.ProfileProvider() {
             public PhoneProjectionAccess.Profile find(String address) { throw new SecurityException(); }
         };
         check(PhoneProjectionAccess.requestProfileAction(deniedProfile, sender, "candidate") ==
-                StockProjectionSession.RequestResult.SECURITY && sender.sends == 1,
+                StockProjectionSession.RequestResult.SECURITY && sender.sends == 2,
                 "profile read permission error prevents OEM action");
         profiles.profile = new PhoneProjectionAccess.Profile("candidate",
                 PhoneProjectionAccess.TYPE_CARPLAY, true, true);
         sender.allowed = false;
         check(PhoneProjectionAccess.requestProfileAction(profiles, sender, "candidate") ==
-                StockProjectionSession.RequestResult.CANCELLED && sender.sends == 1,
+                StockProjectionSession.RequestResult.CANCELLED && sender.sends == 2,
                 "stale or timed-out attempt is cancelled immediately before OEM action");
+        FakeActionSender bootstrapSender = new FakeActionSender();
+        StockProjectionSession.BootstrapResult bootstrap = PhoneProjectionAccess.bootstrap(
+                provider, new Object(), bootstrapSender, "candidate");
+        check(bootstrap == StockProjectionSession.BootstrapResult.OEM_REQUESTED &&
+                bootstrapSender.sends == 1 &&
+                "android.bluetooth.device.action.START_SPP_CONNECT_FOR_CONNECTIVITY".equals(bootstrapSender.action) &&
+                PhoneProjectionAccess.OEM_PACKAGE.equals(bootstrapSender.packageName) &&
+                "ADDRESS".equals(bootstrapSender.extra) && "candidate".equals(bootstrapSender.address),
+                "bootstrap sends package-scoped ADDRESS and reports request only");
+        check(manager.sppRequests == 1 && "candidate".equals(manager.sppAddress),
+                "bootstrap calls PPManager.requestConnectSPP exactly once");
         System.out.println("PASS PhoneProjectionAccessTest");
     }
 }
