@@ -27,6 +27,7 @@ java -cp "$work" HudVariantTest
 java -cp "$work" AaRouteCacheTest
 java -cp "$work" HighwayIconTest
 java -cp "$work" GuidanceParserTest
+java -cp "$work" GuidanceDiagnosticsTest
 java -cp "$work" GuidanceSessionTest
 java -cp "$work" OwnershipTest
 java -cp "$work" DumpTest

@@ -24,6 +24,7 @@ import java.util.List;
 import kr.gen5w.hud.ClusterIcon;
 import kr.gen5w.hud.AaRouteCache;
 import kr.gen5w.hud.GuidanceParser;
+import kr.gen5w.hud.GuidanceDiagnostics;
 import kr.gen5w.hud.GuidanceSession;
 import kr.gen5w.hud.GuidanceRequest;
 import kr.gen5w.hud.HudVariant;
@@ -59,6 +60,7 @@ public final class CoreService extends Service {
     private String ownerState; // worker thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
+    private int routeSourceCode; // worker thread; numeric diagnostics only
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
 
     @Override public void onCreate() {
@@ -318,7 +320,7 @@ public final class CoreService extends Service {
         public void connected(int type, String name) {
             if (!stopping) {
                 epoch.open();
-                io.post(new Runnable() { public void run() { resetAaState(); } });
+                io.post(new Runnable() { public void run() { routeSourceCode = 0; resetAaState(); } });
                 queueGuidanceRequest();
             }
         }
@@ -351,9 +353,13 @@ public final class CoreService extends Service {
         private void logNaviDebug(int what, List<Item> fields) {
             try {
                 if (what == GuidanceParser.MANEUVER) {
+                    int[] address = GuidanceParser.address(fields);
                     Maneuver m = GuidanceParser.maneuver(fields, null);
+                    int icon = m == null ? -1 : ClusterIcon.of(m);
+                    DriveLog.core(28, routeSourceCode, GuidanceDiagnostics.fieldMask(fields),
+                            address == null ? -1 : address[0], address == null ? -1 : address[1],
+                            m == null ? -1 : m.type, icon);
                     if (m != null) {
-                        int icon = ClusterIcon.of(m);
                         DriveLog.core(22, m.type, m.exitAngle, m.drivingSide,
                                 m.junctionType, m.distanceMeters, icon);
                         String line = "MANEUVER: comp=" + m.component + " idx=" + m.index + " type=" + m.type
@@ -364,13 +370,21 @@ public final class CoreService extends Service {
                 } else if (what == GuidanceParser.STATUS) {
                     GuidanceParser.Status s = GuidanceParser.status(fields);
                     if (s != null) {
+                        if (s.hasSource) routeSourceCode = GuidanceDiagnostics.sourceCode(s.source);
                         DriveLog.core(21, s.state, s.distanceToNext, s.laneIndex,
                                 s.laneTotal, s.laneVisible ? 1 : 0, s.hasDistance ? 1 : 0);
+                        DriveLog.core(23, routeSourceCode, GuidanceDiagnostics.fieldMask(fields),
+                                s.component, s.state, s.current.length, 0);
                         String line = "STATUS: comp=" + s.component + " state=" + s.state
                                 + " dist=" + s.distanceToNext
                                 + " curr=" + java.util.Arrays.toString(s.current);
                         writeDebugLog(line);
                     }
+                } else if (what == GuidanceParser.LANES) {
+                    int[] address = GuidanceParser.address(fields);
+                    DriveLog.core(29, routeSourceCode, GuidanceDiagnostics.fieldMask(fields),
+                            address == null ? -1 : address[0], address == null ? -1 : address[1],
+                            0, 0);
                 }
             } catch (Throwable ignored) {}
         }
@@ -408,7 +422,7 @@ public final class CoreService extends Service {
             public void run() {
                 if (outputEpoch <= closed) {
                     refreshOwnership();
-                    session.disconnect(); cluster = null; outputEpoch = closed;
+                    session.disconnect(); cluster = null; outputEpoch = closed; routeSourceCode = 0;
                 }
             }
         });
@@ -597,15 +611,17 @@ public final class CoreService extends Service {
                     || "com.google.android.apps.auto.navigation.TBT".equals(action)) {
                 boolean clear = intent.getBooleanExtra("clear", false);
                 long dist = intent.getLongExtra("distance", intent.getIntExtra("dist", -1));
-                if (clear || dist < 0) {
-                    renderAaTbt(0, 0, -1, null);
-                    return;
-                }
                 int icon = intent.getIntExtra("icon", 0);
                 int second = intent.getIntExtra("second_icon", 0);
                 String road = intent.getStringExtra("road");
                 String desc = intent.getStringExtra("desc");
                 int type = intent.getIntExtra("type", 3);
+                DriveLog.core(32, type, icon, second, dist,
+                        road == null ? 0 : 1, desc == null ? 0 : 1);
+                if (clear || dist < 0) {
+                    renderAaTbt(0, 0, -1, null);
+                    return;
+                }
                 if (icon <= 0 && (road != null || desc != null)) {
                     Maneuver m = new Maneuver();
                     m.type = type; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
@@ -712,6 +728,8 @@ public final class CoreService extends Service {
             if (mediaTrack != null) {
                 renderMediaOsd(mediaTrack, mediaArtist);
             }
+            DriveLog.core(32, type, icon, second, dist,
+                    road == null ? 0 : 1, desc == null ? 0 : 1);
             if (laneCount > 0) {
                 byte[] lf = LaneFrame.encodeSimple(laneCount, laneDirs, laneRec, icon > 0 ? icon : aaRoute.icon());
                 renderAaLane(lf);
