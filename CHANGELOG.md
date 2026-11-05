@@ -4,7 +4,7 @@
 
 - V039 순정 PhoneProjection이 `isPossibleWCP=false`로 중단될 때만 실행되는 무선 CarPlay 보조 경로를 완성했습니다. 순정 Broadcom SPP, iAP2 component 4·5, DiPO 내부 CarPlay 채널, 프로젝션 AP를 한 세대의 상태 기계가 순서대로 소유하며 유선 연결·Android Auto·순정 연결이 있으면 즉시 정리합니다. 순정 프로필 생성에 실패해 유형이 없는 경우에는 오래된 UUID 캐시를 쓰지 않고 새 SDP 결과에 Apple CAFE/CAFF 서비스가 있는 기기만 보조 경로로 보냅니다.
 - 제조사 파일은 저장소와 공개 릴리스에 넣지 않습니다. 사용자가 보유한 정확한 V039 DiPO APK·ODEX에서 로컬 시험용 APK를 재현하는 해시 고정 빌더와 비공개 staging 절차를 추가했습니다. 완성 마커와 모든 파일 해시가 맞지 않으면 보조 경로는 시작되지 않습니다.
-- V039 시험 경로는 DiPO APK·ODEX와 Iap2ServerApp ODEX 원본을 함께 백업하고, DiPO APK를 preopt한 뒤 쌍으로 적용합니다. 설치·최적화 실패와 제거 때 원본을 복원하며, 부트가드도 APK·ODEX 쌍을 함께 검사합니다.
+- V039 시험 경로는 DiPO APK·ODEX와 Iap2ServerApp ODEX 원본을 함께 백업하고, DiPO APK를 preopt한 뒤 쌍으로 적용합니다. 설치·최적화 실패와 제거 때 원본을 복원하며, 부트가드도 APK·ODEX 쌍을 함께 검사합니다. APK와 ODEX의 원자적 rename 사이에 전원이 끊겨 한쪽만 적용된 경우도 기록된 릴레이 해시와 순정 원본 검증을 통과해야만 두 파일을 함께 복원합니다.
 - component 5 요청을 알리기 전에 대기 상태로 반환하여 무선 인계가 시작되지 않던 결함을 수정했습니다. 실차의 CarPlay 연결, 통화·오디오·HUD·재연결은 아직 검증하지 않았으므로 설치 중단 안내를 유지합니다.
 
 ## v0.3.35

@@ -95,8 +95,10 @@ preflight_dipo() {
         "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" verify "$state/dipoapkoriginal" 0859b0a5d87320935f2a06ac70baa7e3e30498b29bdafccd6c8ccc51343d5f3f >/dev/null 2>&1 || return 1
         apk_sum=$(guard_digest "$SYS/app/HKMC_DiPO.apk") || return 1
         odex_sum=$(guard_digest "$SYS/app/HKMC_DiPO.odex") || return 1
-        [ "$apk_sum" = "$(cat "$state/diporelay.apk.md5")" ] &&
-            [ "$odex_sum" = "$(cat "$state/diporelay.odex.md5")" ]
+        { [ "$apk_sum" = "$(cat "$state/diporelay.apk.md5")" ] ||
+          "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" verify "$SYS/app/HKMC_DiPO.apk" 0859b0a5d87320935f2a06ac70baa7e3e30498b29bdafccd6c8ccc51343d5f3f >/dev/null 2>&1; } &&
+        { [ "$odex_sum" = "$(cat "$state/diporelay.odex.md5")" ] ||
+          "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" original "$SYS/app/HKMC_DiPO.odex" >/dev/null 2>&1; }
         return $?
     fi
     preflight_pair "$state/dipooriginal" "$SYS/app/HKMC_DiPO.odex" \

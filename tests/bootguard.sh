@@ -27,6 +27,7 @@ for entry in 'gen5w.kr.bridge:iap2-route-patch-v039' 'gen5w.kr.bridge:iap2-route
 case "$1" in
     original) grep -q '^stock-' "$2";;
     patched) grep -q '^patched-' "$2";;
+    verify) grep -q '^stock-apk-' "$2";;
     *) exit 1;;
 esac
 SH
@@ -62,6 +63,34 @@ for name in Iap2ServerApp HKMC_DiPO HKMC_GPM; do
 done
 check 'bootguard leaves untouched boot-critical caches alone' test -e "$CACHE/dalvik-cache/SystemUI.cache"
 check 'bootguard records recovery marker' grep -qx 'recovered rc=0' "$DATA/nemesis/gen5wkr.bootguard/recovered"
+
+# An ignition loss can occur between the APK and ODEX renames. Both recognized
+# half-applied states must be recoverable instead of being marked manual-only.
+relay_partial_recovery() {
+    local live_apk=$1 live_odex=$2 label=$3 state=$SYS/etc/gen5w-kr-backup/bridge
+    rm -f "$BG/recovered" "$BG/recovery-required"
+    printf armed > "$BG/armed"
+    write_pair "$state/original" "$SYS/app/Iap2ServerApp.odex"
+    printf 'stock-%s\n' "$SYS/app/HKMC_DiPO.odex" > "$state/dipooriginal"
+    printf 'stock-apk-dipo\n' > "$state/dipoapkoriginal"
+    printf '%s\n' "$live_apk" > "$SYS/app/HKMC_DiPO.apk"
+    printf '%s\n' "$live_odex" > "$SYS/app/HKMC_DiPO.odex"
+    printf 'relay-apk\n' > "$W/relay-apk"
+    printf 'relay-odex\n' > "$W/relay-odex"
+    md5sum "$W/relay-apk" | cut -d' ' -f1 > "$state/diporelay.apk.md5"
+    md5sum "$W/relay-odex" | cut -d' ' -f1 > "$state/diporelay.odex.md5"
+    write_pair "$state/gpmoriginal" "$SYS/app/HKMC_GPM.odex"
+    write_pair "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so"
+    BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" \
+        mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh" > "$W/partial-$label.out" 2>&1
+}
+check 'bootguard accepts relay APK with stock ODEX after interrupted rename' relay_partial_recovery relay-apk "stock-$SYS/app/HKMC_DiPO.odex" apk
+check 'interrupted APK-first pair restores exact stock APK' grep -qx 'stock-apk-dipo' "$SYS/app/HKMC_DiPO.apk"
+check 'interrupted APK-first pair restores exact stock ODEX' cmp -s "$SYS/app/HKMC_DiPO.odex" "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal"
+check 'bootguard accepts stock APK with relay ODEX after interrupted rollback' relay_partial_recovery stock-apk-dipo relay-odex odex
+check 'interrupted ODEX-first pair restores exact stock APK' grep -qx 'stock-apk-dipo' "$SYS/app/HKMC_DiPO.apk"
+check 'interrupted ODEX-first pair restores exact stock ODEX' cmp -s "$SYS/app/HKMC_DiPO.odex" "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal"
+rm -f "$SYS/etc/gen5w-kr-backup/bridge/dipoapkoriginal" "$SYS/etc/gen5w-kr-backup/bridge/diporelay.apk.md5" "$SYS/etc/gen5w-kr-backup/bridge/diporelay.odex.md5" "$SYS/app/HKMC_DiPO.apk"
 
 rm -f "$DATA/nemesis/gen5wkr.bootguard/armed"
 rm -f "$DATA/nemesis/gen5wkr.bootguard/recovered"

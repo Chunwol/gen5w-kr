@@ -2,6 +2,7 @@
 set -u
 cd "$(dirname "$0")/.."
 . tests/lib.sh
+export GEN5W_TEST_DIGEST=md5sum
 ROOT=$(pwd)
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 PKG=$W/package

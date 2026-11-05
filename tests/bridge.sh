@@ -125,6 +125,10 @@ cat > "$W/bin/dexopt" <<'EOF'
 [ "${BRIDGE_TEST_DEXOPT_FAIL:-0}" != 1 ] || exit 1
 printf 'optimized:' > "$3"; cat "$2" >> "$3"
 EOF
+cat > "$W/bin/md5" <<'EOF'
+#!/bin/sh
+md5sum "$1" 2>/dev/null || exit 1
+EOF
 cat > "$W/bin/am" <<'EOF'
 #!/bin/sh
 echo "am $*" >> "$BRIDGE_TEST_FIXTURE/calls"
@@ -136,6 +140,7 @@ chmod +x "$W/bin/"*
 chmod 644 "$W/pkg/bin/"*
 export PATH="$W/bin:$PATH" BRIDGE_TEST_SYS="$W/sys" BRIDGE_TEST_DATA="$W/data"
 export BRIDGE_TEST_NEM="$W/bin/nemesis" BRIDGE_TEST_FIXTURE="$W/fixture"
+export BRIDGE_TEST_DIGEST=md5 GEN5W_TEST_DIGEST=md5
 TARGET=$W/sys/app/Iap2ServerApp.odex; APK=$W/sys/app/Iap2ServerApp.apk
 DIPO=$W/sys/app/HKMC_DiPO.odex; DIPOAPK=$W/sys/app/HKMC_DiPO.apk
 GPM=$W/sys/app/HKMC_GPM.odex; GPMAPK=$W/sys/app/HKMC_GPM.apk
@@ -476,6 +481,16 @@ check 'private relay applies exact iAP2 BT entry' cmp -s "$TARGET" "$W/fixture/v
 check 'private relay APK is live' cmp -s "$DIPOAPK" "$W/pkg/app/HKMC_DiPO.relay.apk"
 check 'private relay ODEX was preoptimized' grep -q '^optimized:private-relay-apk' "$DIPO"
 check 'private relay preserves original APK' cmp -s "$PERSIST/dipoapkoriginal" "$W/fixture/dipo-v039-apk"
+cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+check 'partial relay pair with stock APK is recognized' run pre
+check 'partial relay pair with stock APK restores cleanly' run preun
+check 'partial relay APK restore keeps stock ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
+check 'reinstall private relay after partial APK recovery' run post
+cp "$W/fixture/dipo-v039-original" "$DIPO"
+check 'partial relay pair with stock ODEX is recognized' run pre
+check 'partial relay pair with stock ODEX restores cleanly' run preun
+check 'partial relay ODEX restore keeps stock APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
+check 'reinstall private relay for normal removal' run post
 check 'private relay removal restores APK and ODEX' run preun
 check 'private relay restores exact stock APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
 check 'private relay restores exact stock ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"

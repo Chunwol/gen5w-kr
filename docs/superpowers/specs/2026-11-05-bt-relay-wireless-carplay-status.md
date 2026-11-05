@@ -7,7 +7,7 @@
 - 순정 PhoneProjection을 먼저 사용하고, V039에서 CarPlay 프로필이 확인된 뒤 순정 요청이 BLOCKED/FAILED일 때만 중계를 시작한다.
 - `V039BtRelayAdapter`가 Broadcom BTCM SPP와 iAP2 component 4를 연결하고, 생성형 DiPO process-local adapter가 component 5와 CarPlay native 경계를 연결한다. component 5 요청 방송이 대기 반환보다 먼저 실행되도록 고쳤다.
 - AP broker는 완성 마커와 모든 산출물 해시가 맞는 로컬 시험판에서만 UID 1000으로 시작한다. 공개 빌드는 마커와 제조사 파생 APK가 없어 기존 순정 관찰 경로만 사용한다.
-- DiPO APK·ODEX와 Iap2ServerApp ODEX를 함께 백업·적용·복원한다. mock 215개에서 설치, 제거, 중단 stage, dexopt 실패 롤백을 확인했다.
+- DiPO APK·ODEX와 Iap2ServerApp ODEX를 함께 백업·적용·복원한다. mock 223개에서 설치, 제거, 중단 stage, APK/ODEX rename 사이 전원 차단 복원, dexopt 실패 롤백을 확인했다.
 - exact V039 입력 빌더는 동일 SHA256 산출물을 반복 생성했고, 생성 DEX의 session·iAP2·CarPlay hook 7개를 디스어셈블해 확인했다.
 - 남은 판정은 실차 연결뿐이다. 첫 페어링, 재연결, Wi-Fi AP, 30분 오디오, 통화·핸들키, 유선 CarPlay, Android Auto, HUD, 시동 재연결, 제거를 확인하기 전 성공을 표시하지 않는다.
 

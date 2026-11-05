@@ -3,6 +3,7 @@
 # and 1 when an attempted relay payload is incomplete or unsafe.
 PKG=${1:-${0%/*}/..}
 MARK=$PKG/app/relay-v039.complete
+GATE_DIGEST=${GEN5W_TEST_DIGEST:-md5}
 
 [ ! -L "$PKG" ] && [ -d "$PKG" ] || exit 1
 [ ! -L "$PKG/app" ] && [ ! -L "$PKG/bin" ] || exit 1
@@ -23,9 +24,8 @@ for path in \
     [ -f "$path" ] && [ ! -L "$path" ] || exit 1
 done
 gate_digest() {
-    if command -v md5 >/dev/null 2>&1; then set -- $(md5 "$1" 2>/dev/null); echo "$1"
-    elif command -v md5sum >/dev/null 2>&1; then set -- $(md5sum "$1" 2>/dev/null); echo "$1"
-    else return 1; fi
+    set -- $("$GATE_DIGEST" "$1" 2>/dev/null)
+    echo "$1"
 }
 while read -r sum path extra; do
     [ -n "$sum" ] && [ -n "$path" ] && [ -z "$extra" ] || exit 1

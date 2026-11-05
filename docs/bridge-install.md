@@ -29,4 +29,4 @@ NEMESIS의 `scripts/service.sh`는 설치한 부팅부터 부팅 시도 수를 �
 
 ## PC 검증
 
-`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 215개가 통과했습니다. 로컬 시험판의 DiPO APK·ODEX 동시 적용·제거와 dexopt 실패 전체 원복을 포함합니다. 정확한 V039 입력으로 생성한 APK는 반복 빌드의 SHA256이 같았고, 생성 DEX에서 7개 중계 hook을 다시 디스어셈블해 확인했습니다. Android 4.4 실차의 권한, Wi-Fi AP, 무선 CarPlay 연결은 아직 확인하지 않았습니다.
+`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 223개가 통과했습니다. 로컬 시험판의 DiPO APK·ODEX 동시 적용·제거, 두 rename 사이의 전원 차단 상태 복원, dexopt 실패 전체 원복을 포함합니다. 정확한 V039 입력으로 생성한 APK는 반복 빌드의 SHA256이 같았고, 생성 DEX에서 7개 중계 hook을 다시 디스어셈블해 확인했습니다. Android 4.4 실차의 권한, Wi-Fi AP, 무선 CarPlay 연결은 아직 확인하지 않았습니다.

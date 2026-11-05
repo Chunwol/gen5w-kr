@@ -13,6 +13,7 @@ DIPO_APK=$SYS/app/HKMC_DiPO.apk
 RELAY_APK=$SCRIPT_DIR/../app/HKMC_DiPO.relay.apk
 RELAY_GATE=$SCRIPT_DIR/relay-gate.sh
 DEXOPT=${BRIDGE_TEST_DEXOPT:-/system/bin/dexopt}
+DIGEST_TOOL=${BRIDGE_TEST_DIGEST:-md5}
 GPM_TARGET=$SYS/app/HKMC_GPM.odex
 GPM_APK=$SYS/app/HKMC_GPM.apk
 STATE=$SYS/etc/gen5w-kr-backup/bridge
@@ -32,8 +33,8 @@ apguard_reset() {
 }
 log() { echo "$1"; }
 digest() {
-    if command -v md5 >/dev/null 2>&1; then set -- $(md5 "$1" 2>/dev/null); echo "$1"
-    else md5sum "$1" 2>/dev/null | awk '{print $1}'; fi
+    set -- $("$DIGEST_TOOL" "$1" 2>/dev/null)
+    echo "$1"
 }
 relay_packaged() { [ "$VERSION" = v039 ] && sh "$RELAY_GATE" "$SCRIPT_DIR/.." >/dev/null 2>&1; }
 relay_live() {
@@ -45,6 +46,10 @@ relay_live() {
 relay_apk_live() {
     [ -f "$RELAY_APK" ] && [ ! -L "$RELAY_APK" ] &&
         [ "$(digest "$DIPO_APK")" = "$(digest "$RELAY_APK")" ]
+}
+relay_odex_live() {
+    [ -f "$STATE/diporelay.odex.md5" ] && [ ! -L "$STATE/diporelay.odex.md5" ] &&
+        [ "$(digest "$DIPO_TARGET")" = "$(cat "$STATE/diporelay.odex.md5")" ]
 }
 # Drop any stale optimized copies so the newly written /system ODEX files are the
 # ones the next boot loads. A mismatched dalvik-cache entry can fail class load.
@@ -144,7 +149,7 @@ inspect() {
     elif route_patched "$TARGET"; then BRIDGE_STATE=route-patched
     elif legacy_patched "$TARGET"; then BRIDGE_STATE=legacy-patched
     else log 'FAIL bridge: owned target changed'; return 1; fi
-    if [ "$BRIDGE_OWNED" = yes ] && relay_live; then DIPO_STATE=relay
+    if [ "$BRIDGE_OWNED" = yes ] && { relay_live || relay_apk_live || relay_odex_live; }; then DIPO_STATE=relay
     elif dipo_original "$DIPO_TARGET"; then DIPO_STATE=stock
     elif dipo_patched "$DIPO_TARGET"; then DIPO_STATE=patched
     elif dipo_previous "$DIPO_TARGET"; then DIPO_STATE=previous
@@ -337,7 +342,7 @@ restore_target() {
         { patched "$TARGET" || bt_patched "$TARGET"; } && original "$STATE/original" &&
             replace_target "$STATE/original" original "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || restore_rc=1
     fi
-    if [ "$DIPO_STATE" = relay ] || relay_live || relay_apk_live; then
+    if [ "$DIPO_STATE" = relay ] || relay_live || relay_apk_live || relay_odex_live; then
         if dipo_original "$STATE/dipooriginal" && "$DIPO_TOOL" verify "$STATE/dipoapkoriginal" "$DIPO_APK_SHA"; then
             cp -p "$STATE/dipoapkoriginal" "$DIPO_APK.gen5w-kr-bridge.tmp" &&
             cp -p "$STATE/dipooriginal" "$DIPO_TARGET.gen5w-kr-bridge.tmp" && sync &&
