@@ -54,7 +54,7 @@ check 'device names are dropped' eval '! grep -q "DEVICE_NAME" "$O"'
 check 'full and masked addresses are dropped' eval '! grep -q "AA:BB:CC" "$O" && ! grep -q "80:96:98" "$O"'
 check 'repeated status noise is dropped' eval '! grep -q "getState()" "$O"'
 check 'buffer range shows first and last line' eval 'grep -q "first buffered line" "$O" && grep -q "last buffered line" "$O"'
-check 'only the completion toast is sent' eval '[ "$(grep -c . "$W/calls")" = 1 ] && grep -q "am broadcast -a com.hkmc.intent.action.TOAST" "$W/calls"'
+check 'only the start and completion toasts are sent' eval '[ "$(grep -c . "$W/calls")" = 2 ] && [ "$(grep -c "am broadcast -a com.hkmc.intent.action.TOAST" "$W/calls")" = 2 ] && grep -q "저장 중" "$W/calls" && grep -q "저장 완료" "$W/calls"'
 check 'second run keeps the first file' run
 check 'second run writes the next number' eval 'test -f "$W/usb/GEN5W-REPORT/DIAG-2.txt" && test -f "$O"'
 echo 0 > "$W/props/sys.boot_completed"

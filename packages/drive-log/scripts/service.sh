@@ -4,11 +4,13 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 USB=${DL_USB:-/storage/usb0}
-MOUNTS=${DL_MOUNTS:-/proc/mounts}
+# /proc/mounts is a symlink on Android 4.4; the table guard refuses symlinks.
+MOUNTS=${DL_MOUNTS:-/proc/self/mounts}
 SYS=${DL_SYS:-/sys}
 GETPROP=${DL_GETPROP:-getprop}
 LOGCAT=${DL_LOGCAT:-logcat}
 DF=${DL_DF:-df}
+AM=${DL_AM:-am}
 until [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; do sleep 5; done
 
 # The service log (stdout) gets one fixed line per state change, so a USB that
@@ -19,12 +21,22 @@ dl_note() {
     _dl_note=$1
     print -r -- "drive-log: $1"
 }
+# A head-unit toast for the states a driver can act on. Only shown while a USB
+# with GEN5W-DEBUG-ON is in, so an ordinary USB never raises one.
+dl_toast() {
+    "$AM" broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR: $1" --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || :
+}
+_dl_toasted=
 dl_note started
 while :; do
     if ! dl_opt_in "$USB"; then dl_note 'waiting: no USB with GEN5W-DEBUG-ON'; sleep 5; continue; fi
     _dl_identity=$(dl_mount_info "$USB" "$MOUNTS" "$SYS")
     case "$_dl_identity" in
-        '!'*|'') dl_note "waiting: USB not verified reason=${_dl_identity#!}"; sleep 5; continue;;
+        '!'*|'')
+            _dl_reason=${_dl_identity#!}
+            # Once per reason: the marker check can flap while the USB settles.
+            [ "$_dl_toasted" = "$_dl_reason" ] || { _dl_toasted=$_dl_reason; dl_toast "USB 주행 로그 대기 - USB 확인 안 됨 ($_dl_reason)"; }
+            dl_note "waiting: USB not verified reason=$_dl_reason"; sleep 5; continue;;
     esac
     _dl_source=${_dl_identity%%\|*}
     _dl_path=${_dl_identity##*\|}
@@ -44,6 +56,7 @@ while :; do
         _dl_free=$(DL_DF="$DF" dl_free_kb "$_dl_path" "$_dl_source") || exit 3
         [ "$_dl_free" -ge "$DL_MIN_FREE_KB" ] || exit 3
         print -r -- "drive-log: recording mode=$_dl_mode"
+        dl_toast 'USB 주행 로그 기록 시작'
         # logcat is a pipe only: no buffer or temporary file is created internally.
         "$LOGCAT" -v raw -s Gen5wDrive:I 2>/dev/null | while :; do
             _dl_wait_start=$(dl_uptime_ms) || exit 5
@@ -69,7 +82,7 @@ while :; do
         done
     )
     _dl_rc=$?
-    _dl_note=
+    _dl_note= _dl_toasted=
     case "$_dl_rc" in
         2) dl_note 'stopped: cannot prepare GEN5W-DRIVELOG on the USB';;
         3) dl_note 'stopped: USB free space unknown or below 64 MiB';;
@@ -77,6 +90,12 @@ while :; do
         5) dl_note 'stopped: USB removed, changed or marker removed';;
         6) dl_note 'stopped: log reader ended';;
         *) dl_note "stopped: rc=$_dl_rc";;
+    esac
+    # Removing the USB (rc 5) is the normal way to stop; say only the problems.
+    case "$_dl_rc" in
+        2|4) dl_toast 'USB 주행 로그 중단 - USB에 쓸 수 없음';;
+        3) dl_toast 'USB 주행 로그 중단 - USB 여유 공간 부족';;
+        6) dl_toast 'USB 주행 로그 중단 - 로그 읽기 종료';;
     esac
     # On detach, marker removal, low space, or write failure, stop the pipe and
     # wait before reevaluating. No failed record is redirected to internal storage.

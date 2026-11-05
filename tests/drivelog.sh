@@ -222,25 +222,38 @@ echo 1
 echo "D1|99999999|2|21|1|2|3|4|5|6"
 sleep 3
 ' > "$W/logcat"
-    chmod +x "$W/getprop" "$W/logcat"
+    printf '#!/bin/sh
+for a in "$@"; do case "$a" in "Gen5W KR: "*) echo "$a" >> "%s";; esac; done
+' "$W/toasts" > "$W/am"
+    chmod +x "$W/getprop" "$W/logcat" "$W/am"
+    rm -f "$W/toasts"
     printf '100.00 1.00
 ' > "$W/uptime"
-    DL_USB=$USB DL_MOUNTS=$MOUNTS DL_SYS=$SYS DL_MEDIA_RW=$MEDIA DL_GETPROP=$W/getprop DL_LOGCAT=$W/logcat         DL_DF=$W/df-toolbox DL_PROC_UPTIME=$W/uptime timeout 12 mksh "$SVC" > "$W/service.log" 2>&1 || true
+    DL_USB=$USB DL_MOUNTS=$MOUNTS DL_SYS=$SYS DL_MEDIA_RW=$MEDIA DL_GETPROP=$W/getprop DL_LOGCAT=$W/logcat         DL_DF=$W/df-toolbox DL_AM=$W/am DL_PROC_UPTIME=$W/uptime timeout 12 mksh "$SVC" > "$W/service.log" 2>&1 || true
     grep -qx 'drive-log: started' "$W/service.log" || fail 'service logs its start'
     grep -qx 'drive-log: recording mode=fuse-backing' "$W/service.log" || { cat "$W/service.log"; fail 'service records through the FUSE backing mount'; }
     grep -q '^D1|99999999|2|21|' "$MEDIA/usb/GEN5W-DRIVELOG/segment-00.log" || fail 'service writes the record on the USB'
     [ ! -e "$USB/GEN5W-DRIVELOG" ] || fail 'service does not write through the FUSE view path'
+    grep -qx 'Gen5W KR: USB 주행 로그 기록 시작' "$W/toasts" || fail 'service shows a toast when recording starts'
+    rm -f "$W/toasts"
     rm -rf "$MEDIA/usb/GEN5W-DRIVELOG"
     rm "$USB/GEN5W-DEBUG-ON"
-    DL_USB=$USB DL_MOUNTS=$MOUNTS DL_SYS=$SYS DL_MEDIA_RW=$MEDIA DL_GETPROP=$W/getprop DL_LOGCAT=$W/logcat         DL_DF=$W/df-toolbox DL_PROC_UPTIME=$W/uptime timeout 7 mksh "$SVC" > "$W/service.log" 2>&1 || true
+    DL_USB=$USB DL_MOUNTS=$MOUNTS DL_SYS=$SYS DL_MEDIA_RW=$MEDIA DL_GETPROP=$W/getprop DL_LOGCAT=$W/logcat         DL_DF=$W/df-toolbox DL_AM=$W/am DL_PROC_UPTIME=$W/uptime timeout 7 mksh "$SVC" > "$W/service.log" 2>&1 || true
     [ "$(grep -c 'waiting: no USB with GEN5W-DEBUG-ON' "$W/service.log")" = 1 ] || fail 'service logs a missing marker once'
+    [ ! -e "$W/toasts" ] || fail 'no toast for a USB without GEN5W-DEBUG-ON'
     : > "$USB/GEN5W-DEBUG-ON"
     printf '/dev/block/vold/179:1 %s vfat rw 0 0
 ' "$USB" > "$MOUNTS"
-    DL_USB=$USB DL_MOUNTS=$MOUNTS DL_SYS=$SYS DL_MEDIA_RW=$MEDIA DL_GETPROP=$W/getprop DL_LOGCAT=$W/logcat         DL_DF=$W/df-toolbox DL_PROC_UPTIME=$W/uptime timeout 7 mksh "$SVC" > "$W/service.log" 2>&1 || true
+    DL_USB=$USB DL_MOUNTS=$MOUNTS DL_SYS=$SYS DL_MEDIA_RW=$MEDIA DL_GETPROP=$W/getprop DL_LOGCAT=$W/logcat         DL_DF=$W/df-toolbox DL_AM=$W/am DL_PROC_UPTIME=$W/uptime timeout 7 mksh "$SVC" > "$W/service.log" 2>&1 || true
     grep -qx 'drive-log: waiting: USB not verified reason=not-usb-storage' "$W/service.log" || fail 'service logs why the USB is refused'
     [ ! -e "$USB/GEN5W-DRIVELOG" ] || fail 'refused USB is not written'
+    [ "$(grep -c 'USB 주행 로그 대기 - USB 확인 안 됨 (not-usb-storage)' "$W/toasts")" = 1 ] || fail 'service shows the refusal reason once'
     ok 'service records via FUSE backing and explains refusals in its own log'
 fi
+
+grep -q '^MOUNTS=${DL_MOUNTS:-/proc/self/mounts}$' "$ROOT/packages/drive-log/scripts/service.sh" || fail 'reads /proc/self/mounts (Android /proc/mounts is a symlink)'
+ln -s "$MOUNTS" "$W/mounts-link"
+[ "$(dl_mount_info "$USB" "$W/mounts-link" "$SYS")" = '!no-mount-table' ] || fail 'still refuses a symlinked mount table'
+ok 'reads the real mount table, not the /proc/mounts symlink'
 
 echo 'drive log: all tests passed'

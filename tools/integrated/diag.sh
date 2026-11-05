@@ -19,6 +19,9 @@ while [ -e "GEN5W-REPORT/DIAG-$n.txt" ] || [ -L "GEN5W-REPORT/DIAG-$n.txt" ]; do
     [ "$n" -le 99 ] || { echo 'REFUSED GEN5W-REPORT already holds 99 diagnostic files'; exit 1; }
 done
 OUT=GEN5W-REPORT/DIAG-$n.txt
+toast() { am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR: $1" --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1; }
+# Saving takes a few minutes; say so before starting, or the USB gets pulled early.
+toast "진단 $n 저장 중 (2~3분). 완료 안내가 뜰 때까지 USB를 빼지 마세요."
 PRIV='([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}:\*\*|[Ss][Ss][Ii][Dd]|[Pp]assw|PASSW|[Pp]assphrase|[Pp]sk|PSK|[Ss]erial|SERIAL|[Ii]mei|IMEI|[Ii]ccid|ICCID|[Mm]sisdn|MSISDN|VIN[=: ]|vin[=: ]|DEVICE_NAME|[Dd]evice ?[Nn]ame|getName|FRQ:|BND:|ALBUM|TITLE|ARTIST|mArtist'
 # Repeated status lines that fill the small log buffer and say nothing new.
 NOISE='getState\(\)|Get Bonded Devices|getBondedDevices|getConnectedDevices\(\)|getConnectionState|mLruProcesses|BTAD|SplitScreenViewBTAudio|SplitBtAudioManager|BTA_BT_PLAYER|BTAudioView|onBtAudioStatusUpdate'
@@ -92,5 +95,5 @@ section() { echo; echo "== $1"; }
 } > "$OUT" 2>&1
 sync
 echo "SAVED GEN5W-REPORT/DIAG-$n.txt"
-am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR: 진단 $n 저장 완료. USB를 빼도 됩니다." --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1
+toast "진단 $n 저장 완료. USB를 빼도 됩니다."
 exit 0
