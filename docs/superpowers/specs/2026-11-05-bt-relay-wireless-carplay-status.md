@@ -44,3 +44,34 @@ v0.3.35(순정 PhoneProjection 경로) 실차 진단(DIAG-2, 09:37~09:40) 결과
 ## 위험 메모
 
 순정 앱 ODEX를 바꾸는 작업이다. 브릭 원인은 확정되지 않았지만 10/28 브릭 차량에도 같은 종류의 변경이 있었다. 진행한다면 기존의 해시 확인, 백업, 부트가드, 자동 원복을 유지해야 한다.
+
+## 남은 일 정리 (2026-11-05 추가)
+
+### A. 이 저장소에서 계속 진행할 수 있는 일
+
+1. 현재 HEAD 전체 검증: `tests/run.sh`, JVM 테스트, `tools/build-all.sh`, `tools/audit-artifacts.py dist`
+   - 이전 실행에서 실패한 통합 테스트 4개(`lib/libCarPlayAudio.so is not a recognised stock file`)의 원인 확인
+2. `1b64288` 주행 로그·토스트 실차 확인
+   - DEBUG-ON USB로 기록 시작 토스트, `GEN5W-DRIVELOG/` 생성, 진단 시작·완료 토스트
+3. core 서비스 `kind=instance` 시작 오류(`Activity class does not exist`) 원인 확인
+4. 버전 정리와 변경 기록(한국어), 필요한 경우 릴리스
+
+### B. 목록만 남기는 일 (구현 방법 미기재)
+
+아래 항목은 개발 도중 응답이 자동 안전 필터로 중단돼 진행하지 않았다. 이 문서에는 구현 방법을 적지 않는다.
+
+- DiPO 쪽 변경 (블루투스 세션 수용, CarPlay 채널 iAP2 처리)
+- 우리 앱(wirelesshost)의 SPP ↔ iAP2 중계
+- 핫스팟 도우미(ApBroker) 재가동과 핫스팟 이름 맞추기
+- iAP2 속성(`persist.sys.iap2.wifi`, `persist.iap2.iden.wireless`) 설정과 원복
+- 위 항목을 설치·제거·서비스 스크립트와 테스트에 연결
+- `tools/iap2/bt_patch.py` 레시피를 설치 과정에 연결
+
+참고 자료(공개 저장소, 직접 확인 필요): Leafia(아카이브), HMG-API(AGPL-3.0, 코드 복사 금지)의 무선 브리지 설명과 구조.
+
+### C. 원칙 (계속 유지)
+
+- MICOM·부트로더·모뎀 플래시 금지, 부팅 핵심 파일은 순정 유지
+- 차량별 비밀 정보(/data, 인증서, VIN, 일련번호 등) 저장 금지
+- 제조사 앱·라이브러리 전체를 저장소에 넣지 않음, Mobis 소스 재배포 금지
+- 변경은 해시 확인, 백업, 부트가드, 자동 원복을 유지하고 실차 확인 전에는 성공을 주장하지 않음
