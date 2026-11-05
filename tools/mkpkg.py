@@ -6,6 +6,10 @@ from pathlib import Path
 import sys
 import zipfile
 
+# build-all invokes this script with Python isolated mode.  In that mode the
+# script directory is not added to sys.path on Windows, so load the sibling
+# helper explicitly rather than depending on the caller's working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from source_revision import source_revision
 
 

@@ -13,7 +13,7 @@ for f in $(find packages probe/package probe/usb tools -name '*.sh' -o -name '*.
     grep -q $'\r' "$f" && { echo "FAIL CRLF in $f"; rc=1; }
 done
 for t in tests/drivelog.sh tests/diag.sh tests/timer.sh tests/bluelink.sh tests/detect.sh tests/collect.sh tests/wireless.sh tests/wireless-preserve.sh tests/wireless-legacy.sh tests/core.sh tests/hud-variant-report.sh tests/recovery.sh tests/system-reinstall.sh tests/audio.sh tests/bridge.sh tests/stock-projection-source.sh tests/relay-gate.sh tests/dongle.sh tests/dongle-snapshot.sh tests/bootguard.sh tests/bootguard-dongle.sh tests/bootguard-runtime.sh tests/bootguard-rollback.sh tests/integrated-zip.sh tests/integrated-build.sh tests/integrated.sh tests/fat32-integrated.sh tests/check.sh tests/standalone.sh tests/integrated-edge.sh; do bash "$t" || rc=1; done
-python_tests="tests/source_revision.py tests/iap2_control.py tests/bt_recipe.py tests/dipo_control.py tests/dipo_relay_structure.py tests/v039_bt_adapter.py tests/gpm_control.py tests/dongle_runtime.py tests/fastboot_recovery.py tests/recovery_usb.py"
+python_tests="tests/source_revision.py tests/mkpkg_import.py tests/iap2_control.py tests/bt_recipe.py tests/dipo_control.py tests/dipo_relay_structure.py tests/v039_bt_adapter.py tests/gpm_control.py tests/dongle_runtime.py tests/fastboot_recovery.py tests/recovery_usb.py"
 if command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1; then
     python_tests="$python_tests tests/core_lifecycle.py"
 else
