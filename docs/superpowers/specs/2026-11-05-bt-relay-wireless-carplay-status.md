@@ -12,6 +12,8 @@
 - 새 설계와 구현 계획은 `2026-11-05-v039-bt-relay-integration-design.md`, `../plans/2026-11-05-v039-bt-relay-integration.md`에 정리했다.
 - Task 1로 순수 `BtRelaySession`을 추가했다. SPP → iAP2 component 4 → DiPO handover/component 5 → AP → projection 활성 순서, 단계별 timeout, 세대 검사, 역순 정리, 정리 완료 전 새 owner 차단을 JVM 테스트로 고정했다.
 - Task 2 기반으로 순수 `BtRelayPipe`를 추가했다. 한 세대만 SPP↔iAP2 component 4를 소유하고, 양방향 프레임 복사·쓰기 실패·연결 해제·비밀값 없는 고정 진단 범주를 테스트했다. 외부 전송 호출 중에도 소유권 잠금은 잡지 않는다.
+- Task 3 검증으로 BT recipe를 V039 전용으로 제한하고, component 4/5 시작·종료, route recipe와의 대체 관계, 정확한 순정 V039 ODEX 재생성 및 DEX/ODEX 무결성을 검사했다. 빌드·설치에는 아직 연결하지 않았다.
+- Task 4 기반으로 순수 `CarPlayHandoverPipe`를 추가했다. DiPO process-local 경계와 iAP2 component 5 사이 양방향 프레임, 단일 owner, 연결 해제·쓰기 실패·차단된 전송 중 취소를 JVM 테스트로 고정했다.
 - 아직 Android/BTCM/iAP2/DiPO/AP runtime adapter에 연결하지 않았으며 설치 ZIP에도 포함하지 않았다.
 - AP helper 소스는 남아 있지만 UID 1000 실행 경로가 증명되지 않았다. 이 조건을 해결하기 전에는 runtime에 연결하지 않는다.
 
