@@ -55,24 +55,26 @@ public final class ApBroker {
                 if (peer.getUid() != hostUid) { client.close(); continue; }
                 client.setSoTimeout(1000);
                 final InputStream in = client.getInputStream();
-                int operation = in.read();
+                final int operation = in.read();
                 if (!ApBrokerPolicy.allowed(hostUid, peer.getUid(), operation)) {
                     client.close();
                     continue;
                 }
                 client.setSoTimeout(0);
-                new Thread(new Runnable() { public void run() { handle(client, in); } },
+                new Thread(new Runnable() { public void run() { handle(client, in, operation); } },
                         "gen5w-ap-request").start();
             } catch (IOException e) { try { client.close(); } catch (IOException ignored) { } }
         }
     }
 
-    private static void handle(final LocalSocket client, final InputStream in) {
+    private static void handle(final LocalSocket client, final InputStream in, int operation) {
         final ApProfiles.Guard guard = new ApBrokerCancellation(in);
         try {
             IWifiManager wifi = IWifiManager.Stub.asInterface(ServiceManager.getService("wifi"));
             if (wifi == null) throw new IOException("wifi unavailable");
-            profiles.ensure(new AndroidWifiAp(wifi, profiles, guard), guard);
+            AndroidWifiAp port = new AndroidWifiAp(wifi, profiles, guard);
+            if (operation == 'E') profiles.ensure(port, guard);
+            else profiles.stop(port, guard);
             guard.check();
             client.getOutputStream().write('O');
             client.getOutputStream().flush();

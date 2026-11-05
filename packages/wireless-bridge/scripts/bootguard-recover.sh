@@ -85,6 +85,23 @@ guard_digest() {
     value=$(md5 "$1" 2>/dev/null) || return 1
     set -- $value; echo "$1"
 }
+preflight_dipo() {
+    local state=$SYS/etc/gen5w-kr-backup/bridge apk_sum odex_sum
+    if [ -f "$state/dipoapkoriginal" ] && [ -f "$state/diporelay.apk.md5" ] &&
+       [ -f "$state/diporelay.odex.md5" ]; then
+        [ ! -L "$state/dipoapkoriginal" ] && [ ! -L "$state/diporelay.apk.md5" ] &&
+        [ ! -L "$state/diporelay.odex.md5" ] || return 1
+        "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" original "$state/dipooriginal" >/dev/null 2>&1 || return 1
+        "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" verify "$state/dipoapkoriginal" 0859b0a5d87320935f2a06ac70baa7e3e30498b29bdafccd6c8ccc51343d5f3f >/dev/null 2>&1 || return 1
+        apk_sum=$(guard_digest "$SYS/app/HKMC_DiPO.apk") || return 1
+        odex_sum=$(guard_digest "$SYS/app/HKMC_DiPO.odex") || return 1
+        [ "$apk_sum" = "$(cat "$state/diporelay.apk.md5")" ] &&
+            [ "$odex_sum" = "$(cat "$state/diporelay.odex.md5")" ]
+        return $?
+    fi
+    preflight_pair "$state/dipooriginal" "$SYS/app/HKMC_DiPO.odex" \
+        "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035"
+}
 preflight_optional_pair() {
     local src=$1 dst=$2 package=$3 label=$4 tool sum
     shift 4
@@ -160,9 +177,10 @@ dongle_preflight() {
 }
 recovery_roots_valid && wireless_preflight && dongle_preflight &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" \
+    "$_apps/gen5w.kr.bridge/bin/iap2-bt-patch-v039" \
     "$_apps/gen5w.kr.bridge/bin/iap2-route-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-route-patch-v035" \
     "$_apps/gen5w.kr.bridge/bin/iap2-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-patch-v035" &&
-preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v039" "$_apps/gen5w.kr.bridge/bin/dipo-patch-v035" &&
+preflight_dipo &&
 preflight_gpm &&
 preflight_optional_pair "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" gen5w.kr.audio audio "$_apps/gen5w.kr.audio/bin/audio-patch" "$_apps/gen5w.kr.audio/bin/audio-patch-v035" || {
     log 'REFUSED bootguard: incomplete or unsafe recovery plan; manual recovery required'
@@ -176,6 +194,7 @@ fi
 rc=0
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" || rc=1
+restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipoapkoriginal" "$SYS/app/HKMC_DiPO.apk" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" || rc=1
 [ "$DONGLE_PLAN" != yes ] || restore_one "$DONGLE_BACKUP" "$DONGLE_TARGET" || rc=1

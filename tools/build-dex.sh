@@ -18,10 +18,9 @@ stubpath="$PKG/stubs"
 if [ "$PKG" = packages/wireless-bridge ]; then
     stubpath="probe/stubs${sep}packages/wireless-bridge/stubs"
     sourcepath="$PKG/src${sep}$stubpath"
-    # Keep unfinished relay prototypes out of the vehicle DEX. They are
-    # compiled separately by verify-v039-relay-adapter.sh until every adapter
-    # and the atomic package lifecycle are complete.
-    sources="$PKG/src/kr/gen5w/wireless/BridgeHostService.java $PKG/src/kr/gen5w/wireless/WirelessBridge.java $PKG/src/kr/gen5w/wireless/PhoneProjectionAccess.java $PKG/src/kr/gen5w/wireless/StockProjectionSession.java $PKG/src/kr/gen5w/wireless/BluetoothCandidateScan.java $PKG/src/kr/gen5w/wireless/ProjectionWifiAccess.java $PKG/src/kr/gen5w/wireless/DriveLog.java"
+    # Exact-V039 relay and AP classes are packaged together so the completion
+    # gate cannot enable a transport without its single owner and cleanup path.
+    sources="$PKG/src/kr/gen5w/wireless/BridgeHostService.java $PKG/src/kr/gen5w/wireless/WirelessBridge.java $PKG/src/kr/gen5w/wireless/V039RelayCoordinator.java $PKG/src/kr/gen5w/wireless/V039BtRelayAdapter.java $PKG/src/kr/gen5w/wireless/PhoneProjectionAccess.java $PKG/src/kr/gen5w/wireless/StockProjectionSession.java $PKG/src/kr/gen5w/wireless/BluetoothCandidateScan.java $PKG/src/kr/gen5w/wireless/ProjectionWifiAccess.java $PKG/src/kr/gen5w/wireless/DriveLog.java"
 else
     sourcepath="$stubpath"
     sources=$(find "$PKG/src" -name '*.java')

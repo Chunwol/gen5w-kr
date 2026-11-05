@@ -11,6 +11,7 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelUuid;
 import android.os.SystemClock;
 import android.util.Log;
 import java.lang.reflect.Method;
@@ -20,33 +21,43 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Requests and observes V039 OEM PhoneProjection; it owns no CarPlay transport. */
-public final class WirelessBridge implements StockProjectionSession.Port {
+public final class WirelessBridge implements StockProjectionSession.Port, V039RelayCoordinator.Events {
     static final String TAG = "Gen5wWireless";
+    static final UUID APPLE_CAFF = UUID.fromString("00000000-deca-fade-deca-deafdecacaff");
+    static final UUID APPLE_CAFE = UUID.fromString("00000000-deca-fade-deca-deafdecacafe");
     final Context context;
     final Handler main;
     final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
     final StockProjectionSession session = new StockProjectionSession(this);
+    final SdpRefresh sdpRefresh = new SdpRefresh();
+    final V039RelayCoordinator relay;
     final Set<String> linked = new LinkedHashSet<String>();
     final Map<String, Long> falseConnectionSince = new LinkedHashMap<String, Long>();
+    final Map<String, Boolean> appleCarPlay = new LinkedHashMap<String, Boolean>();
     final ExecutorService oemCalls = Executors.newFixedThreadPool(2);
     volatile boolean cable;
     volatile boolean shuttingDown;
     volatile ProjectionWifiAccess.ApProgress apProgress = ProjectionWifiAccess.ApProgress.UNKNOWN;
     boolean eventsRegistered;
     boolean stopRegistered;
+    boolean relayInspectPending;
+    boolean relayEnabled;
 
     WirelessBridge(Context context) {
         this.context = context;
         this.main = new Handler(Looper.getMainLooper());
+        this.relay = new V039RelayCoordinator(context, main, this);
     }
 
     void run() {
         registerAction(BluetoothDevice.ACTION_ACL_CONNECTED);
         registerAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        registerAction(BluetoothDevice.ACTION_UUID);
         registerAction(BluetoothAdapter.ACTION_STATE_CHANGED);
         registerAction("android.bluetooth.headsetclient.profile.action.CONNECTION_STATE_CHANGED");
         registerAction("android.hardware.usb.action.CARPLAY_DEVICE_ATTACHED");
@@ -56,6 +67,9 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         registerAction("android.hardware.usb.action.USB_STATE");
         registerAction("android.net.wifi.WIFI_AP_STATE_CHANGED");
         registerAction("com.hkmc.intent.action.SYSTEM_POWERON");
+        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_REQUESTED");
+        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_CONNECTED");
+        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED");
         IntentFilter stop = new IntentFilter("kr.gen5w.wireless.STOP_BRIDGE");
         stop.addAction(Intent.ACTION_SHUTDOWN);
         try {
@@ -68,6 +82,13 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         scan();
         main.post(tick);
         log("path=stock event=service result=started");
+    }
+
+    void enableRelay() {
+        if (relayEnabled || shuttingDown) return;
+        relayEnabled = true;
+        relay.open();
+        maintainRelay();
     }
 
     void registerAction(String action) {
@@ -87,6 +108,8 @@ public final class WirelessBridge implements StockProjectionSession.Port {
             scan();
             session.environment(cable, false, now());
             session.tick(now());
+            relay.tick();
+            maintainRelay();
             main.postDelayed(this, 1000L);
         }
     };
@@ -101,12 +124,15 @@ public final class WirelessBridge implements StockProjectionSession.Port {
             if ("android.net.wifi.WIFI_AP_STATE_CHANGED".equals(action)) {
                 apProgress = ProjectionWifiAccess.classifyApState(i.getIntExtra("wifi_state", -1));
                 event("wifi", apResult(apProgress));
+                if (apProgress == ProjectionWifiAccess.ApProgress.READY) relay.apObservedReady();
             }
             BluetoothDevice device = (BluetoothDevice) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
             if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
                 connected(device);
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 disconnected(device);
+            } else if (BluetoothDevice.ACTION_UUID.equals(action)) {
+                acceptFreshSdp(device);
             } else if (action != null && action.endsWith("profile.action.CONNECTION_STATE_CHANGED")) {
                 int state = i.getIntExtra("android.bluetooth.profile.extra.STATE", -1);
                 if (device != null && state == 2) connected(device);
@@ -126,18 +152,32 @@ public final class WirelessBridge implements StockProjectionSession.Port {
                     i.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0) != BluetoothAdapter.STATE_ON) {
                 linked.clear();
                 falseConnectionSince.clear();
+                sdpRefresh.clear();
+                appleCarPlay.clear();
                 session.lost(null, now());
+                relay.candidateLost();
                 log("path=stock event=cancel reason=bluetooth-off");
             } else if ("com.hkmc.intent.action.SYSTEM_POWERON".equals(action)) {
                 linked.clear();
                 falseConnectionSince.clear();
+                sdpRefresh.clear();
+                appleCarPlay.clear();
                 session.lost(null, now());
+                relay.candidateLost();
                 log("path=stock event=reset reason=system-power-on");
+            } else if ("kr.gen5w.wireless.RELAY_HANDOVER_REQUESTED".equals(action)) {
+                relay.handoverRequested();
+            } else if ("kr.gen5w.wireless.RELAY_HANDOVER_CONNECTED".equals(action)) {
+                relay.handoverConnected();
+            } else if ("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED".equals(action)) {
+                relay.handoverDisconnected();
             }
             refreshWired();
             session.environment(cable, false, now());
             scan();
             session.tick(now());
+            relay.tick();
+            maintainRelay();
         }
     };
 
@@ -167,6 +207,9 @@ public final class WirelessBridge implements StockProjectionSession.Port {
             });
         }
         BluetoothCandidateScan.reconcile(linked, falseConnectionSince, devices, hfp, session, now());
+        for (BluetoothDevice device : adapter.getBondedDevices()) {
+            if (device != null && linked.contains(device.getAddress())) requestFreshSdp(device);
+        }
     }
 
     void connected(BluetoothDevice device) {
@@ -175,6 +218,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         String address = device.getAddress();
         linked.add(address);
         falseConnectionSince.remove(address.toUpperCase(java.util.Locale.US));
+        requestFreshSdp(device);
         offerCandidate();
     }
 
@@ -182,7 +226,37 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if (device == null) return;
         DriveLog.bridge(2, 0, 0, 0, 0, 0, 0);
         String address = device.getAddress();
+        boolean relayCandidate = address.equals(session.candidate());
         BluetoothCandidateScan.disconnected(linked, falseConnectionSince, address, session, now());
+        sdpRefresh.reset(address);
+        appleCarPlay.remove(address);
+        if (relayCandidate) relay.candidateLost();
+    }
+
+    void requestFreshSdp(BluetoothDevice device) {
+        if (device == null) return;
+        String address = device.getAddress();
+        long time = now();
+        if (!sdpRefresh.begin(address, time)) return;
+        boolean requested = false;
+        try { requested = device.fetchUuidsWithSdp(); }
+        catch (RuntimeException ignored) { }
+        if (!requested) sdpRefresh.complete(address, time, false);
+    }
+
+    void acceptFreshSdp(BluetoothDevice device) {
+        if (device == null || !linked.contains(device.getAddress())) return;
+        ParcelUuid[] values;
+        try { values = device.getUuids(); }
+        catch (RuntimeException e) { values = null; }
+        boolean apple = false;
+        if (values != null) for (ParcelUuid value : values) {
+            UUID uuid = value == null ? null : value.getUuid();
+            if (APPLE_CAFF.equals(uuid) || APPLE_CAFE.equals(uuid)) { apple = true; break; }
+        }
+        sdpRefresh.complete(device.getAddress(), now(), values != null);
+        appleCarPlay.put(device.getAddress(), Boolean.valueOf(apple));
+        maintainRelay();
     }
 
     void offerCandidate() {
@@ -210,6 +284,42 @@ public final class WirelessBridge implements StockProjectionSession.Port {
             present |= wiredConfiguration((String) get.invoke(null, "sys.usb.state"));
         } catch (Exception ignored) {}
         cable = present;
+        if (present) relay.cancel(BtRelaySession.CancelReason.WIRED);
+    }
+
+    private void maintainRelay() {
+        if (!relayEnabled) return;
+        StockProjectionSession.Phase phase = session.phase();
+        String address = session.candidate();
+        boolean carPlay = session.observedProfileType() == PhoneProjectionAccess.TYPE_CARPLAY ||
+                (session.observedProfileType() == 0 && Boolean.TRUE.equals(appleCarPlay.get(address)));
+        if (!cable && address != null && carPlay &&
+                (phase == StockProjectionSession.Phase.BLOCKED || phase == StockProjectionSession.Phase.FAILED)) {
+            relay.start(address);
+        }
+        if (!relay.active()) return;
+        ProjectionWifiAccess.CredentialStatus credentials = inspectWifiCredentials();
+        if (credentials == ProjectionWifiAccess.CredentialStatus.PRESENT) relay.credentialsReady();
+        if (apProgress == ProjectionWifiAccess.ApProgress.READY) relay.apObservedReady();
+        inspectRelayProjection(address);
+    }
+
+    private void inspectRelayProjection(final String address) {
+        if (relayInspectPending || address == null) return;
+        relayInspectPending = true;
+        try {
+            oemCalls.execute(new Runnable() { public void run() {
+                final StockProjectionSession.Observation state = PhoneProjectionAccess.inspect(
+                        new PhoneProjectionAccess.ServiceProvider() {
+                            public Object get(String name) { return context.getSystemService(name); }
+                        }, context, address);
+                main.post(new Runnable() { public void run() {
+                    relayInspectPending = false;
+                    if (state != null && state.active && state.profileType == PhoneProjectionAccess.TYPE_CARPLAY)
+                        relay.projectionActive();
+                }});
+            }});
+        } catch (RuntimeException e) { relayInspectPending = false; }
     }
 
     public void inspect(final long generation, final String address) {
@@ -388,6 +498,10 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if (nameCode != 0 && resultCode != 0) DriveLog.bridge(1, nameCode, resultCode, 0, 0, 0, 0);
     }
 
+    public void relayEvent(String name, String result) {
+        log("path=relay event=" + safe(name) + " result=" + safe(result));
+    }
+
     private static int eventCode(String name) {
         if ("candidate".equals(name)) return 1;
         if ("cancel".equals(name)) return 2;
@@ -455,6 +569,7 @@ public final class WirelessBridge implements StockProjectionSession.Port {
         if (shuttingDown) return;
         shuttingDown = true;
         session.shutdown();
+        relay.close();
         linked.clear();
         falseConnectionSince.clear();
         main.removeCallbacks(tick);

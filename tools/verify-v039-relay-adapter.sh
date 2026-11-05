@@ -10,6 +10,6 @@ rm -rf "$out"; mkdir -p "$out"
 trap 'rm -rf "$out"' EXIT
 sourcepath="tools/v039-relay/src${sep}packages/wireless-bridge/src${sep}probe/stubs${sep}packages/wireless-bridge/stubs"
 javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR" -sourcepath "$sourcepath" -d "$out" \
-    tools/v039-relay/src/kr/gen5w/wireless/V039BtRelayAdapter.java
+    packages/wireless-bridge/src/kr/gen5w/wireless/V039BtRelayAdapter.java
 test -f "$out/kr/gen5w/wireless/V039BtRelayAdapter.class"
 echo 'PASS exact-V039 component-4 adapter compile check (not packaged)'

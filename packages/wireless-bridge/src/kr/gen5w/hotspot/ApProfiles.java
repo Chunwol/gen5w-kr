@@ -102,6 +102,18 @@ public final class ApProfiles {
             return true;
         } finally { port.unlock(); }
     }
+    public synchronized void stop(Port port, Guard guard) throws Exception {
+        port.lock(guard);
+        try {
+            guard.check();
+            if (port.state() != DISABLED && port.mode() == CONNECTIVITY) {
+                port.disable();
+                waitState(port, guard, DISABLED, 15000);
+            }
+            liveSsid = null;
+            liveKey = null;
+        } finally { port.unlock(); }
+    }
     private static void waitState(Port port, Guard guard, int state, long timeout) throws Exception {
         long end = port.now() + timeout;
         do {

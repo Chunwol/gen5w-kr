@@ -31,7 +31,9 @@ fi
 . "$SERVICE_DIR/scripts/common.sh"
 . "$SERVICE_DIR/scripts/retry-state.sh"
 inspect || exit $?
-[ "$BRIDGE_STATE" = route-patched ] && [ "$DIPO_STATE" = patched ] && [ "$BRIDGE_OWNED" = yes ] || exit 1
+{ [ "$BRIDGE_STATE" = route-patched ] || [ "$BRIDGE_STATE" = bt-patched ]; } &&
+    { [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = relay ]; } &&
+    [ "$BRIDGE_OWNED" = yes ] || exit 1
 DATA=${BRIDGE_TEST_DATA:-/data}
 NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
@@ -78,7 +80,8 @@ done
 # Wireless runs only on a working guard; if it cannot be kept, stay wired-only.
 apguard_boot || { [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
 host_started=no
-host_count=0; host_stable=0
+broker_pid=
+host_count=0; host_stable=0; broker_count=0; broker_stable=0
 HOST_READY=${BRIDGE_TEST_READY:-/data/data/kr.gen5w.wirelesshost/files/bridge-ready}
 host_alive() {
     [ -f "$HOST_READY" ] && [ ! -L "$HOST_READY" ] || return 1
@@ -97,6 +100,8 @@ pause() {
 stop_runtime() {
     # NEMESIS can SIGKILL the supervisor shortly after SIGTERM; stop the
     # privileged child before the potentially slow ActivityManager call.
+    [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
+    broker_pid=
     if [ "$host_started" = yes ]; then
         am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 || :
         host_started=no
@@ -107,6 +112,7 @@ terminate_runtime() {
     # behind while waiting for ActivityManager to stop the host service.
     trap - EXIT
     [ -n "$pause_pid" ] && kill "$pause_pid" 2>/dev/null || :
+    [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
     if [ "$host_started" = yes ]; then
         am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 &
     fi
@@ -142,19 +148,25 @@ while [ ! -f "$STOPPING" ]; do
         stop_runtime
         exit 1
     }
-    if sh "$RELAY_GATE" "$SERVICE_DIR" >/dev/null 2>&1; then
-        # No completion marker is built until the process-local DiPO adapter
-        # and its runtime owner are present in this same reviewed change.
-        echo 'FAIL bridge: complete relay payload has no enabled runtime; wireless suspended'
-        stop_runtime
-        exit 1
-    else
-        relay_status=$?
-    fi
-    if [ "$relay_status" -ne 77 ]; then
+    if sh "$RELAY_GATE" "$SERVICE_DIR" >/dev/null 2>&1; then relay_status=0
+    else relay_status=$?; fi
+    if [ "$relay_status" -ne 0 ] && [ "$relay_status" -ne 77 ]; then
         echo 'FAIL bridge: incomplete V039 relay package; wireless suspended'
         stop_runtime
         exit 1
+    fi
+    if [ "$relay_status" -eq 0 ]; then
+        RETRY_COUNT=$broker_count; RETRY_STABLE=$broker_stable
+        if [ -n "$broker_pid" ] && kill -0 "$broker_pid" 2>/dev/null; then retry_action healthy; else retry_action dead; fi
+        broker_count=$RETRY_COUNT; broker_stable=$RETRY_STABLE
+        if [ "$RETRY_ACTION" = blocked ]; then
+            echo 'FAIL bridge: AP broker repeatedly stopped; wireless suspended until restart'
+            stop_runtime
+            exit 1
+        elif [ "$RETRY_ACTION" = start ]; then
+            "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &
+            broker_pid=$!
+        fi
     fi
     RETRY_COUNT=$host_count; RETRY_STABLE=$host_stable
     if host_alive; then retry_action healthy; else retry_action dead; fi
@@ -165,7 +177,8 @@ while [ ! -f "$STOPPING" ]; do
         exit 1
     elif [ "$RETRY_ACTION" = start ]; then
         rm -f "$HOST_READY" 2>/dev/null || :
-        if am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService 2>&1; then
+        if [ "$relay_status" -eq 0 ]; then relay_extra='--ez relay_v039 true'; else relay_extra=; fi
+        if am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService $relay_extra 2>&1; then
             host_started=yes
         fi
     fi

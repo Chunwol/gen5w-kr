@@ -160,6 +160,20 @@ public final class BtRelaySessionTest {
         session.cleanupCompleted(generation);
     }
 
+    private static void runtimeFailureUsesTheSameOrderedCleanup() {
+        BtRelaySession session = new BtRelaySession();
+        long generation = session.start(0).generation;
+        session.sppConnected(generation, 1);
+        session.iap2Connected(generation, 4, 2);
+        BtRelaySession.Update failed = session.fail(generation, BtRelaySession.FailureReason.TRANSPORT_ERROR);
+        commands(failed, BtRelaySession.CommandType.STOP_IAP2, BtRelaySession.CommandType.DISCONNECT_SPP);
+        check(failed.commands.get(0).component == 4, "runtime failure stops component 4 first");
+        check(failed.failure == BtRelaySession.FailureReason.TRANSPORT_ERROR,
+                "runtime failure reason is retained");
+        session.cleanupCompleted(generation);
+        check(session.phase() == BtRelaySession.Phase.FAILED, "runtime failure completes as failed");
+    }
+
     private static void duplicateReadyEventsDoNotExtendDeadlines() {
         BtRelaySession session = new BtRelaySession();
         long generation = session.start(0).generation;
@@ -196,6 +210,7 @@ public final class BtRelaySessionTest {
         cancellationInvalidatesOldCallbacksAndCleansUpInReverseOrder();
         apAndActivationHaveIndependentTimeouts();
         handoverTimeoutHasItsOwnReason();
+        runtimeFailureUsesTheSameOrderedCleanup();
         duplicateReadyEventsDoNotExtendDeadlines();
         System.out.println("PASS Bluetooth relay session");
     }

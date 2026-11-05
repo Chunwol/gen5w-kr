@@ -6,6 +6,7 @@ public final class ApBrokerPolicyTest {
     }
     public static void main(String[] args) {
         check(ApBrokerPolicy.allowed(10234, 10234, 'E'), "owner may request AP setup");
+        check(ApBrokerPolicy.allowed(10234, 10234, 'D'), "owner may stop projection AP");
         check(!ApBrokerPolicy.allowed(10234, 10235, 'E'), "other app is rejected");
         check(!ApBrokerPolicy.allowed(-1, -1, 'E'), "unknown owner is rejected");
         check(!ApBrokerPolicy.allowed(10234, 10234, 'X'), "unknown operation is rejected");

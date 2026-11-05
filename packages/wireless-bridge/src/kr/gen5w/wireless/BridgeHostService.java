@@ -23,6 +23,7 @@ public final class BridgeHostService extends Service {
         }
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && intent.getBooleanExtra("relay_v039", false)) bridge.enableRelay();
         try {
             File marker = new File(getFilesDir(), "bridge-ready");
             FileOutputStream out = new FileOutputStream(marker);

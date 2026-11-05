@@ -1,6 +1,6 @@
 # V039 Bluetooth Relay Wireless CarPlay Integration Design
 
-**Status:** approved direction, implementation in progress; vehicle success is not yet claimed.
+**Status:** source and private-package integration implemented; vehicle success is not yet claimed.
 
 ## Goal
 
@@ -65,7 +65,7 @@ Android Auto remains on the OEM path and never enters the CarPlay component-4/5 
 - V039 exact hashes only for the first implementation; V035 remains unsupported until separately reconstructed and reviewed.
 - Snapshot both APK and ODEX identities before any app-level change.
 - Apply all relay app changes in one transaction; a partial relay is never registered as installed.
-- Recompute DEX integrity, clear only the relevant Dalvik cache, verify the produced files, and cold boot. The current package has no explicit preopt command; one must not be claimed or added until its exact V039 invocation is validated.
+- Rebuild a private exact-V039 DiPO APK, preopt it with the reviewed Android 4.4 invocation, clear only the relevant Dalvik cache, verify the APK/ODEX pair, and cold boot. PC mocks cover command failure and rollback; the vehicle invocation remains an acceptance item.
 - Arm bootguard before reboot. Repeated failure restores every app-level original byte-for-byte and requests a cold boot.
 - Start the runtime only after `sys.boot_completed=1`.
 - Removal and edition switching stop the runtime first, restore originals, clear only project-owned state, and preserve OEM profiles and user hotspot settings.

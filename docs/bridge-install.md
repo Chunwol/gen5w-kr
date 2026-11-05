@@ -1,17 +1,17 @@
 # 무선 PhoneProjection 브리지 설치·복구
 
-`gen5w.kr.bridge`는 순정 PhoneProjection에 무선 CarPlay 연결을 요청하고 상태를 확인하는 NEMESIS 모듈입니다. 제조사 APK/ODEX/Java 구현은 포함하지 않습니다. 자체 RFCOMM·iAP2·핫스팟 연결을 시작하지 않습니다. 이 모듈의 연결 요청과 실차 동작은 아직 차량에서 검증되지 않았습니다.
+`gen5w.kr.bridge`는 먼저 순정 PhoneProjection에 무선 연결을 요청합니다. 정확한 V039 로컬 시험판에서 순정 경로가 `isPossibleWCP=false`로 끝난 경우에만 Broadcom SPP → iAP2 component 4 → DiPO component 5 → 프로젝션 AP 순서의 보조 경로를 한 번 실행합니다. 순정 프로필 유형이 없으면 새 SDP 결과에서 Apple CAFE/CAFF 서비스가 확인된 기기만 CarPlay 보조 경로에 넣습니다. Android 휴대폰은 순정 Android Auto 경로에 남습니다. 직접 RFCOMM 소켓은 열지 않습니다. 공개 릴리스에는 제조사 APK·ODEX와 이를 바탕으로 만든 DiPO APK를 포함하지 않으므로 보조 경로가 비활성 상태입니다. 실차 연결은 아직 검증되지 않았습니다.
 
 ## 적용 조건
 
-대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. `/system/app/Iap2ServerApp.odex`에는 순정 서비스 메서드를 바꾸는 구형 무선 제어 shim을 쓰지 않습니다. 한국 V035/V039에서 필요한 Wi-FiInformation·RouteGuidance capability 선언만 별도 레시피로 켜고, 원본 바이트를 소유 백업에 보존합니다. 이 capability가 없으면 iAP2가 RouteGuidance component를 광고하지 않아 Core가 차량 안내 데이터를 요청할 수 없습니다. 제거·실패 시 정확한 원본 ODEX로 복원합니다. `/system/app/HKMC_DiPO.odex`에는 독립된 핸들 통화 키 보완만 적용합니다. 순정 무선 receiver와 기존 무선 action 분기는 바꾸지 않습니다. V039의 `/system/app/HKMC_GPM.odex`는 Android Auto HUD용 패치를 적용합니다. 이 ODEX 수정들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. APK는 수정하지 않습니다. 지원하지 않는 해시·교차 버전 조합은 설치 전 건너뛰고, 이미 소유한 파일이나 백업이 달라졌으면 덮어쓰지 않고 중단합니다.
+대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. 공개판은 V035/V039의 Wi-FiInformation·RouteGuidance 선언과 DiPO 통화키 보완을 적용합니다. 로컬 V039 시험판은 정확한 원본 해시가 모두 맞을 때만 component 4·5 진입점과 process-local DiPO 중계를 함께 적용합니다. 둘 중 하나만 있는 부분 설치는 거부합니다. V039의 `/system/app/HKMC_GPM.odex` Android Auto HUD 경로는 이 보조 경로와 분리됩니다. 이 파일들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. 지원하지 않는 해시·교차 버전 조합과 변경된 백업은 덮어쓰지 않습니다.
 
 helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. 브리지 DEX와 호스트 APK가 있는지 설치 전에 확인합니다.
 
 ## 백업과 수명주기
 
-- reset 유지 백업: `/system/etc/gen5w-kr-backup/bridge/{owner,original,dipooriginal,gpmoriginal}`.
-- runtime 백업: `/data/nemesis/backup/gen5w.kr.bridge/{owner,original,dipooriginal,gpmoriginal}`.
+- reset 유지 백업: `/system/etc/gen5w-kr-backup/bridge/{owner,original,dipooriginal,dipoapkoriginal,gpmoriginal}`.
+- runtime 백업: `/data/nemesis/backup/gen5w.kr.bridge/{owner,original,dipooriginal,dipoapkoriginal,gpmoriginal}`.
 - 소유 값: `gen5w.kr.bridge:v035-1` 또는 `gen5w.kr.bridge:v039-1`.
 - 고정 stage: 각 ODEX 이름 뒤 `.gen5w-kr-bridge.tmp`.
 
@@ -19,14 +19,14 @@ helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 
 
 재설치 시 원본 백업을 수정본으로 덮어쓰지 않습니다. `/data` reset으로 runtime 백업만 없어졌으면 system 백업으로 복구합니다. 제거는 원본 해시·소유 표식을 확인한 뒤 원본 bytes와 mode/uid/gid를 보존하여 복원하고 자기 백업만 제거합니다. 심볼릭 링크나 다른 소유 표식은 거부합니다. 이 경로에서 USB로 제조사 원본을 수집하지 않습니다.
 
-단독(standalone) NEMESIS 설치는 거부합니다. 통합 설치는 재부팅 억제 표식을 만들고, 마지막에만 재부팅합니다. 변경한 Iap2ServerApp·DiPO·GPM과 관련된 Dalvik 최적화 캐시 항목을 지워 다음 부팅에서 현재 ODEX를 사용하게 합니다. `services.odex`, `SystemUI.odex`, framework, 커널, LK는 변경하지 않습니다. 단, 어떤 앱 ODEX 수정도 실차 부팅 안전성을 보장하지는 않습니다.
+단독(standalone) NEMESIS 설치는 거부합니다. 통합 설치는 재부팅 억제 표식을 만들고 마지막에만 재부팅합니다. 로컬 V039 시험판은 변경한 DiPO APK를 `dexopt --preopt ... m=y,u=n`으로 최적화하고 생성된 ODEX와 함께 해시를 기록한 뒤 적용합니다. 실패하면 Iap2ServerApp·DiPO APK·DiPO ODEX를 모두 원본으로 돌립니다. 관련 Dalvik 캐시만 지웁니다. `services.odex`, `SystemUI.odex`, framework, zygote, 커널, LK는 변경하지 않습니다. 앱 파일 변경도 실차 부팅 안전성을 보장하지는 않습니다.
 
 ## 실행 구조
 
-NEMESIS의 `scripts/service.sh`는 설치한 부팅부터 부팅 시도 수를 기록하고, 반복 실패 조건이 되면 확인된 원본 ODEX 복원을 시도합니다. 이 스크립트는 NEMESIS가 실행돼야 작동하므로 Android/NEMESIS가 시작되지 않는 고장까지 복구한다고 보장하지 않습니다. 부팅 완료 후 Android가 관리하는 `BridgeHostService`를 시작합니다. 앱은 저장된 같은 사용자 CarPlay 프로필이 활성화된 경우에만 순정 PhoneProjection 요청을 한 번 보내고 연결 상태를 관찰합니다. 자체 RFCOMM·iAP2 연결과 핫스팟 제어 broker는 시작하지 않습니다. 순정 서비스가 실행 중인지, 요청을 받는지, 휴대폰 Wi-Fi 접속 정보가 일치하는지는 실차에서 확인되지 않았습니다.
+NEMESIS의 `scripts/service.sh`는 설치한 부팅부터 부팅 시도 수를 기록하고, 반복 실패 조건이 되면 확인된 원본 앱 파일 복원을 시도합니다. 이 스크립트는 NEMESIS가 실행돼야 작동하므로 Android/NEMESIS가 시작되지 않는 고장까지 복구한다고 보장하지 않습니다. 런타임은 `sys.boot_completed=1` 뒤에만 시작합니다. 순정 요청이 실패했고 CarPlay 프로필임이 확인된 경우에만 V039 보조 경로가 시작됩니다. 유선 연결과 Android Auto는 보조 경로에 들어가지 않습니다. AP broker는 완성 마커가 있는 로컬 시험판에서만 UID 1000으로 실행되며, 일반 핫스팟 값을 영구 변경하지 않습니다.
 
 제거는 `/data/nemesis/gen5wkr.bridge.stopping`을 만든 뒤 `kr.gen5w.wireless.STOP_BRIDGE`를 방송하고 2초 기다립니다. 수신기는 `android.permission.SHUTDOWN`으로 보호됩니다. supervisor는 표식이 있으면 앱과 보조 프로세스를 중지하고 재시작하지 않습니다. 다음 설치가 성공한 뒤에만 표식을 지웁니다.
 
 ## PC 검증
 
-`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 164개가 통과했습니다. OEM 요청 세션·반사형 API 접근 JVM 시험도 포함됩니다. Android 4.4 차량의 PhoneProjection 권한, Wi-Fi 설정 일치, 무선 CarPlay는 아직 확인하지 않았습니다.
+`bash tests/bridge.sh`의 모의 설치·복원 및 supervisor 검사 215개가 통과했습니다. 로컬 시험판의 DiPO APK·ODEX 동시 적용·제거와 dexopt 실패 전체 원복을 포함합니다. 정확한 V039 입력으로 생성한 APK는 반복 빌드의 SHA256이 같았고, 생성 DEX에서 7개 중계 hook을 다시 디스어셈블해 확인했습니다. Android 4.4 실차의 권한, Wi-Fi AP, 무선 CarPlay 연결은 아직 확인하지 않았습니다.

@@ -1,6 +1,15 @@
 # 블루투스 중계 방식 무선 CarPlay: 조사 결과와 진행 상태 (2026-11-05)
 
-상태: **안전한 중계 토대 구현, 완성 중계는 차단, 실차 미검증**. 이 문서의 아래쪽 초기 목록은 `e9fc7fa` 시점의 역사 기록이며, 현재 기준은 다음과 같다.
+상태: **V039 중계·설치·원복 코드 완성, 공개판 비활성, 실차 미검증**. 아래 초기 목록은 과거 기록이며 현재 기준은 이 상단 갱신이다.
+
+## 2026-11-06 구현 갱신
+
+- 순정 PhoneProjection을 먼저 사용하고, V039에서 CarPlay 프로필이 확인된 뒤 순정 요청이 BLOCKED/FAILED일 때만 중계를 시작한다.
+- `V039BtRelayAdapter`가 Broadcom BTCM SPP와 iAP2 component 4를 연결하고, 생성형 DiPO process-local adapter가 component 5와 CarPlay native 경계를 연결한다. component 5 요청 방송이 대기 반환보다 먼저 실행되도록 고쳤다.
+- AP broker는 완성 마커와 모든 산출물 해시가 맞는 로컬 시험판에서만 UID 1000으로 시작한다. 공개 빌드는 마커와 제조사 파생 APK가 없어 기존 순정 관찰 경로만 사용한다.
+- DiPO APK·ODEX와 Iap2ServerApp ODEX를 함께 백업·적용·복원한다. mock 215개에서 설치, 제거, 중단 stage, dexopt 실패 롤백을 확인했다.
+- exact V039 입력 빌더는 동일 SHA256 산출물을 반복 생성했고, 생성 DEX의 session·iAP2·CarPlay hook 7개를 디스어셈블해 확인했다.
+- 남은 판정은 실차 연결뿐이다. 첫 페어링, 재연결, Wi-Fi AP, 30분 오디오, 통화·핸들키, 유선 CarPlay, Android Auto, HUD, 시동 재연결, 제거를 확인하기 전 성공을 표시하지 않는다.
 
 ## 2026-11-05 최종 재감사
 

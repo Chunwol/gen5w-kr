@@ -13,20 +13,23 @@ require_bridge 'session.claimBootstrapBroadcast('
 require_bridge 'session.claimBootstrapInvocation('
 require_bridge 'session.claimRequest('
 require_bridge 'PhoneProjectionAccess.bootstrap('
+require_bridge 'BluetoothDevice.ACTION_UUID'
+require_bridge 'fetchUuidsWithSdp()'
+require_bridge 'Boolean.TRUE.equals(appleCarPlay.get(address))'
 require_bridge 'session.bootstrapped('
 require_bridge 'ProjectionWifiAccess.ApProgress apProgress'
 for code in platform-carplay platform-android-auto profile-bootstrap-timeout wifi-ap-timeout projection-timeout wifi-credentials-unavailable wifi-ap-ready; do
     require_bridge "\"$code\""
 done
 for forbidden in BluetoothSocket createRfcommSocketToServiceRecord Iap2SvcInit Iap2SvcTransportReadDone ApBrokerClient ApProfiles PROJECTION_ACTION; do
-    if grep -q "$forbidden" "$wireless"/*.java; then
-        echo "FAIL stock projection owns no private transport: found $forbidden"
+    if grep -q "$forbidden" "$bridge"; then
+        echo "FAIL stock projection path owns no private transport: found $forbidden"
         exit 1
     fi
 done
-for forbidden in RequestAction dispatchIfRequestAllowed dispatchIfBootstrapAllowed createRfcommSocket connectRfcomm Iap2Svc Iap2Transport AndroidAutoTransport java.net.Socket setWifiEnabled setWifiApEnabled setWifiApState setWifiApConfiguration startSoftAp stopSoftAp hostapd requestWLDeviceInfoAdd requestWLDeviceInfoUpdate; do
-    if grep -q "$forbidden" "$wireless"/*.java; then
-        echo "FAIL wireless sources contain forbidden mutation/transport: $forbidden"
+for forbidden in RequestAction dispatchIfRequestAllowed dispatchIfBootstrapAllowed createRfcommSocket connectRfcomm AndroidAutoTransport java.net.Socket setWifiEnabled setWifiApEnabled setWifiApState setWifiApConfiguration startSoftAp stopSoftAp hostapd requestWLDeviceInfoAdd requestWLDeviceInfoUpdate; do
+    if grep -q "$forbidden" "$bridge"; then
+        echo "FAIL stock projection source contains forbidden mutation/transport: $forbidden"
         exit 1
     fi
 done
@@ -37,10 +40,9 @@ fi
 if grep -nEi '(log\(|Log\.[idwev]\(|DriveLog\.).*(getAddress\(|\+ *(address|value|ssid[a-z0-9_]*|psk[a-z0-9_]*|configuration|connected|candidate)\b)|([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' "$wireless"/*.java; then
     echo 'FAIL wireless identifier or credential logging'; exit 1
 fi
-if grep -q 'ApBroker\|root 1000 -c' packages/wireless-bridge/scripts/service.sh; then
-    echo 'FAIL stock projection starts no privileged AP broker'
-    exit 1
-fi
+grep -Fq 'relay-gate.sh' packages/wireless-bridge/scripts/service.sh
+grep -Fq 'relay_v039 true' packages/wireless-bridge/scripts/service.sh
+grep -Fq 'gen5w.kr.bridge:v039-relay-2' packages/wireless-bridge/scripts/relay-gate.sh
 grep -q 'SEND_CONNECTION_PHONEPROJECTION' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getWLDeviceInfo' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getWLDAutoConnection' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java

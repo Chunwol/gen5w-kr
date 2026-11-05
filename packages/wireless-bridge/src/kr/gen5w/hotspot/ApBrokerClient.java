@@ -10,6 +10,12 @@ import java.net.SocketTimeoutException;
 public final class ApBrokerClient {
     private ApBrokerClient() { }
     public static void ensure(ApProfiles.Guard guard) throws Exception {
+        request('E', guard);
+    }
+    public static void stop(ApProfiles.Guard guard) throws Exception {
+        request('D', guard);
+    }
+    private static void request(int operation, ApProfiles.Guard guard) throws Exception {
         LocalSocket socket = new LocalSocket();
         String stage = "connect";
         try {
@@ -19,7 +25,7 @@ public final class ApBrokerClient {
             if (socket.getPeerCredentials().getUid() != 1000)
                 throw new SecurityException("untrusted AP broker");
             socket.setSoTimeout(200);
-            socket.getOutputStream().write('E');
+            socket.getOutputStream().write(operation);
             socket.getOutputStream().flush();
             stage = "response";
             while (true) {

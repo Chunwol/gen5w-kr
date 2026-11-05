@@ -23,6 +23,11 @@ cp probe/build/gen5w-probe.apk probe/package/app/gen5w-probe.apk
 "$PY" -I tools/iap2/build.py --ndk "$NDK"
 bash tools/build-dex.sh packages/wireless-bridge kr.gen5w.wireless.WirelessBridge bridge.dex
 bash tools/build-wireless-host.sh
+rm -f packages/wireless-bridge/app/HKMC_DiPO.relay.apk \
+    packages/wireless-bridge/app/relay-v039.md5 packages/wireless-bridge/app/relay-v039.complete
+if [ -n "${GEN5W_PRIVATE_DIPO_RELAY_APK:-}" ]; then
+    bash tools/stage-private-v039-relay.sh "$GEN5W_PRIVATE_DIPO_RELAY_APK"
+fi
 "$PY" -I tools/mkpkg.py packages/wireless-bridge dist/gen5w.kr.bridge.zip
 
 # HUD core and stock-warning timer, then the public USB bundles.

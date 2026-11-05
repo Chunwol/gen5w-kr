@@ -14,10 +14,12 @@ def main():
     dest=ROOT/'packages/wireless-bridge/bin';dest.mkdir(parents=True,exist_ok=True)
     targets = [('iap2', 'v035'), ('iap2', 'v039'),
                ('iap2-route', 'v035'), ('iap2-route', 'v039'),
+               ('iap2-bt', 'v039'),
                ('dipo', 'v035'), ('dipo', 'v039'), ('gpm', 'v035'), ('gpm', 'v039')]
     for kind, version in targets:
         if kind == 'iap2': filename = f'{version}.json'
         elif kind == 'iap2-route': filename = f'route-{version}.json'
+        elif kind == 'iap2-bt': filename = f'bt-{version}.json'
         elif kind == 'dipo': filename = f'dipo-{version}.json'
         elif kind == 'gpm': filename = f'gpm-{version}.json'
         r=json.loads((ROOT/'tools/iap2'/filename).read_text())

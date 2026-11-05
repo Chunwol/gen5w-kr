@@ -100,7 +100,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         String serial;
         synchronized (lock) {
             if (generation != ownerGeneration || address == null || iap2 == null ||
-                    component != COMPONENT_BT_TRANSPORT) return false;
+                    (component != COMPONENT_BT_TRANSPORT && component != 5)) return false;
             serial = address;
         }
         try {
@@ -137,13 +137,13 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     public void stop(int component) {
         long owner;
         synchronized (lock) { owner = generation; }
-        if (component != COMPONENT_BT_TRANSPORT) return;
+        if (component != COMPONENT_BT_TRANSPORT && component != 5) return;
         try {
             Intent intent = new Intent(IAP2_ACTION).setPackage(IAP2_PACKAGE);
             intent.putExtra(COMPONENT_EXTRA, -component);
             context.startService(intent);
         } catch (RuntimeException ignored) { }
-        if (component == 4 && owner != 0) clear(owner);
+        if (component == COMPONENT_BT_TRANSPORT && owner != 0) clear(owner);
     }
 
     /** BTCM owns the physical SPP lifetime; component teardown releases our ownership. */

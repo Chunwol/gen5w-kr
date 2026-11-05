@@ -103,6 +103,7 @@ public final class StockProjectionSession {
     private boolean observedConnecting;
     private boolean requestPending;
     private int profileType;
+    private int observedProfileType;
     private WifiCredentialState credentials = WifiCredentialState.UNKNOWN;
     private int apState;
     private long inspectionDeadline;
@@ -240,6 +241,7 @@ public final class StockProjectionSession {
         }
         credentials = observation.credentials;
         apState = observation.apState;
+        observedProfileType = observation.profileType;
         if (observation.active) {
             phase = Phase.ACTIVE;
             port.event("result", "projection-active");
@@ -385,6 +387,7 @@ public final class StockProjectionSession {
         observedConnecting = false;
         requestPending = false;
         profileType = 0;
+        observedProfileType = 0;
         credentials = WifiCredentialState.UNKNOWN;
         apState = 0;
         inspectionDeadline = bootstrapDeadline = bootstrapExecutionDeadline = wifiDeadline = requestDeadline = 0;
@@ -424,6 +427,7 @@ public final class StockProjectionSession {
     public synchronized long generation() { return generation; }
     public synchronized Phase phase() { return phase; }
     public synchronized String candidate() { return candidate; }
+    public synchronized int observedProfileType() { return observedProfileType; }
     public synchronized boolean hasPendingOemOwnership() {
         return (bootstrapIssued || connectIssued || observedConnecting) && !terminal() && candidate != null;
     }

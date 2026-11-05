@@ -10,6 +10,9 @@ TARGET=$SYS/app/Iap2ServerApp.odex
 APK=$SYS/app/Iap2ServerApp.apk
 DIPO_TARGET=$SYS/app/HKMC_DiPO.odex
 DIPO_APK=$SYS/app/HKMC_DiPO.apk
+RELAY_APK=$SCRIPT_DIR/../app/HKMC_DiPO.relay.apk
+RELAY_GATE=$SCRIPT_DIR/relay-gate.sh
+DEXOPT=${BRIDGE_TEST_DEXOPT:-/system/bin/dexopt}
 GPM_TARGET=$SYS/app/HKMC_GPM.odex
 GPM_APK=$SYS/app/HKMC_GPM.apk
 STATE=$SYS/etc/gen5w-kr-backup/bridge
@@ -28,6 +31,21 @@ apguard_reset() {
     [ ! -e "$APG" ] && [ ! -e "$APG_COUNT" ] && [ ! -e "$APG_OFF" ]
 }
 log() { echo "$1"; }
+digest() {
+    if command -v md5 >/dev/null 2>&1; then set -- $(md5 "$1" 2>/dev/null); echo "$1"
+    else md5sum "$1" 2>/dev/null | awk '{print $1}'; fi
+}
+relay_packaged() { [ "$VERSION" = v039 ] && sh "$RELAY_GATE" "$SCRIPT_DIR/.." >/dev/null 2>&1; }
+relay_live() {
+    [ -f "$STATE/diporelay.apk.md5" ] && [ -f "$STATE/diporelay.odex.md5" ] &&
+    [ ! -L "$STATE/diporelay.apk.md5" ] && [ ! -L "$STATE/diporelay.odex.md5" ] &&
+    [ "$(digest "$DIPO_APK")" = "$(cat "$STATE/diporelay.apk.md5")" ] &&
+    [ "$(digest "$DIPO_TARGET")" = "$(cat "$STATE/diporelay.odex.md5")" ]
+}
+relay_apk_live() {
+    [ -f "$RELAY_APK" ] && [ ! -L "$RELAY_APK" ] &&
+        [ "$(digest "$DIPO_APK")" = "$(digest "$RELAY_APK")" ]
+}
 # Drop any stale optimized copies so the newly written /system ODEX files are the
 # ones the next boot loads. A mismatched dalvik-cache entry can fail class load.
 DALVIK_ROOTS=${BRIDGE_TEST_DALVIK:-"/data/dalvik-cache /data/dalvik-cache/arm /cache/dalvik-cache"}
@@ -48,6 +66,7 @@ wipe_dalvik() {
 }
 original() { [ -f "$1" ] && [ ! -L "$1" ] && { "$TOOL" original "$1" 2>/dev/null || "$ROUTE_TOOL" original "$1"; }; }
 route_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$ROUTE_TOOL" patched "$1"; }
+bt_patched() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$BT_TOOL" ] && "$BT_TOOL" patched "$1"; }
 legacy_patched() { [ -f "$1" ] && [ ! -L "$1" ] && "$TOOL" patched "$1"; }
 patched() { route_patched "$1" || legacy_patched "$1"; }
 dipo_original() { [ -f "$1" ] && [ ! -L "$1" ] && "$DIPO_TOOL" original "$1"; }
@@ -113,16 +132,20 @@ inspect() {
     fi
     TOOL=$SCRIPT_DIR/../bin/iap2-patch-$VERSION
     ROUTE_TOOL=$SCRIPT_DIR/../bin/iap2-route-patch-$VERSION
+    BT_TOOL=$SCRIPT_DIR/../bin/iap2-bt-patch-$VERSION
+    [ -f "$BT_TOOL" ] && [ -x "$BT_TOOL" ] || BT_TOOL=
     DIPO_TOOL=$SCRIPT_DIR/../bin/dipo-patch-$VERSION
     GPM_TOOL=
     GPM_VERSION=
     GPM_APK_SHA=
     OWNER=gen5w.kr.bridge:$VERSION-1
     if original "$TARGET"; then BRIDGE_STATE=stock
+    elif bt_patched "$TARGET"; then BRIDGE_STATE=bt-patched
     elif route_patched "$TARGET"; then BRIDGE_STATE=route-patched
     elif legacy_patched "$TARGET"; then BRIDGE_STATE=legacy-patched
     else log 'FAIL bridge: owned target changed'; return 1; fi
-    if dipo_original "$DIPO_TARGET"; then DIPO_STATE=stock
+    if [ "$BRIDGE_OWNED" = yes ] && relay_live; then DIPO_STATE=relay
+    elif dipo_original "$DIPO_TARGET"; then DIPO_STATE=stock
     elif dipo_patched "$DIPO_TARGET"; then DIPO_STATE=patched
     elif dipo_previous "$DIPO_TARGET"; then DIPO_STATE=previous
     else
@@ -156,7 +179,7 @@ inspect() {
         v035) APK_SHA=$BRIDGE_APK_V035_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V035_SHA;;
         v039) APK_SHA=$BRIDGE_APK_V039_SHA; DIPO_APK_SHA=$BRIDGE_DIPO_APK_V039_SHA;;
     esac
-    if ! "$TOOL" verify "$APK" "$APK_SHA" || ! "$DIPO_TOOL" verify "$DIPO_APK" "$DIPO_APK_SHA"; then
+    if ! "$TOOL" verify "$APK" "$APK_SHA" || { [ "$DIPO_STATE" != relay ] && ! "$DIPO_TOOL" verify "$DIPO_APK" "$DIPO_APK_SHA"; }; then
         log 'SKIP bridge: stock APK and ODEX version do not match'
         [ "$BRIDGE_OWNED" = no ] && return 77
         return 1
@@ -175,14 +198,17 @@ inspect() {
         if [ -e "$STATE/dipooriginal" ] || [ -L "$STATE/dipooriginal" ]; then
             dipo_original "$STATE/dipooriginal" || { log 'FAIL bridge: durable DiPO backup damaged'; return 1; }
         fi
+        if [ -e "$STATE/dipoapkoriginal" ] || [ -L "$STATE/dipoapkoriginal" ]; then
+            "$DIPO_TOOL" verify "$STATE/dipoapkoriginal" "$DIPO_APK_SHA" || { log 'FAIL bridge: durable DiPO APK backup damaged'; return 1; }
+        fi
         if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
             if [ -e "$STATE/gpmoriginal" ] || [ -L "$STATE/gpmoriginal" ]; then
                 gpm_original "$STATE/gpmoriginal" || { log 'FAIL bridge: durable GPM backup damaged'; return 1; }
             fi
         fi
     fi
-    if [ "$BRIDGE_STATE" = route-patched ] || [ "$BRIDGE_STATE" = legacy-patched ] ||
-       [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = previous ]; then
+    if [ "$BRIDGE_STATE" = route-patched ] || [ "$BRIDGE_STATE" = legacy-patched ] || [ "$BRIDGE_STATE" = bt-patched ] ||
+       [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = previous ] || [ "$DIPO_STATE" = relay ]; then
         [ "$BRIDGE_OWNED" = yes ] && original "$STATE/original" && dipo_original "$STATE/dipooriginal" || { log 'FAIL bridge: patch lacks owned original pair'; return 1; }
     fi
     if [ "$GPM_STATE" = patched ]; then
@@ -206,6 +232,12 @@ save_original() {
         dipo_original "$DIPO_TARGET" && [ ! -L "$STATE/dipooriginal.tmp" ] || return 1
         cp -p "$DIPO_TARGET" "$STATE/dipooriginal.tmp" && dipo_original "$STATE/dipooriginal.tmp" && mv "$STATE/dipooriginal.tmp" "$STATE/dipooriginal" || return 1
     fi
+    if relay_packaged && [ ! -f "$STATE/dipoapkoriginal" ]; then
+        "$DIPO_TOOL" verify "$DIPO_APK" "$DIPO_APK_SHA" && [ ! -L "$STATE/dipoapkoriginal.tmp" ] || return 1
+        cp -p "$DIPO_APK" "$STATE/dipoapkoriginal.tmp" &&
+            "$DIPO_TOOL" verify "$STATE/dipoapkoriginal.tmp" "$DIPO_APK_SHA" &&
+            mv "$STATE/dipoapkoriginal.tmp" "$STATE/dipoapkoriginal" || return 1
+    fi
     if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
         if ! gpm_original "$STATE/gpmoriginal"; then
             gpm_original "$GPM_TARGET" && [ ! -L "$STATE/gpmoriginal.tmp" ] || return 1
@@ -217,6 +249,12 @@ save_original() {
     echo "$OWNER" > "$MARK/owner" || return 1
     cp -p "$STATE/original" "$MARK/original.tmp" && original "$MARK/original.tmp" && mv "$MARK/original.tmp" "$MARK/original" || return 1
     cp -p "$STATE/dipooriginal" "$MARK/dipooriginal.tmp" && dipo_original "$MARK/dipooriginal.tmp" && mv "$MARK/dipooriginal.tmp" "$MARK/dipooriginal" || return 1
+    if [ -f "$STATE/dipoapkoriginal" ]; then
+        [ ! -L "$MARK/dipoapkoriginal.tmp" ] || return 1
+        cp -p "$STATE/dipoapkoriginal" "$MARK/dipoapkoriginal.tmp" &&
+            "$DIPO_TOOL" verify "$MARK/dipoapkoriginal.tmp" "$DIPO_APK_SHA" &&
+            mv "$MARK/dipoapkoriginal.tmp" "$MARK/dipoapkoriginal" || return 1
+    fi
     if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ]; then
         [ ! -L "$MARK/gpmoriginal.tmp" ] || return 1
         cp -p "$STATE/gpmoriginal" "$MARK/gpmoriginal.tmp" && gpm_original "$MARK/gpmoriginal.tmp" && mv "$MARK/gpmoriginal.tmp" "$MARK/gpmoriginal" || return 1
@@ -238,7 +276,47 @@ stage_clear_one() {
 stage_clear() {
     stage_clear_one "$STAGE" "$STATE/staging" "$ROUTE_TOOL" &&
         stage_clear_one "$DIPO_TARGET.gen5w-kr-bridge.tmp" "$STATE/dipostaging" "$DIPO_TOOL" &&
-        { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || stage_clear_one "$GPM_TARGET.gen5w-kr-bridge.tmp" "$STATE/gpmstaging" "$GPM_TOOL"; }
+        { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || stage_clear_one "$GPM_TARGET.gen5w-kr-bridge.tmp" "$STATE/gpmstaging" "$GPM_TOOL"; } &&
+        relay_stage_clear
+}
+relay_stage_clear() {
+    typeset apk_stage=$DIPO_APK.gen5w-kr-bridge.tmp odex_stage=$DIPO_TARGET.gen5w-kr-bridge.tmp marker=$STATE/diporelaystaging
+    [ ! -L "$apk_stage" ] && [ ! -L "$odex_stage" ] && [ ! -L "$marker" ] || return 1
+    if [ -e "$apk_stage" ] || [ -e "$odex_stage" ]; then
+        [ -f "$marker" ] && [ "$(cat "$marker")" = "$OWNER" ] || return 1
+        rm -f "$apk_stage" "$odex_stage" || return 1
+    fi
+    rm -f "$marker"
+}
+replace_plain() {
+    typeset source=$1 target=$2 backup=$3 marker=$4 stage=$2.gen5w-kr-bridge.tmp
+    [ -f "$source" ] && [ -f "$backup" ] && [ ! -L "$source" ] && [ ! -L "$target" ] &&
+        [ ! -L "$stage" ] && [ ! -L "$marker" ] || return 1
+    rm -f "$stage" || return 1
+    echo "$OWNER" > "$marker" && cp -p "$backup" "$stage" && cat "$source" > "$stage" &&
+        [ -s "$stage" ] && sync && mv "$stage" "$target" && [ "$(digest "$target")" = "$(digest "$source")" ] || return 1
+    rm -f "$marker"; sync
+}
+install_relay_dipo() {
+    relay_packaged && [ "$DIPO_STATE" = stock ] && [ -f "$STATE/dipoapkoriginal" ] || return 1
+    typeset odex_stage=$DIPO_TARGET.gen5w-kr-bridge.tmp apk_stage=$DIPO_APK.gen5w-kr-bridge.tmp
+    [ ! -L "$odex_stage" ] && [ ! -L "$apk_stage" ] || return 1
+    relay_stage_clear || return 1
+    echo "$OWNER" > "$STATE/diporelaystaging" || return 1
+    if cp -p "$STATE/dipoapkoriginal" "$apk_stage" && cat "$RELAY_APK" > "$apk_stage" &&
+       [ "$(digest "$apk_stage")" = "$(digest "$RELAY_APK")" ] &&
+       cp -p "$STATE/dipooriginal" "$odex_stage" && : > "$odex_stage" &&
+       "$DEXOPT" --preopt "$apk_stage" "$odex_stage" m=y,u=n >/dev/null 2>&1 &&
+       [ -s "$odex_stage" ] &&
+       echo "$(digest "$apk_stage")" > "$STATE/diporelay.apk.md5" &&
+       echo "$(digest "$odex_stage")" > "$STATE/diporelay.odex.md5" && sync &&
+       mv "$apk_stage" "$DIPO_APK" && mv "$odex_stage" "$DIPO_TARGET" && sync && relay_live; then
+        rm -f "$STATE/diporelaystaging"
+        return 0
+    fi
+    rm -f "$apk_stage" "$odex_stage" "$STATE/diporelaystaging" \
+        "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5"
+    return 1
 }
 replace_target() {
     typeset replace_source=$1 replace_kind=$2 replace_path=$3 replace_tool=$4 replace_backup=$5 replace_marker=$6
@@ -256,10 +334,18 @@ replace_target() {
 restore_target() {
     typeset restore_rc=0
     if ! original "$TARGET"; then
-        patched "$TARGET" && original "$STATE/original" &&
+        { patched "$TARGET" || bt_patched "$TARGET"; } && original "$STATE/original" &&
             replace_target "$STATE/original" original "$TARGET" "$TOOL" "$STATE/original" "$STATE/staging" || restore_rc=1
     fi
-    if ! dipo_original "$DIPO_TARGET"; then
+    if [ "$DIPO_STATE" = relay ] || relay_live || relay_apk_live; then
+        if dipo_original "$STATE/dipooriginal" && "$DIPO_TOOL" verify "$STATE/dipoapkoriginal" "$DIPO_APK_SHA"; then
+            cp -p "$STATE/dipoapkoriginal" "$DIPO_APK.gen5w-kr-bridge.tmp" &&
+            cp -p "$STATE/dipooriginal" "$DIPO_TARGET.gen5w-kr-bridge.tmp" && sync &&
+            mv "$DIPO_APK.gen5w-kr-bridge.tmp" "$DIPO_APK" &&
+            mv "$DIPO_TARGET.gen5w-kr-bridge.tmp" "$DIPO_TARGET" && sync || restore_rc=1
+        else restore_rc=1; fi
+        rm -f "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5"
+    elif ! dipo_original "$DIPO_TARGET"; then
         { dipo_patched "$DIPO_TARGET" || dipo_previous "$DIPO_TARGET"; } && dipo_original "$STATE/dipooriginal" &&
             replace_target "$STATE/dipooriginal" original "$DIPO_TARGET" "$DIPO_TOOL" "$STATE/dipooriginal" "$STATE/dipostaging" || restore_rc=1
     fi
@@ -272,14 +358,16 @@ restore_target() {
 cleanup_owned() {
     owned && original "$TARGET" && dipo_original "$DIPO_TARGET" &&
         { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_original "$GPM_TARGET"; } || return 1
-    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp gpmoriginal gpmoriginal.tmp replacement diporeplacement gpmreplacement staging dipostaging gpmstaging owner; do
+    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp diporelay.apk.md5 diporelay.odex.md5 diporelaystaging gpmoriginal gpmoriginal.tmp replacement diporeplacement gpmreplacement staging dipostaging gpmstaging owner; do
         [ ! -L "$STATE/$bridge_file" ] || return 1
     done
-    rm -f "$STATE/original" "$STATE/original.tmp" "$STATE/dipooriginal" "$STATE/dipooriginal.tmp" "$STATE/gpmoriginal" "$STATE/gpmoriginal.tmp" \
+    rm -f "$STATE/original" "$STATE/original.tmp" "$STATE/dipooriginal" "$STATE/dipooriginal.tmp" "$STATE/dipoapkoriginal" "$STATE/dipoapkoriginal.tmp" \
+         "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5" "$STATE/diporelaystaging" "$STATE/gpmoriginal" "$STATE/gpmoriginal.tmp" \
          "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" "$STATE/staging" "$STATE/dipostaging" "$STATE/gpmstaging" "$STATE/owner" && rmdir "$STATE" || return 1
     if [ -d "$MARK" ]; then
-        [ ! -L "$MARK/owner" ] && [ "$(cat "$MARK/owner")" = "$OWNER" ] && [ ! -L "$MARK/original.tmp" ] && [ ! -L "$MARK/dipooriginal.tmp" ] || return 1
-        rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" && rmdir "$MARK" || return 1
+        [ ! -L "$MARK/owner" ] && [ "$(cat "$MARK/owner")" = "$OWNER" ] && [ ! -L "$MARK/original.tmp" ] && [ ! -L "$MARK/dipooriginal.tmp" ] && [ ! -L "$MARK/dipoapkoriginal.tmp" ] || return 1
+        rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" \
+            "$MARK/dipoapkoriginal" "$MARK/dipoapkoriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" && rmdir "$MARK" || return 1
     fi
     rmdir "$SYS/etc/gen5w-kr-backup" 2>/dev/null || true
 }
@@ -293,10 +381,11 @@ clear_runtime_copy() {
     if [ -n "$TOOL" ]; then ! patched "$TARGET" || return 1; fi
     if [ -n "$DIPO_TOOL" ]; then ! dipo_patched "$DIPO_TARGET" || return 1; fi
     if [ -n "$GPM_TOOL" ]; then ! gpm_patched "$GPM_TARGET" || return 1; fi
-    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp gpmoriginal gpmoriginal.tmp owner; do
+    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp gpmoriginal gpmoriginal.tmp owner; do
         [ ! -L "$MARK/$bridge_file" ] || return 1
     done
-    rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" &&
+    rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" \
+        "$MARK/dipoapkoriginal" "$MARK/dipoapkoriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" &&
         rmdir "$MARK" || return 1
     log 'CLEARED bridge: runtime copies left by a system reinstall'
 }

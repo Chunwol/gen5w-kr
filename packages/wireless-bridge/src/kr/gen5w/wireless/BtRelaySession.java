@@ -22,7 +22,10 @@ public final class BtRelaySession {
     }
 
     public enum CancelReason { REQUESTED, WIRED, FOREIGN_OWNER, BLUETOOTH_LOST, PHONE_LOST, SHUTDOWN }
-    public enum FailureReason { SPP_TIMEOUT, IAP2_TIMEOUT, HANDOVER_TIMEOUT, AP_TIMEOUT, ACTIVATION_TIMEOUT }
+    public enum FailureReason {
+        SPP_TIMEOUT, IAP2_TIMEOUT, HANDOVER_TIMEOUT, AP_TIMEOUT, ACTIVATION_TIMEOUT,
+        SPP_ERROR, IAP2_ERROR, TRANSPORT_ERROR, AP_ERROR
+    }
 
     public static final class Command {
         public final CommandType type;
@@ -148,6 +151,16 @@ public final class BtRelaySession {
         List<Command> commands = new ArrayList<Command>();
         if (!current(callbackGeneration) || !waiting() || now < deadline) return update(commands);
         failure = timeoutReason();
+        phase = Phase.STOPPING;
+        cleanup(commands);
+        return update(commands);
+    }
+
+    public synchronized Update fail(long callbackGeneration, FailureReason reason) {
+        List<Command> commands = new ArrayList<Command>();
+        if (!current(callbackGeneration) || phase == Phase.IDLE || phase == Phase.STOPPING ||
+                phase == Phase.FAILED || phase == Phase.CANCELLED) return update(commands);
+        failure = reason == null ? FailureReason.TRANSPORT_ERROR : reason;
         phase = Phase.STOPPING;
         cleanup(commands);
         return update(commands);

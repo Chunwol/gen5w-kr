@@ -4,6 +4,6 @@ package kr.gen5w.hotspot;
 public final class ApBrokerPolicy {
     private ApBrokerPolicy() { }
     public static boolean allowed(int expectedUid, int peerUid, int operation) {
-        return expectedUid >= 10000 && peerUid == expectedUid && operation == 'E';
+        return expectedUid >= 10000 && peerUid == expectedUid && (operation == 'E' || operation == 'D');
     }
 }

@@ -59,6 +59,18 @@ apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original" && cp "$BRIDGE_TEST_
 *) exit 2;;
 esac
 EOF
+cat > "$W/pkg/bin/iap2-bt-patch-$version" <<'EOF'
+#!/bin/sh
+version=${0##*-}
+case "$1" in
+original) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original";;
+patched) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-bt-patched";;
+verify) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$3";;
+apply) cmp -s "$2" "$BRIDGE_TEST_FIXTURE/$version-original" && cp "$BRIDGE_TEST_FIXTURE/$version-bt-patched" "$3";;
+*) exit 2;;
+esac
+EOF
+printf 'bt-patched%s\n' "${version#v}" > "$W/fixture/$version-bt-patched"
 done
 for version in v035 v039; do
 cat > "$W/pkg/bin/dipo-patch-$version" <<'EOF'
@@ -106,6 +118,12 @@ EOF
 cat > "$W/bin/getprop" <<'EOF'
 #!/bin/sh
 echo 1
+EOF
+cat > "$W/bin/dexopt" <<'EOF'
+#!/bin/sh
+[ "$1" = --preopt ] && [ -s "$2" ] || exit 1
+[ "${BRIDGE_TEST_DEXOPT_FAIL:-0}" != 1 ] || exit 1
+printf 'optimized:' > "$3"; cat "$2" >> "$3"
 EOF
 cat > "$W/bin/am" <<'EOF'
 #!/bin/sh
@@ -442,5 +460,38 @@ check 'refusal keeps runtime copies' cmp -s "$MARK/original" "$W/fixture/v039-or
 cp "$W/fixture/v039-patched" "$TARGET"
 if run pre; then bad 'route capability ODEX without journal refused'; else ok 'route capability ODEX without journal refused'; fi
 check 'unowned route capability creates no system journal' test ! -e "$PERSIST"
+
+# Exact-V039 private relay lifecycle: stage all attested parts, preopt the
+# process-local APK, and prove both APK and ODEX restore byte-for-byte.
+run preun || true
+cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
+printf 'private-relay-apk\n' > "$W/pkg/app/HKMC_DiPO.relay.apk"
+(cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.apk bin/iap2-bt-patch-v039 bin/dipo-patch-v039 > app/relay-v039.md5)
+printf '%s\n' 'gen5w.kr.bridge:v039-relay-2' > "$W/pkg/app/relay-v039.complete"
+export BRIDGE_TEST_DEXOPT="$W/bin/dexopt"
+check 'private relay installs as one reviewed pair' run post
+check 'private relay applies exact iAP2 BT entry' cmp -s "$TARGET" "$W/fixture/v039-bt-patched"
+check 'private relay APK is live' cmp -s "$DIPOAPK" "$W/pkg/app/HKMC_DiPO.relay.apk"
+check 'private relay ODEX was preoptimized' grep -q '^optimized:private-relay-apk' "$DIPO"
+check 'private relay preserves original APK' cmp -s "$PERSIST/dipoapkoriginal" "$W/fixture/dipo-v039-apk"
+check 'private relay removal restores APK and ODEX' run preun
+check 'private relay restores exact stock APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
+check 'private relay restores exact stock ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
+check 'private relay cleanup removes runtime journal' test ! -e "$MARK"
+
+# A preopt failure occurs after iAP2 staging; the transaction must restore all
+# three stock files and must not retain an installed owner journal.
+cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+export BRIDGE_TEST_DEXOPT_FAIL=1
+if run post; then bad 'private relay rejects failed preopt'; else ok 'private relay rejects failed preopt'; fi
+unset BRIDGE_TEST_DEXOPT_FAIL
+check 'failed relay preopt restores iAP2' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'failed relay preopt restores DiPO APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
+check 'failed relay preopt restores DiPO ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
+check 'failed relay preopt can be removed cleanly' run preun
+unset BRIDGE_TEST_DEXOPT
 
 done_tests bridge

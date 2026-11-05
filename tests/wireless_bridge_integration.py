@@ -16,11 +16,23 @@ stubs = {
 'android/os/SystemProperties.java': 'package android.os; public class SystemProperties { public static String value=""; public static String get(String k){return "wifi.interface".equals(k)?value:"";} }',
 'android/util/Log.java': 'package android.util; public class Log { public static java.util.List<String> lines=new java.util.concurrent.CopyOnWriteArrayList<String>(); public static int i(String t,String m){lines.add(m);return 0;} }',
 'android/bluetooth/BluetoothAdapter.java': 'package android.bluetooth; public class BluetoothAdapter { public static final String ACTION_STATE_CHANGED="state",EXTRA_STATE="extra"; public static final int STATE_ON=12; public static BluetoothAdapter getDefaultAdapter(){return null;} public boolean isEnabled(){return true;} public java.util.Set<BluetoothDevice> getBondedDevices(){return new java.util.HashSet<BluetoothDevice>();} }',
-'android/bluetooth/BluetoothDevice.java': 'package android.bluetooth; public class BluetoothDevice { public static final String ACTION_ACL_CONNECTED="connected",ACTION_ACL_DISCONNECTED="disconnected",EXTRA_DEVICE="device"; public static final int BOND_BONDED=12; public int getBondState(){return 12;} public String getAddress(){return "phone";} }',
+'android/bluetooth/BluetoothDevice.java': 'package android.bluetooth; public class BluetoothDevice { public static final String ACTION_ACL_CONNECTED="connected",ACTION_ACL_DISCONNECTED="disconnected",ACTION_UUID="uuid",EXTRA_DEVICE="device"; public static final int BOND_BONDED=12; public int getBondState(){return 12;} public String getAddress(){return "phone";} public boolean fetchUuidsWithSdp(){return true;} public android.os.ParcelUuid[] getUuids(){return new android.os.ParcelUuid[0];} }',
+'android/os/ParcelUuid.java': 'package android.os; public class ParcelUuid { public java.util.UUID getUuid(){return null;} }',
 'android/hardware/usb/UsbDevice.java': 'package android.hardware.usb; public class UsbDevice { public int getVendorId(){return 0;} }',
 'android/hardware/usb/UsbManager.java': 'package android.hardware.usb; public class UsbManager { public static final String ACTION_USB_DEVICE_ATTACHED="attach",ACTION_USB_DEVICE_DETACHED="detach",EXTRA_DEVICE="usb"; public java.util.Map<String,UsbDevice> getDeviceList(){return new java.util.HashMap<String,UsbDevice>();} }',
 'com/hkmc/userprofile/UserProfileManager.java': 'package com.hkmc.userprofile; public class UserProfileManager { public UserProfileManager(android.content.Context c){} public int getUserType(){return 0;} }',
 'kr/gen5w/wireless/DriveLog.java': 'package kr.gen5w.wireless; public class DriveLog { public static java.util.List<String> codes=new java.util.concurrent.CopyOnWriteArrayList<String>(); public static void bridge(int a,int b,int c,int d,int e,int f,int g){codes.add(b+":"+c);} }',
+'kr/gen5w/wireless/V039RelayCoordinator.java': '''package kr.gen5w.wireless;
+import android.content.Context; import android.os.Handler;
+final class V039RelayCoordinator {
+ interface Events { void relayEvent(String name,String result); }
+ int starts;
+ V039RelayCoordinator(Context c,Handler h,Events e){} void open(){} void tick(){}
+ void start(String a){starts++;} void candidateLost(){} void handoverRequested(){}
+ void handoverConnected(){} void handoverDisconnected(){} void apObservedReady(){}
+ void credentialsReady(){} void projectionActive(){} void close(){}
+ void cancel(BtRelaySession.CancelReason r){} boolean active(){return false;}
+}''',
 }
 harness = r"""
 package kr.gen5w.wireless;
@@ -79,7 +91,29 @@ public class WirelessBridgeIntegrationTest {
             for(String line:android.util.Log.lines)if(names[i].length()>0)check(!line.contains(names[i]),"interface name never logged");
         }
     }
-    public static void main(String[] args)throws Exception{ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();System.out.println("PASS production WirelessBridge ownership integration");}
+    static void missingProfileFallsBackOnlyForFreshAppleSdp() throws Exception {
+        TestContext apple=new TestContext(); try {
+            apple.bridge.enableRelay(); apple.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+            apple.bridge.session.candidate("phone",0); apple.bridge.session.tick(0);
+            long generation=apple.bridge.session.generation();
+            apple.bridge.session.inspected(generation,new StockProjectionSession.Observation(
+                StockProjectionSession.Result.INVOKED,true,0,StockProjectionSession.ProfileState.DISABLED,
+                false,false,false,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
+            java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay"); maintain.setAccessible(true); maintain.invoke(apple.bridge);
+            check(apple.bridge.relay.starts==1,"fresh Apple SDP admits missing-profile CarPlay fallback");
+        } finally { apple.bridge.shutdown(); }
+        TestContext android=new TestContext(); try {
+            android.bridge.enableRelay(); android.bridge.appleCarPlay.put("phone",Boolean.FALSE);
+            android.bridge.session.candidate("phone",0); android.bridge.session.tick(0);
+            long generation=android.bridge.session.generation();
+            android.bridge.session.inspected(generation,new StockProjectionSession.Observation(
+                StockProjectionSession.Result.INVOKED,true,0,StockProjectionSession.ProfileState.DISABLED,
+                false,false,false,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
+            java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay"); maintain.setAccessible(true); maintain.invoke(android.bridge);
+            check(android.bridge.relay.starts==0,"non-Apple device remains on stock Android Auto path");
+        } finally { android.bridge.shutdown(); }
+    }
+    public static void main(String[] args)throws Exception{ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:
@@ -88,6 +122,6 @@ with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:
         p=base/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text,encoding='utf-8')
     test=base/'kr/gen5w/wireless/WirelessBridgeIntegrationTest.java';test.write_text(harness,encoding='utf-8')
     prod=root/'packages/wireless-bridge/src/kr/gen5w/wireless'
-    sources=[str(p) for p in base.rglob('*.java')]+[str(prod/name) for name in ['WirelessBridge.java','StockProjectionSession.java','PhoneProjectionAccess.java','ProjectionWifiAccess.java','BluetoothCandidateScan.java']]
+    sources=[str(p) for p in base.rglob('*.java')]+[str(prod/name) for name in ['WirelessBridge.java','StockProjectionSession.java','PhoneProjectionAccess.java','ProjectionWifiAccess.java','BluetoothCandidateScan.java','BtRelaySession.java','SdpRefresh.java']]
     subprocess.run(['javac','--release','8','-d',tmp]+sources,check=True)
     subprocess.run(['java','-cp',tmp,'kr.gen5w.wireless.WirelessBridgeIntegrationTest'],check=True)

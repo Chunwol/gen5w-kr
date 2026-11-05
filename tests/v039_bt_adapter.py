@@ -3,7 +3,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'tools/v039-relay/src/kr/gen5w/wireless/V039BtRelayAdapter.java'
+SOURCE = ROOT / 'packages/wireless-bridge/src/kr/gen5w/wireless/V039BtRelayAdapter.java'
 
 
 class V039BtRelayAdapterStructureTest(unittest.TestCase):
@@ -21,11 +21,13 @@ class V039BtRelayAdapterStructureTest(unittest.TestCase):
         self.assertNotIn('BluetoothSocket', text)
         self.assertNotIn('createRfcommSocket', text)
 
-    def test_component4_adapter_cannot_claim_blocked_component5(self):
+    def test_adapter_only_starts_reviewed_component4_and_component5(self):
         text = SOURCE.read_text(encoding='utf-8')
         self.assertIn('COMPONENT_BT_TRANSPORT = 4', text)
-        self.assertNotIn('component == 5', text)
-        self.assertNotIn('component != 5', text)
+        self.assertIn('(component != COMPONENT_BT_TRANSPORT && component != 5)', text)
+        self.assertIn('intent.putExtra(COMPONENT_EXTRA, component)', text)
+        self.assertIn('intent.putExtra(COMPONENT_EXTRA, -component)', text)
+        self.assertNotIn('BluetoothSocket', text)
 
 
 if __name__ == '__main__':
