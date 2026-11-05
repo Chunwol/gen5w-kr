@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     package = root / 'package'
     package.mkdir()
-    (package / 'NEMESIS.data').write_text('[package]\nid=test\n', encoding='utf-8')
+    (package / 'NEMESIS.data').write_bytes(b'[package]\nid=test\n')
     output = root / 'package.zip'
     subprocess.run(
         [sys.executable, '-I', str(ROOT / 'tools/mkpkg.py'), str(package), str(output)],
