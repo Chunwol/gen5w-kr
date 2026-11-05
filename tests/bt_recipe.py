@@ -107,6 +107,8 @@ def audit_private_v039(path):
     assert bytes(rebuilt) == changed, 'recipe patches do not reproduce generated ODEX'
 
     original_dex = Dex(raw)
+    assert 'Lcom/tcc/iap2server/Iap2Service$2;->Iap2SvcTransportReadDone([BI)Z' in original_dex.methods, \
+        'exact V039 iAP2 server no longer exposes the reviewed component transport write'
     patched_dex = Dex(changed)
     assert patched_dex.methods == original_dex.methods
     assert patched_dex.fields == original_dex.fields

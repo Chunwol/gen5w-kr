@@ -226,6 +226,13 @@ before=$(wc -l < "$W/fixture/calls")
 check 'bridge waits without the match marker' run service
 check 'no match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
 echo match > "$W/data/nemesis/gen5wkr.ap-match"
+# A completion marker with missing relay artifacts must disable the host before
+# any partial iAP2/DiPO relay can start.
+mkdir -p "$W/pkg/app"
+echo 'gen5w.kr.bridge:v039-relay-1' > "$W/pkg/app/relay-v039.complete"
+: > "$W/fixture/calls"
+check 'partial relay marker blocks service startup' eval 'run service >/dev/null 2>&1; rc=$?; test "$rc" != 0 && ! grep -q "am startservice" "$W/fixture/calls"'
+rm -f "$W/pkg/app/relay-v039.complete"
 check 'service starts the OEM request observer' run service
 check 'service does not launch private AP broker' eval '! grep -q "ApBroker\|root 1000 -c" "$W/fixture/calls"'
 check 'registered Android host is started' grep -q '^am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService' "$W/fixture/calls"

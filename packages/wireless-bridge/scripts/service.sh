@@ -37,6 +37,7 @@ NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 DEX=$SERVICE_DIR/app/bridge.dex
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
+RELAY_GATE=$SERVICE_DIR/scripts/relay-gate.sh
 # Runtime restart guard. The OEM PhoneProjection stack owns Wi-Fi/AP setup; this
 # supervisor only starts the app-side request/observation service.
 APG_MAX=3
@@ -135,6 +136,25 @@ while [ ! -f "$STOPPING" ]; do
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         pause 2
         continue
+    fi
+    [ -f "$RELAY_GATE" ] && [ ! -L "$RELAY_GATE" ] || {
+        echo 'FAIL bridge: relay gate missing; wireless suspended'
+        stop_runtime
+        exit 1
+    }
+    if sh "$RELAY_GATE" "$SERVICE_DIR" >/dev/null 2>&1; then
+        # No completion marker is built until the process-local DiPO adapter
+        # and its runtime owner are present in this same reviewed change.
+        echo 'FAIL bridge: complete relay payload has no enabled runtime; wireless suspended'
+        stop_runtime
+        exit 1
+    else
+        relay_status=$?
+    fi
+    if [ "$relay_status" -ne 77 ]; then
+        echo 'FAIL bridge: incomplete V039 relay package; wireless suspended'
+        stop_runtime
+        exit 1
     fi
     RETRY_COUNT=$host_count; RETRY_STABLE=$host_stable
     if host_alive; then retry_action healthy; else retry_action dead; fi

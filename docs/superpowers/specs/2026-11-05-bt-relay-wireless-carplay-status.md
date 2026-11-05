@@ -1,10 +1,20 @@
 # 블루투스 중계 방식 무선 CarPlay: 조사 결과와 진행 상태 (2026-11-05)
 
-상태: **개발 재개, 실차 미검증**. 이 문서의 아래쪽 초기 목록은 `e9fc7fa` 시점의 역사 기록이며, 현재 기준은 다음과 같다.
+상태: **안전한 중계 토대 구현, 완성 중계는 차단, 실차 미검증**. 이 문서의 아래쪽 초기 목록은 `e9fc7fa` 시점의 역사 기록이며, 현재 기준은 다음과 같다.
+
+## 2026-11-05 최종 재감사
+
+- `BtRelaySession`, `BtRelayPipe`, `CarPlayHandoverPipe`의 순수 상태·전송 계층은 구현돼 있다.
+- exact V039 Broadcom BTCM SPP와 iAP2 component 4를 사용하는 `V039BtRelayAdapter`가 빌드된다. 직접 `BluetoothSocket`이나 사설 RFCOMM 소켓은 열지 않는다.
+- exact V039 `Iap2ServerApp.odex`에는 public `Iap2SvcTransportReadDone([BI)Z`가 있어 component 4 입력 경계는 확인됐다.
+- exact V039 DiPO에는 native 송수신 경계가 있지만, 현재 고정 길이 recipe에는 이를 iAP2 component 5와 연결하는 process-local call edge가 없다. 별도 추출 DEX에서는 구현 가능성만 확인했으며, OEM 파생 DEX를 배포하거나 zygote/app_process를 교체하는 방식은 사용하지 않는다.
+- 따라서 `V039BtRelayAdapter`는 component 4만 담당하며 component 5를 성공으로 취급하지 않는다. AP broker도 runtime에 연결하지 않았다.
+- `relay-gate.sh`는 완성 마커가 없으면 기존 순정 경로를 유지하고, 마커나 필수 산출물이 일부만 있으면 host 시작 전에 실패하도록 한다. 현재 빌드는 완성 마커를 만들지 않는다.
+- 결과적으로 이 변경은 실패한 직접 RFCOMM을 복원하지 않으며, 불완전한 신규 중계를 설치판에 켜지 않는다. 무선 CarPlay 해결 여부는 아직 실차에서 입증되지 않았다.
 
 ## 2026-11-05 현재 진행 상태
 
-- 기준 브랜치: `codex/stock-first-wireless`, 기반 커밋 `1d670d4`.
+- 기준 브랜치: `codex/stock-first-wireless`, 안전 토대 기준 커밋 `1ab9eca` 이후 작업.
 - v0.3.35 OEM bootstrap·Wi-Fi 관찰·HUD/진단 코드는 이미 포함돼 있다.
 - 순정 경로는 실차에서 Broadcom SPP 뒤 `isPossibleWCP=false`로 막혔고 iAP2가 시작되지 않았다.
 - `bt_patch.py`는 component 4/5 진입점만 만들며 SPP 데이터 중계, DiPO component-5 인계, AP 시작은 하지 않는다. 따라서 단독 설치하지 않는다.

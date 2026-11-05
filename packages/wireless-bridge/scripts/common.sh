@@ -88,7 +88,7 @@ inspect() {
     done
     # NEMESIS extracts native files as 0644; only our fixed helper names change mode.
     for bridge_version in v035 v039; do
-        for bridge_kind in iap2 iap2-route dipo gpm; do
+        for bridge_kind in iap2 iap2-route iap2-bt dipo gpm; do
             bridge_tool=$SCRIPT_DIR/../bin/$bridge_kind-patch-$bridge_version
             if [ -f "$bridge_tool" ] && [ ! -L "$bridge_tool" ]; then chmod 755 "$bridge_tool" || return 1; fi
         done
