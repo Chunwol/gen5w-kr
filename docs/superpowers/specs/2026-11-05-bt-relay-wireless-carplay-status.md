@@ -1,6 +1,19 @@
 # 블루투스 중계 방식 무선 CarPlay: 조사 결과와 진행 상태 (2026-11-05)
 
-상태: **중단** (일부만 구현, 실차 미검증). 다음에 이어서 볼 사람을 위한 기록이다.
+상태: **개발 재개, 실차 미검증**. 이 문서의 아래쪽 초기 목록은 `e9fc7fa` 시점의 역사 기록이며, 현재 기준은 다음과 같다.
+
+## 2026-11-05 현재 진행 상태
+
+- 기준 브랜치: `codex/stock-first-wireless`, 기반 커밋 `1d670d4`.
+- v0.3.35 OEM bootstrap·Wi-Fi 관찰·HUD/진단 코드는 이미 포함돼 있다.
+- 순정 경로는 실차에서 Broadcom SPP 뒤 `isPossibleWCP=false`로 막혔고 iAP2가 시작되지 않았다.
+- `bt_patch.py`는 component 4/5 진입점만 만들며 SPP 데이터 중계, DiPO component-5 인계, AP 시작은 하지 않는다. 따라서 단독 설치하지 않는다.
+- BT recipe와 기존 route recipe는 같은 순정 Iap2ServerApp ODEX를 대상으로 하는 대체 산출물이다. 순차 적용하지 않는다.
+- 새 설계와 구현 계획은 `2026-11-05-v039-bt-relay-integration-design.md`, `../plans/2026-11-05-v039-bt-relay-integration.md`에 정리했다.
+- Task 1로 순수 `BtRelaySession`을 추가했다. SPP → iAP2 component 4 → DiPO handover/component 5 → AP → projection 활성 순서, 단계별 timeout, 세대 검사, 역순 정리, 정리 완료 전 새 owner 차단을 JVM 테스트로 고정했다.
+- Task 2 기반으로 순수 `BtRelayPipe`를 추가했다. 한 세대만 SPP↔iAP2 component 4를 소유하고, 양방향 프레임 복사·쓰기 실패·연결 해제·비밀값 없는 고정 진단 범주를 테스트했다. 외부 전송 호출 중에도 소유권 잠금은 잡지 않는다.
+- 아직 Android/BTCM/iAP2/DiPO/AP runtime adapter에 연결하지 않았으며 설치 ZIP에도 포함하지 않았다.
+- AP helper 소스는 남아 있지만 UID 1000 실행 경로가 증명되지 않았다. 이 조건을 해결하기 전에는 runtime에 연결하지 않는다.
 
 ## 왜 이 방식을 검토했나
 

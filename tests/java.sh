@@ -12,7 +12,11 @@ trap 'rm -rf "$work"' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     app/src/kr/gen5w/hud/*.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
+    packages/wireless-bridge/src/kr/gen5w/wireless/BtRelaySession.java \
+    packages/wireless-bridge/src/kr/gen5w/wireless/BtRelayPipe.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/StockProjectionSession.java packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java \
+    packages/wireless-bridge/test/BtRelaySessionTest.java \
+    packages/wireless-bridge/test/BtRelayPipeTest.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BluetoothCandidateScan.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/ProjectionWifiAccess.java \
     packages/wireless-bridge/test/StockProjectionSessionTest.java packages/wireless-bridge/test/PhoneProjectionAccessTest.java \
@@ -36,6 +40,8 @@ java -cp "$work" OwnershipTest
 java -cp "$work" DumpTest
 java -cp "$work" WirelessSessionTest
 java -cp "$work" StockProjectionSessionTest
+java -cp "$work" kr.gen5w.wireless.BtRelaySessionTest
+java -cp "$work" kr.gen5w.wireless.BtRelayPipeTest
 java -cp "$work" PhoneProjectionAccessTest
 java -cp "$work" kr.gen5w.wireless.BluetoothCandidateScanTest
 java -cp "$work" kr.gen5w.wireless.ProjectionWifiAccessTest
