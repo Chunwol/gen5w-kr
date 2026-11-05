@@ -12,6 +12,9 @@ import subprocess
 import sys
 import zipfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from source_revision import source_revision
+
 HERE = Path(__file__).resolve().parent
 REPO_URL = 'https://github.com/Chunwol/gen5w-kr/blob/main/'
 # Installing, using and recovering. Everything else in docs/ is for developers.
@@ -143,8 +146,8 @@ def build(dist, output, variant='standard'):
     for name in ['LICENSE', 'NOTICE.md', 'SOURCE.md', 'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md']:
         shutil.copyfile(HERE.parents[1] / name, output / name)
     link_missing_docs(output)
-    (output / 'BUILD-REVISION').write_text(subprocess.check_output(
-        ['git','rev-parse','HEAD'], cwd=HERE.parents[1], text=True).strip()+'\n', encoding='ascii', newline='\n')
+    (output / 'BUILD-REVISION').write_text(
+        source_revision(HERE.parents[1]) + '\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-VARIANT').write_text(variant+'\n', encoding='ascii', newline='\n')
     (output / 'GEN5W-BACKEND').write_text(('dongle' if variant == 'dongle' else 'builtin')+'\n', encoding='ascii', newline='\n')
     # type=execute: NEMESIS asks Yes/No on insert (1.16 removed Manager's "Run USB NEMESIS.sh").

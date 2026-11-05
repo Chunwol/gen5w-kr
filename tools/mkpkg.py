@@ -3,9 +3,10 @@
 LF line endings checked, .sh files executable. Usage: mkpkg.py <folder> <out.zip>"""
 import os
 from pathlib import Path
-import subprocess
 import sys
 import zipfile
+
+from source_revision import source_revision
 
 
 def main():
@@ -35,7 +36,7 @@ def main():
                 info.external_attr = 0o644 << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
                 z.writestr(info, (project / filename).read_bytes())
-        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project, text=True).strip()
+        revision = source_revision(project)
         info = zipfile.ZipInfo('BUILD-REVISION', (1980, 1, 1, 0, 0, 0))
         info.external_attr = 0o644 << 16
         z.writestr(info, revision + '\n')
