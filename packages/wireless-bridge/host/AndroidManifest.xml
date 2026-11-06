@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <application android:label="Gen5W KR wireless" android:allowBackup="false">
+        <!-- The relay calls the unit's Broadcom BTCM and Telechips iAP2 classes. Android puts a
+             system library on an app's class path only when the app asks for it here. -->
+        <uses-library android:name="com.broadcom.bt" android:required="false" />
+        <uses-library android:name="com.tcc.iap2" android:required="false" />
         <service android:name="kr.gen5w.wireless.BridgeHostService" android:exported="false" />
     </application>
 </manifest>

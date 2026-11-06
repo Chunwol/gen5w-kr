@@ -293,6 +293,10 @@ check 'SIGTERM does not leave a privileged broker' eval '! grep -q "ApBroker\|ro
 BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 BRIDGE_TEST_HOLD_BROKER=1 mksh "$W/pkg/scripts/service.sh" >"$W/fixture/hostfail.log" 2>&1 || :
 check 'host startup failure is reported in the service log' grep -q 'FAIL bridge: host repeatedly failed to start' "$W/fixture/hostfail.log"
 check 'host startup log says the host is being started' grep -q 'WAIT bridge: starting the host' "$W/fixture/hostfail.log"
+check 'host manifest asks for the Broadcom BTCM library the relay calls' grep -q 'uses-library android:name="com.broadcom.bt"' "packages/wireless-bridge/host/AndroidManifest.xml"
+check 'host manifest asks for the Telechips iAP2 library the relay calls' grep -q 'uses-library android:name="com.tcc.iap2"' "packages/wireless-bridge/host/AndroidManifest.xml"
+check 'host reports a missing system class instead of crashing' grep -q 'catch (LinkageError' "packages/wireless-bridge/src/kr/gen5w/wireless/BridgeHostService.java"
+check 'host start failure logs under the gen5w tag the supervisor collects' grep -q "grep -E 'gen5w|FATAL" "packages/wireless-bridge/scripts/service.sh"
 check 'host startup failure stops after three attempts' test "$(grep -c '^am startservice' "$W/fixture/calls")" = 3
 : > "$W/fixture/calls"
 BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 mksh "$W/pkg/scripts/service.sh" > "$W/fixture/retry.log" 2>&1 || :

@@ -23,7 +23,11 @@ public final class BridgeHostService extends Service {
         }
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && intent.getBooleanExtra("relay_v039", false)) bridge.enableRelay();
+        if (intent != null && intent.getBooleanExtra("relay_v039", false)) {
+            try { bridge.enableRelay(); }
+            catch (RuntimeException e) { return relayUnavailable(e); }
+            catch (LinkageError e) { return relayUnavailable(e); }
+        }
         try {
             File marker = new File(getFilesDir(), "bridge-ready");
             FileOutputStream out = new FileOutputStream(marker);
@@ -33,6 +37,12 @@ public final class BridgeHostService extends Service {
             Log.e("gen5w-wireless", "host readiness marker failure: " + e.getClass().getName());
             stopSelf();
         }
+        return START_NOT_STICKY;
+    }
+    /** A missing system class must end the start with a readable reason, not a process crash. */
+    private int relayUnavailable(Throwable e) {
+        Log.e("gen5w-wireless", "relay start failure: " + e.getClass().getName() + ": " + e.getMessage());
+        stopSelf();
         return START_NOT_STICKY;
     }
     @Override public IBinder onBind(Intent intent) { return null; }

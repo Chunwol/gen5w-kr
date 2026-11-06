@@ -91,7 +91,7 @@ note() { [ "$LAST_NOTE" = "$1" ] || { LAST_NOTE=$1; echo "WAIT bridge: $1"; }; }
 # What the system said about the host just before it was given up on (last 40 matching lines).
 host_forensics() {
     typeset total=0 skip line
-    logcat -d -v time 2>/dev/null | grep -E 'kr\.gen5w|FATAL EXCEPTION|AndroidRuntime|ActivityManager' > "$DATA/nemesis/gen5wkr.hostlog.tmp" 2>/dev/null || :
+    logcat -d -v time 2>/dev/null | grep -E 'gen5w|FATAL EXCEPTION|AndroidRuntime|ActivityManager' > "$DATA/nemesis/gen5wkr.hostlog.tmp" 2>/dev/null || :
     while IFS= read -r line || [ -n "$line" ]; do total=$((total + 1)); done < "$DATA/nemesis/gen5wkr.hostlog.tmp"
     skip=$((total - 40))
     while IFS= read -r line || [ -n "$line" ]; do
