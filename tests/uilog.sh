@@ -7,7 +7,7 @@ W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/bin" "$W/data/nemesis/logs" "$W/data/nemesis/apps/gen5w.kr.bridge" "$W/app" "$W/proc"
 printf '#!/bin/sh\ncat "%s/backend" 2>/dev/null\n' "$W" > "$W/bin/getprop"; chmod +x "$W/bin/getprop"
 export PATH="$W/bin:$PATH"
-printf 'package-version=0.3.46\n' > "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
+printf 'package-version=0.3.47\n' > "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
 UI=$W/app/gen5w-ui
 LOGS=$W/data/nemesis/logs
 mklog() { mkdir -p "$LOGS/$1"; cat > "$LOGS/$1/$2"; }
@@ -15,7 +15,7 @@ reset() { rm -rf "$UI" "$LOGS" "$W/data/nemesis/gen5wkr."* "$W/ready" "$W/backen
 printf '#!/bin/sh\ncat "%s/logcat.out"\n' "$W" > "$W/logcat"; chmod +x "$W/logcat"
 run() {
     UILOG_TEST_DATA=$W/data UILOG_TEST_DIR=${UILOG_DIR:-$UI} UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat \
-    UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
+    UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
 }
 # By default the files go to a root-owned folder under /data/nemesis, never into an app data folder.
 default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1; }
@@ -33,11 +33,12 @@ run
 check 'collector runs once and exits cleanly' test $? = 0
 default_dir
 check 'default output folder is gen5wkr.ui under nemesis' test -f "$W/data/nemesis/gen5wkr.ui/status" -a -f "$W/data/nemesis/gen5wkr.ui/log"
-check 'script never refers to the core app data folder in code' eval '[ "$(grep -v "^ *#" "$PKG/scripts/uilog.sh" | grep -c "data/data/kr.gen5w.core")" = 0 ]'
+check 'script names the core app folder only for the read-only request file' eval '[ "$(grep -v "^ *#" "$PKG/scripts/uilog.sh" | grep -c "data/data/kr.gen5w.core")" = 1 ]'
+check 'script never writes to the request file' eval '! grep -v "^ *#" "$PKG/scripts/uilog.sh" | grep -Eq ">+ *\"?\$REQUEST|rm .*\$REQUEST|mv .*\$REQUEST"'
 run
 check 'status has the snapshot keys' eval 'for k in ts host relay backend version apguard wired; do grep -q "^$k=" "$UI/status" || exit 1; done'
 check 'status ts is a number' eval '[ -n "$(status ts)" ] && [ -z "$(status ts | tr -d 0-9)" ]'
-check 'status reads the bridge version' test "$(status version)" = 0.3.46
+check 'status reads the bridge version' test "$(status version)" = 0.3.47
 check 'backend defaults to builtin' test "$(status backend)" = builtin
 check 'host is dead without bridge-ready' test "$(status host)" = dead
 check 'apguard on by default' test "$(status apguard)" = on
@@ -132,4 +133,37 @@ check 'without the app folder nothing is created and the run ends cleanly' eval 
 rm -rf "$LOGS"
 run
 check 'status is written even when no package log exists' test -f "$UI/status"
+
+# Switch requests from the screen: fixed words only, markers in the root-owned folder, never a link.
+N=$W/data/nemesis
+reset; rm -f "$W/request"; run
+check 'no request: all switches on' eval '[ "$(status sw_wireless)" = on ] && [ "$(status sw_timer)" = on ] && [ "$(status sw_bluelink)" = on ]'
+printf 'wireless=off
+timer=off
+bluelink=off
+' > "$W/request"; run
+check 'wireless=off makes its marker' test -f "$N/gen5wkr.ui-wireless-off"
+check 'timer=off makes its marker' test -f "$N/gen5wkr.ui-timer-off"
+check 'bluelink=off makes its marker' test -f "$N/gen5wkr.ui-bluelink-off"
+check 'status reports the switches off' eval '[ "$(status sw_wireless)" = off ] && [ "$(status sw_timer)" = off ] && [ "$(status sw_bluelink)" = off ]'
+check 'the installer wired-only marker is not touched' test ! -e "$N/gen5wkr.wireless-disabled"
+printf 'wireless=on
+' > "$W/request"; run
+check 'wireless=on removes the marker' test ! -e "$N/gen5wkr.ui-wireless-off"
+check 'other markers stay as requested before' test -f "$N/gen5wkr.ui-timer-off"
+printf 'wireless=maybe
+foo=off
+wireless=off extra
+=off
+../x=off
+' > "$W/request"; rm -f "$N"/gen5wkr.ui-*; run
+check 'unknown words are ignored' eval '[ -z "$(ls "$N" | grep gen5wkr.ui-)" ]'
+{ i=0; while [ $i -lt 20 ]; do echo 'junk'; i=$((i+1)); done; echo 'wireless=off'; } > "$W/request"; run
+check 'only the first 8 lines are read' test ! -e "$N/gen5wkr.ui-wireless-off"
+rm -f "$W/request"; echo 'wireless=off' > "$W/real"; ln -s "$W/real" "$W/request"; run
+check 'a linked request file is ignored' test ! -e "$N/gen5wkr.ui-wireless-off"
+rm -f "$W/request"; printf 'wireless=off
+' > "$W/request"; echo keep > "$W/victim"; ln -s "$W/victim" "$N/gen5wkr.ui-wireless-off"; run
+check 'a linked marker path is not written through' test "$(cat "$W/victim")" = keep
+rm -f "$N/gen5wkr.ui-wireless-off" "$W/request"
 done_tests uilog

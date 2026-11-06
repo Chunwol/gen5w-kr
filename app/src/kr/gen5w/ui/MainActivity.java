@@ -1,6 +1,7 @@
 package kr.gen5w.ui;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -18,13 +19,16 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
+import kr.gen5w.core.CoreService;
+import kr.gen5w.core.HudSwitch;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
- * Read-only status and log screen. It only reads the two files the collector service writes
- * (status and log in /data/nemesis/gen5wkr.ui, a root-owned folder) and changes nothing.
+ * Status, switches and log screen. It reads the two files the collector service writes (status and
+ * log in /data/nemesis/gen5wkr.ui, a root-owned folder). Switches are only requests: a small file in
+ * this app's own folder that the collector (root) reads; the HUD switch is a flag in this app's folder.
  * Built in code because the development build has no resource files.
  */
 public final class MainActivity extends Activity {
@@ -46,6 +50,10 @@ public final class MainActivity extends Activity {
     private boolean loaded;
     private volatile boolean loading;
     private boolean resumed;
+    private static final long PENDING_MS = 40000;
+    // Switch order: wireless, timer, bluelink. A click shows its new state at once, until the collector confirms it.
+    private final String[] pending = new String[3];
+    private final long[] pendingAt = new long[3];
 
     private final Runnable tick = new Runnable() {
         public void run() {
@@ -137,12 +145,120 @@ public final class MainActivity extends Activity {
         page.setPadding(dp(22), dp(8), dp(22), dp(16));
         if (tab == INFO) buildInfo(page);
         else if (tab == LOG) buildLog(page);
-        else if (tab == ONOFF) note(page, "기능 켜기/끄기는 다음 버전에서 제공됩니다.\n지금 버전은 상태와 기록을 보기만 하고 아무것도 바꾸지 않습니다.");
-        else note(page, "전체 제거는 아직 이 화면에서 지원하지 않습니다.\n제거는 설치 때 사용한 USB의 제거 키트로 하세요.");
+        else if (tab == ONOFF) buildSwitches(page);
+        else buildManage(page);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(page);
         content.removeAllViews();
         content.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    /** What a switch shows: a recent click wins over the collector's last snapshot. */
+    private String effective(int i, String reported) {
+        if (pending[i] != null && SystemClock.elapsedRealtime() - pendingAt[i] < PENDING_MS) return pending[i];
+        pending[i] = null;
+        return reported;
+    }
+
+    private void buildSwitches(LinearLayout page) {
+        if (!loaded) { note(page, "불러오는 중..."); return; }
+        final boolean readable = model.readable();
+        note(page, "끄면 몇 초 안에 반영됩니다. 설치된 파일은 그대로 남아 있어 언제든 다시 켤 수 있습니다. (제거가 아닙니다)");
+        section(page, "무선");
+        final String wireless = effective(0, model.switchWireless());
+        String wlock = model.wiredOnly() ? "설치 때 유선 전용으로 설치되어 여기서 켤 수 없습니다"
+                : model.apguardOff() ? "재시작 보호가 걸려 있어 여기서 켤 수 없습니다" : null;
+        switchRow(page, "무선 CarPlay / Android Auto", "무선 연결 담당 서비스를 켜고 끕니다. 유선 연결은 그대로 동작합니다.",
+                wlock != null ? wlock : readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", wireless, 0);
+        section(page, "안내창");
+        switchRow(page, "시동 안내창 자동 닫기", "끄면 차 순정 10초 타이머로 돌아갑니다.",
+                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(1, model.switchTimer()), 1);
+        switchRow(page, "블루링크 월간 안내 숨기기", "끄면 차의 원래 안내 시간 값을 되돌립니다.",
+                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(2, model.switchBluelink()), 2);
+        section(page, "HUD");
+        final boolean hudOff = HudSwitch.isOff(new File(getApplicationInfo().dataDir));
+        switchRowView(page, "CarPlay HUD 연동", "끄면 이 앱의 HUD 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.",
+                null, hudOff ? "off" : "on", new View.OnClickListener() {
+                    public void onClick(View v) {
+                        boolean nowOff = HudSwitch.isOff(new File(getApplicationInfo().dataDir));
+                        if (!HudSwitch.setOff(new File(getApplicationInfo().dataDir), !nowOff)) return;
+                        Intent svc = new Intent(MainActivity.this, CoreService.class);
+                        if (nowOff) startService(svc); else stopService(svc);
+                        render();
+                    }
+                });
+        section(page, "이 화면에서 바꿀 수 없는 것");
+        row(page, "오디오 모듈", "설치 / 제거로만", DIM);
+        row(page, "주행 기록", "USB 키트가 필요", DIM);
+        row(page, "Wi-Fi 동글", model.backend().equals("dongle") ? "동글 방식으로 설치됨 (설치 때 정함)" : "해당 없음 (이 차는 내장 Wi-Fi)", DIM);
+    }
+
+    /** Sends the three switch states to the collector. Runs off the main thread. */
+    private void sendRequest() {
+        final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink());
+        final File dir = getFilesDir();
+        new Thread(new Runnable() {
+            public void run() {
+                final boolean ok = SwitchRequest.write(dir, w, t, b);
+                handler.post(new Runnable() {
+                    public void run() {
+                        if (!ok) { pending[0] = pending[1] = pending[2] = null; }
+                        render();
+                    }
+                });
+            }
+        }, "gen5w-ui-request").start();
+    }
+
+    private void switchRow(LinearLayout page, String name, String help, String locked, String state, final int index) {
+        switchRowView(page, name, help, locked, state, new View.OnClickListener() {
+            public void onClick(View v) {
+                String current = effective(index, "unknown");
+                if (!"on".equals(current) && !"off".equals(current)) {
+                    current = index == 0 ? model.switchWireless() : index == 1 ? model.switchTimer() : model.switchBluelink();
+                }
+                pending[index] = "on".equals(current) ? "off" : "on";
+                pendingAt[index] = SystemClock.elapsedRealtime();
+                sendRequest();
+            }
+        });
+    }
+
+    private void switchRowView(LinearLayout page, String name, String help, String locked, String state, View.OnClickListener click) {
+        boolean known = "on".equals(state) || "off".equals(state);
+        boolean on = "on".equals(state);
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setMinimumHeight(dp(84));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.addView(label(name, 18, TEXT, false));
+        text.addView(label(locked != null ? locked : help, 14, locked != null ? YELLOW : DIM, false));
+        r.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        boolean enabled = locked == null && known;
+        TextView button = label(!known ? "확인 못 함" : on ? "켜짐" : "꺼짐", 18, enabled ? (on ? 0xFF00232B : TEXT) : DIM, true);
+        button.setGravity(Gravity.CENTER);
+        button.setMinWidth(dp(120));
+        button.setMinHeight(dp(56));
+        button.setPadding(dp(20), dp(14), dp(20), dp(14));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(dp(22));
+        shape.setColor(enabled && on ? GREEN : BG);
+        shape.setStroke(dp(1), enabled && on ? GREEN : 0xFF333C49);
+        button.setBackgroundDrawable(shape);
+        if (enabled) button.setOnClickListener(click);
+        r.addView(button);
+        page.addView(r);
+        page.addView(divider());
+    }
+
+    private void buildManage(LinearLayout page) {
+        section(page, "전체 제거");
+        box(page, "차 안에서는 제거하지 않습니다", "제거는 설치 때 사용한 USB의 제거 키트로 합니다. 제거하는 동안 이 앱도 함께 지워지고 차 시스템 파일을 건드리는 단계가 있어, 안전을 확인하기 전까지는 이 화면에 넣지 않았습니다.", YELLOW);
+        section(page, "기능만 멈추기");
+        note(page, "제거하지 않고 기능만 멈추려면 ONOFF 화면의 스위치를 쓰세요. 스위치를 꺼도 설치된 파일은 그대로 남습니다.");
+        section(page, "진단 저장");
+        note(page, "문제가 있을 때는 USB를 꽂고 키트의 GEN5W-ACTION 파일에 diag 를 적어 진단을 저장하세요. 이 화면의 LOG는 그 요약입니다.");
     }
 
     private void buildInfo(LinearLayout page) {
@@ -199,8 +315,8 @@ public final class MainActivity extends Activity {
             LinearLayout entry = new LinearLayout(this);
             entry.setOrientation(LinearLayout.VERTICAL);
             entry.setPadding(0, dp(6), 0, dp(6));
-            entry.addView(label((source.length() > 0 ? "[" + source + "] " : "") + korean, 14, error ? RED : TEXT, false));
-            if (!korean.equals(raw)) entry.addView(label(raw, 11, DIM, false));
+            entry.addView(label((source.length() > 0 ? "[" + source + "] " : "") + korean, 16, error ? RED : TEXT, false));
+            if (!korean.equals(raw)) entry.addView(label(raw, 12, DIM, false));
             page.addView(entry);
             page.addView(divider());
             shown++;
@@ -210,7 +326,7 @@ public final class MainActivity extends Activity {
 
     private void chip(LinearLayout row, String text, final String value, final boolean category) {
         boolean on = category ? categoryFilter.equals(value) : sourceFilter.equals(value);
-        TextView chip = label(text, 13, on ? 0xFF00232B : DIM, on);
+        TextView chip = label(text, 15, on ? 0xFF00232B : DIM, on);
         chip.setPadding(dp(14), dp(10), dp(14), dp(10));
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(18));
@@ -229,7 +345,7 @@ public final class MainActivity extends Activity {
     }
 
     private void section(LinearLayout page, String title) {
-        TextView t = label(title, 13, ACCENT, true);
+        TextView t = label(title, 15, ACCENT, true);
         t.setPadding(0, dp(12), 0, dp(4));
         page.addView(t);
     }
@@ -237,10 +353,10 @@ public final class MainActivity extends Activity {
     private void row(LinearLayout page, String name, String value, int color) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(dp(48));
-        TextView n = label(name, 15, TEXT, false);
+        r.setMinimumHeight(dp(60));
+        TextView n = label(name, 18, TEXT, false);
         r.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        r.addView(label(value, 15, color, false));
+        r.addView(label(value, 18, color, false));
         page.addView(r);
         page.addView(divider());
     }
@@ -250,15 +366,15 @@ public final class MainActivity extends Activity {
         b.setOrientation(LinearLayout.VERTICAL);
         b.setPadding(dp(14), dp(10), dp(14), dp(10));
         b.setBackgroundDrawable(new ColorDrawable(0xFF1B2230));
-        b.addView(label(title, 15, color, true));
-        b.addView(label(text, 14, TEXT, false));
+        b.addView(label(title, 18, color, true));
+        b.addView(label(text, 16, TEXT, false));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, dp(8), 0, dp(8));
         page.addView(b, lp);
     }
 
     private void note(LinearLayout page, String text) {
-        TextView t = label(text, 15, DIM, false);
+        TextView t = label(text, 16, DIM, false);
         t.setPadding(0, dp(16), 0, 0);
         page.addView(t);
     }

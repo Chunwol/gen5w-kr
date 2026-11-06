@@ -10,7 +10,7 @@ mkdir -p .build
 work=$(mktemp -d "$PWD/.build/java-tests.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
-    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/test/*Test.java \
+    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/core/HudSwitch.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/src/kr/gen5w/ui/SwitchRequest.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelaySession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelayPipe.java \
@@ -51,6 +51,8 @@ java -cp "$work" kr.gen5w.wireless.ProjectionWifiAccessTest
 java -cp "$work" SdpRefreshTest
 java -cp "$work" TbtDistanceTest
 java -cp "$work" StockFlagTest
+java -cp "$work" HudSwitchTest
+java -cp "$work" SwitchRequestTest
 java -cp "$work" LogTranslatorTest
 java -cp "$work" StatusModelTest
 java -cp "$work" BoundedLinesTest

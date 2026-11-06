@@ -21,7 +21,7 @@ javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR${sep}build/stubs" -d build/c
 grep -q "Class descriptor" build/dexdump.txt || { echo "empty dex" >&2; exit 1; }
 if grep "Class descriptor" build/dexdump.txt | grep -qv "Lkr/gen5w/"; then echo "non-app class in dex" >&2; exit 1; fi
 "$(t aapt2)" link --manifest AndroidManifest.xml -I "$JAR" --min-sdk-version 18 --target-sdk-version 19 \
-    --version-code 3 --version-name 1.0-rc1 -o build/unsigned.apk
+    --version-code 4 --version-name 1.0-rc1 -o build/unsigned.apk
 PY=$(command -v python3 || command -v python)
 "$PY" -I -c 'import zipfile; z=zipfile.ZipFile("build/unsigned.apk","a",zipfile.ZIP_DEFLATED); z.write("build/dex/classes.dex","classes.dex"); z.close()'
 "$(t zipalign)" -f -p 4 build/unsigned.apk build/aligned.apk

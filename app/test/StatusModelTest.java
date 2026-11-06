@@ -56,6 +56,12 @@ public final class StatusModelTest {
         check("bad ts is stale", messy.stale());
         check("apguard off", messy.apguardOff());
         check("wired only", messy.wiredOnly());
+                StatusModel sw = StatusModel.parse(java.util.Arrays.asList("ts=10", "sw_wireless=off", "sw_timer=on", "sw_bluelink=weird"), null, 12);
+        check("wireless switch off", sw.switchWireless().equals("off"));
+        check("timer switch on", sw.switchTimer().equals("on"));
+        check("unknown switch word is unknown", sw.switchBluelink().equals("unknown"));
+        check("missing switches are unknown", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).switchWireless().equals("unknown"));
+        check("unreadable switches are unknown", StatusModel.unreadable().switchTimer().equals("unknown"));
         if (failures != 0) { System.out.println("== StatusModel: " + failures + " failed"); System.exit(1); }
         System.out.println("== StatusModel: all passed");
     }

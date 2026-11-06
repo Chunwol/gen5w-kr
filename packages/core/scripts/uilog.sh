@@ -17,6 +17,11 @@ PROC=${UILOG_TEST_PROC:-/proc}
 UPTIME=${UILOG_TEST_UPTIME:-/proc/uptime}
 LOGCAT=${UILOG_TEST_LOGCAT:-logcat}
 INTERVAL=${UILOG_TEST_INTERVAL:-15}
+# Switch requests written by the screen (the core app) into its own folder. Root only READS this
+# file (never writes into the app's folder) and only accepts the fixed words below; the effect is a
+# marker file in the root-owned $NEMDIR, which the packages' own services look at.
+REQUEST=${UILOG_TEST_REQUEST:-/data/data/kr.gen5w.core/files/ui-request}
+REQ_STEP=${UILOG_TEST_REQ_STEP:-2}
 MAX_SOURCE_BYTES=131072   # a package log above this is not read at all
 PER_SOURCE=25             # newest lines kept per package log
 MAX_LINES=200             # lines in the whole log file
@@ -135,9 +140,35 @@ collect_status() {
         print -r -- "version=$version"
         print -r -- "apguard=$apguard"
         print -r -- "wired=$wired"
+        print -r -- "sw_wireless=$(switch_state wireless)"
+        print -r -- "sw_timer=$(switch_state timer)"
+        print -r -- "sw_bluelink=$(switch_state bluelink)"
     } > "$UI_DIR/status.tmp" || return 1
     chmod 644 "$UI_DIR/status.tmp" && mv "$UI_DIR/status.tmp" "$UI_DIR/status"
 }
+
+# set_marker <name> <on|off>: off = marker present, on = marker absent. Never follows a link.
+set_marker() {
+    typeset m="$NEMDIR/gen5wkr.ui-$1-off"
+    [ -d "$NEMDIR" ] && [ ! -L "$NEMDIR" ] && [ ! -L "$m" ] || return 1
+    case "$2" in
+        off) [ -f "$m" ] || : > "$m";;
+        on) rm -f "$m";;
+    esac
+}
+# Reads at most 8 lines; only "wireless|timer|bluelink=on|off" is accepted, anything else is ignored.
+apply_requests() {
+    typeset line n=0
+    [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] && [ -r "$REQUEST" ] || return 0
+    while IFS= read -r line && [ "$n" -lt 8 ]; do
+        n=$((n + 1))
+        case "$line" in
+            wireless=on|wireless=off|timer=on|timer=off|bluelink=on|bluelink=off)
+                set_marker "${line%%=*}" "${line#*=}" || :;;
+        esac
+    done < "$REQUEST"
+}
+switch_state() { if [ -e "$NEMDIR/gen5wkr.ui-$1-off" ]; then echo off; else echo on; fi; }
 
 round() {
     prepare || return 0
@@ -148,7 +179,14 @@ round() {
 
 trap 'exit 0' HUP INT TERM
 while :; do
+    apply_requests
     round
     [ -z "$UILOG_TEST_ONCE" ] || exit 0
-    sleep "$INTERVAL"
+    # Requests are looked at every few seconds so a switch takes effect quickly.
+    waited=0
+    while [ "$waited" -lt "$INTERVAL" ]; do
+        sleep "$REQ_STEP"
+        waited=$((waited + REQ_STEP))
+        apply_requests
+    done
 done

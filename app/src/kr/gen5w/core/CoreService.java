@@ -52,6 +52,7 @@ public final class CoreService extends Service {
     private HandlerThread worker;
     private Handler io, main;
     private volatile boolean stopping;
+    private boolean switchedOff; // set once in onCreate; nothing else is initialised then
     private boolean bound;
     private boolean registered;
     private IIap2Service iap2;
@@ -67,6 +68,12 @@ public final class CoreService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        // Switched off from the in-car screen: start nothing and end at once.
+        if (HudSwitch.isOff(new java.io.File(getApplicationInfo().dataDir))) {
+            switchedOff = true;
+            stopSelf();
+            return;
+        }
         main = new Handler(getMainLooper());
         worker = new HandlerThread("gen5w-route"); worker.start();
         io = new Handler(worker.getLooper());
@@ -176,6 +183,7 @@ public final class CoreService extends Service {
         bind();
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (switchedOff) return START_NOT_STICKY;
         if (intent != null && (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())
                 || "com.hkmc.intent.action.SYSTEM_POWERON".equals(intent.getAction()))) {
             disconnected();
@@ -186,6 +194,7 @@ public final class CoreService extends Service {
     }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onDestroy() {
+        if (switchedOff) { super.onDestroy(); return; }
         stopping = true;
         try { unregisterReceiver(aaReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(mediaReceiver); } catch (Exception ignored) {}

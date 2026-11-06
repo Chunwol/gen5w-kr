@@ -15,16 +15,19 @@ public final class StatusModel {
     private final String host, relay, backend, version;
     private final boolean apguardOff, wired;
     private final String why;
+    private final String swWireless, swTimer, swBluelink; // on / off / unknown
 
     private StatusModel(boolean readable, long ts, long now, String host, String relay, String backend,
-            String version, boolean apguardOff, boolean wired, String why) {
+            String version, boolean apguardOff, boolean wired, String why,
+            String swWireless, String swTimer, String swBluelink) {
         this.readable = readable; this.ts = ts; this.now = now; this.host = host; this.relay = relay;
         this.backend = backend; this.version = version; this.apguardOff = apguardOff; this.wired = wired;
         this.why = why;
+        this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink;
     }
 
     public static StatusModel unreadable() {
-        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "");
+        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", UNKNOWN, UNKNOWN, UNKNOWN);
     }
 
     private static String value(List<String> lines, String key) {
@@ -48,7 +51,10 @@ public final class StatusModel {
                 choice(value(statusLines, "relay"), "on", "off"),
                 backend.length() == 0 ? UNKNOWN : backend, value(statusLines, "version"),
                 "off".equals(value(statusLines, "apguard")), "yes".equals(value(statusLines, "wired")),
-                reason(host, logLines));
+                reason(host, logLines),
+                choice(value(statusLines, "sw_wireless"), "on", "off"),
+                choice(value(statusLines, "sw_timer"), "on", "off"),
+                choice(value(statusLines, "sw_bluelink"), "on", "off"));
     }
 
     /** The bridge supervisor's own last explanation, only while the host is not running. */
@@ -77,6 +83,10 @@ public final class StatusModel {
     public String relay() { return relay; }
     public String backend() { return backend; }
     public String bridgeVersion() { return version; }
+    /** State of the screen switch as the collector saw the marker: on, off or unknown. */
+    public String switchWireless() { return swWireless; }
+    public String switchTimer() { return swTimer; }
+    public String switchBluelink() { return swBluelink; }
     public boolean apguardOff() { return apguardOff; }
     public boolean wiredOnly() { return wired; }
     public String why() { return why; }
