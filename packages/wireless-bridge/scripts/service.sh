@@ -30,10 +30,14 @@ if [ -z "$BRIDGE_TEST_SYS" ] && [ -d "$_bg" ] && [ ! -f "$_bg/recovered" ]; then
 fi
 . "$SERVICE_DIR/scripts/common.sh"
 . "$SERVICE_DIR/scripts/retry-state.sh"
-inspect || exit $?
+inspect; _inspect_rc=$?
+[ "$_inspect_rc" = 0 ] || { echo "FAIL bridge: inspect rc=$_inspect_rc; service not started"; exit "$_inspect_rc"; }
 { [ "$BRIDGE_STATE" = route-patched ] || [ "$BRIDGE_STATE" = bt-patched ]; } &&
     { [ "$DIPO_STATE" = patched ] || [ "$DIPO_STATE" = relay ]; } &&
-    [ "$BRIDGE_OWNED" = yes ] || exit 1
+    [ "$BRIDGE_OWNED" = yes ] || {
+        echo "FAIL bridge: files are not in an installed state (iAP2=$BRIDGE_STATE DiPO=$DIPO_STATE owned=$BRIDGE_OWNED); service not started"
+        exit 1
+    }
 DATA=${BRIDGE_TEST_DATA:-/data}
 NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
@@ -78,9 +82,24 @@ while [ ! -f "$STOPPING" ]; do
     sleep 2
 done
 # Wireless runs only on a working guard; if it cannot be kept, stay wired-only.
-apguard_boot || { [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
+apguard_boot || { echo 'FAIL bridge: restart guard unusable; staying wired-only'; [ -n "$BRIDGE_TEST_ONCE" ] && exit 0; while [ ! -f "$STOPPING" ]; do sleep 2; done; exit 0; }
 host_started=no
 broker_pid=
+# One line each time the reason for waiting changes, so the log explains a silent supervisor.
+LAST_NOTE=
+note() { [ "$LAST_NOTE" = "$1" ] || { LAST_NOTE=$1; echo "WAIT bridge: $1"; }; }
+# What the system said about the host just before it was given up on (last 40 matching lines).
+host_forensics() {
+    typeset total=0 skip line
+    logcat -d -v time 2>/dev/null | grep -E 'kr\.gen5w|FATAL EXCEPTION|AndroidRuntime|ActivityManager' > "$DATA/nemesis/gen5wkr.hostlog.tmp" 2>/dev/null || :
+    while IFS= read -r line || [ -n "$line" ]; do total=$((total + 1)); done < "$DATA/nemesis/gen5wkr.hostlog.tmp"
+    skip=$((total - 40))
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$skip" -gt 0 ]; then skip=$((skip - 1)); continue; fi
+        print -r -- "  logcat: $line"
+    done < "$DATA/nemesis/gen5wkr.hostlog.tmp"
+    rm -f "$DATA/nemesis/gen5wkr.hostlog.tmp"
+}
 host_count=0; host_stable=0; broker_count=0; broker_stable=0
 HOST_READY=${BRIDGE_TEST_READY:-/data/data/kr.gen5w.wirelesshost/files/bridge-ready}
 host_alive() {
@@ -122,6 +141,7 @@ trap 'terminate_runtime' HUP INT TERM
 trap 'stop_runtime' EXIT
 while [ ! -f "$STOPPING" ]; do
     if [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ] || [ -e "$APG_OFF" ]; then
+        if [ -e "$APG_OFF" ]; then note 'restart guard is off (too many unfinished starts); wireless stays off'; else note 'wired-only mode is set'; fi
         stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         pause 2
@@ -129,6 +149,7 @@ while [ ! -f "$STOPPING" ]; do
     fi
     # Dongle edition: stay wired until the USB Wi-Fi interface exists.
     if [ "$(getprop persist.gen5w.wifi.backend 2>/dev/null)" = dongle ] && [ ! -e "${BRIDGE_TEST_NET:-/sys/class/net}/wlan0" ]; then
+        note 'dongle edition: no wlan0 yet'
         stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         pause 2
@@ -138,6 +159,8 @@ while [ ! -f "$STOPPING" ]; do
     # runs only in match mode; the OEM PhoneProjection stack manages its AP.
     if [ -e "$DATA/nemesis/gen5wkr.noreboot" ] ||
        [ ! -f "$AP_MATCH" ] || [ -L "$AP_MATCH" ] || [ "$(cat "$AP_MATCH" 2>/dev/null)" != match ]; then
+        if [ -e "$DATA/nemesis/gen5wkr.noreboot" ]; then note 'installer reboot is pending (noreboot marker present)'
+        else note "wireless is not in match mode (ap-match is not 'match')"; fi
         stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         pause 2
@@ -173,13 +196,17 @@ while [ ! -f "$STOPPING" ]; do
     host_count=$RETRY_COUNT; host_stable=$RETRY_STABLE
     if [ "$RETRY_ACTION" = blocked ]; then
         echo 'FAIL bridge: host repeatedly failed to start; wireless suspended until restart'
+        host_forensics
         stop_runtime
         exit 1
     elif [ "$RETRY_ACTION" = start ]; then
         rm -f "$HOST_READY" 2>/dev/null || :
         if [ "$relay_status" -eq 0 ]; then relay_extra='--ez relay_v039 true'; else relay_extra=; fi
+        note "starting the host (relay=$relay_status)"
         if am startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService $relay_extra 2>&1; then
             host_started=yes
+        else
+            echo "FAIL bridge: am startservice rc=$?"
         fi
     fi
     [ -n "$BRIDGE_TEST_ONCE" ] && exit 0

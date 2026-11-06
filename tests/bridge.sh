@@ -290,7 +290,9 @@ check 'SIGTERM requests Android host stop' grep -q '^am stopservice -n kr.gen5w.
 check 'SIGTERM does not leave a privileged broker' eval '! grep -q "ApBroker\|root 1000 -c" "$W/fixture/calls"'
 # No readiness marker simulates a host which repeatedly dies on startup.
 : > "$W/fixture/calls"
-BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 BRIDGE_TEST_HOLD_BROKER=1 mksh "$W/pkg/scripts/service.sh" >/dev/null 2>&1 || :
+BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 BRIDGE_TEST_HOLD_BROKER=1 mksh "$W/pkg/scripts/service.sh" >"$W/fixture/hostfail.log" 2>&1 || :
+check 'host startup failure is reported in the service log' grep -q 'FAIL bridge: host repeatedly failed to start' "$W/fixture/hostfail.log"
+check 'host startup log says the host is being started' grep -q 'WAIT bridge: starting the host' "$W/fixture/hostfail.log"
 check 'host startup failure stops after three attempts' test "$(grep -c '^am startservice' "$W/fixture/calls")" = 3
 : > "$W/fixture/calls"
 BRIDGE_TEST_ONCE= BRIDGE_TEST_INTERVAL=0.1 mksh "$W/pkg/scripts/service.sh" > "$W/fixture/retry.log" 2>&1 || :
@@ -299,6 +301,7 @@ before=$(wc -l < "$W/fixture/calls")
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'bridge waits while installation needs a reboot' run service
 check 'pending reboot launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+check 'pending reboot is named in the service log' grep -q 'WAIT bridge: installer reboot is pending' "$W/last-run"
 rm "$W/data/nemesis/gen5wkr.noreboot"
 check 'match mode starts the bridge' run service
 check 'match mode launches the daemon' test "$(wc -l < "$W/fixture/calls")" -gt "$before"
@@ -308,6 +311,7 @@ mkdir -p "$W/net"; export BRIDGE_TEST_NET=$W/net
 before=$(wc -l < "$W/fixture/calls")
 check 'dongle edition waits without wlan0' run service
 check 'no dongle interface launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+check 'missing dongle interface is named in the service log' grep -q 'WAIT bridge: dongle edition: no wlan0 yet' "$W/last-run"
 mkdir "$W/net/wlan0"
 check 'dongle edition starts once wlan0 exists' run service
 check 'dongle interface launches the daemon' test "$(wc -l < "$W/fixture/calls")" -gt "$before"
@@ -320,6 +324,7 @@ rm "$W/data/nemesis/gen5wkr.noreboot"
 echo other > "$W/data/nemesis/gen5wkr.ap-match"
 check 'wrong match marker waits' run service
 check 'wrong match marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+check 'wrong match marker is named in the service log' grep -q "WAIT bridge: wireless is not in match mode" "$W/last-run"
 rm -f "$W/data/nemesis/gen5wkr.ap-match"
 echo match > "$W/match-src"; ln -s "$W/match-src" "$W/data/nemesis/gen5wkr.ap-match"
 check 'symlinked match marker waits' run service

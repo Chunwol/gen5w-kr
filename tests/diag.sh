@@ -33,6 +33,21 @@ echo '11-04 22:34:19.000 I/Other( 9): last buffered line'
 EOF
 chmod +x "$W/bin/logcat"
 echo 1 > "$W/props/sys.boot_completed"
+# Supervisor markers, the host app's ready file and the recorded relay hashes.
+echo match > "$D/gen5wkr.ap-match"
+mkdir -p "$D/gen5wkr.apguard" "$W/data/data/kr.gen5w.wirelesshost/files" "$W/sys/app" "$W/sys/etc/gen5w-kr-backup/bridge"
+echo 2 > "$D/gen5wkr.apguard.count"
+echo boot-1 > "$D/gen5wkr.apguard/attempt"
+echo 4321 > "$W/data/data/kr.gen5w.wirelesshost/files/bridge-ready"
+echo dipo-apk > "$W/sys/app/HKMC_DiPO.apk"
+echo 0123456789abcdef0123456789abcdef > "$W/sys/etc/gen5w-kr-backup/bridge/diporelay.apk.md5"
+printf '#!/bin/sh
+echo "package:kr.gen5w.wirelesshost"
+echo "package:com.other.app"
+' > "$W/bin/pm"; chmod +x "$W/bin/pm"
+printf '#!/bin/sh
+for f in "$@"; do echo "feedfeedfeedfeedfeedfeedfeedfeed  $f"; done
+' > "$W/bin/md5"; chmod +x "$W/bin/md5"
 run() { (cd "$W/usb" && PATH="$W/bin:$PATH" IT_DATA="$W/data" IT_SYSFS="$W/sysfs" IT_PROC="$W/proc" IT_SYSTEM="$W/sys" mksh diag.sh > "$W/out" 2>&1); }
 O=$W/usb/GEN5W-REPORT/DIAG-1.txt
 check 'diagnosis runs after boot' run
@@ -48,6 +63,10 @@ check 'service log keeps only its last 400 lines' eval 'grep -qx "timer: state a
 check 'drive-log refusal reason is collected' grep -q 'reason=not-usb-storage' "$O"
 check 'stock projection decision is collected' grep -q 'Not Exist device info' "$O"
 check 'bridge lines are collected' grep -q 'Gen5wWireless.*result=17' "$O"
+check 'supervisor markers are collected' eval 'grep -q "^== bridge runtime state" "$O" && grep -q "first line: match" "$O" && grep -q "gen5wkr.apguard/ (directory)" "$O" && grep -q "attempt: boot-1" "$O"'
+check 'restart guard count is collected' grep -q 'first line: 2' "$O"
+check 'host app presence and ready file are collected' eval 'grep -q "package:kr.gen5w.wirelesshost" "$O" && ! grep -q "com.other.app" "$O" && grep -q "first line: 4321" "$O"'
+check 'relay file hashes are collected next to the recorded ones' eval 'grep -q "HKMC_DiPO.apk" "$O" && grep -qx "diporelay.apk.md5: 0123456789abcdef0123456789abcdef" "$O"'
 check 'lines with words such as driving are kept' grep -q 'driving the soft AP' "$O"
 check 'network names are dropped' eval '! grep -q MyHomeNetwork "$O"'
 check 'device names are dropped' eval '! grep -q "DEVICE_NAME" "$O"'

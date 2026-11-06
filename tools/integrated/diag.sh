@@ -69,6 +69,35 @@ section() { echo; echo "== $1"; }
         echo "$dev $point $fs ${real:-unresolved}"
     done < "$PROC/mounts"
     section processes; ps | grep -i -E 'gen5w|dipo|iap2|gpm|hostapd|wpa|dhcp|bluetooth|projection|nemesis' | clean
+    section 'bridge runtime state (installer and supervisor markers)'
+    for f in "$DATA"/nemesis/gen5wkr.*; do
+        [ -e "$f" ] || [ -L "$f" ] || continue
+        if [ -f "$f" ] && [ ! -L "$f" ]; then
+            ls -l "$f" 2>/dev/null | clean
+            v=; IFS= read -r v < "$f"; echo "  first line: $v" | clean
+        elif [ -d "$f" ] && [ ! -L "$f" ]; then
+            echo "${f##*/}/ (directory)"
+            for g in "$f"/*; do
+                [ -f "$g" ] || continue
+                v=; IFS= read -r v < "$g"; echo "  ${g##*/}: $v" | clean
+            done
+        fi
+    done
+    section 'wireless host app'
+    pm list packages 2>/dev/null | grep -i -E 'gen5w' | clean
+    for g in "$DATA"/data/kr.gen5w.wirelesshost/files/*; do
+        [ -f "$g" ] || continue
+        ls -l "$g" 2>/dev/null | clean
+        v=; IFS= read -r v < "$g"; echo "  first line: $v" | clean
+    done
+    section 'relay files against the recorded hashes'
+    for f in "${IT_SYSTEM:-/system}"/app/HKMC_DiPO.apk "${IT_SYSTEM:-/system}"/app/HKMC_DiPO.odex "${IT_SYSTEM:-/system}"/app/Iap2ServerApp.odex; do
+        [ -f "$f" ] && md5 "$f" 2>/dev/null
+    done
+    for f in "${IT_SYSTEM:-/system}"/etc/gen5w-kr-backup/bridge/*.md5; do
+        [ -f "$f" ] || continue
+        v=; IFS= read -r v < "$f"; echo "${f##*/}: $v"
+    done
     for f in "$LOGS"/gen5w.kr.*/*.log; do
         [ -f "$f" ] || continue
         section "service log ${f#$LOGS/} (last 400 lines)"
