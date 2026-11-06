@@ -71,17 +71,21 @@ relay_apk_live() {
 # ODEX into classes.dex (lpatch writes nothing unless the source and the result match the
 # hashes inside the delta), which is added to the verified stock APK.
 relay_assemble() {
-    typeset out=$1 dex=$1.classes.dex
-    [ ! -L "$out" ] && [ ! -L "$dex" ] || return 1
-    rm -f "$out" "$dex" || return 1
-    if [ -f "$RELAY_LPD" ] && [ ! -L "$RELAY_LPD" ] && [ -x "$LPATCH" ] &&
-       "$LPATCH" delta "$RELAY_LPD" "$STATE/dipooriginal" "$dex" >/dev/null 2>&1 &&
-       "$LPATCH" zipadd "$STATE/dipoapkoriginal" "$dex" "$out" >/dev/null 2>&1 &&
+    typeset out=$1 dex=$1.classes.dex lplog=$STATE/lpatch.log line rc=0
+    [ ! -L "$out" ] && [ ! -L "$dex" ] && [ ! -L "$lplog" ] || return 1
+    rm -f "$out" "$dex" "$lplog" || return 1
+    [ -f "$RELAY_LPD" ] && [ ! -L "$RELAY_LPD" ] || { log 'FAIL bridge relay: the relay delta file is missing'; return 1; }
+    [ -x "$LPATCH" ] || { log 'FAIL bridge relay: lpatch is missing or not executable'; return 1; }
+    log "STEP bridge relay: stock DiPO ODEX md5 $(digest "$STATE/dipooriginal"), APK md5 $(digest "$STATE/dipoapkoriginal")"
+    if "$LPATCH" delta "$RELAY_LPD" "$STATE/dipooriginal" "$dex" > "$lplog" 2>&1 &&
+       "$LPATCH" zipadd "$STATE/dipoapkoriginal" "$dex" "$out" >> "$lplog" 2>&1 &&
        [ -s "$out" ]; then
-        rm -f "$dex"
+        rm -f "$dex" "$lplog"
         return 0
     fi
-    rm -f "$out" "$dex"
+    while IFS= read -r line || [ -n "$line" ]; do log "  lpatch: $line"; done < "$lplog"
+    log 'FAIL bridge relay: lpatch could not assemble the relay APK from the stock files'
+    rm -f "$out" "$dex" "$lplog"
     return 1
 }
 relay_odex_live() {
@@ -351,7 +355,7 @@ install_relay_dipo() {
     rm -f "$opt" "$dexlog" || return 1
     echo "$OWNER" > "$STATE/diporelaystaging" || { log 'FAIL bridge relay: could not write staging marker'; return 1; }
     if ! relay_assemble "$assembled"; then
-        log 'FAIL bridge relay: lpatch could not assemble the relay APK from the stock files'
+        :   # relay_assemble has already logged the reason
     elif ! { cp -p "$STATE/dipoapkoriginal" "$apk_stage" && cat "$assembled" > "$apk_stage" &&
              [ "$(digest "$apk_stage")" = "$(digest "$assembled")" ]; }; then
         log 'FAIL bridge relay: could not stage the relay APK'

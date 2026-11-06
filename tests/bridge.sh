@@ -484,7 +484,7 @@ cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
 printf 'delta\n' > "$W/pkg/app/HKMC_DiPO.relay.lpd"
 cat > "$W/bin/lpatch" <<EOF
 #!/bin/sh
-[ "\${BRIDGE_TEST_LPATCH_FAIL:-0}" != 1 ] || exit 1
+[ "\${BRIDGE_TEST_LPATCH_FAIL:-0}" != 1 ] || { echo "RESULT delta status=MISMATCH file=\$3 md5=aaaa want=bbbb"; exit 1; }
 case "\$1" in
     delta) cmp -s "\$3" "$W/fixture/dipo-v039-original" && [ -s "\$2" ] && printf 'relay-dex\n' > "\$4" ;;
     zipadd) cmp -s "\$2" "$W/fixture/dipo-v039-apk" && [ -s "\$3" ] && printf 'private-relay-apk\n' > "\$4" ;;
@@ -553,6 +553,8 @@ export BRIDGE_TEST_LPATCH_FAIL=1
 if run post; then bad 'relay rejects a delta that does not match the stock files'; else ok 'relay rejects a delta that does not match the stock files'; fi
 unset BRIDGE_TEST_LPATCH_FAIL
 check 'rejected delta names the lpatch step' grep -q 'FAIL bridge relay: lpatch could not assemble' "$W/last-run"
+check 'rejected delta shows the lpatch output' grep -q 'lpatch: RESULT delta status=MISMATCH' "$W/last-run"
+check 'rejected delta shows the stock ODEX hash' grep -q 'STEP bridge relay: stock DiPO ODEX md5 ' "$W/last-run"
 check 'rejected delta restores iAP2' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'rejected delta keeps DiPO APK stock' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
 check 'rejected delta keeps DiPO ODEX stock' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
