@@ -78,24 +78,25 @@ section() { echo; echo "== $1"; }
         elif [ -d "$f" ] && [ ! -L "$f" ]; then
             echo "${f##*/}/ (directory)"
             for g in "$f"/*; do
-                [ -f "$g" ] || continue
+                [ -f "$g" ] && [ ! -L "$g" ] || continue
                 v=; IFS= read -r v < "$g"; echo "  ${g##*/}: $v" | clean
             done
         fi
     done
     section 'wireless host app'
     pm list packages 2>/dev/null | grep -i -E 'gen5w' | clean
-    for g in "$DATA"/data/kr.gen5w.wirelesshost/files/*; do
-        [ -f "$g" ] || continue
+    # Only the one file the host writes, and never through a link: the app can create files here.
+    g=$DATA/data/kr.gen5w.wirelesshost/files/bridge-ready
+    if [ -f "$g" ] && [ ! -L "$g" ]; then
         ls -l "$g" 2>/dev/null | clean
         v=; IFS= read -r v < "$g"; echo "  first line: $v" | clean
-    done
+    fi
     section 'relay files against the recorded hashes'
     for f in "${IT_SYSTEM:-/system}"/app/HKMC_DiPO.apk "${IT_SYSTEM:-/system}"/app/HKMC_DiPO.odex "${IT_SYSTEM:-/system}"/app/Iap2ServerApp.odex; do
-        [ -f "$f" ] && md5 "$f" 2>/dev/null
+        [ -f "$f" ] && [ ! -L "$f" ] && md5 "$f" 2>/dev/null
     done
     for f in "${IT_SYSTEM:-/system}"/etc/gen5w-kr-backup/bridge/*.md5; do
-        [ -f "$f" ] || continue
+        [ -f "$f" ] && [ ! -L "$f" ] || continue
         v=; IFS= read -r v < "$f"; echo "${f##*/}: $v"
     done
     for f in "$LOGS"/gen5w.kr.*/*.log; do
