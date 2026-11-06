@@ -19,3 +19,7 @@ tools/usb-wifi/package/files/libhardware_legacy.so
 packages/consent-timer/bin/sha256-check
 dist-relay/
 .superpowers/
+packages/wireless-bridge/bin/lpatch
+packages/wireless-bridge/app/HKMC_DiPO.relay.lpd
+packages/wireless-bridge/app/relay-v039.md5
+packages/wireless-bridge/app/relay-v039.complete
