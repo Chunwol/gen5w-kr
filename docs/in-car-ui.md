@@ -68,4 +68,5 @@ uilog 서비스 (root, 코어 패키지, 15초마다)
 
 - **진단 저장** (관리 화면): 상태, 최근 기록, 이 차의 시스템 정보(`facts`)를 한 파일로 `/storage/usb0/gen5w-kr-diag/diag-<번호>.txt`에 저장합니다. `/proc/mounts`에 실제 마운트가 있을 때만 쓰고, 폴더가 링크이면 쓰지 않습니다. 결과는 "USB에 저장 / USB 없음 / 쓰기 실패"로 표시합니다. 차 안에는 `/data/nemesis/gen5wkr.ui/diag-latest.txt`로 한 부 남습니다.
 - **Wi-Fi ADB** (ONOFF): `service.adb.tcp.port`(런타임 속성)만 바꾸고 adbd를 다시 시작합니다. 영구 속성은 건드리지 않아 재부팅하면 꺼집니다. 이 차 부트 이미지에서 확인한 값: `persist.sys.usb.config=host,adb`, `ro.adb.secure=1`(키 승인 필요). 승인 창이 차 화면에 뜨는지는 확인하지 못했습니다.
-- **만들지 않은 것**: OTA 차단(이 차의 OTA는 `ro.product.ota=redbend`로만 확인했고 패키지 이름을 모릅니다), 차 안 전체 제거(NEMESIS의 제거 호출 방법을 모릅니다). 진단 저장 파일의 `facts`에 패키지 이름과 `/data/nemesis` 권한이 들어 있어, 차 시험 뒤 이 값으로 만듭니다.
+- **차 안 제거** (관리 화면, 두 번 확인): `nemesis uninstall <id>`(NEMESIS 공식 문서 03·04)를 패키지별 `preuninstall` 훅을 먼저 실행한 뒤 호출합니다. 훅이 실패하면 그 패키지에서 멈춥니다(NEMESIS 1.15는 훅 실패를 무시하고 지우기 때문). `--force`는 쓰지 않습니다. 코어 앱은 마지막에 NEMESIS Manager에서 지웁니다(제거 중인 서비스가 자기 자신을 지우면 중간에 끊길 수 있어서). 차에서 확인 전.
+- **만들지 않은 것**: OTA 차단(이 차의 OTA는 `ro.product.ota=redbend`로만 확인했고 패키지 이름을 모릅니다), 진단 저장 파일의 `facts`에 패키지 이름과 `/data/nemesis` 권한이 들어 있어, 차 시험 뒤 이 값으로 만듭니다.

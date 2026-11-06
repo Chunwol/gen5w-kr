@@ -66,6 +66,8 @@ public final class StatusModelTest {
         check("missing saved state is none", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).savedState().equals("0:none"));
         check("adb switch is read", StatusModel.parse(java.util.Arrays.asList("ts=10", "sw_adb=on"), null, 12).switchAdb().equals("on"));
         check("adb switch missing is unknown", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).switchAdb().equals("unknown"));
+        check("removed state is read", StatusModel.parse(java.util.Arrays.asList("ts=10", "removed=5:failed:gen5w.kr.audio"), null, 12).removedState().equals("5:failed:gen5w.kr.audio"));
+        check("missing removed state is none", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).removedState().equals("0:none"));
         if (failures != 0) { System.out.println("== StatusModel: " + failures + " failed"); System.exit(1); }
         System.out.println("== StatusModel: all passed");
     }

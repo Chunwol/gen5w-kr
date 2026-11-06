@@ -27,6 +27,10 @@ USB=${UILOG_TEST_USB:-/storage/usb0}
 MOUNTS=${UILOG_TEST_MOUNTS:-/proc/mounts}
 PM=${UILOG_TEST_PM:-pm}
 SAVED=$NEMDIR/gen5wkr.ui-saved   # "<number> <result>" of the last diagnosis save
+NEM=${UILOG_TEST_NEM:-/system/xbin/nemesis}
+SH=${UILOG_TEST_SH:-/system/bin/sh}
+APPS=$NEMDIR/apps
+REMOVED=$NEMDIR/gen5wkr.ui-removed    # "<number> <result> [package]" of the last in-car removal
 MAX_SOURCE_BYTES=131072   # a package log above this is not read at all
 PER_SOURCE=25             # newest lines kept per package log
 MAX_LINES=200             # lines in the whole log file
@@ -150,6 +154,7 @@ collect_status() {
         print -r -- "sw_bluelink=$(switch_state bluelink)"
         print -r -- "sw_adb=$(adb_state)"
         print -r -- "saved=$(saved_state)"
+        print -r -- "removed=$(removed_state)"
     } > "$UI_DIR/status.tmp" || return 1
     chmod 644 "$UI_DIR/status.tmp" && mv "$UI_DIR/status.tmp" "$UI_DIR/status"
 }
@@ -188,6 +193,7 @@ read_requests() {
                 set_marker "${line%%=*}" "${line#*=}" || :;;
             adb=on|adb=off) set_adb "${line#adb=}";;
             save=*) handle_save "${line#save=}";;
+            remove=*) handle_remove "${line#remove=}";;
         esac
     done < "$REQUEST"
 }
@@ -269,8 +275,8 @@ handle_save() {
     [ -f "$SAVED" ] && IFS=' ' read -r last _r < "$SAVED"
     [ "$last" = "$n" ] && return 0
     set_saved "$n" working
-    do_save "$n"
-    collect_status || :   # show the result without waiting for the next round
+    # In the background: collecting the unit facts can take longer than the request reader's time limit.
+    ( do_save "$n"; collect_status || : ) &
 }
 saved_state() {
     typeset n r
@@ -298,6 +304,75 @@ set_adb() {
     fi
     stop adbd 2>/dev/null
     start adbd 2>/dev/null
+}
+# In-car removal of every Gen5W KR package EXCEPT the core app (which runs this service and the
+# screen; removing it ends both, so the last step is left to NEMESIS Manager). Same method as the
+# USB kit: each package's own preuninstall hook runs first and must succeed (older NEMESIS ignores
+# a failing hook), then NEMESIS removes the package. The first failure stops everything and is
+# reported; nothing is forced. Runs in the background so the request reader's time limit does not
+# cut it off, and a lock marker keeps two removals from overlapping.
+REMOVE_IDS='drivelog bluelink timer bridge audio wireless dongle'
+set_removed() {
+    [ ! -L "$REMOVED" ] || return 0
+    print -r -- "$1 $2${3:+ $3}" > "$REMOVED.tmp" 2>/dev/null && mv "$REMOVED.tmp" "$REMOVED" 2>/dev/null
+}
+hook_path() {
+    typeset section= line
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            '['*']') section=$line;;
+            preuninstall=*) [ "$section" = '[nemesis]' ] && { print -r -- "${line#*=}"; return 0; };;
+        esac
+    done < "$1"
+    return 1
+}
+run_hook() {
+    typeset tree=$1 helper path
+    [ -d "$tree" ] && [ ! -L "$tree" ] && [ -f "$tree/NEMESIS.data" ] || return 1
+    for helper in "$tree"/bin/*; do
+        [ ! -f "$helper" ] || { [ ! -L "$helper" ] && chmod 755 "$helper"; } || return 1
+    done
+    path=$(hook_path "$tree/NEMESIS.data") || return 0
+    case "$path" in ''|/*|*..*|*[!a-zA-Z0-9_./-]*) return 1;; esac
+    [ -f "$tree/$path" ] && [ ! -L "$tree/$path" ] || return 1
+    ( cd "$tree" && "$SH" "$path" ) >/dev/null 2>&1
+}
+do_remove() {
+    typeset n=$1 short id lock="$NEMDIR/gen5wkr.ui-removing"
+    [ ! -e "$lock" ] || return 0
+    : > "$lock" || return 0
+    set_removed "$n" working
+    if [ ! -x "$NEM" ]; then set_removed "$n" failed nemesis; rm -f "$lock"; return 0; fi
+    for short in $REMOVE_IDS; do
+        id=gen5w.kr.$short
+        [ -d "$APPS/$id" ] || continue
+        set_removed "$n" working "$id"
+        if ! run_hook "$APPS/$id"; then set_removed "$n" failed "$id"; rm -f "$lock"; return 0; fi
+        if ! "$NEM" uninstall "$id" >/dev/null 2>&1; then set_removed "$n" failed "$id"; rm -f "$lock"; return 0; fi
+        [ ! -e "$APPS/$id" ] || set_removed "$n" failed "$id"
+        [ ! -e "$APPS/$id" ] || { rm -f "$lock"; return 0; }
+    done
+    # Markers that only the removed packages looked at (same ones the USB removal clears).
+    for _m in wireless-disabled ap-match ap-hotspot-feature ui-wireless-off ui-timer-off ui-bluelink-off; do
+        [ -L "$NEMDIR/gen5wkr.$_m" ] || rm -f "$NEMDIR/gen5wkr.$_m"
+    done
+    set_removed "$n" done
+    rm -f "$lock"
+}
+handle_remove() {
+    typeset n=$1 last _r
+    case "$n" in ''|*[!0-9]*) return 0;; esac
+    [ "${#n}" -le 10 ] || return 0
+    [ -d "$NEMDIR" ] && [ ! -L "$NEMDIR" ] || return 0
+    [ ! -L "$REMOVED" ] || return 0
+    [ -f "$REMOVED" ] && IFS=' ' read -r last _r < "$REMOVED"
+    [ "$last" = "$n" ] && return 0
+    do_remove "$n" &
+}
+removed_state() {
+    typeset n r id
+    [ -f "$REMOVED" ] && [ ! -L "$REMOVED" ] && IFS=' ' read -r n r id < "$REMOVED"
+    print -r -- "${n:-0}:${r:-none}${id:+:$id}"
 }
 switch_state() { if [ -e "$NEMDIR/gen5wkr.ui-$1-off" ]; then echo off; else echo on; fi; }
 

@@ -15,13 +15,14 @@ public final class SwitchRequest {
     private SwitchRequest() { }
 
     /** A value other than "on" or "off" (for example "unknown") is left out of the file. */
-    static String content(String wireless, String timer, String bluelink, String adb, String save) {
+    static String content(String wireless, String timer, String bluelink, String adb, String save, String remove) {
         StringBuilder b = new StringBuilder();
         line(b, "wireless", wireless);
         line(b, "timer", timer);
         line(b, "bluelink", bluelink);
         line(b, "adb", adb);
         if (save != null && save.matches("[0-9]{1,10}")) b.append("save=").append(save).append('\n');
+        if (remove != null && remove.matches("[0-9]{1,10}")) b.append("remove=").append(remove).append('\n');
         return b.toString();
     }
 
@@ -30,14 +31,15 @@ public final class SwitchRequest {
     }
 
     /** @return false when the file could not be written */
-    /** @param save digits only (a new number asks the collector for one diagnosis save), or null */
-    public static boolean write(File filesDir, String wireless, String timer, String bluelink, String adb, String save) {
+    /** @param remove digits only (a new number asks the collector to remove every package except the core app), or null
+     * @param save digits only (a new number asks the collector for one diagnosis save), or null */
+    public static boolean write(File filesDir, String wireless, String timer, String bluelink, String adb, String save, String remove) {
         if (filesDir == null || !filesDir.isDirectory()) return false;
         File tmp = new File(filesDir, FILE + ".tmp");
         File target = new File(filesDir, FILE);
         try {
             FileOutputStream out = new FileOutputStream(tmp);
-            try { out.write(content(wireless, timer, bluelink, adb, save).getBytes("UTF-8")); }
+            try { out.write(content(wireless, timer, bluelink, adb, save, remove).getBytes("UTF-8")); }
             finally { out.close(); }
             // Android replaces the target atomically; some desktop systems refuse, so retry once after deleting it.
             if (!tmp.renameTo(target) && !(target.delete() && tmp.renameTo(target))) { tmp.delete(); return false; }

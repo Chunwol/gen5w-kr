@@ -43,6 +43,8 @@ run() {
     UILOG_TEST_DATA=$W/data UILOG_TEST_DIR=${UILOG_DIR:-$UI} UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat \
     UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request UILOG_TEST_USB=$W/usb UILOG_TEST_MOUNTS=$W/mounts UILOG_TEST_PM=$W/bin/pm mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
 }
+# Save and removal run in the background after the request is read: give them a moment.
+runs() { run; sleep 0.8; }
 # By default the files go to a root-owned folder under /data/nemesis, never into an app data folder.
 default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1; }
 status() { grep "^$1=" "$UI/status" | { IFS= read -r l; echo "${l#*=}"; }; }
@@ -214,7 +216,7 @@ check 'save writes a file on the mounted USB' test -f "$W/usb/gen5w-kr-diag/diag
 check 'saved file holds status, facts and log' eval 'grep -q "===== status" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "===== facts" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "===== log" "$W/usb/gen5w-kr-diag/diag-12345.txt"'
 check 'a local copy is kept' test -f "$UI/diag-latest.txt"
 check 'status reports the save' test "$(status saved)" = 12345:usb
-rm -f "$W/usb/gen5w-kr-diag/diag-12345.txt"; run
+rm -f "$W/usb/gen5w-kr-diag/diag-12345.txt"; runs
 check 'the same save number is not run twice' test ! -e "$W/usb/gen5w-kr-diag/diag-12345.txt"
 printf 'save=12346
 ' > "$W/request"; : > "$W/mounts"; run
@@ -222,7 +224,7 @@ check 'no mounted USB gives nousb and keeps the local copy' eval '[ "$(status sa
 printf 'save=../../x
 save=
 save=12345678901234
-' > "$W/request"; run
+' > "$W/request"; runs
 check 'a bad save number is ignored' test "$(status saved)" = 12346:nousb
 echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"; rm -rf "$W/usb/gen5w-kr-diag"; mkdir -p "$W/elsewhere"; ln -s "$W/elsewhere" "$W/usb/gen5w-kr-diag"
 printf 'save=12347
@@ -238,6 +240,59 @@ printf 'save=12349
 ' > "$W/request"; run
 check 'a prepared link at the temp name is not written through' eval '[ "$(cat "$W/victim2")" = keep ] && [ "$(status saved)" = 12349:fail ]'
 rm -rf "$W/usb/gen5w-kr-diag" "$W/victim2"
+
+# In-car removal: each package's own hook first, then NEMESIS; the first failure stops; core stays.
+mkpkg() { # id [hookrc]
+    mkdir -p "$W/data/nemesis/apps/$1/scripts"
+    printf '[nemesis]\nid=%s\npreuninstall=scripts/preun.sh\n' "$1" > "$W/data/nemesis/apps/$1/NEMESIS.data"
+    printf '#!/system/bin/sh\necho "hook %s" >> "%s/rmcalls"\nexit %s\n' "$1" "$W" "${2:-0}" > "$W/data/nemesis/apps/$1/scripts/preun.sh"
+}
+cat > "$W/nemesis" <<FAKE
+#!/bin/sh
+echo "\$*" >> "$W/rmcalls"
+[ "\$1" = uninstall ] || exit 0
+[ -n "$W/failuninstall" ] && [ "\$2" = "\$(cat "$W/failuninstall" 2>/dev/null)" ] && exit 5
+rm -rf "$W/data/nemesis/apps/\$2"
+FAKE
+chmod +x "$W/nemesis"
+rmrun() { UILOG_TEST_NEM=$W/nemesis UILOG_TEST_SH=/bin/sh runs; }
+reset; rm -f "$W/rmcalls" "$W/failuninstall"
+for id in drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done
+touch "$N/gen5wkr.wireless-disabled" "$N/gen5wkr.ui-timer-off"
+printf 'remove=555\n' > "$W/request"; rmrun
+check 'every package except core is uninstalled' eval '[ ! -d "$N/apps/gen5w.kr.bridge" ] && [ ! -d "$N/apps/gen5w.kr.drivelog" ] && [ ! -d "$N/apps/gen5w.kr.wireless" ]'
+check 'the core package stays' test -d "$N/apps/gen5w.kr.core"
+check 'core is never sent to uninstall' eval '! grep -q "uninstall gen5w.kr.core" "$W/rmcalls"'
+check 'the hook runs before the uninstall of the same package' eval 'h=$(grep -n "^hook gen5w.kr.bridge" "$W/rmcalls" | cut -d: -f1); u=$(grep -n "^uninstall gen5w.kr.bridge" "$W/rmcalls" | cut -d: -f1); [ -n "$h" ] && [ -n "$u" ] && [ "$h" -lt "$u" ]'
+check 'order follows the USB removal order (bridge before audio before wireless)' eval 'b=$(grep -n "^uninstall gen5w.kr.bridge" "$W/rmcalls" | cut -d: -f1); a=$(grep -n "^uninstall gen5w.kr.audio" "$W/rmcalls" | cut -d: -f1); w=$(grep -n "^uninstall gen5w.kr.wireless" "$W/rmcalls" | cut -d: -f1); [ "$b" -lt "$a" ] && [ "$a" -lt "$w" ]'
+check 'markers of removed packages are cleared' eval '[ ! -e "$N/gen5wkr.wireless-disabled" ] && [ ! -e "$N/gen5wkr.ui-timer-off" ]'
+check 'status reports the removal as done' test "$(status removed)" = 555:done
+rm -f "$W/rmcalls"; rmrun
+check 'the same removal number does not run again' test ! -e "$W/rmcalls"
+# A failing hook stops the whole removal before anything is uninstalled for that package.
+reset; rm -f "$W/rmcalls" "$W/failuninstall"
+for id in drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done
+mkpkg gen5w.kr.audio 1
+printf 'remove=556\n' > "$W/request"; rmrun
+check 'a failing hook stops the removal at that package' test "$(status removed)" = 556:failed:gen5w.kr.audio
+check 'the failing package is not uninstalled' test -d "$N/apps/gen5w.kr.audio"
+check 'packages after the failure are untouched' eval '[ -d "$N/apps/gen5w.kr.wireless" ] && ! grep -q "uninstall gen5w.kr.wireless" "$W/rmcalls"'
+check 'packages before the failure were removed' test ! -d "$N/apps/gen5w.kr.bridge"
+# NEMESIS refusing the uninstall also stops, and nothing is forced.
+reset; rm -f "$W/rmcalls"; echo gen5w.kr.timer > "$W/failuninstall"
+for id in drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done
+printf 'remove=557\n' > "$W/request"; rmrun
+check 'a refused uninstall stops the removal' test "$(status removed)" = 557:failed:gen5w.kr.timer
+check 'no forced uninstall is ever used' eval '! grep -q -- "--force" "$W/rmcalls"'
+rm -f "$W/failuninstall"
+# Bad numbers and a missing NEMESIS.
+reset; rm -f "$W/rmcalls"; mkpkg gen5w.kr.bridge
+printf 'remove=../x\nremove=\nremove=12345678901234\n' > "$W/request"; rmrun
+check 'a bad removal number is ignored' test ! -e "$W/rmcalls"
+printf 'remove=558\n' > "$W/request"; UILOG_TEST_NEM=$W/no-such-nemesis UILOG_TEST_SH=/bin/sh runs
+check 'without the NEMESIS tool nothing is removed' eval '[ "$(status removed)" = 558:failed:nemesis ] && [ -d "$N/apps/gen5w.kr.bridge" ]'
+check 'a hook path that leaves the package folder is refused' eval 'printf "[nemesis]\npreuninstall=../../evil.sh\n" > "$N/apps/gen5w.kr.bridge/NEMESIS.data"; printf "remove=559\n" > "$W/request"; rmrun; [ "$(status removed)" = 559:failed:gen5w.kr.bridge ]'
+rm -f "$W/request" "$W/rmcalls"
 
 # adb over Wi-Fi: runtime property only, adbd restarted only when the state changes.
 reset; printf 'adb=on

@@ -56,6 +56,9 @@ public final class MainActivity extends Activity {
     private final long[] pendingAt = new long[4];
     private String saveToken; // digits; a new number asks the collector for one diagnosis save
     private long saveAskedAt;
+    private String removeToken; // digits; sent only after the second confirmation
+    private long removeAskedAt;
+    private boolean confirmRemove;
 
     private final Runnable tick = new Runnable() {
         public void run() {
@@ -203,9 +206,10 @@ public final class MainActivity extends Activity {
         final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink()), a = effective(3, model.switchAdb());
         final File dir = getFilesDir();
         final String token = saveToken;
+        final String rtoken = removeToken;
         new Thread(new Runnable() {
             public void run() {
-                final boolean ok = SwitchRequest.write(dir, w, t, b, a, token);
+                final boolean ok = SwitchRequest.write(dir, w, t, b, a, token, rtoken);
                 handler.post(new Runnable() {
                     public void run() {
                         if (!ok) { pending[0] = pending[1] = pending[2] = pending[3] = null; }
@@ -260,20 +264,53 @@ public final class MainActivity extends Activity {
 
     private void buildManage(LinearLayout page) {
         section(page, "전체 제거");
-        box(page, "차 안에서는 제거하지 않습니다", "제거는 설치 때 사용한 USB의 제거 키트로 합니다. 제거하는 동안 이 앱도 함께 지워지고 차 시스템 파일을 건드리는 단계가 있어, 안전을 확인하기 전까지는 이 화면에 넣지 않았습니다.", YELLOW);
+        String removed = model.removedState();
+        String[] parts = removed.split(":");
+        String result = parts.length > 1 ? parts[1] : "none";
+        String failedId = parts.length > 2 ? parts[2] : "";
+        boolean askedNow = removeToken != null && SystemClock.elapsedRealtime() - removeAskedAt < 10 * 60 * 1000
+                && !removed.startsWith(removeToken + ":");
+        if (askedNow || result.equals("working")) {
+            box(page, "제거하는 중입니다", "끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. " + (parts.length > 2 && result.equals("working") ? "지금: " + failedId : ""), YELLOW);
+        } else if (result.equals("done") && removeToken != null && removed.startsWith(removeToken + ":")) {
+            box(page, "거의 끝났습니다", "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다.", GREEN);
+        } else {
+            if (result.equals("failed") && removeToken != null && removed.startsWith(removeToken + ":")) {
+                box(page, "제거를 멈췄습니다", failedId + " 단계에서 멈췄습니다. 이 패키지와 이후 패키지는 그대로 남아 있습니다. 진단을 저장해 두고 다시 시도하거나 USB 제거 키트를 쓰세요.", RED);
+            }
+            if (!confirmRemove) {
+                buttonRow(page, "Gen5W KR 전부 제거", "무선, 오디오, 안내창, 블루링크, 주행 기록을 제거하고 차 설정을 처음 값으로 되돌립니다. 앱(CarPlay HUD)은 마지막에 NEMESIS Manager에서 지웁니다.",
+                        "제거...", model.readable(), new View.OnClickListener() {
+                            public void onClick(View v) { confirmRemove = true; render(); }
+                        });
+            } else {
+                box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다.", YELLOW);
+                buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", true, new View.OnClickListener() {
+                    public void onClick(View v) {
+                        confirmRemove = false;
+                        removeToken = String.valueOf((System.currentTimeMillis() / 1000) % 1000000000L);
+                        removeAskedAt = SystemClock.elapsedRealtime();
+                        sendRequest();
+                    }
+                });
+                buttonRow(page, "취소", "아무것도 바꾸지 않습니다.", "취소", true, new View.OnClickListener() {
+                    public void onClick(View v) { confirmRemove = false; render(); }
+                });
+            }
+        }
         section(page, "기능만 멈추기");
         note(page, "제거하지 않고 기능만 멈추려면 ONOFF 화면의 스위치를 쓰세요. 스위치를 꺼도 설치된 파일은 그대로 남습니다.");
         section(page, "진단 저장");
         String saved = model.savedState();
-        String result = saved.substring(saved.indexOf(':') + 1);
-        boolean askedNow = saveToken != null && SystemClock.elapsedRealtime() - saveAskedAt < PENDING_MS
+        String saveResult = saved.substring(saved.indexOf(':') + 1);
+        boolean saveNow = saveToken != null && SystemClock.elapsedRealtime() - saveAskedAt < PENDING_MS
                 && !saved.startsWith(saveToken + ":");
-        String help = askedNow || result.equals("working") ? "저장하는 중입니다..."
-                : result.equals("usb") ? "USB의 gen5w-kr-diag 폴더에 저장했습니다. USB를 PC에서 확인하세요."
-                : result.equals("nousb") ? "USB가 연결되어 있지 않아 차 안에만 저장했습니다. USB를 꽂고 다시 누르세요."
-                : result.equals("fail") ? "USB에 쓰지 못했습니다. USB를 확인하고 다시 누르세요."
+        String help = saveNow || saveResult.equals("working") ? "저장하는 중입니다..."
+                : saveResult.equals("usb") ? "USB의 gen5w-kr-diag 폴더에 저장했습니다. USB를 PC에서 확인하세요."
+                : saveResult.equals("nousb") ? "USB가 연결되어 있지 않아 차 안에만 저장했습니다. USB를 꽂고 다시 누르세요."
+                : saveResult.equals("fail") ? "USB에 쓰지 못했습니다. USB를 확인하고 다시 누르세요."
                 : "상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.";
-        buttonRow(page, "진단 저장", help, "저장", model.readable() && !askedNow, new View.OnClickListener() {
+        buttonRow(page, "진단 저장", help, "저장", model.readable() && !saveNow, new View.OnClickListener() {
             public void onClick(View v) {
                 saveToken = String.valueOf((System.currentTimeMillis() / 1000) % 1000000000L);
                 saveAskedAt = SystemClock.elapsedRealtime();
