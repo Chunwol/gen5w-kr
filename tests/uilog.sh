@@ -5,17 +5,43 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PKG=$ROOT/packages/core
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/bin" "$W/data/nemesis/logs" "$W/data/nemesis/apps/gen5w.kr.bridge" "$W/app" "$W/proc"
-printf '#!/bin/sh\ncat "%s/backend" 2>/dev/null\n' "$W" > "$W/bin/getprop"; chmod +x "$W/bin/getprop"
+cat > "$W/bin/getprop" <<FAKE
+#!/bin/sh
+case "\$1" in
+    persist.gen5w.wifi.backend) cat "$W/backend" 2>/dev/null;;
+    service.adb.tcp.port) cat "$W/adbport" 2>/dev/null;;
+esac
+FAKE
+cat > "$W/bin/setprop" <<FAKE
+#!/bin/sh
+[ "\$1" = service.adb.tcp.port ] && echo "\$2" > "$W/adbport"
+echo "setprop \$*" >> "$W/adbcalls"
+FAKE
+cat > "$W/bin/stop" <<FAKE
+#!/bin/sh
+echo "stop \$*" >> "$W/adbcalls"
+FAKE
+cat > "$W/bin/start" <<FAKE
+#!/bin/sh
+echo "start \$*" >> "$W/adbcalls"
+FAKE
+cat > "$W/bin/pm" <<'FAKE'
+#!/bin/sh
+echo package:com.redbend.client
+echo package:com.hkmc.other
+echo package:local.hkmc.nemesis
+FAKE
+chmod +x "$W/bin/getprop" "$W/bin/setprop" "$W/bin/stop" "$W/bin/start" "$W/bin/pm"
 export PATH="$W/bin:$PATH"
 printf 'package-version=0.3.47\n' > "$W/data/nemesis/apps/gen5w.kr.bridge/NEMESIS.data"
 UI=$W/app/gen5w-ui
 LOGS=$W/data/nemesis/logs
 mklog() { mkdir -p "$LOGS/$1"; cat > "$LOGS/$1/$2"; }
-reset() { rm -rf "$UI" "$LOGS" "$W/data/nemesis/gen5wkr."* "$W/ready" "$W/backend"; mkdir -p "$LOGS"; : > "$W/logcat.out"; }
+reset() { rm -rf "$UI" "$LOGS" "$W/data/nemesis/gen5wkr."* "$W/ready" "$W/backend" "$W/adbport" "$W/adbcalls"; mkdir -p "$LOGS"; : > "$W/logcat.out"; }
 printf '#!/bin/sh\ncat "%s/logcat.out"\n' "$W" > "$W/logcat"; chmod +x "$W/logcat"
 run() {
     UILOG_TEST_DATA=$W/data UILOG_TEST_DIR=${UILOG_DIR:-$UI} UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat \
-    UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
+    UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request UILOG_TEST_USB=$W/usb UILOG_TEST_MOUNTS=$W/mounts UILOG_TEST_PM=$W/bin/pm mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
 }
 # By default the files go to a root-owned folder under /data/nemesis, never into an app data folder.
 default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1; }
@@ -48,7 +74,7 @@ check 'log includes another package log' grep -qx 'bluelink|bluelink: monthly re
 check 'bridge lines come first' eval '[ "$(head -1 "$UI/log" | cut -d"|" -f1)" = bridge ]'
 check 'folder is 755' eval '[ "$(stat -c %a "$UI")" = 755 ]'
 check 'files are 644' eval '[ "$(stat -c %a "$UI/status")" = 644 ] && [ "$(stat -c %a "$UI/log")" = 644 ]'
-check 'no temp files are left' eval '[ "$(ls -A "$UI" | grep -vc "^\(status\|log\)$")" = 0 ]'
+check 'no temp files are left' eval '[ "$(ls -A "$UI" | grep -vc "^\(status\|log\|facts\)$")" = 0 ]'
 run
 check 'a second run replaces the log instead of growing it' eval '[ "$(grep -c "^bluelink|" "$UI/log")" = 1 ]'
 
@@ -172,4 +198,55 @@ printf 'wireless=off
 ' > "$W/request"; run
 check 'a small request still works after the size limit' test -f "$N/gen5wkr.ui-wireless-off"
 rm -f "$N/gen5wkr.ui-wireless-off" "$W/request"
+
+# Facts about the unit (read-only) and the diagnosis save.
+reset; run
+check 'facts file is written' test -f "$UI/facts"
+check 'facts list the update-related packages' grep -q 'package:com.redbend.client' "$UI/facts"
+check 'facts list the adb property line' grep -q '^prop persist.sys.usb.config=' "$UI/facts"
+check 'facts show the nemesis folder mode' grep -q -- '-- /data/nemesis' "$UI/facts"
+check 'facts stay under the line cap' test "$(grep -c '' "$UI/facts")" -le 60
+reset; mkdir -p "$W/usb"; echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"
+sed -i "s# $W/usb # $W/usb #" "$W/mounts"
+printf 'save=12345
+' > "$W/request"; run
+check 'save writes a file on the mounted USB' test -f "$W/usb/gen5w-kr-diag/diag-12345.txt"
+check 'saved file holds status, facts and log' eval 'grep -q "===== status" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "===== facts" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "===== log" "$W/usb/gen5w-kr-diag/diag-12345.txt"'
+check 'a local copy is kept' test -f "$UI/diag-latest.txt"
+check 'status reports the save' test "$(status saved)" = 12345:usb
+rm -f "$W/usb/gen5w-kr-diag/diag-12345.txt"; run
+check 'the same save number is not run twice' test ! -e "$W/usb/gen5w-kr-diag/diag-12345.txt"
+printf 'save=12346
+' > "$W/request"; : > "$W/mounts"; run
+check 'no mounted USB gives nousb and keeps the local copy' eval '[ "$(status saved)" = 12346:nousb ] && [ -f "$UI/diag-latest.txt" ] && [ ! -e "$W/usb/gen5w-kr-diag/diag-12346.txt" ]'
+printf 'save=../../x
+save=
+save=12345678901234
+' > "$W/request"; run
+check 'a bad save number is ignored' test "$(status saved)" = 12346:nousb
+echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"; rm -rf "$W/usb/gen5w-kr-diag"; mkdir -p "$W/elsewhere"; ln -s "$W/elsewhere" "$W/usb/gen5w-kr-diag"
+printf 'save=12347
+' > "$W/request"; run
+check 'a linked diag folder on the USB is not written through' eval '[ -z "$(ls -A "$W/elsewhere")" ] && [ "$(status saved)" = 12347:fail ]'
+rm -f "$W/usb/gen5w-kr-diag" "$W/request" "$W/mounts"
+
+# adb over Wi-Fi: runtime property only, adbd restarted only when the state changes.
+reset; printf 'adb=on
+' > "$W/request"; run
+check 'adb=on sets the tcp port' test "$(cat "$W/adbport")" = 5555
+check 'adb=on restarts adbd once' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 1
+check 'status reports adb on' test "$(status sw_adb)" = on
+run
+check 'adb=on again does not restart adbd' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 1
+check 'only the runtime property is set, never a persist one' eval '! grep -q "persist" "$W/adbcalls"'
+printf 'adb=off
+' > "$W/request"; run
+check 'adb=off clears the port' test "$(cat "$W/adbport")" = 0
+check 'adb=off restarts adbd' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 2
+check 'status reports adb off' test "$(status sw_adb)" = off
+run
+check 'adb=off again does not restart adbd' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 2
+reset; run
+check 'with no request adbd is left alone' test ! -e "$W/adbcalls"
+rm -f "$W/request"
 done_tests uilog

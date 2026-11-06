@@ -15,19 +15,20 @@ public final class StatusModel {
     private final String host, relay, backend, version;
     private final boolean apguardOff, wired;
     private final String why;
-    private final String swWireless, swTimer, swBluelink; // on / off / unknown
+    private final String swWireless, swTimer, swBluelink, swAdb; // on / off / unknown
+    private final String saved; // "<number>:<usb|nousb|fail|working|none>"
 
     private StatusModel(boolean readable, long ts, long now, String host, String relay, String backend,
             String version, boolean apguardOff, boolean wired, String why,
-            String swWireless, String swTimer, String swBluelink) {
+            String swWireless, String swTimer, String swBluelink, String swAdb, String saved) {
         this.readable = readable; this.ts = ts; this.now = now; this.host = host; this.relay = relay;
         this.backend = backend; this.version = version; this.apguardOff = apguardOff; this.wired = wired;
         this.why = why;
-        this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink;
+        this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink; this.swAdb = swAdb; this.saved = saved;
     }
 
     public static StatusModel unreadable() {
-        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", UNKNOWN, UNKNOWN, UNKNOWN);
+        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none");
     }
 
     private static String value(List<String> lines, String key) {
@@ -54,7 +55,9 @@ public final class StatusModel {
                 reason(host, logLines),
                 choice(value(statusLines, "sw_wireless"), "on", "off"),
                 choice(value(statusLines, "sw_timer"), "on", "off"),
-                choice(value(statusLines, "sw_bluelink"), "on", "off"));
+                choice(value(statusLines, "sw_bluelink"), "on", "off"),
+                choice(value(statusLines, "sw_adb"), "on", "off"),
+                value(statusLines, "saved").length() == 0 ? "0:none" : value(statusLines, "saved"));
     }
 
     /** The bridge supervisor's own last explanation, only while the host is not running. */
@@ -87,6 +90,9 @@ public final class StatusModel {
     public String switchWireless() { return swWireless; }
     public String switchTimer() { return swTimer; }
     public String switchBluelink() { return swBluelink; }
+    public String switchAdb() { return swAdb; }
+    /** Last diagnosis save as the collector reported it, "<number>:<result>". */
+    public String savedState() { return saved; }
     public boolean apguardOff() { return apguardOff; }
     public boolean wiredOnly() { return wired; }
     public String why() { return why; }

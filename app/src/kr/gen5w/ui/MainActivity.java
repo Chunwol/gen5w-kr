@@ -51,9 +51,11 @@ public final class MainActivity extends Activity {
     private volatile boolean loading;
     private boolean resumed;
     private static final long PENDING_MS = 40000;
-    // Switch order: wireless, timer, bluelink. A click shows its new state at once, until the collector confirms it.
-    private final String[] pending = new String[3];
-    private final long[] pendingAt = new long[3];
+    // Switch order: wireless, timer, bluelink, adb. A click shows its new state at once, until the collector confirms it.
+    private final String[] pending = new String[4];
+    private final long[] pendingAt = new long[4];
+    private String saveToken; // digits; a new number asks the collector for one diagnosis save
+    private long saveAskedAt;
 
     private final Runnable tick = new Runnable() {
         public void run() {
@@ -187,6 +189,9 @@ public final class MainActivity extends Activity {
                         render();
                     }
                 });
+        section(page, "개발자 접속 (이번 부팅만)");
+        switchRow(page, "Wi-Fi ADB", "켜면 같은 Wi-Fi의 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요하고, PC가 차 핫스팟에 붙으면 인터넷이 끊깁니다.",
+                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(3, model.switchAdb()), 3);
         section(page, "이 화면에서 바꿀 수 없는 것");
         row(page, "오디오 모듈", "설치 / 제거로만", DIM);
         row(page, "주행 기록", "USB 키트가 필요", DIM);
@@ -195,14 +200,15 @@ public final class MainActivity extends Activity {
 
     /** Sends the three switch states to the collector. Runs off the main thread. */
     private void sendRequest() {
-        final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink());
+        final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink()), a = effective(3, model.switchAdb());
         final File dir = getFilesDir();
+        final String token = saveToken;
         new Thread(new Runnable() {
             public void run() {
-                final boolean ok = SwitchRequest.write(dir, w, t, b);
+                final boolean ok = SwitchRequest.write(dir, w, t, b, a, token);
                 handler.post(new Runnable() {
                     public void run() {
-                        if (!ok) { pending[0] = pending[1] = pending[2] = null; }
+                        if (!ok) { pending[0] = pending[1] = pending[2] = pending[3] = null; }
                         render();
                     }
                 });
@@ -215,7 +221,7 @@ public final class MainActivity extends Activity {
             public void onClick(View v) {
                 String current = effective(index, "unknown");
                 if (!"on".equals(current) && !"off".equals(current)) {
-                    current = index == 0 ? model.switchWireless() : index == 1 ? model.switchTimer() : model.switchBluelink();
+                    current = index == 0 ? model.switchWireless() : index == 1 ? model.switchTimer() : index == 2 ? model.switchBluelink() : model.switchAdb();
                 }
                 pending[index] = "on".equals(current) ? "off" : "on";
                 pendingAt[index] = SystemClock.elapsedRealtime();
@@ -258,7 +264,47 @@ public final class MainActivity extends Activity {
         section(page, "기능만 멈추기");
         note(page, "제거하지 않고 기능만 멈추려면 ONOFF 화면의 스위치를 쓰세요. 스위치를 꺼도 설치된 파일은 그대로 남습니다.");
         section(page, "진단 저장");
-        note(page, "문제가 있을 때는 USB를 꽂고 키트의 GEN5W-ACTION 파일에 diag 를 적어 진단을 저장하세요. 이 화면의 LOG는 그 요약입니다.");
+        String saved = model.savedState();
+        String result = saved.substring(saved.indexOf(':') + 1);
+        boolean askedNow = saveToken != null && SystemClock.elapsedRealtime() - saveAskedAt < PENDING_MS
+                && !saved.startsWith(saveToken + ":");
+        String help = askedNow || result.equals("working") ? "저장하는 중입니다..."
+                : result.equals("usb") ? "USB의 gen5w-kr-diag 폴더에 저장했습니다. USB를 PC에서 확인하세요."
+                : result.equals("nousb") ? "USB가 연결되어 있지 않아 차 안에만 저장했습니다. USB를 꽂고 다시 누르세요."
+                : result.equals("fail") ? "USB에 쓰지 못했습니다. USB를 확인하고 다시 누르세요."
+                : "상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.";
+        buttonRow(page, "진단 저장", help, "저장", model.readable() && !askedNow, new View.OnClickListener() {
+            public void onClick(View v) {
+                saveToken = String.valueOf((System.currentTimeMillis() / 1000) % 1000000000L);
+                saveAskedAt = SystemClock.elapsedRealtime();
+                sendRequest();
+            }
+        });
+    }
+
+    private void buttonRow(LinearLayout page, String name, String help, String buttonText, boolean enabled, View.OnClickListener click) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setMinimumHeight(dp(84));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.addView(label(name, 18, TEXT, false));
+        text.addView(label(help, 14, DIM, false));
+        r.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView button = label(buttonText, 18, enabled ? 0xFF00232B : DIM, true);
+        button.setGravity(Gravity.CENTER);
+        button.setMinWidth(dp(120));
+        button.setMinHeight(dp(56));
+        button.setPadding(dp(20), dp(14), dp(20), dp(14));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(dp(22));
+        shape.setColor(enabled ? ACCENT : BG);
+        shape.setStroke(dp(1), enabled ? ACCENT : 0xFF333C49);
+        button.setBackgroundDrawable(shape);
+        if (enabled) button.setOnClickListener(click);
+        r.addView(button);
+        page.addView(r);
+        page.addView(divider());
     }
 
     private void buildInfo(LinearLayout page) {

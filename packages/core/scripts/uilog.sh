@@ -22,6 +22,11 @@ INTERVAL=${UILOG_TEST_INTERVAL:-15}
 # marker file in the root-owned $NEMDIR, which the packages' own services look at.
 REQUEST=${UILOG_TEST_REQUEST:-/data/data/kr.gen5w.core/files/ui-request}
 REQ_STEP=${UILOG_TEST_REQ_STEP:-2}
+FACT_LINES=60             # lines of unit facts (read-only checks) kept
+USB=${UILOG_TEST_USB:-/storage/usb0}
+MOUNTS=${UILOG_TEST_MOUNTS:-/proc/mounts}
+PM=${UILOG_TEST_PM:-pm}
+SAVED=$NEMDIR/gen5wkr.ui-saved   # "<number> <result>" of the last diagnosis save
 MAX_SOURCE_BYTES=131072   # a package log above this is not read at all
 PER_SOURCE=25             # newest lines kept per package log
 MAX_LINES=200             # lines in the whole log file
@@ -37,7 +42,7 @@ prepare() {
     if [ ! -e "$UI_DIR" ]; then mkdir "$UI_DIR" || return 1; fi
     [ -d "$UI_DIR" ] || return 1
     chmod 755 "$UI_DIR" || return 1
-    for _f in status log status.tmp log.tmp filter.tmp; do
+    for _f in status log facts status.tmp log.tmp filter.tmp facts.tmp diag.tmp diag-latest.tmp diag-latest.txt; do
         [ ! -L "$UI_DIR/$_f" ] || return 1
     done
     return 0
@@ -143,6 +148,8 @@ collect_status() {
         print -r -- "sw_wireless=$(switch_state wireless)"
         print -r -- "sw_timer=$(switch_state timer)"
         print -r -- "sw_bluelink=$(switch_state bluelink)"
+        print -r -- "sw_adb=$(adb_state)"
+        print -r -- "saved=$(saved_state)"
     } > "$UI_DIR/status.tmp" || return 1
     chmod 644 "$UI_DIR/status.tmp" && mv "$UI_DIR/status.tmp" "$UI_DIR/status"
 }
@@ -179,8 +186,106 @@ read_requests() {
         case "$line" in
             wireless=on|wireless=off|timer=on|timer=off|bluelink=on|bluelink=off)
                 set_marker "${line%%=*}" "${line#*=}" || :;;
+            adb=on|adb=off) set_adb "${line#adb=}";;
+            save=*) handle_save "${line#save=}";;
         esac
     done < "$REQUEST"
+}
+# Read-only facts about this unit, for the next version's features (adb, update check, removal).
+# Nothing here changes anything. Lines pass the same privacy filter as the log, at most FACT_LINES.
+collect_facts() {
+    typeset out="$UI_DIR/facts.tmp" n=0 line k v
+    : > "$out" || return 1
+    {
+        for k in persist.sys.usb.config sys.usb.config service.adb.tcp.port persist.adb.tcp.port ro.adb.secure ro.product.ota ro.build.version.release; do
+            v=$(getprop "$k" 2>/dev/null)
+            print -r -- "prop $k=$v"
+        done
+        print -r -- "-- /data/nemesis (owner, mode)"
+        ls -ln "$NEMDIR" 2>/dev/null
+        ls -ln "$DATA" 2>/dev/null | grep -a -F " nemesis"
+        print -r -- "-- packages matching ota|fota|redbend|nemesis|update"
+        "$PM" list packages 2>/dev/null | grep -a -i -E 'ota|redbend|nemesis|update'
+        print -r -- "-- usb mount"
+        grep -a -F "$USB" "$MOUNTS" 2>/dev/null
+    } 2>/dev/null | grep -a -v -E "$PRIV" | while IFS= read -r line; do
+        [ "$n" -lt "$FACT_LINES" ] || break
+        n=$((n + 1))
+        print -r -- "${line:0:$MAX_LINE}"
+    done >> "$out"
+    chmod 644 "$out" && mv "$out" "$UI_DIR/facts"
+}
+
+# Diagnosis save: status + log + facts into one text file on the USB stick (when mounted) and
+# always a copy in UI_DIR. Needs a real mount (an unmounted /storage/usb0 is a plain folder).
+do_save() {
+    typeset n=$1 result=nousb dest tmp f
+    collect_facts || :
+    tmp="$UI_DIR/diag.tmp"
+    {
+        print -r -- "Gen5W KR diagnosis #$n"
+        for f in status facts log; do
+            print -r -- "===== $f"
+            [ -f "$UI_DIR/$f" ] && [ ! -L "$UI_DIR/$f" ] && cat "$UI_DIR/$f"
+        done
+    } > "$tmp" 2>/dev/null || { rm -f "$tmp"; set_saved "$n" fail; return; }
+    chmod 644 "$tmp"
+    cat "$tmp" > "$UI_DIR/diag-latest.tmp" && mv "$UI_DIR/diag-latest.tmp" "$UI_DIR/diag-latest.txt" || result=fail
+    if grep -a -q -F " $USB " "$MOUNTS" 2>/dev/null && [ -d "$USB" ] && [ ! -L "$USB" ]; then
+        dest=$USB/gen5w-kr-diag
+        if [ ! -L "$dest" ] && mkdir -p "$dest" 2>/dev/null && [ ! -L "$dest/diag-$n.txt" ]             && cat "$tmp" > "$dest/diag-$n.txt.tmp" 2>/dev/null && mv "$dest/diag-$n.txt.tmp" "$dest/diag-$n.txt" 2>/dev/null; then
+            result=usb
+        else
+            rm -f "$dest/diag-$n.txt.tmp" 2>/dev/null
+            result=fail
+        fi
+    fi
+    rm -f "$tmp"
+    set_saved "$n" "$result"
+}
+set_saved() {
+    [ ! -L "$SAVED" ] || return 0
+    print -r -- "$1 $2" > "$SAVED.tmp" 2>/dev/null && mv "$SAVED.tmp" "$SAVED" 2>/dev/null
+}
+# A new save number in the request starts one save (the number is digits only, at most 10).
+handle_save() {
+    typeset n=$1 last _r
+    case "$n" in ''|*[!0-9]*) return 0;; esac
+    [ "${#n}" -le 10 ] || return 0
+    [ -d "$UI_DIR" ] && [ ! -L "$UI_DIR" ] || return 0
+    [ ! -L "$SAVED" ] || return 0
+    [ -f "$SAVED" ] && IFS=' ' read -r last _r < "$SAVED"
+    [ "$last" = "$n" ] && return 0
+    set_saved "$n" working
+    do_save "$n"
+    collect_status || :   # show the result without waiting for the next round
+}
+saved_state() {
+    typeset n r
+    [ -f "$SAVED" ] && [ ! -L "$SAVED" ] && IFS=' ' read -r n r < "$SAVED"
+    print -r -- "${n:-0}:${r:-none}"
+}
+# adb over the car's Wi-Fi, for this boot only: service.adb.tcp.port is a runtime property and is
+# gone after a reboot, and nothing persistent is set. The stock key check (ro.adb.secure) still
+# applies. Only restarts adbd when the state really changes.
+ADB_PORT=5555
+adb_port() {
+    typeset p
+    p=$(getprop service.adb.tcp.port 2>/dev/null)
+    case "$p" in ''|*[!0-9]*) p=0;; esac
+    print -r -- "$p"
+}
+adb_state() { if [ "$(adb_port)" -gt 0 ]; then echo on; else echo off; fi; }
+set_adb() {
+    if [ "$1" = on ]; then
+        [ "$(adb_port)" = "$ADB_PORT" ] && return 0
+        setprop service.adb.tcp.port "$ADB_PORT" || return 1
+    else
+        [ "$(adb_port)" = 0 ] && return 0
+        setprop service.adb.tcp.port 0 || return 1
+    fi
+    stop adbd 2>/dev/null
+    start adbd 2>/dev/null
 }
 switch_state() { if [ -e "$NEMDIR/gen5wkr.ui-$1-off" ]; then echo off; else echo on; fi; }
 
@@ -188,13 +293,16 @@ round() {
     prepare || return 0
     collect_status || :
     collect_log || :
-    rm -f "$UI_DIR/filter.tmp" "$UI_DIR/log.tmp" "$UI_DIR/status.tmp"
+    # The unit facts do not change while it runs: collected once per start (and again for a save).
+    [ -n "$FACTS_DONE" ] || { collect_facts || :; FACTS_DONE=1; }
+    rm -f "$UI_DIR/filter.tmp" "$UI_DIR/log.tmp" "$UI_DIR/status.tmp" "$UI_DIR/facts.tmp" "$UI_DIR/diag.tmp" "$UI_DIR/diag-latest.tmp"
 }
 
 trap 'exit 0' HUP INT TERM
 while :; do
     apply_requests
     round
+    apply_requests   # the first pass may come before the folder exists (needed by a save)
     [ -z "$UILOG_TEST_ONCE" ] || exit 0
     # Requests are looked at every few seconds so a switch takes effect quickly.
     waited=0

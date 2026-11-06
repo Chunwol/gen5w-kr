@@ -63,3 +63,9 @@ uilog 서비스 (root, 코어 패키지, 15초마다)
 - 표식 반영은 최대 약 2초, 화면의 상태 표시는 최대 약 15초 뒤입니다. 그 사이에는 누른 상태를 먼저 보여 줍니다.
 - 설치기의 유선 전용 표식과 재시작 보호 표식이 있으면 무선 스위치는 잠깁니다. 재시작 보호는 부팅 반복 방지용이라 화면에서 풀지 않습니다.
 - 차에서 확인 전: 앱이 `/data/nemesis/gen5wkr.ui`를 읽는지, root 서비스가 앱 폴더의 요청 파일을 읽는지(`/data/data/kr.gen5w.core/files/ui-request`), 각 스위치가 실제로 동작하는지.
+
+## 진단 저장과 Wi-Fi ADB
+
+- **진단 저장** (관리 화면): 상태, 최근 기록, 이 차의 시스템 정보(`facts`)를 한 파일로 `/storage/usb0/gen5w-kr-diag/diag-<번호>.txt`에 저장합니다. `/proc/mounts`에 실제 마운트가 있을 때만 쓰고, 폴더가 링크이면 쓰지 않습니다. 결과는 "USB에 저장 / USB 없음 / 쓰기 실패"로 표시합니다. 차 안에는 `/data/nemesis/gen5wkr.ui/diag-latest.txt`로 한 부 남습니다.
+- **Wi-Fi ADB** (ONOFF): `service.adb.tcp.port`(런타임 속성)만 바꾸고 adbd를 다시 시작합니다. 영구 속성은 건드리지 않아 재부팅하면 꺼집니다. 이 차 부트 이미지에서 확인한 값: `persist.sys.usb.config=host,adb`, `ro.adb.secure=1`(키 승인 필요). 승인 창이 차 화면에 뜨는지는 확인하지 못했습니다.
+- **만들지 않은 것**: OTA 차단(이 차의 OTA는 `ro.product.ota=redbend`로만 확인했고 패키지 이름을 모릅니다), 차 안 전체 제거(NEMESIS의 제거 호출 방법을 모릅니다). 진단 저장 파일의 `facts`에 패키지 이름과 `/data/nemesis` 권한이 들어 있어, 차 시험 뒤 이 값으로 만듭니다.

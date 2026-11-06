@@ -62,6 +62,10 @@ public final class StatusModelTest {
         check("unknown switch word is unknown", sw.switchBluelink().equals("unknown"));
         check("missing switches are unknown", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).switchWireless().equals("unknown"));
         check("unreadable switches are unknown", StatusModel.unreadable().switchTimer().equals("unknown"));
+        check("saved state is read", StatusModel.parse(java.util.Arrays.asList("ts=10", "saved=77:usb"), null, 12).savedState().equals("77:usb"));
+        check("missing saved state is none", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).savedState().equals("0:none"));
+        check("adb switch is read", StatusModel.parse(java.util.Arrays.asList("ts=10", "sw_adb=on"), null, 12).switchAdb().equals("on"));
+        check("adb switch missing is unknown", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).switchAdb().equals("unknown"));
         if (failures != 0) { System.out.println("== StatusModel: " + failures + " failed"); System.exit(1); }
         System.out.println("== StatusModel: all passed");
     }
