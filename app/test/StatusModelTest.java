@@ -40,7 +40,10 @@ public final class StatusModelTest {
         check("stale after 60 seconds", StatusModel.parse(alive, null, 1100).stale());
         check("60 seconds is still fresh", !StatusModel.parse(alive, null, 1060).stale());
         check("missing ts is stale", StatusModel.parse(l("host=alive"), null, 5).stale());
-        check("clock behind the file is not stale", !StatusModel.parse(alive, null, 900).stale());
+        check("a snapshot from a later uptime (earlier boot) is stale", StatusModel.parse(alive, null, 900).stale());
+        check("a few seconds of skew is tolerated", !StatusModel.parse(alive, null, 997).stale());
+        check("age of a fresh snapshot", StatusModel.parse(alive, null, 1010).ageSeconds() == 10);
+        check("age of an earlier-boot snapshot is unknown", StatusModel.parse(alive, null, 900).ageSeconds() == -1);
 
         StatusModel none = StatusModel.parse(null, null, 0);
         check("null is unreadable", !none.readable());

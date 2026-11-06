@@ -25,3 +25,10 @@ kind=sh
 path=scripts/owner.sh
 uid=system
 mode=restart
+
+[service.2]
+name=uilog
+kind=sh
+path=scripts/uilog.sh
+uid=root
+mode=restart

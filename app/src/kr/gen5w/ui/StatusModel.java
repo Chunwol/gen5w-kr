@@ -3,8 +3,10 @@ package kr.gen5w.ui;
 import java.util.List;
 
 /** What the INFO page shows, parsed from the snapshot and log files. Free of Android types. */
+// Times are seconds since boot (the collector writes /proc/uptime), not wall-clock time: the car's clock may be unset.
 public final class StatusModel {
     static final long STALE_SECONDS = 60;
+    static final long SKEW_SECONDS = 5;
     private static final String UNKNOWN = "unknown";
 
     private final boolean readable;
@@ -64,9 +66,13 @@ public final class StatusModel {
     }
 
     public boolean readable() { return readable; }
-    public boolean stale() { return !readable || ts < 0 || now - ts > STALE_SECONDS; }
-    /** Seconds since the snapshot was written, or -1 when unknown. Never negative. */
-    public long ageSeconds() { return ts < 0 ? -1 : Math.max(0, now - ts); }
+    /**
+     * ts and now are both seconds since boot. A snapshot from a later uptime than now is a
+     * leftover from an earlier boot, so it counts as stale too.
+     */
+    public boolean stale() { return !readable || ts < 0 || now - ts > STALE_SECONDS || ts - now > SKEW_SECONDS; }
+    /** Seconds since the snapshot was written, or -1 when unknown or from an earlier boot. */
+    public long ageSeconds() { return ts < 0 || ts > now + SKEW_SECONDS ? -1 : Math.max(0, now - ts); }
     public String host() { return host; }
     public String relay() { return relay; }
     public String backend() { return backend; }
