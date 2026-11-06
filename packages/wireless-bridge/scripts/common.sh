@@ -14,6 +14,25 @@ RELAY_LPD=$SCRIPT_DIR/../app/HKMC_DiPO.relay.lpd
 LPATCH=${BRIDGE_TEST_LPATCH:-$SCRIPT_DIR/../bin/lpatch}
 RELAY_GATE=$SCRIPT_DIR/relay-gate.sh
 DEXOPT=${BRIDGE_TEST_DEXOPT:-/system/bin/dexopt}
+INIT_ENV=${BRIDGE_TEST_INITENV:-/init.environ.rc}
+# dexopt --preopt reads the boot class path from the environment. A script started by
+# NEMESIS may not have it, so take the unit's own value from init, then the V039 list
+# recorded in the stock HKMC_DiPO.odex header.
+boot_class_path() {
+    typeset line value=
+    if [ -n "$BOOTCLASSPATH" ]; then echo "$BOOTCLASSPATH"; return 0; fi
+    if [ -f "$INIT_ENV" ] && [ ! -L "$INIT_ENV" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                *"export BOOTCLASSPATH "*) value=${line#*export BOOTCLASSPATH }; break;;
+            esac
+        done < "$INIT_ENV"
+    fi
+    case "$value" in
+        /system/framework/core.jar:*) echo "$value"; return 0;;
+    esac
+    echo /system/framework/core.jar:/system/framework/conscrypt.jar:/system/framework/okhttp.jar:/system/framework/core-junit.jar:/system/framework/bouncycastle.jar:/system/framework/ext.jar:/system/framework/framework.jar:/system/framework/framework2.jar:/system/framework/telephony-common.jar:/system/framework/voip-common.jar:/system/framework/mms-common.jar:/system/framework/android.policy.jar:/system/framework/services.jar:/system/framework/apache-xml.jar:/system/framework/webviewchromium.jar:/system/framework/automotive.jar
+}
 DIGEST_TOOL=${BRIDGE_TEST_DIGEST:-md5}
 GPM_TARGET=$SYS/app/HKMC_GPM.odex
 GPM_APK=$SYS/app/HKMC_GPM.apk
@@ -307,7 +326,7 @@ relay_stage_clear() {
     [ ! -L "$apk_stage" ] && [ ! -L "$odex_stage" ] && [ ! -L "$marker" ] || return 1
     if [ -e "$apk_stage" ] || [ -e "$odex_stage" ]; then
         [ -f "$marker" ] && [ "$(cat "$marker")" = "$OWNER" ] || return 1
-        rm -f "$apk_stage" "$odex_stage" || return 1
+        rm -f "$apk_stage" "$odex_stage" "$odex_stage.opt" || return 1
     fi
     rm -f "$marker"
 }
@@ -321,26 +340,48 @@ replace_plain() {
     rm -f "$marker"; sync
 }
 install_relay_dipo() {
-    relay_packaged && [ "$DIPO_STATE" = stock ] && [ -f "$STATE/dipoapkoriginal" ] || return 1
     typeset odex_stage=$DIPO_TARGET.gen5w-kr-bridge.tmp apk_stage=$DIPO_APK.gen5w-kr-bridge.tmp
-    typeset assembled=$STATE/diporelay.assembled
-    [ ! -L "$odex_stage" ] && [ ! -L "$apk_stage" ] || return 1
-    relay_stage_clear || return 1
-    echo "$OWNER" > "$STATE/diporelaystaging" || return 1
-    if relay_assemble "$assembled" &&
-       cp -p "$STATE/dipoapkoriginal" "$apk_stage" && cat "$assembled" > "$apk_stage" &&
-       [ "$(digest "$apk_stage")" = "$(digest "$assembled")" ] &&
-       cp -p "$STATE/dipooriginal" "$odex_stage" && : > "$odex_stage" &&
-       "$DEXOPT" --preopt "$apk_stage" "$odex_stage" m=y,u=n >/dev/null 2>&1 &&
-       [ -s "$odex_stage" ] &&
-       echo "$(digest "$apk_stage")" > "$STATE/diporelay.apk.md5" &&
-       echo "$(digest "$odex_stage")" > "$STATE/diporelay.odex.md5" && sync &&
-       mv "$apk_stage" "$DIPO_APK" && mv "$odex_stage" "$DIPO_TARGET" && sync && relay_live; then
-        rm -f "$STATE/diporelaystaging" "$assembled" "$assembled.classes.dex"
-        return 0
+    typeset opt=$DIPO_TARGET.gen5w-kr-bridge.tmp.opt
+    typeset assembled=$STATE/diporelay.assembled dexlog=$STATE/dexopt.log bcp line rc out=missing
+    relay_packaged || { log 'FAIL bridge relay: relay payload is not complete'; return 1; }
+    [ "$DIPO_STATE" = stock ] || { log "FAIL bridge relay: DiPO state is $DIPO_STATE, not stock"; return 1; }
+    [ -f "$STATE/dipoapkoriginal" ] || { log 'FAIL bridge relay: no saved stock DiPO APK'; return 1; }
+    [ ! -L "$odex_stage" ] && [ ! -L "$apk_stage" ] && [ ! -L "$opt" ] || { log 'FAIL bridge relay: staging path is a symlink'; return 1; }
+    relay_stage_clear || { log 'FAIL bridge relay: could not clear earlier staging files'; return 1; }
+    rm -f "$opt" "$dexlog" || return 1
+    echo "$OWNER" > "$STATE/diporelaystaging" || { log 'FAIL bridge relay: could not write staging marker'; return 1; }
+    if ! relay_assemble "$assembled"; then
+        log 'FAIL bridge relay: lpatch could not assemble the relay APK from the stock files'
+    elif ! { cp -p "$STATE/dipoapkoriginal" "$apk_stage" && cat "$assembled" > "$apk_stage" &&
+             [ "$(digest "$apk_stage")" = "$(digest "$assembled")" ]; }; then
+        log 'FAIL bridge relay: could not stage the relay APK'
+    elif ! cp -p "$STATE/dipooriginal" "$odex_stage" || ! : > "$odex_stage"; then
+        log 'FAIL bridge relay: could not stage the relay ODEX'
+    else
+        # dexopt creates its output itself and needs the boot class path.
+        bcp=$(boot_class_path)
+        BOOTCLASSPATH=$bcp "$DEXOPT" --preopt "$apk_stage" "$opt" m=y,u=n > "$dexlog" 2>&1
+        rc=$?
+        if [ "$rc" != 0 ] || [ ! -s "$opt" ]; then
+            [ ! -f "$opt" ] || { [ -s "$opt" ] && out=non-empty || out=empty; }
+            log "FAIL bridge relay: dexopt rc=$rc output=$out"
+            while IFS= read -r line || [ -n "$line" ]; do log "  dexopt: $line"; done < "$dexlog"
+        elif ! { cat "$opt" > "$odex_stage" && rm -f "$opt" && [ -s "$odex_stage" ]; }; then
+            log 'FAIL bridge relay: could not write the optimized ODEX'
+        elif ! { echo "$(digest "$apk_stage")" > "$STATE/diporelay.apk.md5" &&
+                 echo "$(digest "$odex_stage")" > "$STATE/diporelay.odex.md5" && sync; }; then
+            log 'FAIL bridge relay: could not record the relay hashes'
+        elif ! { mv "$apk_stage" "$DIPO_APK" && mv "$odex_stage" "$DIPO_TARGET" && sync; }; then
+            log 'FAIL bridge relay: could not move the relay files into place'
+        elif ! relay_live; then
+            log 'FAIL bridge relay: installed relay files do not match the recorded hashes'
+        else
+            rm -f "$STATE/diporelaystaging" "$assembled" "$assembled.classes.dex" "$dexlog"
+            log 'STEP bridge relay: assembled, preoptimized and installed'
+            return 0
+        fi
     fi
-    rm -f "$apk_stage" "$odex_stage" "$STATE/diporelaystaging" \
-        "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5" "$assembled" "$assembled.classes.dex"
+    rm -f "$apk_stage" "$odex_stage" "$opt" "$dexlog" "$STATE/diporelaystaging"         "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5" "$assembled" "$assembled.classes.dex"
     return 1
 }
 replace_target() {

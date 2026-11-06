@@ -673,10 +673,13 @@ install_transaction() {
         if [ "$rc" != 0 ] || [ ! -f "$APPS/$id/NEMESIS.data" ]; then
             result "$id" failed
             report "FAILED $id rc=$rc"
+            [ -f "$APPS/$id/NEMESIS.data" ] && report "DETAIL $id: NEMESIS registered the package before it failed" ||
+                report "DETAIL $id: NEMESIS did not register the package"
             rollback_transaction; return 1
         fi
-        hook "$id" postinstall || {
-            result "$id" failed; report "FAILED postinstall $id"; rollback_transaction; return 1;
+        hook "$id" postinstall; hrc=$?
+        [ "$hrc" = 0 ] || {
+            result "$id" failed; report "FAILED postinstall $id rc=$hrc"; rollback_transaction; return 1;
         }
         if [ "$id" = gen5w.kr.bridge ] && [ -f "$WIRELESS_OFF" ]; then result "$id" wired-only
         else result "$id" applied; fi

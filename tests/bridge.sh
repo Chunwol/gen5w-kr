@@ -121,8 +121,15 @@ echo 1
 EOF
 cat > "$W/bin/dexopt" <<'EOF'
 #!/bin/sh
+# Like the unit's dexopt --preopt: needs the boot class path from the environment and
+# refuses to write over an existing output file.
 [ "$1" = --preopt ] && [ -s "$2" ] || exit 1
-[ "${BRIDGE_TEST_DEXOPT_FAIL:-0}" != 1 ] || exit 1
+[ "$4" = m=y,u=n ] || { echo "dexopt: bad options $4" >&2; exit 1; }
+case "$BOOTCLASSPATH" in /system/framework/core.jar:*) ;; *) echo "dexopt: BOOTCLASSPATH not set" >&2; exit 1;; esac
+[ ! -e "$3" ] || { echo "dexopt: output exists" >&2; exit 1; }
+[ -z "${BRIDGE_TEST_BCP_LOG:-}" ] || printf '%s
+' "$BOOTCLASSPATH" > "$BRIDGE_TEST_BCP_LOG"
+[ "${BRIDGE_TEST_DEXOPT_FAIL:-0}" != 1 ] || { echo "dexopt: forced failure" >&2; exit 1; }
 printf 'optimized:' > "$3"; cat "$2" >> "$3"
 EOF
 cat > "$W/bin/md5" <<'EOF'
@@ -488,12 +495,14 @@ chmod +x "$W/bin/lpatch"; cp "$W/bin/lpatch" "$W/pkg/bin/lpatch"
 printf 'private-relay-apk\n' > "$W/relay-apk-expected"
 (cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.lpd bin/iap2-bt-patch-v039 bin/dipo-patch-v039 bin/lpatch > app/relay-v039.md5)
 printf '%s\n' 'gen5w.kr.bridge:v039-relay-3' > "$W/pkg/app/relay-v039.complete"
-export BRIDGE_TEST_DEXOPT="$W/bin/dexopt" BRIDGE_TEST_LPATCH="$W/bin/lpatch"
+export BRIDGE_TEST_DEXOPT="$W/bin/dexopt" BRIDGE_TEST_LPATCH="$W/bin/lpatch" BRIDGE_TEST_BCP_LOG="$W/bcp"
 check 'private relay installs as one reviewed pair' run post
 check 'private relay applies exact iAP2 BT entry' cmp -s "$TARGET" "$W/fixture/v039-bt-patched"
 check 'private relay APK is live' cmp -s "$DIPOAPK" "$W/relay-apk-expected"
 check 'relay assembly leaves no temporary files' eval '! ls "$PERSIST" | grep -q assembled' 
 check 'private relay ODEX was preoptimized' grep -q '^optimized:private-relay-apk' "$DIPO"
+check 'dexopt gets the V039 boot class path when init has none' grep -q '^/system/framework/core.jar:.*:/system/framework/automotive.jar$' "$W/bcp"
+check 'relay install reports its steps' grep -q 'STEP bridge relay: assembled, preoptimized and installed' "$W/last-run"
 check 'private relay preserves original APK' cmp -s "$PERSIST/dipoapkoriginal" "$W/fixture/dipo-v039-apk"
 cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
 check 'partial relay pair with stock APK is recognized' run pre
@@ -509,6 +518,20 @@ check 'private relay removal restores APK and ODEX' run preun
 check 'private relay restores exact stock APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
 check 'private relay restores exact stock ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
 check 'private relay cleanup removes runtime journal' test ! -e "$MARK"
+# The unit's own boot class path (init.environ.rc) wins over the built-in list.
+printf '%s
+' 'on init' '    export BOOTCLASSPATH /system/framework/core.jar:/system/framework/unit-specific.jar' > "$W/init.environ.rc"
+export BRIDGE_TEST_INITENV="$W/init.environ.rc"
+check 'relay installs with the unit boot class path' run post
+check 'dexopt gets the boot class path from init.environ.rc' grep -qx '/system/framework/core.jar:/system/framework/unit-specific.jar' "$W/bcp"
+unset BRIDGE_TEST_INITENV
+check 'relay with the unit boot class path removes cleanly' run preun
+# A caller that already exports BOOTCLASSPATH keeps its value.
+export BOOTCLASSPATH=/system/framework/core.jar:/system/framework/from-caller.jar
+check 'relay installs with a caller boot class path' run post
+check 'dexopt keeps the caller boot class path' grep -qx '/system/framework/core.jar:/system/framework/from-caller.jar' "$W/bcp"
+unset BOOTCLASSPATH
+check 'relay with a caller boot class path removes cleanly' run preun
 
 # A preopt failure occurs after iAP2 staging; the transaction must restore all
 # three stock files and must not retain an installed owner journal.
@@ -517,6 +540,8 @@ cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPO
 export BRIDGE_TEST_DEXOPT_FAIL=1
 if run post; then bad 'private relay rejects failed preopt'; else ok 'private relay rejects failed preopt'; fi
 unset BRIDGE_TEST_DEXOPT_FAIL
+check 'failed preopt reports the dexopt exit code and its output' eval 'grep -q "FAIL bridge relay: dexopt rc=1" "$W/last-run" && grep -q "dexopt: forced failure" "$W/last-run"'
+check 'failed preopt reports which install step failed' grep -q 'FAIL bridge: the DiPO relay install failed' "$W/last-run"
 check 'failed relay preopt restores iAP2' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'failed relay preopt restores DiPO APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
 check 'failed relay preopt restores DiPO ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
@@ -527,6 +552,7 @@ cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPO
 export BRIDGE_TEST_LPATCH_FAIL=1
 if run post; then bad 'relay rejects a delta that does not match the stock files'; else ok 'relay rejects a delta that does not match the stock files'; fi
 unset BRIDGE_TEST_LPATCH_FAIL
+check 'rejected delta names the lpatch step' grep -q 'FAIL bridge relay: lpatch could not assemble' "$W/last-run"
 check 'rejected delta restores iAP2' cmp -s "$TARGET" "$W/fixture/v039-original"
 check 'rejected delta keeps DiPO APK stock' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
 check 'rejected delta keeps DiPO ODEX stock' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
