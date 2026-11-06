@@ -34,6 +34,11 @@ public final class StockProjectionSession {
         void event(String name, String result);
     }
 
+    /** True only for a successful read that shows another owner active; failed reads never cancel a relay. */
+    public static boolean foreignOwner(Observation observation) {
+        return observation != null && observation.result == Result.INVOKED && observation.otherActive;
+    }
+
     public static final class Observation {
         public final Result result;
         public final boolean serviceAvailable;

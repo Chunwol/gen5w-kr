@@ -315,6 +315,10 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                         }, context, address);
                 main.post(new Runnable() { public void run() {
                     relayInspectPending = false;
+                    if (StockProjectionSession.foreignOwner(state)) {
+                        relay.cancel(BtRelaySession.CancelReason.FOREIGN_OWNER);
+                        return;
+                    }
                     if (state != null && state.active && state.profileType == PhoneProjectionAccess.TYPE_CARPLAY)
                         relay.projectionActive();
                 }});

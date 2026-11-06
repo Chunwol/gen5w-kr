@@ -11,6 +11,12 @@ PY=$(command -v python3 || command -v python)
 SDK=${ANDROID_SDK:-${ANDROID_HOME:-$HOME/AppData/Local/Android/Sdk}}
 NDK=${ANDROID_NDK_HOME:-$SDK/ndk/27.2.12479018}
 rm -rf dist; mkdir -p dist
+# A build carrying the private relay payload must never leave ordinary-named public artifacts.
+# Whatever happens, move everything to dist-private/ on exit; the public dist/ is left absent.
+if [ -n "${GEN5W_PRIVATE_DIPO_RELAY_APK:-}" ]; then
+    rm -rf dist-private
+    trap 'rm -rf dist-private; [ ! -d dist ] || mv dist dist-private;           echo "PRIVATE BUILD: artifacts are in dist-private/ and must not be published." >&2' EXIT
+fi
 bash probe/build.sh
 mkdir -p probe/package/app
 cp probe/build/gen5w-probe.apk probe/package/app/gen5w-probe.apk

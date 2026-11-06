@@ -522,7 +522,24 @@ public final class StockProjectionSessionTest {
                 "late bootstrap completion cannot revive timed out execution");
     }
 
+    static void foreignOwnerIsRecognisedOnlyFromAValidObservation() {
+        StockProjectionSession.Observation other = new StockProjectionSession.Observation(
+                StockProjectionSession.Result.INVOKED, true, 1, StockProjectionSession.ProfileState.UNKNOWN,
+                false, false, true, StockProjectionSession.WifiCredentialState.UNKNOWN, 0);
+        StockProjectionSession.Observation own = new StockProjectionSession.Observation(
+                StockProjectionSession.Result.INVOKED, true, 1, StockProjectionSession.ProfileState.UNKNOWN,
+                true, false, false, StockProjectionSession.WifiCredentialState.UNKNOWN, 0);
+        StockProjectionSession.Observation failed = new StockProjectionSession.Observation(
+                StockProjectionSession.Result.INVOCATION, true, 1, StockProjectionSession.ProfileState.UNKNOWN,
+                false, false, true, StockProjectionSession.WifiCredentialState.UNKNOWN, 0);
+        check(StockProjectionSession.foreignOwner(other), "another active owner is foreign");
+        check(!StockProjectionSession.foreignOwner(own), "own projection is not foreign");
+        check(!StockProjectionSession.foreignOwner(failed), "failed read does not cancel an active relay");
+        check(!StockProjectionSession.foreignOwner(null), "missing read does not cancel an active relay");
+    }
+
     public static void main(String[] args) {
+        foreignOwnerIsRecognisedOnlyFromAValidObservation();
         delayedBootstrapCannotPollOrOverlap();
         connectAdmissionIsConsumedOnce();
         blockedBinderDoesNotBlockShutdownOrReviveSession();
