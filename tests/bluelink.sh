@@ -102,6 +102,27 @@ check 'unknown file shape left unchanged' test "$(cat "$PREFS")" = 'not xml'
 fresh; dismissed; run post; echo stop > "$W/data/nemesis/gen5wkr.bluelink/stopping"; run quiet
 check 'stopping service writes nothing' has 'value="1761955200000"'
 
+# Turned off from the in-car screen: the car's own values come back, and stay.
+fresh; dismissed; run post; run quiet
+check 'screen switch: hidden before turning off' has "value=\"$FAR\""
+touch "$W/data/nemesis/gen5wkr.ui-bluelink-off"
+run quiet
+check 'screen switch off restores the original time' has 'value="1761955200000"'
+check 'screen switch off drops our time' eval '! grep -qF "$FAR" "$PREFS"'
+check 'screen switch off keeps other settings' has 'keep &amp; me'
+before=$(md5sum < "$PREFS"); run quiet
+check 'screen switch off: a second pass leaves the file alone' test "$(md5sum < "$PREFS")" = "$before"
+rm -f "$W/data/nemesis/gen5wkr.ui-bluelink-off"
+run quiet
+check 'screen switch on hides the reminder again' has "value=\"$FAR\""
+check 'original values are still the first ones after toggling' grep -qF 'value="1761955200000"' "$W/data/nemesis/gen5wkr.bluelink/orig-lines"
+# A car that never had the values: turning off removes ours and leaves a valid map.
+fresh; run post; run quiet
+touch "$W/data/nemesis/gen5wkr.ui-bluelink-off"; run quiet
+check 'screen switch off with no original values drops ours' eval '! grep -q extra_remind "$PREFS"'
+check 'screen switch off leaves a valid map' test "$(grep -c map "$PREFS")" = 2
+rm -f "$W/data/nemesis/gen5wkr.ui-bluelink-off"
+
 # No Bluelink app data: nothing created.
 rm -rf "$W/data"; mkdir -p "$W/data"; run post; run quiet
 check 'no app data dir: nothing created' test ! -e "$W/data/data"

@@ -43,6 +43,8 @@ NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
 STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 DEX=$SERVICE_DIR/app/bridge.dex
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
+# Set from the in-car screen only. The installer's own wired-only marker (gen5wkr.wireless-disabled) is separate.
+UI_OFF=$DATA/nemesis/gen5wkr.ui-wireless-off
 RELAY_GATE=$SERVICE_DIR/scripts/relay-gate.sh
 # Runtime restart guard. The OEM PhoneProjection stack owns Wi-Fi/AP setup; this
 # supervisor only starts the app-side request/observation service.
@@ -140,8 +142,10 @@ terminate_runtime() {
 trap 'terminate_runtime' HUP INT TERM
 trap 'stop_runtime' EXIT
 while [ ! -f "$STOPPING" ]; do
-    if [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ] || [ -e "$APG_OFF" ]; then
-        if [ -e "$APG_OFF" ]; then note 'restart guard is off (too many unfinished starts); wireless stays off'; else note 'wired-only mode is set'; fi
+    if [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ] || [ -e "$APG_OFF" ] || [ -f "$UI_OFF" ]; then
+        if [ -e "$APG_OFF" ]; then note 'restart guard is off (too many unfinished starts); wireless stays off'
+        elif [ -f "$DATA/nemesis/gen5wkr.wireless-disabled" ]; then note 'wired-only mode is set'
+        else note 'wireless is turned off from the screen'; fi
         stop_runtime
         [ -n "$BRIDGE_TEST_ONCE" ] && exit 0
         pause 2

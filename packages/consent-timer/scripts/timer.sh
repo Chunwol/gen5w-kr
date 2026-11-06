@@ -83,6 +83,7 @@ send_close() {
 }
 arm() {
     bump
+    if [ -f "$UI_OFF" ]; then log 'timer: turned off from the screen; stock timer kept'; return; fi
     if ! booted; then
         (
             mine=$gen; n=0

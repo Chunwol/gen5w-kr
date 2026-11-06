@@ -18,6 +18,8 @@ TMP=$PREFS_DIR/.gen5w-bluelink.tmp
 STATE=$DATA/nemesis/gen5wkr.bluelink
 ORIG=$STATE/orig-lines
 STOPPING=$STATE/stopping
+# Set from the in-car screen: the original reminder values are put back and kept.
+UI_OFF=$DATA/nemesis/gen5wkr.ui-bluelink-off
 # 2100-01-01 00:00 UTC in milliseconds
 FAR=4102444800000
 # md5 of the stock V039 odex files, taken from the official V039 system image (system.ext4).

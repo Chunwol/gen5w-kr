@@ -11,11 +11,22 @@ stock_apps || { log 'bluelink: apps are not the checked stock build; reminder le
 until [ "$($GETPROP sys.boot_completed)" = 1 ]; do sleep 5; done
 failed=
 while [ ! -e "$STOPPING" ]; do
-    if [ -d "$PREFS_DIR" ] && ! hidden; then
-        if write_prefs hide; then
-            log 'bluelink: monthly reminder hidden'; failed=
-        elif [ -z "$failed" ]; then
-            log 'bluelink: settings file not in the expected shape; left unchanged'; failed=1
+    if [ -d "$PREFS_DIR" ]; then
+        if [ -f "$UI_OFF" ]; then
+            # Turned off from the in-car screen: give the car its own reminder values back once.
+            if hidden; then
+                if write_prefs restore "$ORIG"; then
+                    log 'bluelink: turned off from the screen; original reminder values restored'; failed=
+                elif [ -z "$failed" ]; then
+                    log 'bluelink: settings file not in the expected shape; left unchanged'; failed=1
+                fi
+            fi
+        elif ! hidden; then
+            if write_prefs hide; then
+                log 'bluelink: monthly reminder hidden'; failed=
+            elif [ -z "$failed" ]; then
+                log 'bluelink: settings file not in the expected shape; left unchanged'; failed=1
+            fi
         fi
     fi
     [ -z "$BL_TEST_ONCE" ] || break

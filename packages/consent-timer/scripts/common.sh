@@ -2,6 +2,8 @@
 SYS=${TIMER_TEST_SYS:-/system}
 PKG=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 TARGET=$SYS/priv-app/SystemUI.odex
+# Set from the in-car screen: the stock 10 second timer then runs unchanged.
+UI_OFF=${TIMER_TEST_DATA:-/data}/nemesis/gen5wkr.ui-timer-off
 log() { echo "$1"; }
 # The log lines and the close request below were checked against these exact
 # stock SystemUI builds only (SHA-256). Anything else keeps the stock 10 seconds.

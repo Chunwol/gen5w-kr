@@ -32,17 +32,25 @@ feed() {
 }
 run() {
     rm -rf "$PKG/run"; : > "$W/am.log"
-    TIMER_TEST_SYS=$W/sys TIMER_TEST_DELAY=1 TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am \
+    TIMER_TEST_DATA=$W/data TIMER_TEST_SYS=$W/sys TIMER_TEST_DELAY=1 TIMER_TEST_LOGCAT=$W/logcat TIMER_TEST_AM=$W/am \
     TIMER_BOOT_WAIT=${TEST_OLD_BOOT_WAIT-3} TIMER_TEST_BOOT_WAIT=${TEST_BOOT_WAIT-3} \
     TIMER_TEST_ONCE=1 TIMER_AM_LOG=$W/am.log mksh "$PKG/scripts/timer.sh" > "$W/timer.log" 2>&1
 }
 closed() { grep -q CLOSE_CONSENTSCREEN_FORCE "$W/am.log"; }
+mkdir -p "$W/data/nemesis"
 
 feed "$OK|2"; run
 check 'passing stock check closes after the short delay' closed
 check 'timer logs startup and accepted state' eval 'grep -q "timer: started" "$W/timer.log" && grep -q "timer: state accepted" "$W/timer.log"'
 check 'timer logs close request' grep -q 'timer: sending delayed close request' "$W/timer.log"
 check 'timer records close broadcast command completion' grep -q 'timer: close broadcast command completed' "$W/timer.log"
+touch "$W/data/nemesis/gen5wkr.ui-timer-off"
+feed "$OK|2"; run
+check 'screen switch off: stock check does not close' eval '! closed'
+check 'screen switch off is named in the log' grep -q 'timer: turned off from the screen; stock timer kept' "$W/timer.log"
+rm -f "$W/data/nemesis/gen5wkr.ui-timer-off"
+feed "$OK|2"; run
+check 'screen switch on again closes as before' closed
 feed "$OK|0" 'D/ConsentScreen(  1): ConsentScreenTimeout is not executed because it shouldn'"'"'t be closed yet|2'; run
 check 'stock failure line cancels' eval '! closed'
 feed "${OK/mIsReverseOn : false/mIsReverseOn : true}|2"; run

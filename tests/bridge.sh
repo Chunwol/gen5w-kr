@@ -368,6 +368,14 @@ touch "$W/data/nemesis/gen5wkr.wireless-disabled"
 check 'wired-only supervisor stays available without wireless daemon' run service
 check 'wired-only launches no Bluetooth daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
 rm "$W/data/nemesis/gen5wkr.wireless-disabled"
+touch "$W/data/nemesis/gen5wkr.ui-wireless-off"
+check 'screen-off marker keeps the supervisor available' run service
+check 'screen-off marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
+check 'screen-off marker is named in the service log' grep -q 'WAIT bridge: wireless is turned off from the screen' "$W/last-run"
+touch "$W/data/nemesis/gen5wkr.wireless-disabled"
+run service
+check 'installer wired-only is named before the screen marker' grep -q 'WAIT bridge: wired-only mode is set' "$W/last-run"
+rm "$W/data/nemesis/gen5wkr.wireless-disabled" "$W/data/nemesis/gen5wkr.ui-wireless-off"
 touch "$W/data/nemesis/gen5wkr.bridge.stopping"
 check 'stopping marker exits supervisor' run service
 check 'stopping marker launches no daemon' test "$(wc -l < "$W/fixture/calls")" = "$before"
