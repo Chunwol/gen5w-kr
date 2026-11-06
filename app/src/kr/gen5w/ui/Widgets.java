@@ -96,11 +96,13 @@ final class Widgets {
 
         @Override protected void onDraw(Canvas canvas) {
             float s = Math.min(getWidth(), getHeight());
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor((0x33 << 24) | (color & 0xFFFFFF));
-            canvas.drawCircle(getWidth() / 2f, getHeight() / 2f, s / 2, paint);
+            float cx = getWidth() / 2f, cy = getHeight() / 2f;
             paint.setColor(color);
-            canvas.drawCircle(getWidth() / 2f, getHeight() / 2f, s * 0.30f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(s * 0.09f);
+            canvas.drawCircle(cx, cy, s / 2 - s * 0.05f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawCircle(cx, cy, s * 0.26f, paint);
         }
     }
 }

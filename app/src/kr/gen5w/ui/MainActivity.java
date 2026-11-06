@@ -38,14 +38,15 @@ public final class MainActivity extends Activity {
     private static final long REFRESH_MS = 5000;
     private static final String LANG_FILE = "lang-en"; // present = English; absent = Korean (default)
     private static final String UI_DIR = "/data/nemesis/gen5wkr.ui";
-    // Colors from Hyundai's published brand palette (hyundai.com CI page): Hyundai Blue #002C5F for the top
-    // bar, Active Blue #00AAD2 as the accent, Light Sand #F6F3F2 for text, Active Red #E63312 for errors,
-    // Sky Blue #AACAE6 toned down for secondary text. Dark surfaces are a navy-tinted black (our choice:
-    // the palette has no dark theme). Green and yellow have no brand color; they are plain status colors.
-    private static final int BG = 0xFF070D16, TOP = 0xFF002C5F, SIDE = 0xFF0B1422, SELECTED = 0xFF12325C,
-            ACCENT = 0xFF00AAD2, TEXT = 0xFFF6F3F2, DIM = 0xFF8EAACB, GREEN = 0xFF3DDC84, YELLOW = 0xFFFFB020,
-            RED = 0xFFE63312, LINE = 0xFF1B2A40, BOX = 0xFF14243B, OUTLINE = 0xFF2F4565,
-            PANEL = 0xFF0F1A2B, RAISED = 0xFF182A44;
+    // Every color on this screen is one of the nine on Hyundai's published color page (hyundai.com CI,
+    // "전용색상"): Hyundai Blue #002C5F, Sand #E4DCD3, Light Sand #F6F3F2, Gold #A36B4F, White, Black,
+    // Active Blue #00AAD2, Sky Blue #AACAE6, Active Red #E63312. Nothing else is used. Only one
+    // dimming is applied (a switch that cannot be changed is drawn at reduced opacity).
+    private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
+            LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
+    private static final int BG = BLACK, TOP = BLUE, SIDE = BLACK, SELECTED = BLUE, ACCENT = ACTIVE_BLUE,
+            TEXT = LIGHT_SAND, DIM = SKY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED, LINE = BLACK,
+            BOX = BLACK, OUTLINE = SKY, PANEL = BLUE, RAISED = BLUE;
     private static final java.util.Random RANDOM = new java.util.Random();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -93,7 +94,7 @@ public final class MainActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable barShape = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {TOP, 0xFF05213F});
+        GradientDrawable barShape = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {TOP, TOP});
         bar.setBackgroundDrawable(barShape);
         bar.setPadding(dp(24), dp(8), dp(16), dp(8));
         TextView title = label("Gen5W KR", 24, TEXT, true);
@@ -107,7 +108,7 @@ public final class MainActivity extends Activity {
         langButton.setMinHeight(dp(46));
         GradientDrawable langShape = new GradientDrawable();
         langShape.setCornerRadius(dp(23));
-        langShape.setColor(alpha(0xFFFFFFFF, 0x26));
+        langShape.setColor(BLACK);
         langButton.setBackgroundDrawable(langShape);
         langButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { setLanguage(!I18n.english()); }
@@ -115,7 +116,7 @@ public final class MainActivity extends Activity {
         bar.addView(langButton);
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         View accentLine = new View(this);
-        accentLine.setBackgroundColor(alpha(ACCENT, 0xCC));
+        accentLine.setBackgroundColor(ACCENT);
         root.addView(accentLine, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)));
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
@@ -321,7 +322,7 @@ public final class MainActivity extends Activity {
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
         text.addView(label(name, 19, TEXT, false));
-        TextView hint = label(locked != null ? locked : help, 14, locked != null ? YELLOW : DIM, false);
+        TextView hint = label(locked != null ? locked : help, 14, locked != null ? SAND : DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -331,7 +332,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.setMargins(0, 0, dp(14), 0);
         r.addView(word, wl);
-        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, 0xFF2A3B55, 0xFF00232B, 0xFFB9C8DA);
+        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, BLACK, WHITE, SKY);
         toggle.set(on, enabled);
         r.addView(toggle, new LinearLayout.LayoutParams(dp(78), dp(44)));
         if (enabled) r.setOnClickListener(click); // the whole row is the touch target
@@ -355,7 +356,7 @@ public final class MainActivity extends Activity {
         r.addView(text, tl);
         boolean filled = tone == 0 || tone == 1;
         int tint = tone == 1 || tone == 3 ? RED : ACCENT;
-        TextView button = label(buttonText, 18, !enabled ? DIM : tone == 0 ? 0xFF00232B : tone == 1 ? 0xFFFFFFFF : tone == 3 ? RED : TEXT, true);
+        TextView button = label(buttonText, 18, !enabled ? DIM : tone == 0 ? BLACK : tone == 1 ? WHITE : tone == 3 ? RED : TEXT, true);
         button.setGravity(Gravity.CENTER);
         button.setMinWidth(dp(132));
         button.setMinHeight(dp(58));
@@ -379,9 +380,9 @@ public final class MainActivity extends Activity {
         boolean askedNow = removeToken != null && SystemClock.elapsedRealtime() - removeAskedAt < 10 * 60 * 1000
                 && !removed.startsWith(removeToken + ":");
         if (askedNow || result.equals("working")) {
-            box(page, "제거하는 중입니다", I18n.t("끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. {0}", parts.length > 2 && result.equals("working") ? I18n.t("지금: {0}", failedId) : ""), YELLOW);
+            box(page, "제거하는 중입니다", I18n.t("끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. {0}", parts.length > 2 && result.equals("working") ? I18n.t("지금: {0}", failedId) : ""), WARN);
         } else if (result.equals("done") && removeToken != null && removed.startsWith(removeToken + ":")) {
-            box(page, "거의 끝났습니다", "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다.", GREEN);
+            box(page, "거의 끝났습니다", "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다.", OK);
         } else {
             if (result.equals("failed") && removeToken != null && removed.startsWith(removeToken + ":")) {
                 box(page, "제거를 멈췄습니다", I18n.t("{0} 단계에서 멈췄습니다. 이 패키지와 이후 패키지는 그대로 남아 있습니다. 진단을 저장해 두고 다시 시도하거나 USB 제거 키트를 쓰세요.", failedId), RED);
@@ -392,7 +393,7 @@ public final class MainActivity extends Activity {
                             public void onClick(View v) { confirmRemove = true; render(); }
                         });
             } else {
-                box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다.", YELLOW);
+                box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다.", WARN);
                 buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", true, 1, new View.OnClickListener() {
                     public void onClick(View v) {
                         confirmRemove = false;
@@ -437,23 +438,23 @@ public final class MainActivity extends Activity {
         String host = model.host();
         if (stale) {
             long age = model.ageSeconds();
-            box(page, "기록이 오래됨", age < 0 ? "이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다." : I18n.t("마지막 갱신이 {0}초 전입니다. 아래 값이 지금과 다를 수 있습니다.", String.valueOf(age)), YELLOW);
+            box(page, "기록이 오래됨", age < 0 ? "이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다." : I18n.t("마지막 갱신이 {0}초 전입니다. 아래 값이 지금과 다를 수 있습니다.", String.valueOf(age)), WARN);
         } else if (host.equals("alive")) {
-            hero(page, "무선 사용 가능", "무선 호스트가 실행 중입니다.", GREEN);
+            hero(page, "무선 사용 가능", "무선 호스트가 실행 중입니다.", OK);
         } else if (host.equals("dead")) {
             String why = I18n.english() ? (model.whyRaw().length() > 0 ? model.whyRaw() : I18n.t(model.why())) : model.why();
-            hero(page, "무선 대기 중", why.length() > 0 ? why : "원인을 확인하지 못했습니다", YELLOW);
+            hero(page, "무선 대기 중", why.length() > 0 ? why : "원인을 확인하지 못했습니다", WARN);
         } else {
             hero(page, "확인 못 함", "", DIM);
         }
         section(page, "연결");
         row(page, "무선 호스트", host.equals("alive") ? "● 실행 중" : host.equals("dead") ? "● 실행 안 됨" : "확인 못 함",
-                stale ? DIM : host.equals("alive") ? GREEN : host.equals("dead") ? YELLOW : DIM);
+                stale ? DIM : host.equals("alive") ? OK : host.equals("dead") ? WARN : DIM);
         String relay = model.relay();
         row(page, "릴레이 구성", relay.equals("on") ? "● 포함됨" : relay.equals("off") ? "● 없음" : "확인 못 함",
-                stale ? DIM : relay.equals("on") ? GREEN : relay.equals("off") ? YELLOW : DIM);
-        row(page, "유선 전용 모드", model.wiredOnly() ? "켜짐" : "꺼짐", model.wiredOnly() ? YELLOW : TEXT);
-        row(page, "재시작 보호", model.apguardOff() ? "● 걸림(무선 꺼짐)" : "● 정상", model.apguardOff() ? RED : stale ? DIM : GREEN);
+                stale ? DIM : relay.equals("on") ? OK : relay.equals("off") ? WARN : DIM);
+        row(page, "유선 전용 모드", model.wiredOnly() ? "켜짐" : "꺼짐", model.wiredOnly() ? WARN : TEXT);
+        row(page, "재시작 보호", model.apguardOff() ? "● 걸림(무선 꺼짐)" : "● 정상", model.apguardOff() ? RED : stale ? DIM : OK);
         section(page, "설치");
         row(page, "설치 버전", model.bridgeVersion().length() > 0 ? "v" + model.bridgeVersion() : "확인 못 함", TEXT);
         String backend = model.backend();
@@ -497,7 +498,7 @@ public final class MainActivity extends Activity {
                 tag.setPadding(dp(8), dp(3), dp(8), dp(3));
                 GradientDrawable tagShape = new GradientDrawable();
                 tagShape.setCornerRadius(dp(10));
-                tagShape.setColor(alpha(error ? RED : ACCENT, 0x26));
+                tagShape.setColor(BLACK);
                 tag.setBackgroundDrawable(tagShape);
                 LinearLayout.LayoutParams tagLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 tagLp.setMargins(0, dp(2), dp(14), 0);
@@ -518,7 +519,7 @@ public final class MainActivity extends Activity {
 
     private void chip(LinearLayout row, String text, final String value, final boolean category) {
         boolean on = category ? categoryFilter.equals(value) : sourceFilter.equals(value);
-        TextView chip = label(text, 16, on ? 0xFF00232B : TEXT, on);
+        TextView chip = label(text, 16, on ? BLACK : TEXT, on);
         chip.setGravity(Gravity.CENTER);
         chip.setMinHeight(dp(44));
         chip.setPadding(dp(18), dp(8), dp(18), dp(8));
@@ -574,11 +575,11 @@ public final class MainActivity extends Activity {
         r.setMinimumHeight(dp(68));
         r.addView(label(name, 19, TEXT, false), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView v = label(value, 17, color, color != TEXT && color != DIM);
-        if (color == GREEN || color == YELLOW || color == RED) {
+        if (color == OK || color == WARN || color == RED) {
             v.setPadding(dp(14), dp(6), dp(14), dp(6));
             GradientDrawable pill = new GradientDrawable();
             pill.setCornerRadius(dp(16));
-            pill.setColor(alpha(color, 0x26));
+            pill.setColor(BLACK);
             v.setBackgroundDrawable(pill);
         }
         r.addView(v);
@@ -590,9 +591,10 @@ public final class MainActivity extends Activity {
         LinearLayout h = new LinearLayout(this);
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(dp(26), dp(22), dp(26), dp(22));
-        GradientDrawable shape = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {alpha(color, 0x2E), PANEL});
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(PANEL);
         shape.setCornerRadius(dp(22));
-        shape.setStroke(dp(1), alpha(color, 0x66));
+        shape.setStroke(dp(3), color);
         h.setBackgroundDrawable(shape);
         LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(dp(44), dp(44));
         dl.setMargins(0, 0, dp(20), 0);
@@ -617,6 +619,7 @@ public final class MainActivity extends Activity {
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(16));
         shape.setColor(BOX);
+        shape.setStroke(dp(2), BLUE);
         b.setBackgroundDrawable(shape);
         View edge = new View(this);
         GradientDrawable edgeShape = new GradientDrawable();
@@ -664,8 +667,6 @@ public final class MainActivity extends Activity {
         if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
         return t;
     }
-
-    private static int alpha(int color, int a) { return (a << 24) | (color & 0x00FFFFFF); }
 
     private int dp(int value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
