@@ -19,9 +19,12 @@ case "$_step" in ''|*[!0-9]*) _step=0;; esac
 if [ "$_step" -lt 999 ]; then
     _bridge=$DATA/nemesis/apps/gen5w.kr.bridge
     _matched=no
+    # The route-only patch and the relay's Bluetooth patch both carry the route capability.
     for _version in v035 v039; do
-        _tool=$_bridge/bin/iap2-route-patch-$_version
-        if [ -x "$_tool" ] && "$_tool" patched "$SYS/app/Iap2ServerApp.odex"; then _matched=yes; break; fi
+        for _kind in iap2-route-patch iap2-bt-patch; do
+            _tool=$_bridge/bin/$_kind-$_version
+            if [ -x "$_tool" ] && "$_tool" patched "$SYS/app/Iap2ServerApp.odex"; then _matched=yes; break 2; fi
+        done
     done
     [ "$_matched" = yes ] || { echo 'SKIP core: matching route-capability bridge unavailable'; exit 77; }
 fi

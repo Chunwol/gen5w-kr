@@ -74,13 +74,13 @@ verify_iap2() {
     local file=$SYS/app/Iap2ServerApp.odex dir=checks/gen5w.kr.bridge/bin version kind tool
     [ -f "$file" ] && [ ! -L "$file" ] || { echo missing; return; }
     for version in v039 v035; do
-        for kind in route iap2; do
-            if [ "$kind" = route ]; then tool=$dir/iap2-route-patch-$version; else tool=$dir/iap2-patch-$version; fi
+        for kind in route bt iap2; do
+            case "$kind" in route) tool=$dir/iap2-route-patch-$version;; bt) tool=$dir/iap2-bt-patch-$version;; *) tool=$dir/iap2-patch-$version;; esac
             [ -f "$tool" ] && [ ! -L "$tool" ] && chmod 755 "$tool" 2>/dev/null
             [ -x "$tool" ] || continue
             "$tool" original "$file" >/dev/null 2>&1 && { echo stock-$version; return; }
             if "$tool" patched "$file" >/dev/null 2>&1; then
-                if [ "$kind" = route ]; then echo route-capability-$version; else echo legacy-control-$version; fi
+                case "$kind" in route|bt) echo route-capability-$version;; *) echo legacy-control-$version;; esac
                 return
             fi
         done

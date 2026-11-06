@@ -44,4 +44,15 @@ EOF
 chmod +x "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-route-patch-v039"
 echo route-only > "$W/sys/app/Iap2ServerApp.odex"
 check "core accepts route-only capability with matching verifier" run
+# The relay bridge leaves the Bluetooth-session patch, which includes the route capability.
+rm -f "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-route-patch-v039"
+cat > "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-bt-patch-v039" <<'EOF'
+#!/bin/sh
+[ "$1" = patched ] && grep -q '^bt-session$' "$2"
+EOF
+chmod +x "$W/data/nemesis/apps/gen5w.kr.bridge/bin/iap2-bt-patch-v039"
+echo route-only > "$W/sys/app/Iap2ServerApp.odex"
+check "core refuses an iAP2 file that matches no verifier" eval '! run'
+echo bt-session > "$W/sys/app/Iap2ServerApp.odex"
+check "core accepts the relay bridge's Bluetooth-session patch" run
 done_tests core
