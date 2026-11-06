@@ -4,7 +4,7 @@
 
 **Goal:** 헤드유닛 화면에서 무선 상태와 이유(INFO), 한국어로 번역한 최근 기록(LOG)을 읽기 전용으로 보여 준다.
 
-**Architecture:** 코어 패키지에 새 root 서비스(`uilog.sh`)를 하나 더 둔다. 이 서비스는 무선 감시 프로그램과 별개로 **모든 gen5w 패키지의 서비스 로그**(`/data/nemesis/logs/gen5w.kr.*/*.log`)와 우리 관련 logcat을 용량 상한 안에서 모아, 상태 스냅샷과 함께 코어 앱의 데이터 폴더에 써 둔다. 코어 앱에 추가하는 화면(Activity)은 그 파일만 읽고 번역해 보여 준다. 화면은 아무것도 쓰거나 바꾸지 않고, 화면이 죽어도 무선·HUD는 영향이 없다.
+**Architecture:** 코어 패키지에 새 root 서비스(`uilog.sh`)를 하나 더 둔다. 이 서비스는 무선 감시 프로그램과 별개로 **모든 gen5w 패키지의 서비스 로그**(`/data/nemesis/logs/gen5w.kr.*/*.log`)와 우리 관련 logcat을 용량 상한 안에서 모아, 상태 스냅샷과 함께 **root 소유 폴더 `/data/nemesis/gen5wkr.ui`** 에 써 둔다(앱이 소유한 폴더에는 root가 쓰지 않는다: 보안 검토 반영). 코어 앱에 추가하는 화면(Activity)은 그 파일만 읽고 번역해 보여 준다. 화면은 아무것도 쓰거나 바꾸지 않고, 화면이 죽어도 무선·HUD는 영향이 없다.
 
 **Tech Stack:** Java 8 소스(minSdk 18, 리소스 파일 없이 코드로 화면 구성), POSIX/mksh, 기존 `tests/bridge.sh`·`tests/java.sh`, `app/build.sh`.
 
@@ -72,14 +72,14 @@
 - Modify: `tests/java.sh`
 
 **Interfaces:**
-- Consumes: `LogTranslator.translate`(이유 문장을 같은 표에서 얻을 필요는 없음. 이유는 `reason` 코드에서 자체 표로 만든다).
+- Consumes: `LogTranslator.translate`.
 - Produces: `public final class StatusModel`
   - `static StatusModel parse(java.util.List<String> statusLines, java.util.List<String> logLines, long nowSeconds)`: `statusLines`는 `key=value` 줄, null이면 `unreadable()`과 같다. `logLines`는 `<출처>|<원문>` 줄(null 허용).
   - `static StatusModel unreadable()`
   - `boolean readable()`, `boolean stale()`(`nowSeconds - ts > 60` 또는 `ts` 없음)
   - `String host()` (`alive`/`dead`/`unknown`), `String relay()` (`on`/`off`/`unknown`), `String backend()`, `String bridgeVersion()`, `boolean apguardOff()`
   - `String why()`: 한 줄 한국어 이유. `host`가 `alive`이거나 `unknown`이면 `""`. 아니면 `logLines` 중 **마지막** `bridge|WAIT bridge:` 또는 `bridge|FAIL bridge:` 줄을 `LogTranslator.translate`로 옮긴 문장. 그런 줄이 없으면 `"원인을 확인하지 못했습니다"`.
-  - 스냅샷 키(Task 3과 같음): `ts` `host` `relay` `backend` `version` `apguard` `wired`.
+  - 스냅샷 키(Task 3과 같음): `ts`(부팅 후 초) `host` `relay` `backend` `version` `apguard` `wired`.
 
 - [ ] **Step 1: 실패하는 테스트.** 단정:
   - 입력 `["ts=1000","host=alive","relay=on","backend=builtin","version=0.3.46","apguard=on","wired=no"]`, 로그 `["bridge|WAIT bridge: wired-only mode is set"]`, now=1010 → `readable()` true, `stale()` false, `host()`=`"alive"`, `why()`=`""`(호스트가 살아 있으면 오래된 WAIT 줄은 무시).
@@ -102,8 +102,8 @@
 - Create: `tests/uilog.sh`; Modify: `tests/run-shell.sh`(목록에 `tests/uilog.sh` 추가)
 
 **Interfaces:**
-- Produces (파일, `UI_DIR=${UILOG_TEST_DIR:-/data/data/kr.gen5w.core/gen5w-ui}`, 폴더 755, 파일 644):
-  - `status`: `key=value` 줄 `ts`(epoch 초) `host`(`alive`/`dead`) `relay`(`on`/`off`/`unknown`) `backend` `version`(브리지 패키지 `package-version`) `apguard`(`on`/`off`) `wired`(`yes`/`no`).
+- Produces (파일, `UI_DIR=${UILOG_TEST_DIR:-/data/nemesis/gen5wkr.ui}`, 폴더 755, 파일 644):
+  - `status`: `key=value` 줄 `ts`(부팅 후 초, `/proc/uptime`) `host`(`alive`/`dead`) `relay`(`on`/`off`/`unknown`) `backend` `version`(브리지 패키지 `package-version`) `apguard`(`on`/`off`) `wired`(`yes`/`no`).
   - `log`: 줄 형식 `<출처>|<원문>`. 출처는 패키지 id에서 `gen5w.kr.`을 뗀 이름(`bridge`, `core`, `bluelink`…)과 `logcat`. 한 번에 하나의 `log`로 교체된다.
 - 환경 변수(테스트용): `UILOG_TEST_DATA`(기본 `/data`), `UILOG_TEST_DIR`, `UILOG_TEST_ONCE`(한 번 수집하고 종료), `UILOG_TEST_LOGCAT`(logcat 대신 쓸 명령), `UILOG_TEST_INTERVAL`.
 
@@ -139,7 +139,7 @@
 - Consumes: `StatusModel.parse(List<String>, List<String>, long)`, `StatusModel.unreadable()`, `LogTranslator.translate`, `LogTranslator.category`.
 - Produces: `public final class MainActivity extends android.app.Activity`.
 
-- [ ] **Step 1: 매니페스트.** `<activity android:name="kr.gen5w.ui.MainActivity" android:exported="true" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" android:label="Gen5W KR">` + 인텐트 필터 `MAIN`/`LAUNCHER`. 기존 서비스·리시버·`uses-library`는 그대로. `versionCode`는 3으로 올리고 `app/build.sh`의 `--version-code 3`도 같이 맞춘다.
+- [ ] **Step 1: 매니페스트.** `<activity android:name="kr.gen5w.ui.MainActivity" android:exported="true" android:theme="@android:style/Theme.Black.NoTitleBar" android:label="Gen5W KR">` + 인텐트 필터 `MAIN`/`LAUNCHER`. 기존 서비스·리시버·`uses-library`는 그대로. `versionCode`는 3으로 올리고 `app/build.sh`의 `--version-code 3`도 같이 맞춘다.
 - [ ] **Step 2: 구현.** 코드로만 화면을 구성한다(왼쪽 메뉴 4개 + 오른쪽 내용).
   - `onResume`에서 `new File(getApplicationInfo().dataDir, "gen5w-ui/status")`와 `log`를 읽는다(백그라운드 스레드, 5초마다 갱신, `onPause`에서 멈춤). 읽기 실패·없음은 `StatusModel.unreadable()`.
   - INFO: `why()`가 비어 있지 않으면 노란 설명 상자. 목록은 무선 호스트(실행 중/꺼짐/확인 못 함), 릴레이(켜짐/꺼짐/확인 못 함), 설치 버전, 내장 Wi-Fi 방식, 재시작 보호(정상/걸림). `stale()`이면 맨 위에 "기록이 오래됨(마지막 갱신 N초 전)", `!readable()`이면 "상태를 읽을 수 없음" 한 줄과 안내만 보인다.
@@ -168,5 +168,12 @@
 ## Self-Review
 
 - **Spec 범위**: 1단계(INFO·LOG 읽기 전용, 한국어 번역은 화면만, 진입 방법 미확정 명시, 1024x600 가정)를 Task 1~5가 덮는다. ONOFF·관리·ADB·OTA·진단 저장 버튼은 spec의 후속 단계라 이 계획에서 제외했다. 진단 저장 버튼은 쓰기 동작이라 2단계에서 한다.
-- **타입 일관성**: `StatusModel.parse(List<String>, long)`·`unreadable()`·`why()`·`stale()`, `LogTranslator.translate/category`가 Task 1·2·4에서 같은 이름이다. 스냅샷 키와 `reason` 코드는 Task 2와 Task 3에서 같다.
-- **미확정**: 앱 폴더(`/data/data/kr.gen5w.core`)를 root가 쓰고 앱이 읽을 수 있는지, 런처에 아이콘이 뜨는지는 PC에서 확인할 수 없다. Task 5의 체크리스트로 차에서 확인한다. 읽을 수 없으면 `상태를 읽을 수 없음`이 뜨고 무선·HUD에는 영향이 없다.
+- **타입 일관성**: `StatusModel.parse(List<String>, List<String>, long)`·`unreadable()`·`why()`·`stale()`, `LogTranslator.translate/category`, `BoundedLines.read`가 Task 1·2·4에서 같은 이름이다. 스냅샷 키는 Task 2와 Task 3에서 같다.
+- **미확정**: `/data/nemesis/gen5wkr.ui`(root 소유)를 앱이 읽을 수 있는지(읽을 수 없으면 시스템 권한 도우미로 읽는 방식으로 바꾼다), 런처에 아이콘이 뜨는지는 PC에서 확인할 수 없다. Task 5의 체크리스트로 차에서 확인한다. 읽을 수 없으면 `상태를 읽을 수 없음`이 뜨고 무선·HUD에는 영향이 없다.
+
+## 구현 중 바뀐 것 (2026-11-06)
+
+- 보안 검토(root가 앱 소유 폴더에 쓰면 폴더 바꿔치기 경합 가능)를 받아 출력 위치를 `/data/nemesis/gen5wkr.ui`(root 소유)로 옮겼다. 앱이 이 폴더를 읽을 수 있는지는 차에서 확인한다.
+- `ts`는 부팅 후 초(`/proc/uptime`)다. 차 시계에 의존하지 않고, 지난 부팅의 낡은 파일은 "이전 부팅 때의 기록"으로 표시한다.
+- 앱의 파일 읽기는 `BoundedLines`(64KB·300줄)로 상한을 둔다. 테마는 `Theme.Black.NoTitleBar`(전체 화면 아님).
+- 화면은 PC 에뮬레이터(1024x600)에서 INFO·LOG·필터 동작을 확인했다. 차에서의 런처 노출과 폴더 읽기는 미확인.

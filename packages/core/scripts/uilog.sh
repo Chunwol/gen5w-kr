@@ -3,10 +3,13 @@
 # Runs as root next to the HUD service, separate from the wireless supervisor. The screen
 # only reads the two files written here. Every size is capped, and a failure only skips
 # one round: the loop keeps going and never touches anything outside UI_DIR.
+# UI_DIR is a root-owned folder under /data/nemesis. Root never writes into the app's own
+# data folder: the app owns that folder and could swap a path for a link between our check
+# and our write.
 DATA=${UILOG_TEST_DATA:-/data}
-UI_DIR=${UILOG_TEST_DIR:-/data/data/kr.gen5w.core/gen5w-ui}
-UI_PARENT=${UI_DIR%/*}
 NEMDIR=$DATA/nemesis
+UI_DIR=${UILOG_TEST_DIR:-$NEMDIR/gen5wkr.ui}
+UI_PARENT=${UI_DIR%/*}
 LOGS=$NEMDIR/logs
 BRIDGE=$NEMDIR/apps/gen5w.kr.bridge
 HOST_READY=${UILOG_TEST_READY:-/data/data/kr.gen5w.wirelesshost/files/bridge-ready}
@@ -22,8 +25,7 @@ MAX_LINE=200              # characters per line
 # Lines that can carry personal data are dropped (same list as the USB diagnosis).
 PRIV='([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}:\*\*|[Ss][Ss][Ii][Dd]|[Pp]assw|PASSW|[Pp]assphrase|[Pp]sk|PSK|[Ss]erial|SERIAL|[Ii]mei|IMEI|[Ii]ccid|ICCID|[Mm]sisdn|MSISDN|VIN[=: ]|vin[=: ]|DEVICE_NAME|[Dd]evice ?[Nn]ame|getName|FRQ:|BND:|ALBUM|TITLE|ARTIST|mArtist'
 
-# The app folder must exist and nothing we write to may be a link (we run as root in a
-# folder the app owns). Creates UI_DIR when missing.
+# The parent folder must exist and nothing we write to may be a link. Creates UI_DIR when missing.
 prepare() {
     [ -d "$UI_PARENT" ] && [ ! -L "$UI_PARENT" ] || return 1
     [ ! -L "$UI_DIR" ] || return 1

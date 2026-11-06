@@ -17,6 +17,8 @@ run() {
     UILOG_TEST_DATA=$W/data UILOG_TEST_DIR=${UILOG_DIR:-$UI} UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat \
     UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
 }
+# By default the files go to a root-owned folder under /data/nemesis, never into an app data folder.
+default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1; }
 status() { grep "^$1=" "$UI/status" | { IFS= read -r l; echo "${l#*=}"; }; }
 
 reset
@@ -29,6 +31,10 @@ bluelink: monthly reminder hidden
 EOF
 run
 check 'collector runs once and exits cleanly' test $? = 0
+default_dir
+check 'default output folder is gen5wkr.ui under nemesis' test -f "$W/data/nemesis/gen5wkr.ui/status" -a -f "$W/data/nemesis/gen5wkr.ui/log"
+check 'script never refers to the core app data folder in code' eval '[ "$(grep -v "^ *#" "$PKG/scripts/uilog.sh" | grep -c "data/data/kr.gen5w.core")" = 0 ]'
+run
 check 'status has the snapshot keys' eval 'for k in ts host relay backend version apguard wired; do grep -q "^$k=" "$UI/status" || exit 1; done'
 check 'status ts is a number' eval '[ -n "$(status ts)" ] && [ -z "$(status ts | tr -d 0-9)" ]'
 check 'status reads the bridge version' test "$(status version)" = 0.3.46
