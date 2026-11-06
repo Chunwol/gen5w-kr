@@ -43,6 +43,8 @@ public final class I18n {
         add("이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다.", "This is from an earlier boot. Waiting for a new one.");
         add("마지막 갱신이 {0}초 전입니다. 아래 값이 지금과 다를 수 있습니다.", "Last updated {0} seconds ago. The values below may differ from now.");
         add("무선 대기 중", "Wireless is waiting");
+        add("무선 사용 가능", "Wireless is ready");
+        add("무선 호스트가 실행 중입니다.", "The wireless host is running.");
         add("연결", "Connection");
         add("무선 호스트", "Wireless host");
         add("● 실행 중", "● Running"); add("● 실행 안 됨", "● Not running"); add("확인 못 함", "Unknown");
