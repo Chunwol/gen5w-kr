@@ -21,7 +21,9 @@ public final class SwitchRequestTest {
         check("a replaced file leaves no temp file", !new File(dir, "ui-request.tmp").exists());
         check("missing folder fails", !SwitchRequest.write(new File("no-such-dir-xyz"), "on", "on", "on", null, null, null));
         check("null folder fails", !SwitchRequest.write(null, "on", "on", "on", null, null, null));
-        check("adb is written", SwitchRequest.write(dir, null, null, null, "on", null, null) && read(target).equals("adb=on" + (char) 10));
+        check("adb is written with its number", SwitchRequest.write(dir, null, null, null, "on:123456", null, null) && read(target).equals("adb=on:123456" + (char) 10));
+        check("adb without a number is left out", SwitchRequest.write(dir, "on", null, null, "on", null, null) && read(target).equals("wireless=on" + (char) 10));
+        check("adb with injected text is left out", SwitchRequest.write(dir, "on", null, null, "on:1\nrm", null, null) && read(target).equals("wireless=on" + (char) 10));
         check("save number is written", SwitchRequest.write(dir, "on", "on", "on", null, "1730000000", null)
                 && read(target).equals("wireless=on\ntimer=on\nbluelink=on\nsave=1730000000\n"));
         check("a bad save number is left out", SwitchRequest.write(dir, "on", null, null, null, "12; rm", null) && read(target).equals("wireless=on\n"));

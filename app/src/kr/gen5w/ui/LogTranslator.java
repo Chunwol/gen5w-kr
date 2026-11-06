@@ -11,6 +11,7 @@ public final class LogTranslator {
     private static final String[][] PHRASES = {
         {"noreboot marker present", "설치 후 재부팅을 기다리는 중입니다"},
         {"ap-match is not 'match'", "핫스팟 설정이 아직 일치하지 않아 기다리는 중입니다"},
+        {"wireless is turned off from the screen", "화면에서 무선을 꺼 두었습니다"},
         {"wired-only mode is set", "유선 전용 모드라 무선을 쓰지 않습니다"},
         {"restart guard is off", "재시작 보호가 걸려 무선이 꺼져 있습니다"},
         {"restart guard unusable", "재시작 보호를 쓸 수 없어 유선만 사용합니다"},

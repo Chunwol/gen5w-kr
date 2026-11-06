@@ -15,21 +15,22 @@ public final class StatusModel {
     private final String host, relay, backend, version;
     private final boolean apguardOff, wired;
     private final String why;
+    private final String whyRaw; // the supervisor's own line (English), or "" when none or unknown
     private final String swWireless, swTimer, swBluelink, swAdb; // on / off / unknown
     private final String removed; // "<number>:<working|done|failed|none>[:<package id>]"
     private final String saved; // "<number>:<usb|nousb|fail|working|none>"
 
     private StatusModel(boolean readable, long ts, long now, String host, String relay, String backend,
-            String version, boolean apguardOff, boolean wired, String why,
+            String version, boolean apguardOff, boolean wired, String why, String whyRaw,
             String swWireless, String swTimer, String swBluelink, String swAdb, String saved, String removed) {
         this.readable = readable; this.ts = ts; this.now = now; this.host = host; this.relay = relay;
         this.backend = backend; this.version = version; this.apguardOff = apguardOff; this.wired = wired;
-        this.why = why;
+        this.why = why; this.whyRaw = whyRaw;
         this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink; this.swAdb = swAdb; this.saved = saved; this.removed = removed;
     }
 
     public static StatusModel unreadable() {
-        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none", "0:none");
+        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none", "0:none");
     }
 
     private static String value(List<String> lines, String key) {
@@ -53,7 +54,7 @@ public final class StatusModel {
                 choice(value(statusLines, "relay"), "on", "off"),
                 backend.length() == 0 ? UNKNOWN : backend, value(statusLines, "version"),
                 "off".equals(value(statusLines, "apguard")), "yes".equals(value(statusLines, "wired")),
-                reason(host, logLines),
+                reason(host, logLines), reasonRaw(host, logLines),
                 choice(value(statusLines, "sw_wireless"), "on", "off"),
                 choice(value(statusLines, "sw_timer"), "on", "off"),
                 choice(value(statusLines, "sw_bluelink"), "on", "off"),
@@ -62,18 +63,27 @@ public final class StatusModel {
                 value(statusLines, "removed").length() == 0 ? "0:none" : value(statusLines, "removed"));
     }
 
-    /** The bridge supervisor's own last explanation, only while the host is not running. */
+    /** The bridge supervisor's own last explanation line, only while the host is not running; null when none. */
+    private static String lastWait(String host, List<String> logLines) {
+        if (!host.equals("dead") || logLines == null) return null;
+        String last = null;
+        for (String line : logLines) {
+            if (line == null || !line.startsWith("bridge|")) continue;
+            String raw = line.substring("bridge|".length());
+            if (raw.startsWith("WAIT bridge:") || raw.startsWith("FAIL bridge:")) last = raw;
+        }
+        return last;
+    }
+
     private static String reason(String host, List<String> logLines) {
         if (!host.equals("dead")) return "";
-        String last = null;
-        if (logLines != null) {
-            for (String line : logLines) {
-                if (line == null || !line.startsWith("bridge|")) continue;
-                String raw = line.substring("bridge|".length());
-                if (raw.startsWith("WAIT bridge:") || raw.startsWith("FAIL bridge:")) last = raw;
-            }
-        }
+        String last = lastWait(host, logLines);
         return last == null ? "원인을 확인하지 못했습니다" : LogTranslator.translate(last);
+    }
+
+    private static String reasonRaw(String host, List<String> logLines) {
+        String last = lastWait(host, logLines);
+        return last == null ? "" : last;
     }
 
     public boolean readable() { return readable; }
@@ -100,4 +110,6 @@ public final class StatusModel {
     public boolean apguardOff() { return apguardOff; }
     public boolean wiredOnly() { return wired; }
     public String why() { return why; }
+    /** The same reason as the supervisor wrote it (English), for the English screen. */
+    public String whyRaw() { return whyRaw; }
 }

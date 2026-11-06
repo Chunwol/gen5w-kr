@@ -199,8 +199,9 @@ while [ ! -f "$STOPPING" ]; do
     if host_alive; then retry_action healthy; else retry_action dead; fi
     host_count=$RETRY_COUNT; host_stable=$RETRY_STABLE
     if [ "$RETRY_ACTION" = blocked ]; then
-        echo 'FAIL bridge: host repeatedly failed to start; wireless suspended until restart'
+        # The forensic lines go first so the explanation is the newest line (the screen shows only the last lines).
         host_forensics
+        echo 'FAIL bridge: host repeatedly failed to start; wireless suspended until restart'
         stop_runtime
         exit 1
     elif [ "$RETRY_ACTION" = start ]; then

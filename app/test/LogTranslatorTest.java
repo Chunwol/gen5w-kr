@@ -22,6 +22,8 @@ public final class LogTranslatorTest {
                 LogTranslator.translate("FAIL bridge: host repeatedly failed to start; wireless suspended until restart"));
         same("host starting", "무선 호스트를 시작하는 중입니다",
                 LogTranslator.translate("WAIT bridge: starting the host (relay=0)"));
+        same("turned off from the screen", "화면에서 무선을 꺼 두었습니다",
+                LogTranslator.translate("WAIT bridge: wireless is turned off from the screen"));
         same("host alive", "무선 호스트가 실행 중입니다", LogTranslator.translate("STEP bridge: host alive"));
         same("relay failure", "릴레이를 켜지 못했습니다 (NoClassDefFoundError)",
                 LogTranslator.translate("relay start failure: java.lang.NoClassDefFoundError: x"));

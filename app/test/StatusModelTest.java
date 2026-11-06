@@ -33,6 +33,8 @@ public final class StatusModelTest {
                         "core|something", "bridge|WAIT bridge: wired-only mode is set", "core|later line"), 1000).why());
         same("other sources are ignored", "원인을 확인하지 못했습니다",
                 StatusModel.parse(dead, l("core|WAIT bridge: wired-only mode is set"), 1000).why());
+        same("English reason is the raw line", "WAIT bridge: wired-only mode is set",
+                StatusModel.parse(dead, l("bridge|WAIT bridge: wired-only mode is set"), 1000).whyRaw());
         same("no bridge line", "원인을 확인하지 못했습니다", StatusModel.parse(dead, l("bridge|STEP bridge: host alive"), 1000).why());
         same("no log at all", "원인을 확인하지 못했습니다", StatusModel.parse(dead, null, 1000).why());
         same("unknown host gives no reason", "", StatusModel.parse(l("ts=1000", "host="), l("bridge|WAIT bridge: x"), 1000).why());

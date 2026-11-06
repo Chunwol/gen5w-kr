@@ -294,8 +294,8 @@ check 'without the NEMESIS tool nothing is removed' eval '[ "$(status removed)" 
 check 'a hook path that leaves the package folder is refused' eval 'printf "[nemesis]\npreuninstall=../../evil.sh\n" > "$N/apps/gen5w.kr.bridge/NEMESIS.data"; printf "remove=559\n" > "$W/request"; rmrun; [ "$(status removed)" = 559:failed:gen5w.kr.bridge ]'
 rm -f "$W/request" "$W/rmcalls"
 
-# adb over Wi-Fi: runtime property only, adbd restarted only when the state changes.
-reset; printf 'adb=on
+# adb over Wi-Fi: a one-time numbered command; runtime property only, adbd restarted only when the state changes.
+reset; printf 'adb=on:111
 ' > "$W/request"; run
 check 'adb=on sets the tcp port' test "$(cat "$W/adbport")" = 5555
 check 'adb=on restarts adbd once' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 1
@@ -303,14 +303,30 @@ check 'status reports adb on' test "$(status sw_adb)" = on
 run
 check 'adb=on again does not restart adbd' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 1
 check 'only the runtime property is set, never a persist one' eval '! grep -q "persist" "$W/adbcalls"'
-printf 'adb=off
+# A reboot clears the runtime property, but the request file and the stored number stay: it must not come back on.
+rm -f "$W/adbport" "$W/adbcalls"; run
+check 'the old request file does not switch adb on again after a reboot' eval '[ ! -e "$W/adbcalls" ] && [ "$(status sw_adb)" = off ]'
+printf 'adb=on:112
+' > "$W/request"; run
+check 'a new number switches adb on again' test "$(cat "$W/adbport")" = 5555
+printf 'adb=off:113
 ' > "$W/request"; run
 check 'adb=off clears the port' test "$(cat "$W/adbport")" = 0
-check 'adb=off restarts adbd' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 2
 check 'status reports adb off' test "$(status sw_adb)" = off
-run
-check 'adb=off again does not restart adbd' test "$(grep -c '^stop adbd' "$W/adbcalls")" = 2
+rm -f "$W/adbcalls"; run
+check 'adb=off again does not restart adbd' test ! -e "$W/adbcalls"
+printf 'adb=on
+adb=on:
+adb=on:x1
+adb=on:12345678901
+' > "$W/request"; rm -f "$W/adbcalls"; run
+check 'adb without a valid number is ignored' test ! -e "$W/adbcalls"
 reset; run
 check 'with no request adbd is left alone' test ! -e "$W/adbcalls"
+# A removal cut off by a restart: the lock and the working state are cleared at start.
+reset; : > "$N/gen5wkr.ui-removing"; printf '77 working gen5w.kr.audio
+' > "$N/gen5wkr.ui-removed"; run
+check 'a stale removal lock is cleared at start' test ! -e "$N/gen5wkr.ui-removing"
+check 'an interrupted removal is reported as failed' test "$(status removed)" = 77:failed:gen5w.kr.audio
 rm -f "$W/request"
 done_tests uilog

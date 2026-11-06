@@ -10,7 +10,7 @@ mkdir -p .build
 work=$(mktemp -d "$PWD/.build/java-tests.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
-    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/core/HudSwitch.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/src/kr/gen5w/ui/SwitchRequest.java app/test/*Test.java \
+    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/core/HudSwitch.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/I18n.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/src/kr/gen5w/ui/SwitchRequest.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelaySession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelayPipe.java \
@@ -31,6 +31,7 @@ javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     packages/wireless-bridge/src/kr/gen5w/hotspot/ApProfiles.java packages/wireless-bridge/test/ApProfilesTest.java \
     probe/src/kr/gen5w/probe/Item.java probe/src/kr/gen5w/probe/Dump.java probe/test/DumpTest.java
 java -cp "$work" HudTest
+java -cp "$work" I18nTest "$PWD/app/src/kr/gen5w/ui/MainActivity.java"
 java -cp "$work" V039DipoIconTest
 java -cp "$work" HudVariantTest
 java -cp "$work" AaRouteCacheTest

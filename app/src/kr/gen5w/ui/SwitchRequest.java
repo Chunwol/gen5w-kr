@@ -20,7 +20,9 @@ public final class SwitchRequest {
         line(b, "wireless", wireless);
         line(b, "timer", timer);
         line(b, "bluelink", bluelink);
-        line(b, "adb", adb);
+        // adb is a one-time command ("on:<number>" / "off:<number>"): a new number is applied once, so the
+        // file left over from before a reboot cannot switch Wi-Fi adb on again.
+        if (adb != null && adb.matches("(on|off):[0-9]{1,10}")) b.append("adb=").append(adb).append('\n');
         if (save != null && save.matches("[0-9]{1,10}")) b.append("save=").append(save).append('\n');
         if (remove != null && remove.matches("[0-9]{1,10}")) b.append("remove=").append(remove).append('\n');
         return b.toString();
@@ -30,11 +32,20 @@ public final class SwitchRequest {
         if ("on".equals(value) || "off".equals(value)) b.append(key).append('=').append(value).append('\n');
     }
 
-    /** @return false when the file could not be written */
-    /** @param remove digits only (a new number asks the collector to remove every package except the core app), or null
-     * @param save digits only (a new number asks the collector for one diagnosis save), or null */
+    private static final Object LOCK = new Object();
+
+    /**
+     * @param adb "on:<digits>" or "off:<digits>" (a new number asks for one change), or null
+     * @param remove digits only (a new number asks the collector to remove every package except the core app), or null
+     * @param save digits only (a new number asks the collector for one diagnosis save), or null
+     * @return false when the file could not be written
+     */
     public static boolean write(File filesDir, String wireless, String timer, String bluelink, String adb, String save, String remove) {
         if (filesDir == null || !filesDir.isDirectory()) return false;
+        synchronized (LOCK) { return writeLocked(filesDir, wireless, timer, bluelink, adb, save, remove); }
+    }
+
+    private static boolean writeLocked(File filesDir, String wireless, String timer, String bluelink, String adb, String save, String remove) {
         File tmp = new File(filesDir, FILE + ".tmp");
         File target = new File(filesDir, FILE);
         try {

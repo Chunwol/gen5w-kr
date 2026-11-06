@@ -33,12 +33,18 @@ import java.util.List;
  */
 public final class MainActivity extends Activity {
     private static final int INFO = 0, ONOFF = 1, LOG = 2, MANAGE = 3;
-    private static final String[] TABS = {"INFO", "ONOFF", "LOG", "관리"};
+    private static final String[] TABS = {"정보", "켜기/끄기", "기록", "관리"};
     private static final long REFRESH_MS = 5000;
+    private static final String LANG_FILE = "lang-en"; // present = English; absent = Korean (default)
     private static final String UI_DIR = "/data/nemesis/gen5wkr.ui";
-    private static final int BG = 0xFF0B0E12, TOP = 0xFF14181E, SIDE = 0xFF10141A, SELECTED = 0xFF1A212B,
-            ACCENT = 0xFF00AAD2, TEXT = 0xFFF2F4F6, DIM = 0xFF7D8896, GREEN = 0xFF3DDC84, YELLOW = 0xFFFFB020,
-            RED = 0xFFFF5A5F, LINE = 0xFF222831;
+    // Colors from Hyundai's published brand palette (hyundai.com CI page): Hyundai Blue #002C5F for the top
+    // bar, Active Blue #00AAD2 as the accent, Light Sand #F6F3F2 for text, Active Red #E63312 for errors,
+    // Sky Blue #AACAE6 toned down for secondary text. Dark surfaces are a navy-tinted black (our choice:
+    // the palette has no dark theme). Green and yellow have no brand color; they are plain status colors.
+    private static final int BG = 0xFF070D16, TOP = 0xFF002C5F, SIDE = 0xFF0B1422, SELECTED = 0xFF12325C,
+            ACCENT = 0xFF00AAD2, TEXT = 0xFFF6F3F2, DIM = 0xFF8EAACB, GREEN = 0xFF3DDC84, YELLOW = 0xFFFFB020,
+            RED = 0xFFE63312, LINE = 0xFF1B2A40, BOX = 0xFF14243B, OUTLINE = 0xFF2F4565;
+    private static final java.util.Random RANDOM = new java.util.Random();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final LinearLayout[] menuItems = new LinearLayout[TABS.length];
@@ -54,6 +60,11 @@ public final class MainActivity extends Activity {
     // Switch order: wireless, timer, bluelink, adb. A click shows its new state at once, until the collector confirms it.
     private final String[] pending = new String[4];
     private final long[] pendingAt = new long[4];
+    private ScrollView scrollView;
+    private int shownTab = -1;
+    private int requestSeq;     // only the newest write may undo the clicked states when it fails
+    private String adbToken;    // digits; a new number asks the collector for one Wi-Fi adb change
+    private TextView langButton;
     private String saveToken; // digits; a new number asks the collector for one diagnosis save
     private long saveAskedAt;
     private String removeToken; // digits; sent only after the second confirmation
@@ -73,10 +84,30 @@ public final class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        TextView title = label("Gen5W KR", 17, TEXT, true);
-        title.setBackgroundColor(TOP);
-        title.setPadding(dp(20), dp(12), dp(20), dp(12));
-        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(TOP);
+        bar.setPadding(dp(20), dp(6), dp(14), dp(6));
+        TextView title = label("Gen5W KR", 20, TEXT, true);
+        bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        langButton = new TextView(this);
+        langButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        langButton.setTypeface(Typeface.DEFAULT_BOLD);
+        langButton.setTextColor(TEXT);
+        langButton.setGravity(Gravity.CENTER);
+        langButton.setMinWidth(dp(110));
+        langButton.setMinHeight(dp(44));
+        GradientDrawable langShape = new GradientDrawable();
+        langShape.setCornerRadius(dp(20));
+        langShape.setStroke(dp(1), DIM);
+        langButton.setBackgroundDrawable(langShape);
+        langButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { setLanguage(!I18n.english()); }
+        });
+        bar.addView(langButton);
+        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout side = new LinearLayout(this);
@@ -87,18 +118,27 @@ public final class MainActivity extends Activity {
             LinearLayout item = new LinearLayout(this);
             item.setGravity(Gravity.CENTER_VERTICAL);
             item.setPadding(dp(18), 0, dp(18), 0);
-            item.addView(label(TABS[i], 15, DIM, false));
+            item.addView(label(TABS[i], 20, DIM, false));
             item.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) { tab = index; render(); }
             });
             menuItems[i] = item;
-            side.addView(item, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
+            side.addView(item, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)));
         }
-        body.addView(side, new LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.MATCH_PARENT));
+        body.addView(side, new LinearLayout.LayoutParams(dp(230), ViewGroup.LayoutParams.MATCH_PARENT));
         content = new FrameLayout(this);
         body.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
+        render();
+    }
+
+    private void setLanguage(boolean english) {
+        File flag = new File(getFilesDir(), LANG_FILE);
+        try {
+            if (english) { if (!flag.exists()) flag.createNewFile(); } else { flag.delete(); }
+        } catch (java.io.IOException e) { /* the choice then only lasts until the screen is closed */ }
+        I18n.setEnglish(english);
         render();
     }
 
@@ -139,9 +179,11 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
+        langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
             menuItems[i].setBackgroundColor(on ? SELECTED : SIDE);
+            ((TextView) menuItems[i].getChildAt(0)).setText(I18n.t(TABS[i]));
             ((TextView) menuItems[i].getChildAt(0)).setTextColor(on ? TEXT : DIM);
             ((TextView) menuItems[i].getChildAt(0)).setTypeface(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL);
         }
@@ -152,8 +194,13 @@ public final class MainActivity extends Activity {
         else if (tab == LOG) buildLog(page);
         else if (tab == ONOFF) buildSwitches(page);
         else buildManage(page);
-        ScrollView scroll = new ScrollView(this);
+        // The screen is redrawn every few seconds: keep the scroll position while the same tab stays open.
+        final int keepY = scrollView != null && shownTab == tab ? scrollView.getScrollY() : 0;
+        shownTab = tab;
+        final ScrollView scroll = new ScrollView(this);
+        scrollView = scroll;
         scroll.addView(page);
+        if (keepY > 0) scroll.post(new Runnable() { public void run() { scroll.scrollTo(0, keepY); } });
         content.removeAllViews();
         content.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
@@ -205,20 +252,25 @@ public final class MainActivity extends Activity {
     private void sendRequest() {
         final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink()), a = effective(3, model.switchAdb());
         final File dir = getFilesDir();
+        final String adb = adbToken != null && ("on".equals(a) || "off".equals(a)) ? a + ":" + adbToken : null;
+        final int seq = ++requestSeq;
         final String token = saveToken;
         final String rtoken = removeToken;
         new Thread(new Runnable() {
             public void run() {
-                final boolean ok = SwitchRequest.write(dir, w, t, b, a, token, rtoken);
+                final boolean ok = SwitchRequest.write(dir, w, t, b, adb, token, rtoken);
                 handler.post(new Runnable() {
                     public void run() {
-                        if (!ok) { pending[0] = pending[1] = pending[2] = pending[3] = null; }
+                        if (!ok && seq == requestSeq) { pending[0] = pending[1] = pending[2] = pending[3] = null; }
                         render();
                     }
                 });
             }
         }, "gen5w-ui-request").start();
     }
+
+    /** A random number (not the clock: the car's clock may be unset or repeat after a restart). */
+    private static String newToken() { return String.valueOf(1 + (long) (RANDOM.nextDouble() * 999999998L)); }
 
     private void switchRow(LinearLayout page, String name, String help, String locked, String state, final int index) {
         switchRowView(page, name, help, locked, state, new View.OnClickListener() {
@@ -229,6 +281,7 @@ public final class MainActivity extends Activity {
                 }
                 pending[index] = "on".equals(current) ? "off" : "on";
                 pendingAt[index] = SystemClock.elapsedRealtime();
+                if (index == 3) adbToken = newToken();
                 sendRequest();
             }
         });
@@ -254,7 +307,7 @@ public final class MainActivity extends Activity {
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(22));
         shape.setColor(enabled && on ? GREEN : BG);
-        shape.setStroke(dp(1), enabled && on ? GREEN : 0xFF333C49);
+        shape.setStroke(dp(1), enabled && on ? GREEN : OUTLINE);
         button.setBackgroundDrawable(shape);
         if (enabled) button.setOnClickListener(click);
         r.addView(button);
@@ -271,12 +324,12 @@ public final class MainActivity extends Activity {
         boolean askedNow = removeToken != null && SystemClock.elapsedRealtime() - removeAskedAt < 10 * 60 * 1000
                 && !removed.startsWith(removeToken + ":");
         if (askedNow || result.equals("working")) {
-            box(page, "제거하는 중입니다", "끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. " + (parts.length > 2 && result.equals("working") ? "지금: " + failedId : ""), YELLOW);
+            box(page, "제거하는 중입니다", I18n.t("끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. {0}", parts.length > 2 && result.equals("working") ? I18n.t("지금: {0}", failedId) : ""), YELLOW);
         } else if (result.equals("done") && removeToken != null && removed.startsWith(removeToken + ":")) {
             box(page, "거의 끝났습니다", "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다.", GREEN);
         } else {
             if (result.equals("failed") && removeToken != null && removed.startsWith(removeToken + ":")) {
-                box(page, "제거를 멈췄습니다", failedId + " 단계에서 멈췄습니다. 이 패키지와 이후 패키지는 그대로 남아 있습니다. 진단을 저장해 두고 다시 시도하거나 USB 제거 키트를 쓰세요.", RED);
+                box(page, "제거를 멈췄습니다", I18n.t("{0} 단계에서 멈췄습니다. 이 패키지와 이후 패키지는 그대로 남아 있습니다. 진단을 저장해 두고 다시 시도하거나 USB 제거 키트를 쓰세요.", failedId), RED);
             }
             if (!confirmRemove) {
                 buttonRow(page, "Gen5W KR 전부 제거", "무선, 오디오, 안내창, 블루링크, 주행 기록을 제거하고 차 설정을 처음 값으로 되돌립니다. 앱(CarPlay HUD)은 마지막에 NEMESIS Manager에서 지웁니다.",
@@ -288,7 +341,7 @@ public final class MainActivity extends Activity {
                 buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", true, new View.OnClickListener() {
                     public void onClick(View v) {
                         confirmRemove = false;
-                        removeToken = String.valueOf((System.currentTimeMillis() / 1000) % 1000000000L);
+                        removeToken = newToken();
                         removeAskedAt = SystemClock.elapsedRealtime();
                         sendRequest();
                     }
@@ -299,7 +352,7 @@ public final class MainActivity extends Activity {
             }
         }
         section(page, "기능만 멈추기");
-        note(page, "제거하지 않고 기능만 멈추려면 ONOFF 화면의 스위치를 쓰세요. 스위치를 꺼도 설치된 파일은 그대로 남습니다.");
+        note(page, "제거하지 않고 기능만 멈추려면 켜기/끄기 화면의 스위치를 쓰세요. 스위치를 꺼도 설치된 파일은 그대로 남습니다.");
         section(page, "진단 저장");
         String saved = model.savedState();
         String saveResult = saved.substring(saved.indexOf(':') + 1);
@@ -312,7 +365,7 @@ public final class MainActivity extends Activity {
                 : "상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.";
         buttonRow(page, "진단 저장", help, "저장", model.readable() && !saveNow, new View.OnClickListener() {
             public void onClick(View v) {
-                saveToken = String.valueOf((System.currentTimeMillis() / 1000) % 1000000000L);
+                saveToken = newToken();
                 saveAskedAt = SystemClock.elapsedRealtime();
                 sendRequest();
             }
@@ -336,7 +389,7 @@ public final class MainActivity extends Activity {
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(22));
         shape.setColor(enabled ? ACCENT : BG);
-        shape.setStroke(dp(1), enabled ? ACCENT : 0xFF333C49);
+        shape.setStroke(dp(1), enabled ? ACCENT : OUTLINE);
         button.setBackgroundDrawable(shape);
         if (enabled) button.setOnClickListener(click);
         r.addView(button);
@@ -353,9 +406,9 @@ public final class MainActivity extends Activity {
         boolean stale = model.stale();
         if (stale) {
             long age = model.ageSeconds();
-            box(page, "기록이 오래됨", age < 0 ? "이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다." : "마지막 갱신이 " + age + "초 전입니다. 아래 값이 지금과 다를 수 있습니다.", YELLOW);
+            box(page, "기록이 오래됨", age < 0 ? "이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다." : I18n.t("마지막 갱신이 {0}초 전입니다. 아래 값이 지금과 다를 수 있습니다.", String.valueOf(age)), YELLOW);
         } else if (model.why().length() > 0) {
-            box(page, "무선 대기 중", model.why(), YELLOW);
+            box(page, "무선 대기 중", I18n.english() ? (model.whyRaw().length() > 0 ? model.whyRaw() : I18n.t(model.why())) : model.why(), YELLOW);
         }
         section(page, "연결");
         String host = model.host();
@@ -393,7 +446,7 @@ public final class MainActivity extends Activity {
             String raw = bar > 0 ? line.substring(bar + 1) : line;
             if (!sourceFilter.equals("all") && !sourceFilter.equals(source)) continue;
             if (!categoryFilter.equals("all") && !categoryFilter.equals(LogTranslator.category(raw))) continue;
-            String korean = LogTranslator.translate(raw);
+            String korean = I18n.english() ? raw : LogTranslator.translate(raw);
             boolean error = LogTranslator.category(raw).equals("error");
             LinearLayout entry = new LinearLayout(this);
             entry.setOrientation(LinearLayout.VERTICAL);
@@ -414,7 +467,7 @@ public final class MainActivity extends Activity {
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(18));
         shape.setColor(on ? ACCENT : BG);
-        shape.setStroke(dp(1), on ? ACCENT : 0xFF333C49);
+        shape.setStroke(dp(1), on ? ACCENT : OUTLINE);
         chip.setBackgroundDrawable(shape);
         chip.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -448,7 +501,7 @@ public final class MainActivity extends Activity {
         LinearLayout b = new LinearLayout(this);
         b.setOrientation(LinearLayout.VERTICAL);
         b.setPadding(dp(14), dp(10), dp(14), dp(10));
-        b.setBackgroundDrawable(new ColorDrawable(0xFF1B2230));
+        b.setBackgroundDrawable(new ColorDrawable(BOX));
         b.addView(label(title, 18, color, true));
         b.addView(label(text, 16, TEXT, false));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -471,7 +524,7 @@ public final class MainActivity extends Activity {
 
     private TextView label(String text, int sp, int color, boolean bold) {
         TextView t = new TextView(this);
-        t.setText(text);
+        t.setText(I18n.t(text));
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
         if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);

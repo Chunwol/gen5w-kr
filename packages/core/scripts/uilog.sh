@@ -46,7 +46,7 @@ prepare() {
     if [ ! -e "$UI_DIR" ]; then mkdir "$UI_DIR" || return 1; fi
     [ -d "$UI_DIR" ] || return 1
     chmod 755 "$UI_DIR" || return 1
-    for _f in status log facts status.tmp log.tmp filter.tmp facts.tmp diag.tmp diag-latest.tmp diag-latest.txt; do
+    for _f in status log facts status.tmp log.tmp filter.tmp facts.tmp diag.tmp diag-latest.tmp status-save.tmp facts-save.tmp diag-save.tmp diag-latest-save.tmp diag-latest.txt; do
         [ ! -L "$UI_DIR/$_f" ] || return 1
     done
     return 0
@@ -123,8 +123,9 @@ host_alive() {
     grep -aq 'kr.gen5w.wirelesshost' "$PROC/$pid/cmdline" 2>/dev/null
 }
 
+# The save runs in the background with its own temp file names, so it never meets the main loop.
 collect_status() {
-    typeset up _rest ts host=dead relay=unknown backend apguard=on wired=no version= line
+    typeset up _rest ts host=dead relay=unknown backend apguard=on wired=no version= line tmp="$UI_DIR/${1:-status}.tmp"
     IFS=' ' read -r up _rest < "$UPTIME" 2>/dev/null
     ts=${up%%.*}
     case "$ts" in ''|*[!0-9]*) ts=;; esac
@@ -155,8 +156,8 @@ collect_status() {
         print -r -- "sw_adb=$(adb_state)"
         print -r -- "saved=$(saved_state)"
         print -r -- "removed=$(removed_state)"
-    } > "$UI_DIR/status.tmp" || return 1
-    chmod 644 "$UI_DIR/status.tmp" && mv "$UI_DIR/status.tmp" "$UI_DIR/status"
+    } > "$tmp" || return 1
+    chmod 644 "$tmp" && mv "$tmp" "$UI_DIR/status"
 }
 
 # set_marker <name> <on|off>: off = marker present, on = marker absent. Never follows a link.
@@ -190,8 +191,9 @@ read_requests() {
         n=$((n + 1))
         case "$line" in
             wireless=on|wireless=off|timer=on|timer=off|bluelink=on|bluelink=off)
-                set_marker "${line%%=*}" "${line#*=}" || :;;
-            adb=on|adb=off) set_adb "${line#adb=}";;
+                # While a removal runs, markers are not put back right after the removal cleared them.
+                [ -e "$NEMDIR/gen5wkr.ui-removing" ] || set_marker "${line%%=*}" "${line#*=}" || :;;
+            adb=on:*|adb=off:*) handle_adb "${line#adb=}";;
             save=*) handle_save "${line#save=}";;
             remove=*) handle_remove "${line#remove=}";;
         esac
@@ -200,7 +202,7 @@ read_requests() {
 # Read-only facts about this unit, for the next version's features (adb, update check, removal).
 # Nothing here changes anything. Lines pass the same privacy filter as the log, at most FACT_LINES.
 collect_facts() {
-    typeset out="$UI_DIR/facts.tmp" n=0 line k v
+    typeset out="$UI_DIR/${1:-facts}.tmp" n=0 line k v
     : > "$out" || return 1
     {
         for k in persist.sys.usb.config sys.usb.config service.adb.tcp.port persist.adb.tcp.port ro.adb.secure ro.product.ota ro.build.version.release; do
@@ -236,8 +238,8 @@ usb_fs_ok() {
 # always a copy in UI_DIR. Needs a real mount (an unmounted /storage/usb0 is a plain folder).
 do_save() {
     typeset n=$1 result=nousb dest tmp f
-    collect_facts || :
-    tmp="$UI_DIR/diag.tmp"
+    collect_facts facts-save || :
+    tmp="$UI_DIR/diag-save.tmp"
     {
         print -r -- "Gen5W KR diagnosis #$n"
         for f in status facts log; do
@@ -246,7 +248,7 @@ do_save() {
         done
     } > "$tmp" 2>/dev/null || { rm -f "$tmp"; set_saved "$n" fail; return; }
     chmod 644 "$tmp"
-    cat "$tmp" > "$UI_DIR/diag-latest.tmp" && mv "$UI_DIR/diag-latest.tmp" "$UI_DIR/diag-latest.txt" || result=fail
+    cat "$tmp" > "$UI_DIR/diag-latest-save.tmp" && mv "$UI_DIR/diag-latest-save.tmp" "$UI_DIR/diag-latest.txt" || result=fail
     if usb_fs_ok && [ -d "$USB" ] && [ ! -L "$USB" ]; then
         dest=$USB/gen5w-kr-diag
         # FAT-type sticks cannot hold links; the checks and the no-overwrite write also cover a
@@ -276,12 +278,27 @@ handle_save() {
     [ "$last" = "$n" ] && return 0
     set_saved "$n" working
     # In the background: collecting the unit facts can take longer than the request reader's time limit.
-    ( do_save "$n"; collect_status || : ) &
+    ( do_save "$n"; collect_status status-save || : ) &
 }
 saved_state() {
     typeset n r
     [ -f "$SAVED" ] && [ ! -L "$SAVED" ] && IFS=' ' read -r n r < "$SAVED"
     print -r -- "${n:-0}:${r:-none}"
+}
+# adb is a one-time command "on:<number>" / "off:<number>". The last applied number is kept in a root-owned
+# file, so the request file left in the app folder from before a reboot cannot switch it on again.
+ADBTOK=$NEMDIR/gen5wkr.ui-adb
+handle_adb() {
+    typeset v=$1 state n last _r
+    state=${v%%:*}
+    n=${v#*:}
+    case "$n" in ''|*[!0-9]*) return 0;; esac
+    [ "${#n}" -le 10 ] || return 0
+    [ -d "$NEMDIR" ] && [ ! -L "$NEMDIR" ] && [ ! -L "$ADBTOK" ] || return 0
+    [ -f "$ADBTOK" ] && IFS=' ' read -r last _r < "$ADBTOK"
+    [ "$last" = "$n" ] && return 0
+    print -r -- "$n" > "$ADBTOK.tmp" 2>/dev/null && mv "$ADBTOK.tmp" "$ADBTOK" 2>/dev/null || return 0
+    set_adb "$state"
 }
 # adb over the car's Wi-Fi, for this boot only: service.adb.tcp.port is a runtime property and is
 # gone after a reboot, and nothing persistent is set. The stock key check (ro.adb.secure) still
@@ -339,8 +356,7 @@ run_hook() {
 }
 do_remove() {
     typeset n=$1 short id lock="$NEMDIR/gen5wkr.ui-removing"
-    [ ! -e "$lock" ] || return 0
-    : > "$lock" || return 0
+    [ ! -L "$lock" ] && ( set -C; : > "$lock" ) 2>/dev/null || return 0
     set_removed "$n" working
     if [ ! -x "$NEM" ]; then set_removed "$n" failed nemesis; rm -f "$lock"; return 0; fi
     for short in $REMOVE_IDS; do
@@ -385,7 +401,17 @@ round() {
     rm -f "$UI_DIR/filter.tmp" "$UI_DIR/log.tmp" "$UI_DIR/status.tmp" "$UI_DIR/facts.tmp" "$UI_DIR/diag.tmp" "$UI_DIR/diag-latest.tmp"
 }
 
+# A removal that was cut off (ignition off, service restart) leaves its lock and a "working" state
+# behind; at start nothing of ours is running yet, so clear the lock and report it as failed.
+clear_stale_removal() {
+    typeset n r id
+    [ -e "$NEMDIR/gen5wkr.ui-removing" ] && [ ! -L "$NEMDIR/gen5wkr.ui-removing" ] || return 0
+    rm -f "$NEMDIR/gen5wkr.ui-removing"
+    [ -f "$REMOVED" ] && [ ! -L "$REMOVED" ] && IFS=' ' read -r n r id < "$REMOVED"
+    [ "$r" = working ] && set_removed "${n:-0}" failed "${id:-interrupted}"
+}
 trap 'exit 0' HUP INT TERM
+clear_stale_removal
 while :; do
     apply_requests
     round
