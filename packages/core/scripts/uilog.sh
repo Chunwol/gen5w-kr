@@ -216,6 +216,16 @@ collect_facts() {
     chmod 644 "$out" && mv "$out" "$UI_DIR/facts"
 }
 
+# The USB must be mounted as a FAT-type filesystem (no links possible); prints nothing, returns 0/1.
+usb_fs_ok() {
+    typeset src mp fs _r
+    while IFS=' ' read -r src mp fs _r; do
+        [ "$mp" = "$USB" ] || continue
+        case "$fs" in vfat|exfat|texfat|sdfat|fuse) return 0;; esac
+    done < "$MOUNTS"
+    return 1
+}
+
 # Diagnosis save: status + log + facts into one text file on the USB stick (when mounted) and
 # always a copy in UI_DIR. Needs a real mount (an unmounted /storage/usb0 is a plain folder).
 do_save() {
@@ -231,12 +241,14 @@ do_save() {
     } > "$tmp" 2>/dev/null || { rm -f "$tmp"; set_saved "$n" fail; return; }
     chmod 644 "$tmp"
     cat "$tmp" > "$UI_DIR/diag-latest.tmp" && mv "$UI_DIR/diag-latest.tmp" "$UI_DIR/diag-latest.txt" || result=fail
-    if grep -a -q -F " $USB " "$MOUNTS" 2>/dev/null && [ -d "$USB" ] && [ ! -L "$USB" ]; then
+    if usb_fs_ok && [ -d "$USB" ] && [ ! -L "$USB" ]; then
         dest=$USB/gen5w-kr-diag
-        if [ ! -L "$dest" ] && mkdir -p "$dest" 2>/dev/null && [ ! -L "$dest/diag-$n.txt" ]             && cat "$tmp" > "$dest/diag-$n.txt.tmp" 2>/dev/null && mv "$dest/diag-$n.txt.tmp" "$dest/diag-$n.txt" 2>/dev/null; then
+        # FAT-type sticks cannot hold links; the checks and the no-overwrite write also cover a
+        # stick that was prepared by someone else. Every path we write is checked right before use.
+        if [ ! -L "$dest" ] && mkdir -p "$dest" 2>/dev/null && [ ! -L "$dest" ]             && [ ! -e "$dest/diag-$n.txt.tmp" ] && [ ! -L "$dest/diag-$n.txt" ]             && ( set -C; cat "$tmp" > "$dest/diag-$n.txt.tmp" ) 2>/dev/null             && [ ! -L "$dest/diag-$n.txt.tmp" ] && mv "$dest/diag-$n.txt.tmp" "$dest/diag-$n.txt" 2>/dev/null; then
             result=usb
         else
-            rm -f "$dest/diag-$n.txt.tmp" 2>/dev/null
+            [ -L "$dest/diag-$n.txt.tmp" ] || rm -f "$dest/diag-$n.txt.tmp" 2>/dev/null
             result=fail
         fi
     fi

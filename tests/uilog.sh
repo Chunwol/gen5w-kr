@@ -229,6 +229,15 @@ printf 'save=12347
 ' > "$W/request"; run
 check 'a linked diag folder on the USB is not written through' eval '[ -z "$(ls -A "$W/elsewhere")" ] && [ "$(status saved)" = 12347:fail ]'
 rm -f "$W/usb/gen5w-kr-diag" "$W/request" "$W/mounts"
+echo "tmpfs $W/usb ext4 rw 0 0" > "$W/mounts"; rm -rf "$W/usb/gen5w-kr-diag"
+printf 'save=12348
+' > "$W/request"; run
+check 'a stick that is not FAT-type is not written' eval '[ ! -e "$W/usb/gen5w-kr-diag" ] && [ "$(status saved)" = 12348:nousb ]'
+echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"; mkdir -p "$W/usb/gen5w-kr-diag"; echo keep > "$W/victim2"; ln -s "$W/victim2" "$W/usb/gen5w-kr-diag/diag-12349.txt.tmp"
+printf 'save=12349
+' > "$W/request"; run
+check 'a prepared link at the temp name is not written through' eval '[ "$(cat "$W/victim2")" = keep ] && [ "$(status saved)" = 12349:fail ]'
+rm -rf "$W/usb/gen5w-kr-diag" "$W/victim2"
 
 # adb over Wi-Fi: runtime property only, adbd restarted only when the state changes.
 reset; printf 'adb=on
