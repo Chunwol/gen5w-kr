@@ -22,7 +22,7 @@ For their corresponding source, `gen5w-kr-dongle-gpl-source.tar.xz` in the same 
 
 ## lpatch and the V039 relay delta
 - `tools/lpatch/lpatch.c` and `tools/v039-relay/mkdelta.py` come from HMG Leafia Plus (https://github.com/VysseCodes/HMG-Leafia-Plus, GPL-3.0-or-later). They are used under GPL-3.0 as part of this GPL-3.0-only work.
-- `tools/v039-relay/HKMC_DiPO.relay.lpd` is a binary delta. The head unit applies it to its own exact stock `HKMC_DiPO.odex`; `lpatch` writes nothing unless the source and the result match the hashes stored in the delta. No manufacturer file is shipped, but the delta holds the bytes that differ from the stock file, so it cannot be used without that exact file. Whether such a delta is acceptable under the manufacturer's terms is not something this project can decide for you.
+- `tools/v039-relay/HKMC_DiPO.relay.lpd` is a binary delta. The head unit applies it to its own exact stock `HKMC_DiPO.odex`; `lpatch` writes nothing unless the source and the result match the hashes stored in the delta. No manufacturer file is shipped, and the delta cannot be used without that exact stock file.
 
 ## OEM Software Notice
 This project does not contain, distribute, or relicense proprietary Hyundai, Kia, Genesis, or Mobis firmware, apps, libraries, or decryption keys. The dongle modules above are built from the GPL kernel source Mobis published; that source is not redistributed here, only referenced. All other modifications are performed on-device against the vehicle's own legitimate files.
