@@ -166,4 +166,10 @@ rm -f "$W/request"; printf 'wireless=off
 ' > "$W/request"; echo keep > "$W/victim"; ln -s "$W/victim" "$N/gen5wkr.ui-wireless-off"; run
 check 'a linked marker path is not written through' test "$(cat "$W/victim")" = keep
 rm -f "$N/gen5wkr.ui-wireless-off" "$W/request"
+{ echo 'wireless=off'; i=0; while [ $i -lt 40 ]; do echo 'padding-padding-padding'; i=$((i+1)); done; } > "$W/request"; run
+check 'a request file over 256 bytes is ignored' test ! -e "$N/gen5wkr.ui-wireless-off"
+printf 'wireless=off
+' > "$W/request"; run
+check 'a small request still works after the size limit' test -f "$N/gen5wkr.ui-wireless-off"
+rm -f "$N/gen5wkr.ui-wireless-off" "$W/request"
 done_tests uilog

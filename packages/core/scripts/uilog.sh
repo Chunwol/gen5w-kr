@@ -158,8 +158,22 @@ set_marker() {
 }
 # Reads at most 8 lines; only "wireless|timer|bluelink=on|off" is accepted, anything else is ignored.
 apply_requests() {
-    typeset line n=0
+    typeset size rpid waited=0
     [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] && [ -r "$REQUEST" ] || return 0
+    # The app owns this file, so it can be swapped after the checks above (for a pipe that never
+    # ends, or a huge line). A real request is a few dozen bytes: refuse anything over 256 bytes,
+    # and read in a background process that is stopped after 3 seconds, so this service never hangs.
+    size=$(file_size "$REQUEST") || return 0
+    [ "$size" -le 256 ] || return 0
+    read_requests &
+    rpid=$!
+    while kill -0 "$rpid" 2>/dev/null && [ "$waited" -lt 3 ]; do sleep 1; waited=$((waited + 1)); done
+    if kill -0 "$rpid" 2>/dev/null; then kill "$rpid" 2>/dev/null; fi
+    wait "$rpid" 2>/dev/null
+    return 0
+}
+read_requests() {
+    typeset line n=0
     while IFS= read -r line && [ "$n" -lt 8 ]; do
         n=$((n + 1))
         case "$line" in
