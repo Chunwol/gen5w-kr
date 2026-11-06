@@ -90,7 +90,7 @@ dl_validate_record() {
     _dl_old_ifs=$IFS; IFS='|'; set -- $_dl_record; IFS=$_dl_old_ifs
     [ "$#" = 10 ] && [ "$1" = D1 ] || return 1
     case "$3" in 1|2) ;; *) return 1;; esac
-    case "$4" in 1|2|20|21|22|24|25|26|27) ;; *) return 1;; esac
+    case "$4" in 1|2|20|21|22|23|24|25|26|27|28|29|32|33|34|35) ;; *) return 1;; esac
     shift
     _dl_pos=2
     for _dl_field in "$@"; do

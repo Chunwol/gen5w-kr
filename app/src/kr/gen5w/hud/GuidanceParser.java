@@ -24,6 +24,13 @@ public final class GuidanceParser {
         /** RouteGuidanceUpdate DistanceRemaing (id 7), meters to the destination. */
         public long distanceRemaining = -1;
         public boolean hasRemaining;
+        /** RouteGuidanceUpdate TimeRemaingToDestination (id 6), read as seconds; -1 when absent or malformed. */
+        public long timeRemaining = -1;
+        public boolean hasTime;
+        /** Raw EstimatedTimeOfArrival (id 5), kept only for the diagnostic log; -1 when absent or malformed. */
+        public long etaRaw = -1;
+        /** DistanceRemaingDisplayUnits (id 9), DistanceRemaingDisplayStr length (id 8), ManeuverCount (id 14); -1 when absent. */
+        public int remainUnits = -1, remainStrLength = -1, maneuverCount = -1;
         /** RouteGuidanceUpdate DestinationName (id 4). */
         public String destination;
         public boolean hasDestination;
@@ -116,6 +123,14 @@ public final class GuidanceParser {
             s.hasRemaining = f.containsKey(7);
             s.distanceRemaining = number(f, 7, -1);
             if (s.distanceRemaining < -1 || s.distanceRemaining > 0xffffffffL) return null;
+            s.hasTime = f.containsKey(6);
+            s.timeRemaining = optional(f, 6);
+            s.etaRaw = optional(f, 5);
+            s.remainUnits = (int)optional(f, 9);
+            s.maneuverCount = (int)optional(f, 14);
+            Item str = f.get(8);
+            s.remainStrLength = str != null && str.strings != null && str.strings.length == 1 && str.strings[0] != null
+                    ? str.strings[0].length() : -1;
             s.hasDestination = f.containsKey(4);
             s.destination = string(f, 4);
             s.source = string(f, 19);
@@ -198,6 +213,13 @@ public final class GuidanceParser {
         }
         if (item.longs != null && item.longs.length == 1 && item.ints == null) return item.longs[0];
         throw new IllegalArgumentException();
+    }
+    /** Diagnostic field: a malformed value never rejects the whole status, it reads as -1. */
+    private static long optional(Map<Integer, Item> f, int id) {
+        try {
+            long value = number(f, id, -1);
+            return value < -1 ? -1 : value;
+        } catch (IllegalArgumentException e) { return -1; }
     }
     private static int integer(Map<Integer, Item> f, int id, int fallback) {
         long n = number(f, id, fallback);

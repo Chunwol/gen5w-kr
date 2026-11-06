@@ -34,6 +34,22 @@ public final class GuidanceParserTest {
         GuidanceParser.Status rem = GuidanceParser.status(fields(number(0, 1), number(1, 1), number(7, 4200)));
         GuidanceParser.Status dn = GuidanceParser.status(fields(number(0, 1), number(1, 1), text(4, "서울역")));
         check("status carries destination name", dn != null && dn.hasDestination && "서울역".equals(dn.destination));
+        Item tm = new Item(); tm.id = 6; tm.longs = new long[]{5400L};
+        Item eta = new Item(); eta.id = 5; eta.longs = new long[]{1762400000000L};
+        GuidanceParser.Status est = GuidanceParser.status(fields(number(0, 1), number(1, 1), tm, eta, number(9, 1), number(14, 3)));
+        check("status carries remaining time, raw ETA, units and count", est != null && est.hasTime && est.timeRemaining == 5400L
+            && est.etaRaw == 1762400000000L && est.remainUnits == 1 && est.maneuverCount == 3);
+        Item badTime = new Item(); badTime.id = 6; badTime.strings = new String[]{"x"};
+        GuidanceParser.Status bad = GuidanceParser.status(fields(number(0, 1), number(1, 1), badTime));
+        check("malformed diagnostic time does not reject the status", bad != null && bad.timeRemaining == -1);
+        java.util.TimeZone utc = java.util.TimeZone.getTimeZone("UTC");
+        int[] clock = kr.gen5w.hud.TimeFrame.arrival(23L * 3600000L + 50L * 60000L, 1800L, utc);
+        check("arrival clock wraps past midnight", clock != null && clock[0] == 0 && clock[1] == 20);
+        check("arrival clock rejects negative and oversized", kr.gen5w.hud.TimeFrame.arrival(0, -1, utc) == null
+            && kr.gen5w.hud.TimeFrame.arrival(0, 99L * 3600L + 1, utc) == null);
+        check("toll amount parsed from guidance text", kr.gen5w.hud.TollText.amount("요금: 1,200원") == 1200L
+            && kr.gen5w.hud.TollText.amount("통행료 800원") == 800L && kr.gen5w.hud.TollText.amount("서울 방면") == -1L
+            && kr.gen5w.hud.TollText.mentionsToll("요금소") && !kr.gen5w.hud.TollText.mentionsToll("직진"));
         check("status carries remaining distance", rem != null && rem.hasRemaining && rem.distanceRemaining == 4200);
         GuidanceParser.Status s = GuidanceParser.status(fields(number(0, 2), number(1, 5), text(19, "지도")));
         check("rerouting clears guidance", s != null && !s.canDisplay() && "지도".equals(s.source));

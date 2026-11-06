@@ -31,6 +31,8 @@ import kr.gen5w.hud.HudVariant;
 import kr.gen5w.hud.LaneFrame;
 import kr.gen5w.hud.Maneuver;
 import kr.gen5w.hud.NotificationEpoch;
+import kr.gen5w.hud.TimeFrame;
+import kr.gen5w.hud.TollText;
 import kr.gen5w.hud.NativeWarningSupport;
 import kr.gen5w.hud.TurnFrame;
 import kr.gen5w.probe.Convert;
@@ -76,7 +78,7 @@ public final class CoreService extends Service {
             }
         });
         stockGuidance = new StockGuidance();
-        session = new GuidanceSession(new GuidanceSession.DestinationSink() {
+        session = new GuidanceSession(new GuidanceSession.TimeSink() {
             public boolean tbt(int icon, int secondIcon, long meters) {
                 if (!refreshOwnership()) return false;
                 try {
@@ -102,23 +104,13 @@ public final class CoreService extends Service {
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
             }
-            /** Stock mnsoft 0x4D sub-info layout: distance + unit (0 m, 1 km); hours and minutes 0xff and
-             * time type 0 mean "none". Only the destination distance is supplied. */
             public boolean remaining(long meters) {
-                if (subInfoMissing) return true;
-                if (!refreshOwnership()) return false;
-                try {
-                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    cluster.updateTBTSubInfo(
-                            TurnFrame.tbtDistanceValue(meters),
-                            TurnFrame.tbtDistanceError(meters),
-                            TurnFrame.tbtDistanceScale(meters),
-                            0xff, 0xff, 0, 0, 0f, TurnFrame.DIST_ERR_UNKNOWN);
-                    writeDebugLog("SUB: remaining=" + meters + "m");
-                    return true;
-                } catch (NoSuchMethodError e) { subInfoMissing = true; return true; }
-                  catch (RuntimeException e) { return outputError(e); }
-                  catch (LinkageError e) { return outputError(e); }
+                subMeters = meters;
+                return sendSubInfo();
+            }
+            public boolean timeRemaining(long seconds) {
+                subSeconds = seconds;
+                return sendSubInfo();
             }
             /** Stock DiPO sends type 0 plus the name to updateTPFlexibleDestinationName. */
             public boolean destination(String name) {
@@ -243,6 +235,27 @@ public final class CoreService extends Service {
             new java.io.File(dir, "navi-debug.log").delete();
             new java.io.File(dir, "navi-debug.log.1").delete();
         } catch (Throwable ignored) {}
+    }
+    private long subMeters = -1, subSeconds = -1;
+    /** Stock mnsoft 0x4D sub-info layout: distance + unit (0 m, 1 km); hours/minutes are the arrival clock with
+     * time type 1 and 24-hour format (2); hours and minutes 0xff with type 0 mean "none". */
+    private boolean sendSubInfo() {
+        if (subInfoMissing) return true;
+        if (!refreshOwnership()) return false;
+        try {
+            if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+            int[] clock = TimeFrame.arrival(System.currentTimeMillis(), subSeconds, java.util.TimeZone.getDefault());
+            cluster.updateTBTSubInfo(
+                    TurnFrame.tbtDistanceValue(subMeters),
+                    TurnFrame.tbtDistanceError(subMeters),
+                    TurnFrame.tbtDistanceScale(subMeters),
+                    clock == null ? 0xff : clock[0], clock == null ? 0xff : clock[1],
+                    clock == null ? 0 : 1, clock == null ? 0 : 2, 0f, TurnFrame.DIST_ERR_UNKNOWN);
+            writeDebugLog("SUB: remaining=" + subMeters + "m time=" + subSeconds + "s");
+            return true;
+        } catch (NoSuchMethodError e) { subInfoMissing = true; return true; }
+          catch (RuntimeException e) { return outputError(e); }
+          catch (LinkageError e) { return outputError(e); }
     }
     /** Set when this head unit's cluster API lacks an optional method; the output is then skipped. */
     private boolean subInfoMissing, destMissing;
@@ -386,7 +399,19 @@ public final class CoreService extends Service {
                 }
             });
         }
-        private void logNaviDebug(int what, List<Item> fields) {
+        /** Raw remaining-time, ETA and distance values for the USB drive log (events 33 and 35). */
+    private void logRouteEstimates(GuidanceParser.Status s, List<Item> fields) {
+        if (!s.hasTime && s.etaRaw < 0 && !s.hasRemaining && !s.hasDestination) return;
+        long cap = 9999999999L;
+        int[] clock = TimeFrame.arrival(System.currentTimeMillis(), s.timeRemaining, java.util.TimeZone.getDefault());
+        long etaHigh = s.etaRaw < 0 ? -1 : s.etaRaw >>> 32;
+        long etaLow = s.etaRaw < 0 ? -1 : s.etaRaw & 0xffffffffL;
+        DriveLog.core(33, Math.min(s.timeRemaining, cap), etaHigh, etaLow, s.distanceRemaining,
+                clock == null ? -1 : clock[0] * 100 + clock[1], (s.hasTime ? 1 : 0) | (s.etaRaw >= 0 ? 2 : 0));
+        DriveLog.core(35, s.remainUnits, s.remainStrLength, s.maneuverCount,
+                s.hasDestination && s.destination != null ? s.destination.length() : -1, s.state, 0);
+    }
+    private void logNaviDebug(int what, List<Item> fields) {
             try {
                 if (what == GuidanceParser.MANEUVER) {
                     int[] address = GuidanceParser.address(fields);
@@ -402,6 +427,11 @@ public final class CoreService extends Service {
                                 + " angle=" + m.exitAngle + " side=" + m.drivingSide + " junc=" + m.junctionType
                                 + " -> icon=0x" + Integer.toHexString(icon);
                         writeDebugLog(line);
+                        String tollText = (m.desc == null ? "" : m.desc) + " " + (m.afterRoad == null ? "" : m.afterRoad);
+                        if (TollText.mentionsToll(tollText)) {
+                            DriveLog.core(34, TollText.amount(tollText), tollText.length(),
+                                    m.type, m.exitAngle, icon, 0);
+                        }
                     }
                 } else if (what == GuidanceParser.STATUS) {
                     GuidanceParser.Status s = GuidanceParser.status(fields);
@@ -411,6 +441,7 @@ public final class CoreService extends Service {
                                 s.laneTotal, s.laneVisible ? 1 : 0, s.hasDistance ? 1 : 0);
                         DriveLog.core(23, routeSourceCode, GuidanceDiagnostics.fieldMask(fields),
                                 s.component, s.state, s.current.length, 0);
+                        logRouteEstimates(s, fields);
                         String line = "STATUS: comp=" + s.component + " state=" + s.state
                                 + " dist=" + s.distanceToNext
                                 + " curr=" + java.util.Arrays.toString(s.current);

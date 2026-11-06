@@ -126,6 +126,7 @@ ok 'requires regular DEBUG-ON and honors DEBUG-OFF'
 
 record='D1|12345|2|21|12|-45|1|7|850|66'
 dl_validate_record "$record" || fail 'accepts numeric HUD record'
+for _ev in 23 28 29 32 33 34 35; do dl_validate_record "D1|12345|2|$_ev|1|2|3|4|5|6" || fail "accepts documented event $_ev"; done
 dl_validate_record 'D1|9999999999999|2|21|12|-45|1|7|850|66' || fail 'accepts long-uptime millisecond timestamp'
 [ "$(dl_record_uptime "$record")" = 12345 ] || fail 'extracts monotonic record time'
 dl_record_after 12345 "$record" || fail 'accepts record at opt-in timestamp'

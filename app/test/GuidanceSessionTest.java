@@ -5,7 +5,9 @@ import kr.gen5w.probe.Item;
 
 public final class GuidanceSessionTest {
     static int passed;
-    static final class Sink implements GuidanceSession.DestinationSink {
+    static final class Sink implements GuidanceSession.TimeSink {
+        long time = Long.MIN_VALUE; int timeWrites;
+        public boolean timeRemaining(long s) { time = s; timeWrites++; return true; }
         String dest; int destWrites;
         public boolean destination(String n) { dest = n; destWrites++; return true; }
         long remain = Long.MIN_VALUE; int remainWrites;
@@ -61,6 +63,16 @@ public final class GuidanceSessionTest {
             check("duplicate destination not resent", rs.destWrites == dw);
             rsess.status(s(0, "지도 A", 7));
             check("route end clears destination", "".equals(rs.dest));
+            GuidanceParser.Status ts = s(1, "지도 A", 7); ts.hasTime = true; ts.timeRemaining = 1830;
+            rsess.status(ts);
+            check("remaining time reaches sink", rs.time == 1830);
+            int tw = rs.timeWrites;
+            ts.timeRemaining = 1805; rsess.status(ts);
+            check("same-minute time not resent", rs.timeWrites == tw);
+            ts.timeRemaining = 1700; rsess.status(ts);
+            check("new minute resent", rs.time == 1700);
+            rsess.status(s(5, "지도 A", 7));
+            check("reroute clears time", rs.time == -1);
         }
         Sink sink = new Sink(); GuidanceSession session = new GuidanceSession(sink);
         session.maneuver(m(7, 1));
