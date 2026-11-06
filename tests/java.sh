@@ -10,7 +10,7 @@ mkdir -p .build
 work=$(mktemp -d "$PWD/.build/java-tests.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
-    app/src/kr/gen5w/hud/*.java app/test/*Test.java \
+    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelaySession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelayPipe.java \
@@ -50,6 +50,7 @@ java -cp "$work" kr.gen5w.wireless.BluetoothCandidateScanTest
 java -cp "$work" kr.gen5w.wireless.ProjectionWifiAccessTest
 java -cp "$work" SdpRefreshTest
 java -cp "$work" TbtDistanceTest
+java -cp "$work" StockFlagTest
 java -cp "$work" ApProfilesTest
 java -cp "$work" ApBrokerPolicyTest
 java -cp "$work" ApBrokerCancellationTest

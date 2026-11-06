@@ -1,8 +1,19 @@
 # shared helpers for the mock tests (bash, run in WSL/Linux; scripts under test run in mksh)
+# WSL appends the Windows PATH (/mnt/c/...). Looking up a command the mock unit does not
+# have then walks that slow mount for every call; the tests never need those entries.
+case "$PATH" in
+    */mnt/*) PATH=$(printf '%s\n' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd: -); export PATH ;;
+esac
 PASS=0; FAIL=0
 ok()  { echo "PASS $1"; PASS=$((PASS+1)); }
 bad() { echo "FAIL $1"; FAIL=$((FAIL+1)); }
-check() { local name=$1; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
+check() {
+    local name=$1 t0=$SECONDS; shift
+    if "$@"; then ok "$name"; else bad "$name"; fi
+    # TEST_TIMING=1 lists the checks that take 2 s or more.
+    if [ -n "${TEST_TIMING:-}" ] && [ $((SECONDS - t0)) -ge 2 ]; then echo "SLOW $((SECONDS - t0))s $name"; fi
+    return 0
+}
 # stub bin dir: getprop/setprop read/write files in $W/props, am/nemesis log to $W/calls
 stubs() {
     mkdir -p "$W/bin" "$W/props"

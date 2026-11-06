@@ -49,6 +49,15 @@ for m in ['dongle','wireless','audio','bridge','core','timer','bluelink','drivel
 PY
 mkdir -p "$W/sys/framework" "$W/sys/priv-app"; echo stock > "$W/sys/framework/services.odex"; echo stock > "$W/sys/priv-app/SystemUI.odex"
 run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/sys" IT_NEM="$W/bin/nemesis" IT_SHELL=$(command -v mksh) IT_NO_REBOOT=1 CK_TEST_PATH="$W/bin:$PATH" PATH="$W/bin:$PATH" mksh "$1.sh" > "$W/out" 2>&1); }
+TX="$W/data/nemesis/gen5w-kr-integrated"
+# IT_PART=1|2|3 runs one third of the scenario so the three can run side by side;
+# without it everything runs in order. Parts 2 and 3 start from a fresh standard install.
+part() { [ -z "${IT_PART:-}" ] || [ "$IT_PART" = "$1" ]; }
+standard_start() {
+    [ -z "${IT_PART:-}" ] || [ "$IT_PART" = 1 ] && return 0
+    : > "$W/usb/GEN5W-DEBUG-ON"; run install >/dev/null 2>&1; rm -f "$W/usb/GEN5W-ACTION" "$W/usb/GEN5W-DEBUG-ON"
+}
+if part 1; then
 : > "$W/usb/GEN5W-DEBUG-ON"
 check 'integrated install all modules' run install
 check 'a committed install with DEBUG-ON arms the read-only diagnosis next' grep -qx diag "$W/usb/GEN5W-ACTION"
@@ -148,6 +157,9 @@ check 'standard variant retains seven modules' test "$(find "$W/data/nemesis/app
 check 'rollback after dongle to standard transition restores dongle' run rollback
 check 'dongle registration restored after rollback' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
 check 'return to standard variant again' run update
+fi
+if part 2; then
+standard_start
 # Safe edition: wired HUD only. Wi-Fi/hotspot/audio and the early-close service
 # are removed, and the boot guard recovers after 2 failed boots.
 mkdir -p "$W/sys/priv-app" "$W/sys/app"; echo stock > "$W/sys/priv-app/SystemUI.odex"
@@ -193,6 +205,11 @@ check 'safe edition refuses when SystemUI is not recognised stock' eval '! run u
 check 'refused safe edition keeps seven modules' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 7
 check 'refused safe edition reports the reason' grep -q 'REFUSED pre-install check guard' "$W/data/nemesis/gen5w-kr-integrated/report"
 echo stock > "$W/sys/priv-app/SystemUI.odex"
+fi
+if part 3; then
+standard_start
+mkdir -p "$W/sys/priv-app" "$W/sys/app"; echo stock > "$W/sys/priv-app/SystemUI.odex"
+for f in Iap2ServerApp HKMC_DiPO HKMC_GPM; do echo stock > "$W/sys/app/$f.odex"; done
 # Safe-wireless edition: wireless CarPlay/AA kept, SystemUI and services.odex stock, guard at 2.
 echo safe-wireless > "$W/usb/GEN5W-VARIANT"
 check 'clean unit for safe-wireless' run remove
@@ -370,4 +387,5 @@ echo recovery-required > "$W/data/nemesis/gen5w-kr-integrated/state"
 touch "$W/data/nemesis/gen5wkr.noreboot"
 check 'update refuses unresolved system recovery' eval '! run update'
 check 'refusal preserves recovery state' grep -qx recovery-required "$W/data/nemesis/gen5w-kr-integrated/state"
+fi
 done_tests integrated

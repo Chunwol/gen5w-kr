@@ -17,15 +17,14 @@ public final class StockOwner {
         try {
             cursor = context.getContentResolver().query(STATE,
                     new String[]{"State_Destination"}, null, null, null);
-            if (cursor == null || cursor.getColumnCount() != 1) return '?';
-            int rows = 0;
-            while (cursor.moveToNext()) {
-                if (++rows > 32 || cursor.isNull(0)) return '?';
-                String state = cursor.getString(0);
-                if ("1".equals(state)) return '1';
-                if (!"0".equals(state)) return '?';
-            }
-            return rows > 0 ? '0' : '?';
+            if (cursor == null) return '?';
+            final Cursor rows = cursor;
+            return StockFlag.decode(new StockFlag.Rows() {
+                public int columns() { return rows.getColumnCount(); }
+                public boolean next() { return rows.moveToNext(); }
+                public boolean isNull() { return rows.isNull(0); }
+                public String text() { return rows.getString(0); }
+            });
         } catch (RuntimeException e) { return '?'; }
         finally {
             if (cursor != null) try { cursor.close(); } catch (RuntimeException ignored) { }
