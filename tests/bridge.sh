@@ -491,12 +491,14 @@ case "\$1" in
     *) exit 1 ;;
 esac
 EOF
-chmod +x "$W/bin/lpatch"; cp "$W/bin/lpatch" "$W/pkg/bin/lpatch"
+# Like every native file NEMESIS extracts, the packaged lpatch is 0644; the script must make it executable.
+cp "$W/bin/lpatch" "$W/pkg/bin/lpatch"; chmod 644 "$W/pkg/bin/lpatch"
 printf 'private-relay-apk\n' > "$W/relay-apk-expected"
 (cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.lpd bin/iap2-bt-patch-v039 bin/dipo-patch-v039 bin/lpatch > app/relay-v039.md5)
 printf '%s\n' 'gen5w.kr.bridge:v039-relay-3' > "$W/pkg/app/relay-v039.complete"
-export BRIDGE_TEST_DEXOPT="$W/bin/dexopt" BRIDGE_TEST_LPATCH="$W/bin/lpatch" BRIDGE_TEST_BCP_LOG="$W/bcp"
+export BRIDGE_TEST_DEXOPT="$W/bin/dexopt" BRIDGE_TEST_BCP_LOG="$W/bcp"
 check 'private relay installs as one reviewed pair' run post
+check 'relay makes the extracted lpatch executable' test -x "$W/pkg/bin/lpatch"
 check 'private relay applies exact iAP2 BT entry' cmp -s "$TARGET" "$W/fixture/v039-bt-patched"
 check 'private relay APK is live' cmp -s "$DIPOAPK" "$W/relay-apk-expected"
 check 'relay assembly leaves no temporary files' eval '! ls "$PERSIST" | grep -q assembled' 

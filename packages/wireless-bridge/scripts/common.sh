@@ -158,6 +158,8 @@ inspect() {
             if [ -f "$bridge_tool" ] && [ ! -L "$bridge_tool" ]; then chmod 755 "$bridge_tool" || return 1; fi
         done
     done
+    # The relay assembler is not named like the patchers above, so it needs its own mode change.
+    if [ -f "$LPATCH" ] && [ ! -L "$LPATCH" ]; then chmod 755 "$LPATCH" || return 1; fi
     BRIDGE_OWNED=no
     if [ -e "$STATE" ]; then
         [ -d "$STATE" ] && [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] || return 1
