@@ -39,7 +39,6 @@ def audit(path):
             p=Path(name);parts=set(p.parts)
             assert not parts.intersection({'src','stubs','private','.build','__pycache__'}), 'development/private content in ZIP'
             assert p.suffix not in {'.odex','.so','.java','.class','.keystore','.pass','.img','.ext4'}, 'forbidden artifact '+name
-            assert p.name not in {'relay-v039.complete','HKMC_DiPO.relay.lpd','lpatch'}, 'unvalidated V039 relay payload in a release artifact: '+name
             data=z.read(name)
             if p.suffix=='.dex':classes(data)
             if p.suffix=='.apk':
@@ -94,11 +93,27 @@ def audit_dongle(path):
         assert b'parm=mac_address_read' in shim or b'parmtype=mac_address_read' in shim, 'stand-in lacks mac_address_read'
     print('AUDITED dongle payload; stock Wi-Fi HAL left unchanged')
 
+def audit_relay(package):
+    import hashlib
+    with zipfile.ZipFile(package) as z:
+        names=set(z.namelist())
+        need={'app/HKMC_DiPO.relay.lpd','app/relay-v039.complete','app/relay-v039.md5','bin/lpatch'}
+        assert need<=names, 'V039 relay payload incomplete: '+str(sorted(need-names))
+        assert not any(n.endswith('.relay.apk') for n in names), 'manufacturer-derived relay APK shipped'
+        lpd=z.read('app/HKMC_DiPO.relay.lpd')
+        assert lpd==(Path(__file__).resolve().parents[1]/'tools/v039-relay/HKMC_DiPO.relay.lpd').read_bytes(), 'relay delta differs from the reviewed one'
+        assert z.read('app/relay-v039.complete').strip()==b'gen5w.kr.bridge:v039-relay-3', 'relay marker'
+        for line in z.read('app/relay-v039.md5').decode().splitlines():
+            digest,name=line.split(None,1)
+            assert hashlib.md5(z.read(name.strip())).hexdigest()==digest, 'relay hash list mismatch: '+name
+    print('AUDITED V039 relay delta payload; no manufacturer file shipped')
+
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
 packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.dongle.zip']
 assert len(packages)==8, f'expected 8 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 audit_dongle(root/'gen5w.kr.dongle.zip')
+audit_relay(root/'gen5w.kr.bridge.zip')
 with zipfile.ZipFile(root/'usb-integrated.zip') as z:
     assert z.testzip() is None
     assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==7

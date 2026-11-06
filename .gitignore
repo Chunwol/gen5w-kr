@@ -17,7 +17,6 @@ tools/integrated/bin/zipstore*
 local-only/
 tools/usb-wifi/package/files/libhardware_legacy.so
 packages/consent-timer/bin/sha256-check
-dist-relay/
 .superpowers/
 packages/wireless-bridge/bin/lpatch
 packages/wireless-bridge/app/HKMC_DiPO.relay.lpd
