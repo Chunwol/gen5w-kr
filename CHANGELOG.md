@@ -1,5 +1,10 @@
 # 변경 내역
 
+## 미출시
+
+- V039 릴레이의 DiPO 수정판을 PC에서 만든 APK 대신 **헤드유닛이 자기 순정 파일에서 만드는 델타 패치**로 전환했습니다. 패키지에는 제조사 APK가 없고, `HKMC_DiPO.relay.lpd`와 `lpatch`만 들어갑니다. 순정 ODEX의 해시와 결과 `classes.dex`의 해시가 모두 맞을 때만 만들며, 순정 APK는 기존 SHA-256 검사를 통과해야 합니다.
+- 릴레이는 아직 실차에서 검증하지 않았으므로 기본 빌드에는 포함하지 않습니다. `GEN5W_V039_RELAY=1`로 빌드한 산출물은 `dist-relay/`에만 저장되고, 릴리스 감사는 릴레이 페이로드가 든 산출물을 거부합니다.
+
 ## v0.3.36
 
 - V039 순정 PhoneProjection이 `isPossibleWCP=false`로 중단될 때만 실행되는 무선 CarPlay 보조 경로를 완성했습니다. 순정 Broadcom SPP, iAP2 component 4·5, DiPO 내부 CarPlay 채널, 프로젝션 AP를 한 세대의 상태 기계가 순서대로 소유하며 유선 연결·Android Auto·순정 연결이 있으면 즉시 정리합니다. 순정 프로필 생성에 실패해 유형이 없는 경우에는 오래된 UUID 캐시를 쓰지 않고 새 SDP 결과에 Apple CAFE/CAFF 서비스가 있는 기기만 보조 경로로 보냅니다.

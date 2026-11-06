@@ -10,7 +10,8 @@ TARGET=$SYS/app/Iap2ServerApp.odex
 APK=$SYS/app/Iap2ServerApp.apk
 DIPO_TARGET=$SYS/app/HKMC_DiPO.odex
 DIPO_APK=$SYS/app/HKMC_DiPO.apk
-RELAY_APK=$SCRIPT_DIR/../app/HKMC_DiPO.relay.apk
+RELAY_LPD=$SCRIPT_DIR/../app/HKMC_DiPO.relay.lpd
+LPATCH=${BRIDGE_TEST_LPATCH:-$SCRIPT_DIR/../bin/lpatch}
 RELAY_GATE=$SCRIPT_DIR/relay-gate.sh
 DEXOPT=${BRIDGE_TEST_DEXOPT:-/system/bin/dexopt}
 DIGEST_TOOL=${BRIDGE_TEST_DIGEST:-md5}
@@ -44,8 +45,25 @@ relay_live() {
     [ "$(digest "$DIPO_TARGET")" = "$(cat "$STATE/diporelay.odex.md5")" ]
 }
 relay_apk_live() {
-    [ -f "$RELAY_APK" ] && [ ! -L "$RELAY_APK" ] &&
-        [ "$(digest "$DIPO_APK")" = "$(digest "$RELAY_APK")" ]
+    [ -f "$STATE/diporelay.apk.md5" ] && [ ! -L "$STATE/diporelay.apk.md5" ] &&
+        [ "$(digest "$DIPO_APK")" = "$(cat "$STATE/diporelay.apk.md5")" ]
+}
+# Rebuild the relay APK from the unit's own stock files: the delta turns the verified stock
+# ODEX into classes.dex (lpatch writes nothing unless the source and the result match the
+# hashes inside the delta), which is added to the verified stock APK.
+relay_assemble() {
+    typeset out=$1 dex=$1.classes.dex
+    [ ! -L "$out" ] && [ ! -L "$dex" ] || return 1
+    rm -f "$out" "$dex" || return 1
+    if [ -f "$RELAY_LPD" ] && [ ! -L "$RELAY_LPD" ] && [ -x "$LPATCH" ] &&
+       "$LPATCH" delta "$RELAY_LPD" "$STATE/dipooriginal" "$dex" >/dev/null 2>&1 &&
+       "$LPATCH" zipadd "$STATE/dipoapkoriginal" "$dex" "$out" >/dev/null 2>&1 &&
+       [ -s "$out" ]; then
+        rm -f "$dex"
+        return 0
+    fi
+    rm -f "$out" "$dex"
+    return 1
 }
 relay_odex_live() {
     [ -f "$STATE/diporelay.odex.md5" ] && [ ! -L "$STATE/diporelay.odex.md5" ] &&
@@ -305,22 +323,24 @@ replace_plain() {
 install_relay_dipo() {
     relay_packaged && [ "$DIPO_STATE" = stock ] && [ -f "$STATE/dipoapkoriginal" ] || return 1
     typeset odex_stage=$DIPO_TARGET.gen5w-kr-bridge.tmp apk_stage=$DIPO_APK.gen5w-kr-bridge.tmp
+    typeset assembled=$STATE/diporelay.assembled
     [ ! -L "$odex_stage" ] && [ ! -L "$apk_stage" ] || return 1
     relay_stage_clear || return 1
     echo "$OWNER" > "$STATE/diporelaystaging" || return 1
-    if cp -p "$STATE/dipoapkoriginal" "$apk_stage" && cat "$RELAY_APK" > "$apk_stage" &&
-       [ "$(digest "$apk_stage")" = "$(digest "$RELAY_APK")" ] &&
+    if relay_assemble "$assembled" &&
+       cp -p "$STATE/dipoapkoriginal" "$apk_stage" && cat "$assembled" > "$apk_stage" &&
+       [ "$(digest "$apk_stage")" = "$(digest "$assembled")" ] &&
        cp -p "$STATE/dipooriginal" "$odex_stage" && : > "$odex_stage" &&
        "$DEXOPT" --preopt "$apk_stage" "$odex_stage" m=y,u=n >/dev/null 2>&1 &&
        [ -s "$odex_stage" ] &&
        echo "$(digest "$apk_stage")" > "$STATE/diporelay.apk.md5" &&
        echo "$(digest "$odex_stage")" > "$STATE/diporelay.odex.md5" && sync &&
        mv "$apk_stage" "$DIPO_APK" && mv "$odex_stage" "$DIPO_TARGET" && sync && relay_live; then
-        rm -f "$STATE/diporelaystaging"
+        rm -f "$STATE/diporelaystaging" "$assembled" "$assembled.classes.dex"
         return 0
     fi
     rm -f "$apk_stage" "$odex_stage" "$STATE/diporelaystaging" \
-        "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5"
+        "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5" "$assembled" "$assembled.classes.dex"
     return 1
 }
 replace_target() {
@@ -363,11 +383,11 @@ restore_target() {
 cleanup_owned() {
     owned && original "$TARGET" && dipo_original "$DIPO_TARGET" &&
         { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_original "$GPM_TARGET"; } || return 1
-    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp diporelay.apk.md5 diporelay.odex.md5 diporelaystaging gpmoriginal gpmoriginal.tmp replacement diporeplacement gpmreplacement staging dipostaging gpmstaging owner; do
+    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp diporelay.apk.md5 diporelay.odex.md5 diporelaystaging diporelay.assembled diporelay.assembled.classes.dex gpmoriginal gpmoriginal.tmp replacement diporeplacement gpmreplacement staging dipostaging gpmstaging owner; do
         [ ! -L "$STATE/$bridge_file" ] || return 1
     done
     rm -f "$STATE/original" "$STATE/original.tmp" "$STATE/dipooriginal" "$STATE/dipooriginal.tmp" "$STATE/dipoapkoriginal" "$STATE/dipoapkoriginal.tmp" \
-         "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5" "$STATE/diporelaystaging" "$STATE/gpmoriginal" "$STATE/gpmoriginal.tmp" \
+         "$STATE/diporelay.apk.md5" "$STATE/diporelay.odex.md5" "$STATE/diporelaystaging" "$STATE/diporelay.assembled" "$STATE/diporelay.assembled.classes.dex" "$STATE/gpmoriginal" "$STATE/gpmoriginal.tmp" \
          "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" "$STATE/staging" "$STATE/dipostaging" "$STATE/gpmstaging" "$STATE/owner" && rmdir "$STATE" || return 1
     if [ -d "$MARK" ]; then
         [ ! -L "$MARK/owner" ] && [ "$(cat "$MARK/owner")" = "$OWNER" ] && [ ! -L "$MARK/original.tmp" ] && [ ! -L "$MARK/dipooriginal.tmp" ] && [ ! -L "$MARK/dipoapkoriginal.tmp" ] || return 1

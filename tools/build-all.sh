@@ -11,11 +11,13 @@ PY=$(command -v python3 || command -v python)
 SDK=${ANDROID_SDK:-${ANDROID_HOME:-$HOME/AppData/Local/Android/Sdk}}
 NDK=${ANDROID_NDK_HOME:-$SDK/ndk/27.2.12479018}
 rm -rf dist; mkdir -p dist
-# A build carrying the private relay payload must never leave ordinary-named public artifacts.
-# Whatever happens, move everything to dist-private/ on exit; the public dist/ is left absent.
-if [ -n "${GEN5W_PRIVATE_DIPO_RELAY_APK:-}" ]; then
-    rm -rf dist-private
-    trap 'rm -rf dist-private; [ ! -d dist ] || mv dist dist-private;           echo "PRIVATE BUILD: artifacts are in dist-private/ and must not be published." >&2' EXIT
+# The V039 relay is not validated on a car yet. GEN5W_V039_RELAY=1 stages it (a binary delta the
+# head unit applies to its own stock DiPO files; no manufacturer file is shipped), but such a build
+# must never leave ordinary-named release artifacts. Whatever happens, move everything to
+# dist-relay/ on exit; the release dist/ is left absent.
+if [ "${GEN5W_V039_RELAY:-}" = 1 ]; then
+    rm -rf dist-relay
+    trap 'rm -rf dist-relay; [ ! -d dist ] || mv dist dist-relay; echo "RELAY BUILD (unvalidated): artifacts are in dist-relay/ and must not be released." >&2' EXIT
 fi
 bash probe/build.sh
 mkdir -p probe/package/app
@@ -29,10 +31,9 @@ cp probe/build/gen5w-probe.apk probe/package/app/gen5w-probe.apk
 "$PY" -I tools/iap2/build.py --ndk "$NDK"
 bash tools/build-dex.sh packages/wireless-bridge kr.gen5w.wireless.WirelessBridge bridge.dex
 bash tools/build-wireless-host.sh
-rm -f packages/wireless-bridge/app/HKMC_DiPO.relay.apk \
-    packages/wireless-bridge/app/relay-v039.md5 packages/wireless-bridge/app/relay-v039.complete
-if [ -n "${GEN5W_PRIVATE_DIPO_RELAY_APK:-}" ]; then
-    bash tools/stage-private-v039-relay.sh "$GEN5W_PRIVATE_DIPO_RELAY_APK"
+rm -f packages/wireless-bridge/app/HKMC_DiPO.relay.lpd packages/wireless-bridge/app/HKMC_DiPO.relay.apk     packages/wireless-bridge/app/relay-v039.md5 packages/wireless-bridge/app/relay-v039.complete     packages/wireless-bridge/bin/lpatch
+if [ "${GEN5W_V039_RELAY:-}" = 1 ]; then
+    bash tools/stage-v039-relay.sh "$NDK"
 fi
 "$PY" -I tools/mkpkg.py packages/wireless-bridge dist/gen5w.kr.bridge.zip
 

@@ -137,6 +137,8 @@ def main() -> int:
     parser.add_argument("--smali", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path)
+    parser.add_argument("--delta-out", type=Path,
+                        help="also write the head-unit delta (stock ODEX -> classes.dex) for release")
     args = parser.parse_args()
     if sha256(args.stock_apk) != V039_APK_SHA256:
         raise SystemExit("stock APK is not the reviewed exact V039 file")
@@ -192,6 +194,8 @@ def main() -> int:
     final_path = work / "classes.dex"
     final_path.write_bytes(rebuilt.read_bytes())
     add_classes_dex(args.stock_apk, final_path, args.output)
+    if args.delta_out:
+        run(sys.executable, ROOT / "tools/v039-relay/mkdelta.py", args.stock_odex, final_path, args.delta_out)
     print(f"built private V039 DiPO relay APK: {args.output}")
     print(f"sha256={sha256(args.output)}")
     if temp_owner is not None:

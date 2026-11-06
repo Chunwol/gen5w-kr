@@ -17,5 +17,5 @@ tools/integrated/bin/zipstore*
 local-only/
 tools/usb-wifi/package/files/libhardware_legacy.so
 packages/consent-timer/bin/sha256-check
-dist-private/
+dist-relay/
 .superpowers/

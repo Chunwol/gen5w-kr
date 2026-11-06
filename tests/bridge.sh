@@ -472,13 +472,27 @@ run preun || true
 cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
 cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
 cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
-printf 'private-relay-apk\n' > "$W/pkg/app/HKMC_DiPO.relay.apk"
-(cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.apk bin/iap2-bt-patch-v039 bin/dipo-patch-v039 > app/relay-v039.md5)
-printf '%s\n' 'gen5w.kr.bridge:v039-relay-2' > "$W/pkg/app/relay-v039.complete"
-export BRIDGE_TEST_DEXOPT="$W/bin/dexopt"
+# The package carries a delta and lpatch, never a manufacturer APK. The fake lpatch refuses any
+# source that is not the exact stock file, like the real tool does for a hash mismatch.
+printf 'delta\n' > "$W/pkg/app/HKMC_DiPO.relay.lpd"
+cat > "$W/bin/lpatch" <<EOF
+#!/bin/sh
+[ "\${BRIDGE_TEST_LPATCH_FAIL:-0}" != 1 ] || exit 1
+case "\$1" in
+    delta) cmp -s "\$3" "$W/fixture/dipo-v039-original" && [ -s "\$2" ] && printf 'relay-dex\n' > "\$4" ;;
+    zipadd) cmp -s "\$2" "$W/fixture/dipo-v039-apk" && [ -s "\$3" ] && printf 'private-relay-apk\n' > "\$4" ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$W/bin/lpatch"; cp "$W/bin/lpatch" "$W/pkg/bin/lpatch"
+printf 'private-relay-apk\n' > "$W/relay-apk-expected"
+(cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.lpd bin/iap2-bt-patch-v039 bin/dipo-patch-v039 bin/lpatch > app/relay-v039.md5)
+printf '%s\n' 'gen5w.kr.bridge:v039-relay-3' > "$W/pkg/app/relay-v039.complete"
+export BRIDGE_TEST_DEXOPT="$W/bin/dexopt" BRIDGE_TEST_LPATCH="$W/bin/lpatch"
 check 'private relay installs as one reviewed pair' run post
 check 'private relay applies exact iAP2 BT entry' cmp -s "$TARGET" "$W/fixture/v039-bt-patched"
-check 'private relay APK is live' cmp -s "$DIPOAPK" "$W/pkg/app/HKMC_DiPO.relay.apk"
+check 'private relay APK is live' cmp -s "$DIPOAPK" "$W/relay-apk-expected"
+check 'relay assembly leaves no temporary files' eval '! ls "$PERSIST" | grep -q assembled' 
 check 'private relay ODEX was preoptimized' grep -q '^optimized:private-relay-apk' "$DIPO"
 check 'private relay preserves original APK' cmp -s "$PERSIST/dipoapkoriginal" "$W/fixture/dipo-v039-apk"
 cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
@@ -507,6 +521,16 @@ check 'failed relay preopt restores iAP2' cmp -s "$TARGET" "$W/fixture/v039-orig
 check 'failed relay preopt restores DiPO APK' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
 check 'failed relay preopt restores DiPO ODEX' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
 check 'failed relay preopt can be removed cleanly' run preun
-unset BRIDGE_TEST_DEXOPT
+# A delta that does not match the stock files must leave every stock file untouched.
+cp "$W/fixture/v039-original" "$TARGET"; cp "$W/fixture/v039-apk" "$APK"
+cp "$W/fixture/dipo-v039-original" "$DIPO"; cp "$W/fixture/dipo-v039-apk" "$DIPOAPK"
+export BRIDGE_TEST_LPATCH_FAIL=1
+if run post; then bad 'relay rejects a delta that does not match the stock files'; else ok 'relay rejects a delta that does not match the stock files'; fi
+unset BRIDGE_TEST_LPATCH_FAIL
+check 'rejected delta restores iAP2' cmp -s "$TARGET" "$W/fixture/v039-original"
+check 'rejected delta keeps DiPO APK stock' cmp -s "$DIPOAPK" "$W/fixture/dipo-v039-apk"
+check 'rejected delta keeps DiPO ODEX stock' cmp -s "$DIPO" "$W/fixture/dipo-v039-original"
+check 'rejected delta can be removed cleanly' run preun
+unset BRIDGE_TEST_DEXOPT BRIDGE_TEST_LPATCH
 
 done_tests bridge

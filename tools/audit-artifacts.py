@@ -39,6 +39,7 @@ def audit(path):
             p=Path(name);parts=set(p.parts)
             assert not parts.intersection({'src','stubs','private','.build','__pycache__'}), 'development/private content in ZIP'
             assert p.suffix not in {'.odex','.so','.java','.class','.keystore','.pass','.img','.ext4'}, 'forbidden artifact '+name
+            assert p.name not in {'relay-v039.complete','HKMC_DiPO.relay.lpd','lpatch'}, 'unvalidated V039 relay payload in a release artifact: '+name
             data=z.read(name)
             if p.suffix=='.dex':classes(data)
             if p.suffix=='.apk':
