@@ -5,7 +5,12 @@ import kr.gen5w.probe.Item;
 
 public final class GuidanceSessionTest {
     static int passed;
-    static final class Sink implements GuidanceSession.LaneSink {
+    static final class Sink implements GuidanceSession.DestinationSink {
+        String dest; int destWrites;
+        public boolean destination(String n) { dest = n; destWrites++; return true; }
+        long remain = Long.MIN_VALUE; int remainWrites;
+        public boolean remaining(long m) { remain = m; remainWrites++; return true; }
+        public boolean tbt(int icon, int secondIcon, long m) { return true; }
         byte[] turns, lanes;
         int laneWrites;
         boolean rejectLane;
@@ -33,6 +38,30 @@ public final class GuidanceSessionTest {
     static boolean blank(Sink sink) { return sink.turns != null && sink.turns.length == 2 && sink.turns[0] == (byte)0xf2 && sink.turns[1] == 0; }
     static Item n(int id, int... values) { Item it = new Item(); it.id = id; it.ints = values; return it; }
     public static void main(String[] args) throws Exception {
+        {
+            Sink rs = new Sink(); GuidanceSession rsess = new GuidanceSession(rs);
+            rsess.maneuver(m(7, 1));
+            GuidanceParser.Status st = s(1, "지도 A", 7); st.hasRemaining = true; st.distanceRemaining = 12345;
+            rsess.status(st);
+            check("remaining distance reaches sink", rs.remain == 12345);
+            int rw = rs.remainWrites;
+            rsess.status(st);
+            check("duplicate remaining not resent", rs.remainWrites == rw);
+            rsess.status(s(5, "지도 A", 7));
+            check("reroute clears remaining", rs.remain == -1);
+            rsess.status(s(1, "지도 A", 7));
+            check("reroute cannot resurrect remaining", rs.remain == -1);
+            st.distanceRemaining = 900; rsess.status(st);
+            rsess.disconnect();
+            check("disconnect clears remaining", rs.remain == -1);
+            GuidanceParser.Status ds = s(1, "지도 A", 7); ds.hasDestination = true; ds.destination = "서울역";
+            rsess.status(ds);
+            check("destination reaches sink", "서울역".equals(rs.dest));
+            int dw = rs.destWrites; rsess.status(ds);
+            check("duplicate destination not resent", rs.destWrites == dw);
+            rsess.status(s(0, "지도 A", 7));
+            check("route end clears destination", "".equals(rs.dest));
+        }
         Sink sink = new Sink(); GuidanceSession session = new GuidanceSession(sink);
         session.maneuver(m(7, 1));
         check("no output before route status", sink.writes == 0);

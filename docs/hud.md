@@ -53,7 +53,13 @@ V039 `HKMC_GPM.odex`에서 `onNextTurn`, `onNextTurnDistance`, `setTurnDisplayTy
 
 ## 출력과 검증 경계
 
-출력은 `updateTBTInfo`, `updateTPTurnListNew`, `updateTPCrossroadName`, `updateLaneInfo`를 사용합니다. 실패한 최신 회전·거리·차선과 지움 요청은 다시 시도합니다. 한 번도 입력받지 않은 세션이 임의 출력을 만들지는 않습니다.
+출력은 `updateTBTInfo`, `updateTBTSubInfo`(목적지까지 남은 거리), `updateTPTurnListNew`, `updateTPCrossroadName`, `updateLaneInfo`를 사용합니다. 실패한 최신 회전·거리·차선과 지움 요청은 다시 시도합니다. 한 번도 입력받지 않은 세션이 임의 출력을 만들지는 않습니다.
+
+### 목적지까지 남은 거리
+
+CarPlay 상태 알림의 `DistanceRemaing`(id 7, 미터)을 `NavigationCluster.updateTBTSubInfo(거리, 오차, 단위, 시, 분, timeType, timeFormat, 방위, 방위오차)`로 전달합니다. 순정 내비(`com.mnsoft.navi.message.a.g`)의 0x4D 패킷 해석에서 확인한 규칙을 따릅니다: 단위 `0` m·`1` km, 시·분 `0xff`와 timeType `0`은 값 없음, 거리 오차 `-3`은 무효. 도착 예정 시각(id 5)과 남은 시간(id 6)은 순정 DiPO가 저장만 하고 어디에도 쓰지 않아 변환 규칙이 없으므로 보내지 않습니다. 재탐색·경로 종료·연결 종료에서 값을 지웁니다.
+
+목적지 이름(`DestinationName`, id 4)은 순정 DiPO와 같이 type `0`과 이름만 담아 `updateTPFlexibleDestinationName`으로 전달하고, 경로 종료 때 빈 이름으로 지웁니다.
 
 고속도로 전용 `updateTPHighwayMode` 경로는 앱 입력과 V039 실제 출력이 연결됐다는 증거가 없어 호출하지 않습니다. 순정 과속·카메라 경고는 별도 순정 채널이며 이 앱이 생성하거나 음소거하지 않습니다.
 

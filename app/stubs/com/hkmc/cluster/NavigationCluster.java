@@ -17,6 +17,12 @@ public class NavigationCluster {
         public HighwayMode() {}
     }
 
+    public static final class DestinationName {
+        public int type;
+        public String name;
+        public DestinationName() {}
+    }
+
     public NavigationCluster(android.content.Context context) { throw new RuntimeException("stub"); }
     public void updateTPTurnListNew(byte[] data) { throw new RuntimeException("stub"); }
     public void updateLaneInfo(byte[] data) { throw new RuntimeException("stub"); }
@@ -25,4 +31,8 @@ public class NavigationCluster {
     public void updateTBTInfo(int displayType, int sideStreet, float direction,
             float distance, int distanceErr, int combiSideStreet, int scale,
             int barGraphLevel, int barGraphLevelErr) { throw new RuntimeException("stub"); }
+    public void updateTPFlexibleDestinationName(DestinationName destName) { throw new RuntimeException("stub"); }
+    public void updateTBTSubInfo(float distance, int distanceErr, int unit, int hours,
+            int minutes, int timeType, int timeFormat, float compassDegree,
+            int compassDegreeErr) { throw new RuntimeException("stub"); }
 }

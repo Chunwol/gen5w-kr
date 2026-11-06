@@ -1,5 +1,10 @@
 # 변경 내역
 
+## v0.3.38
+
+- 목적지까지 남은 거리(CarPlay `DistanceRemaing`)를 클러스터 `updateTBTSubInfo`로 전달합니다. 재탐색·종료·연결 해제 때 지웁니다.
+- 목적지 이름(`DestinationName`)을 순정 DiPO와 같은 방식으로 `updateTPFlexibleDestinationName`에 전달합니다.
+
 ## v0.3.37
 
 - V039 릴레이의 DiPO 수정판을 PC에서 만든 APK 대신 **헤드유닛이 자기 순정 파일에서 만드는 델타 패치**로 전환했습니다. 패키지에는 제조사 APK가 없고 `HKMC_DiPO.relay.lpd`와 `lpatch`만 들어갑니다. 순정 ODEX의 해시와 결과 `classes.dex`의 해시가 모두 맞을 때만 만들며, 순정 APK는 기존 SHA-256 검사를 통과해야 합니다. 이제 기본 빌드에 포함됩니다.

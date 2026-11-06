@@ -76,7 +76,7 @@ public final class CoreService extends Service {
             }
         });
         stockGuidance = new StockGuidance();
-        session = new GuidanceSession(new GuidanceSession.TbtSink() {
+        session = new GuidanceSession(new GuidanceSession.DestinationSink() {
             public boolean tbt(int icon, int secondIcon, long meters) {
                 if (!refreshOwnership()) return false;
                 try {
@@ -100,6 +100,40 @@ public final class CoreService extends Service {
                             + " dist=" + meters + "m");
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
+                  catch (LinkageError e) { return outputError(e); }
+            }
+            /** Stock mnsoft 0x4D sub-info layout: distance + unit (0 m, 1 km); hours and minutes 0xff and
+             * time type 0 mean "none". Only the destination distance is supplied. */
+            public boolean remaining(long meters) {
+                if (subInfoMissing) return true;
+                if (!refreshOwnership()) return false;
+                try {
+                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    cluster.updateTBTSubInfo(
+                            TurnFrame.tbtDistanceValue(meters),
+                            TurnFrame.tbtDistanceError(meters),
+                            TurnFrame.tbtDistanceScale(meters),
+                            0xff, 0xff, 0, 0, 0f, TurnFrame.DIST_ERR_UNKNOWN);
+                    writeDebugLog("SUB: remaining=" + meters + "m");
+                    return true;
+                } catch (NoSuchMethodError e) { subInfoMissing = true; return true; }
+                  catch (RuntimeException e) { return outputError(e); }
+                  catch (LinkageError e) { return outputError(e); }
+            }
+            /** Stock DiPO sends type 0 plus the name to updateTPFlexibleDestinationName. */
+            public boolean destination(String name) {
+                if (destMissing) return true;
+                if (!refreshOwnership()) return false;
+                try {
+                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    NavigationCluster.DestinationName d = new NavigationCluster.DestinationName();
+                    d.type = 0;
+                    d.name = name;
+                    cluster.updateTPFlexibleDestinationName(d);
+                    writeDebugLog("DEST: len=" + name.length());
+                    return true;
+                } catch (NoSuchMethodError e) { destMissing = true; return true; }
+                  catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
             }
             public boolean lanes(byte[] frame) {
@@ -210,6 +244,8 @@ public final class CoreService extends Service {
             new java.io.File(dir, "navi-debug.log.1").delete();
         } catch (Throwable ignored) {}
     }
+    /** Set when this head unit's cluster API lacks an optional method; the output is then skipped. */
+    private boolean subInfoMissing, destMissing;
     private boolean outputError(Throwable e) {
         cluster = null;
         session.invalidateOutput();

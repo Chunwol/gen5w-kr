@@ -31,6 +31,10 @@ public final class GuidanceParserTest {
         distance.ints = new int[]{(int)3000000000L}; distance.longs = null; distance.type = 6;
         m = GuidanceParser.maneuver(fields(number(0, 1), number(1, 0), number(3, 1), distance));
         check("unsigned 32-bit int storage decoded", m != null && m.distanceMeters == 3000000000L);
+        GuidanceParser.Status rem = GuidanceParser.status(fields(number(0, 1), number(1, 1), number(7, 4200)));
+        GuidanceParser.Status dn = GuidanceParser.status(fields(number(0, 1), number(1, 1), text(4, "서울역")));
+        check("status carries destination name", dn != null && dn.hasDestination && "서울역".equals(dn.destination));
+        check("status carries remaining distance", rem != null && rem.hasRemaining && rem.distanceRemaining == 4200);
         GuidanceParser.Status s = GuidanceParser.status(fields(number(0, 2), number(1, 5), text(19, "지도")));
         check("rerouting clears guidance", s != null && !s.canDisplay() && "지도".equals(s.source));
         check("route set allows display", GuidanceParser.status(fields(number(0, 2), number(1, 1))).canDisplay());

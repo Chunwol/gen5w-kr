@@ -13,6 +13,10 @@ public final class GuidanceSession {
     public interface Sink { boolean turns(byte[] frame); }
     public interface LaneSink extends Sink { boolean lanes(byte[] frame); }
     public interface TbtSink extends LaneSink { boolean tbt(int icon, int secondIcon, long distanceMeters); }
+    /** Optional: remaining distance to the destination; -1 clears. */
+    public interface RemainSink extends TbtSink { boolean remaining(long distanceMeters); }
+    /** Optional: destination name; empty string clears. */
+    public interface DestinationSink extends RemainSink { boolean destination(String name); }
     private final Sink sink;
     private boolean outputAllowed = true;
     private final Map<Long, Maneuver> maneuvers = new LinkedHashMap<Long, Maneuver>();
@@ -29,6 +33,8 @@ public final class GuidanceSession {
     private int laneIndex = -1, laneTotal = -1;
     private boolean laneVisible;
     private long distance = -1, sentDistance = Long.MIN_VALUE;
+    private long remaining = -1, sentRemaining = Long.MIN_VALUE;
+    private String destination = "", sentDestination;
     private int sentIcon = Integer.MIN_VALUE, sentSecondIcon = Integer.MIN_VALUE;
 
     public GuidanceSession(Sink sink) { this.sink = sink; }
@@ -80,13 +86,13 @@ public final class GuidanceSession {
     public void status(GuidanceParser.Status update) {
         if (update == null) { disconnect(); return; }
         boolean changed = component >= 0 && component != update.component;
-        if (changed) { maneuvers.clear(); clearLaneState(); current = new int[0]; state = -1; source = null; distance = -1; }
+        if (changed) { maneuvers.clear(); clearLaneState(); current = new int[0]; state = -1; source = null; distance = -1; remaining = -1; destination = ""; }
         component = update.component;
         if (update.hasSource) {
             if (source != null && !source.equals(update.source)) {
                 maneuvers.clear(); current = new int[0];
                 clearLaneState();
-                distance = -1;
+                distance = -1; remaining = -1; destination = "";
             }
             source = update.source;
         }
@@ -97,13 +103,15 @@ public final class GuidanceSession {
         if (update.hasCurrent && !Arrays.equals(current,update.current)) distance = -1;
         if (update.hasCurrent) current = update.current.clone();
         if (update.hasDistance) distance = update.distanceToNext;
+        if (update.hasRemaining) remaining = update.distanceRemaining;
+        if (update.hasDestination) destination = update.destination == null ? "" : update.destination;
         if (update.hasLaneIndex) laneIndex = update.laneIndex;
         if (update.hasLaneTotal) laneTotal = update.laneTotal;
         if (update.hasLaneVisible) laneVisible = update.laneVisible;
         if (!isNavigating(state)) {
             maneuvers.clear(); current = new int[0];
             clearLaneState();
-            distance = -1;
+            distance = -1; remaining = -1; destination = "";
         }
         render();
     }
@@ -112,10 +120,12 @@ public final class GuidanceSession {
         component = -1; state = -1; source = null;
         current = new int[0]; maneuvers.clear();
         clearLaneState();
-        distance = -1;
+        distance = -1; remaining = -1; destination = "";
         emit(TurnFrame.clear());
         emitLanes(LaneFrame.clear());
         emitTbt(0, 0, -1);
+        emitRemaining(-1);
+        emitDestination("");
     }
     private void render() {
         renderLanes();
@@ -129,6 +139,8 @@ public final class GuidanceSession {
         int firstCode = selectedIcon < 0 ? 0 : selectedIcon;
         int secondCode = secondIcon < 0 ? 0 : secondIcon;
         emitTbt(firstCode, secondCode, selectedIcon < 0 ? -1 : distance);
+        emitRemaining(isNavigating(state) ? remaining : -1);
+        emitDestination(isNavigating(state) ? destination : "");
         if (!isNavigating(state) || current.length == 0) { emit(TurnFrame.clear()); return; }
         Maneuver first = maneuvers.get(key(component, current[0]));
         if (first == null) { emit(TurnFrame.clear()); return; }
@@ -146,6 +158,18 @@ public final class GuidanceSession {
                 && ((TbtSink)sink).tbt(icon, secondIcon, meters)) {
             sentIcon = icon; sentSecondIcon = secondIcon; sentDistance = meters;
         }
+    }
+    private String desiredDestination;
+    private void emitDestination(String name) {
+        desiredDestination = name;
+        if (outputAllowed && sink instanceof DestinationSink && !name.equals(sentDestination)
+                && ((DestinationSink)sink).destination(name)) sentDestination = name;
+    }
+    private long desiredRemaining = Long.MIN_VALUE;
+    private void emitRemaining(long meters) {
+        desiredRemaining = meters;
+        if (outputAllowed && sink instanceof RemainSink && meters != sentRemaining
+                && ((RemainSink)sink).remaining(meters)) sentRemaining = meters;
     }
     private void clearLaneState() {
         laneSets.clear(); laneIndex = -1; laneTotal = -1; laneVisible = false;
@@ -167,6 +191,8 @@ public final class GuidanceSession {
         if (desiredFrame != null) emit(desiredFrame);
         if (desiredLanes != null) emitLanes(desiredLanes);
         if (desiredTbt) emitTbt(desiredIcon, desiredSecondIcon, desiredDistance);
+        if (desiredRemaining != Long.MIN_VALUE) emitRemaining(desiredRemaining);
+        if (desiredDestination != null) emitDestination(desiredDestination);
     }
     public boolean hasActiveGuidance() {
         return desiredFrame != null && !Arrays.equals(desiredFrame, TurnFrame.clear());
@@ -175,6 +201,7 @@ public final class GuidanceSession {
     public void invalidateOutput() {
         lastFrame = null; lastLanes = null;
         sentIcon = Integer.MIN_VALUE; sentSecondIcon = Integer.MIN_VALUE; sentDistance = Long.MIN_VALUE;
+        sentRemaining = Long.MIN_VALUE; sentDestination = null;
     }
     private static long key(int component, int index) { return ((long)component << 32) | (index & 0xffffffffL); }
 }

@@ -21,6 +21,12 @@ public final class GuidanceParser {
         public String source;
         public long distanceToNext = -1;
         public boolean hasState, hasSource, hasCurrent, hasDistance;
+        /** RouteGuidanceUpdate DistanceRemaing (id 7), meters to the destination. */
+        public long distanceRemaining = -1;
+        public boolean hasRemaining;
+        /** RouteGuidanceUpdate DestinationName (id 4). */
+        public String destination;
+        public boolean hasDestination;
         public int laneIndex = -1, laneTotal = -1;
         public boolean hasLaneIndex, hasLaneVisible, laneVisible, hasLaneTotal;
         public int[] current = new int[0];
@@ -107,6 +113,11 @@ public final class GuidanceParser {
             s.distanceToNext = number(f, 10, -1);
             s.hasDistance = f.containsKey(10);
             if (s.distanceToNext < -1 || s.distanceToNext > 0xffffffffL) return null;
+            s.hasRemaining = f.containsKey(7);
+            s.distanceRemaining = number(f, 7, -1);
+            if (s.distanceRemaining < -1 || s.distanceRemaining > 0xffffffffL) return null;
+            s.hasDestination = f.containsKey(4);
+            s.destination = string(f, 4);
             s.source = string(f, 19);
             s.hasLaneIndex = f.containsKey(16);
             s.laneIndex = unsigned(f, 16, -1, 65535);
