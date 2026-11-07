@@ -51,7 +51,7 @@ public final class MainActivity extends Activity {
     private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
             LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
     private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = SKY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
-            LINE = SKY, BAR = BLACK, PANEL = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
+            LINE = SKY, BAR = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
     private static final int ROUND = 2; // dp: the stock screen uses almost square corners
     private static final java.util.Random RANDOM = new java.util.Random();
 
@@ -96,7 +96,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(BLACK));
+        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE})); // the one background gradient, like the stock settings
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
         bar.setBackgroundColor(BAR); // the stock bars are flat, not raised
@@ -149,7 +149,6 @@ public final class MainActivity extends Activity {
         body.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
-        side.setBackgroundColor(BLACK);
         for (int i = 0; i < TABS.length; i++) {
             final int index = i;
             LinearLayout item = new LinearLayout(this);
@@ -237,7 +236,7 @@ public final class MainActivity extends Activity {
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            menuItems[i].setBackgroundColor(on ? BLUE : BLACK); // flat: no gradients anywhere
+            menuItems[i].setBackgroundColor(on ? BLUE : 0x00000000); // flat selection
             TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
             name.setTextColor(on ? ACTIVE_BLUE : TEXT);
@@ -611,7 +610,6 @@ public final class MainActivity extends Activity {
     private void openPanel(LinearLayout page, int topMargin) {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
-        p.setBackgroundColor(PANEL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, topMargin, 0, 0);
         page.addView(p, lp);
