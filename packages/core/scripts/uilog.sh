@@ -333,7 +333,7 @@ collect_deep() {
         grep -a -i -E 'wireless|carplay|hotspot|wifi|projection' /system/onebin/oshev_kr/featurexml.cfg 2>/dev/null | deep_tail "featurexml lines" 40
         ls -ln "$BRIDGE/app" 2>/dev/null | deep_tail "bridge app folder" 30
         print -r -- "-- logcat"
-        $LOGCAT -d -v time 2>/dev/null | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
+        $LOGCAT -d -v time 2>/dev/null | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|[Bb]lue[Ll]ink|[Tt]elematics|[Ss]ubscri|WifiManager|[Ww]ifi[Aa]p|[Tt]oast|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
     } 2>/dev/null >> "$out"
     chmod 644 "$out"
 }
