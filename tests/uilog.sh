@@ -282,10 +282,11 @@ FAKE
 chmod +x "$W/nemesis"
 rmrun() { UILOG_TEST_NEM=$W/nemesis UILOG_TEST_SH=/bin/sh runs; }
 reset; rm -f "$W/rmcalls" "$W/failuninstall"
-for id in drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done
+for id in localhotspot drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done
 touch "$N/gen5wkr.wireless-disabled" "$N/gen5wkr.ui-timer-off"
 printf 'remove=555\n' > "$W/request"; rmrun
 check 'every package except core is uninstalled' eval '[ ! -d "$N/apps/gen5w.kr.bridge" ] && [ ! -d "$N/apps/gen5w.kr.drivelog" ] && [ ! -d "$N/apps/gen5w.kr.wireless" ]'
+check 'optional hotspot is removed through its own verified hook' eval '[ ! -d "$N/apps/gen5w.kr.localhotspot" ] && grep -qx "hook gen5w.kr.localhotspot" "$W/rmcalls"'
 check 'the core package stays' test -d "$N/apps/gen5w.kr.core"
 check 'core is never sent to uninstall' eval '! grep -q "uninstall gen5w.kr.core" "$W/rmcalls"'
 check 'the hook runs before the uninstall of the same package' eval 'h=$(grep -n "^hook gen5w.kr.bridge" "$W/rmcalls" | cut -d: -f1); u=$(grep -n "^uninstall gen5w.kr.bridge" "$W/rmcalls" | cut -d: -f1); [ -n "$h" ] && [ -n "$u" ] && [ "$h" -lt "$u" ]'

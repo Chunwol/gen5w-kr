@@ -14,6 +14,7 @@ check 'build complete integrated USB bundle' python3 "$ROOT/tools/integrated/bui
 check 'bundle includes staged module gates' test -f "$W/usb/checks/gen5w.kr.bridge/FILES.md5"
 check 'bundle includes optional hotspot recovery gates' test -f "$W/usb/checks/gen5w.kr.localhotspot/FILES.md5"
 check 'hotspot remains opt-in in public bundle' test ! -e "$W/usb/GEN5W-LOCAL-HOTSPOT"
+check 'optional hotspot records its installation result' env IT_DATA="$W/data" IT_SYSTEM="$W/system" mksh -c "cd '$W/usb' && . ./common.sh && mkdir -p \"\$TX\" && result gen5w.kr.localhotspot applied && grep -qx applied \"\$TX/result.gen5w.kr.localhotspot\" && [ -n \"\$(feature_name gen5w.kr.localhotspot)\" ]"
 check 'default IDS exclude hotspot but removal includes it' env IT_DATA="$W/data" IT_SYSTEM="$W/system" mksh -c "cd '$W/usb' && . ./common.sh && [[ \" \$IDS \" != *' gen5w.kr.localhotspot '* ]] && [[ \" \$REVERSE \" = *' gen5w.kr.localhotspot '* ]]"
 touch "$W/usb/GEN5W-LOCAL-HOTSPOT"
 check 'marker opts into hotspot installation' env IT_DATA="$W/data" IT_SYSTEM="$W/system" mksh -c "cd '$W/usb' && . ./common.sh && [[ \" \$IDS \" = *' gen5w.kr.localhotspot '* ]]"

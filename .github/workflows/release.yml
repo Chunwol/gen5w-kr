@@ -101,6 +101,8 @@ jobs:
           동글형은 설치 직전에 내장 Wi-Fi를 한 번 더 확인하고, 있으면 설치를 멈춥니다(차는 바뀌지 않음). 내장 대신 동글을 꼭 쓰려면 USB 맨 바깥에 빈 파일 `GEN5W-FORCE-DONGLE`을 두세요.
 
           두 판 모두 시동 주의 안내를 조건이 맞으면 바로 넘기고, 블루링크 미가입 안내를 숨깁니다. **실차에서는 아직 확인하지 않았습니다.** 설치 전에 저장소의 [설치 가이드](https://github.com/Chunwol/gen5w-kr/blob/main/docs/beginner-guide.md)와 복구 준비 체크리스트를 읽어 주세요.
+
+          **V039 순정 핫스팟 로컬 스위치(선택 시험 기능):** 설치 USB 맨 바깥에 빈 `GEN5W-LOCAL-HOTSPOT` 파일을 두면 정확한 한국 코나 V039 WifiSettings 원본에만 적용합니다. 블루링크 가입이나 인터넷 서비스를 활성화하지 않습니다. CarPlay의 AP 우선권은 유지하며 실제 Wi-Fi·ADB 연결은 미검증입니다. 전체 제거와 부팅 복구에 원본 복원 경로가 포함되어 있습니다.
           NOTES
           release_type=()
           if [[ "$VERSION" == *-* ]]; then release_type+=(--prerelease --latest=false); fi

@@ -1,6 +1,6 @@
 # Fixed allowlist only. No raw logs, phone identifiers or hotspot credentials.
 result() {
-    case "$1" in gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.timer|gen5w.kr.bluelink|gen5w.kr.drivelog)
+    case "$1" in gen5w.kr.localhotspot|gen5w.kr.dongle|gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.core|gen5w.kr.timer|gen5w.kr.bluelink|gen5w.kr.drivelog)
         echo "$2" > "$TX/result.$1";;
     esac
 }
@@ -15,6 +15,7 @@ feature_name() {
         gen5w.kr.timer) echo '시동 주의 안내 즉시 자동 전환';;
         gen5w.kr.bluelink) echo '블루링크 월간 가입 안내 숨기기';;
         gen5w.kr.drivelog) echo 'USB 주행 진단 로그';;
+        gen5w.kr.localhotspot) echo '순정 핫스팟 로컬 스위치';;
     esac
 }
 result_label() {
