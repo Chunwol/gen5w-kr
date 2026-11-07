@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView helpText;
+    private android.widget.TextClock clock, date;
     private final LinearLayout[] menuItems = new LinearLayout[TABS.length];
     private FrameLayout content;
     private int tab = INFO;
@@ -98,7 +99,7 @@ public final class MainActivity extends Activity {
         root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE}));
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
-        bar.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLUE, BLACK})); // lighter at the top: the stock bars look slightly raised
+        bar.setBackgroundColor(BAR); // the stock bars are flat, not raised
         bar.setMinimumHeight(dp(56));
         TextView back = label("‹", 44, TEXT, false);
         back.setGravity(Gravity.CENTER);
@@ -106,6 +107,19 @@ public final class MainActivity extends Activity {
             public void onClick(View v) { finish(); }
         });
         bar.addView(back, new FrameLayout.LayoutParams(dp(84), dp(56), Gravity.LEFT | Gravity.CENTER_VERTICAL));
+        LinearLayout clockBox = new LinearLayout(this);
+        clockBox.setGravity(Gravity.CENTER_VERTICAL);
+        clock = new android.widget.TextClock(this);
+        clock.setTextColor(TEXT);
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
+        clock.setTypeface(Typeface.DEFAULT_BOLD);
+        clockBox.addView(clock);
+        date = new android.widget.TextClock(this);
+        date.setTextColor(TEXT);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        date.setPadding(dp(22), 0, 0, 0);
+        clockBox.addView(date);
+        bar.addView(clockBox, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(56), Gravity.CENTER));
         langButton = new TextView(this);
         langButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         langButton.setTextColor(TEXT);
@@ -128,7 +142,7 @@ public final class MainActivity extends Activity {
         TextView title = label("Gen5W KR", 28, TEXT, true);
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, dp(10), 0, dp(10));
-        title.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLUE, BLACK}));
+        title.setBackgroundColor(BAR);
         root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(divider());
         LinearLayout body = new LinearLayout(this);
@@ -216,6 +230,10 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
+        clock.setFormat12Hour("h:mm a");
+        clock.setFormat24Hour("h:mm a");
+        date.setFormat12Hour(I18n.english() ? "EEE, MMM d" : "M월 d일 (E)");
+        date.setFormat24Hour(I18n.english() ? "EEE, MMM d" : "M월 d일 (E)");
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
