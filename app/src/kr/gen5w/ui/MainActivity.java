@@ -95,10 +95,10 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLACK, BLUE}));
+        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE}));
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
-        bar.setBackgroundColor(BAR);
+        bar.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLUE, BLACK})); // lighter at the top: the stock bars look slightly raised
         bar.setMinimumHeight(dp(56));
         TextView back = label("‹", 44, TEXT, false);
         back.setGravity(Gravity.CENTER);
@@ -128,6 +128,7 @@ public final class MainActivity extends Activity {
         TextView title = label("Gen5W KR", 28, TEXT, true);
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, dp(10), 0, dp(10));
+        title.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLUE, BLACK}));
         root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(divider());
         LinearLayout body = new LinearLayout(this);
