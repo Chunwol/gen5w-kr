@@ -134,6 +134,7 @@ public final class MainActivity extends Activity {
         body.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
+        side.setBackgroundColor(BLACK);
         for (int i = 0; i < TABS.length; i++) {
             final int index = i;
             LinearLayout item = new LinearLayout(this);
@@ -217,7 +218,7 @@ public final class MainActivity extends Activity {
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            if (on) menuItems[i].setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {BAND, BAND_END}));
+            if (on) menuItems[i].setBackgroundDrawable(glow(dp(72)));
             else menuItems[i].setBackgroundColor(0x00000000);
             TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
@@ -388,7 +389,14 @@ public final class MainActivity extends Activity {
         shape.setCornerRadius(dp(ROUND));
         shape.setColor(enabled && filled ? tint : TILE);
         shape.setStroke(dp(1), enabled ? (tone == 2 ? OUTLINE : tint) : OUTLINE);
-        button.setBackgroundDrawable(shape);
+        android.graphics.drawable.StateListDrawable states = new android.graphics.drawable.StateListDrawable();
+        GradientDrawable pressed = new GradientDrawable();
+        pressed.setCornerRadius(dp(ROUND));
+        pressed.setColor(BLUE);
+        pressed.setStroke(dp(1), enabled ? ACTIVE_BLUE : OUTLINE);
+        if (enabled) states.addState(new int[] {android.R.attr.state_pressed}, pressed);
+        states.addState(new int[] {}, shape);
+        button.setBackgroundDrawable(states);
         if (enabled) button.setOnClickListener(click);
         r.addView(button);
         add(page, r);
@@ -562,11 +570,27 @@ public final class MainActivity extends Activity {
         if (shown == 0) note(page, "이 조건에 맞는 기록이 없습니다.");
     }
 
+    /**
+     * The stock selected-item look (co_btn_bg_list_sel / co_btn_bg_tab_sel): a glow that rises from the bottom
+     * edge, with a bright line along the bottom. Colors are Hyundai Blue and Active Blue only. A height of 0
+     * leaves out the line (the tab draws its own underline).
+     */
+    private android.graphics.drawable.Drawable glow(int height) {
+        GradientDrawable rise = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE});
+        if (height == 0) return rise;
+        GradientDrawable line = new GradientDrawable();
+        line.setColor(ACTIVE_BLUE);
+        android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {rise, line});
+        both.setLayerInset(1, 0, height - dp(3), 0, 0);
+        return both;
+    }
+
     /** A text tab with a cyan underline when chosen, like the stock tab strips. */
     private void tab(LinearLayout row, String text, final String value) {
         boolean on = categoryFilter.equals(value);
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
+        if (on) t.setBackgroundDrawable(glow(0));
         TextView name = label(text, 24, on ? ACTIVE_BLUE : TEXT, on);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, dp(12), 0, dp(10));
