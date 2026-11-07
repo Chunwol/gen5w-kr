@@ -79,6 +79,20 @@ check 'files are 644' eval '[ "$(stat -c %a "$UI/status")" = 644 ] && [ "$(stat 
 check 'no temp files are left' eval '[ "$(ls -A "$UI" | grep -vc "^\(status\|log\|facts\)$")" = 0 ]'
 run
 check 'a second run replaces the log instead of growing it' eval '[ "$(grep -c "^bluelink|" "$UI/log")" = 1 ]'
+reset
+printf 'wireless: AP start requested
+wireless: ssid=secretname
+' > "$W/data/nemesis/gen5w.kr.wireless.log"
+run
+check 'the wireless installer log next to the folders is collected' grep -q '^wireless|wireless: AP start requested' "$UI/log"
+check 'that log passes the privacy filter' eval '! grep -q secretname "$UI/log"'
+printf 'noise
+2026-11-07 started gen5w.kr.bridge/bridge pid=1
+WAIT bridge: starting the host
+' > "$W/data/nemesis/nemesis.log"
+run
+check 'our lines from the main NEMESIS log are collected' grep -q '^nemesis|WAIT bridge: starting the host' "$UI/log"
+check 'other lines of the main NEMESIS log are not' eval '! grep -q "|noise" "$UI/log"'
 
 # host state, markers, backend
 sleep 30 & SP=$!

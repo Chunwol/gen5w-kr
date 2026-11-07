@@ -1,5 +1,11 @@
 # 변경 내역
 
+## v0.3.51
+
+- 차에서 "기록" 화면이 비어 있고 USB 진단 파일의 기록 칸도 비어 있던 문제를 고쳤습니다. 수집기가 패키지별 `logs` 폴더만 읽었는데, 이 차에서는 무선 설치 로그가 `/data/nemesis/gen5w.kr.wireless.log`에 있고 서비스 출력(`WAIT bridge: ...`)은 `/data/nemesis/nemesis.log`에 쌓였습니다. 이제 두 파일에서 gen5w 관련 줄만 개인정보 필터를 거쳐 읽습니다(`wireless`, `nemesis` 태그).
+- 진단 파일에 읽기 전용 Wi-Fi 정보를 추가했습니다: 관련 속성, 네트워크 인터페이스 목록과 상태(wlan0/ap0/p2p0), hostapd·wpa_supplicant·dnsmasq·호스트 프로세스 유무. 휴대폰에 차 Wi-Fi가 안 보이는 원인을 좁히기 위한 것이며 원인을 고치는 변경은 아닙니다. 사실 줄 수 한도를 60에서 110으로 늘렸습니다.
+- 이 변경으로 무선 연결이 되는 것은 아닙니다. 아직 원인은 확인하지 못했습니다.
+
 ## v0.3.50
 
 - 차 안 화면의 모든 색을 현대자동차 공식 색 9개(hyundai.com CI 전용색상 페이지)로만 바꿨습니다: Hyundai Blue `#002C5F`, Sand `#E4DCD3`, Light Sand `#F6F3F2`, Gold `#A36B4F`, 흰색, 검정, Active Blue `#00AAD2`, Sky Blue `#AACAE6`, Active Red `#E63312`. 이전 버전의 임의 색(남색 도는 검정 배경과 패널, 초록, 노랑 등)은 모두 없앴습니다. 배경은 검정, 패널과 위쪽 바는 Hyundai Blue, 강조와 "정상" 표시는 Active Blue, 주의는 Gold, 오류와 제거는 Active Red, 보조 글자는 Sky Blue입니다.

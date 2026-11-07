@@ -22,7 +22,7 @@ INTERVAL=${UILOG_TEST_INTERVAL:-15}
 # marker file in the root-owned $NEMDIR, which the packages' own services look at.
 REQUEST=${UILOG_TEST_REQUEST:-/data/data/kr.gen5w.core/files/ui-request}
 REQ_STEP=${UILOG_TEST_REQ_STEP:-2}
-FACT_LINES=60             # lines of unit facts (read-only checks) kept
+FACT_LINES=110            # lines of unit facts (read-only checks) kept
 USB=${UILOG_TEST_USB:-/storage/usb0}
 MOUNTS=${UILOG_TEST_MOUNTS:-/proc/mounts}
 PM=${UILOG_TEST_PM:-pm}
@@ -75,21 +75,26 @@ emit_tail() {
     done < "$3"
 }
 
-# One package log directory: every *.log in it, size checked, filtered, newest lines only.
+# One log file: size checked, filtered, newest lines only.
+collect_file() {
+    typeset file=$1 name=$2 size
+    [ -f "$file" ] && [ ! -L "$file" ] || return 0
+    [ "$LINES" -lt "$MAX_LINES" ] || return 0
+    size=$(file_size "$file") || return 0
+    if [ "$size" -gt "$MAX_SOURCE_BYTES" ]; then
+        print -r -- "$name|(로그가 너무 커서 건너뜀)" >> "$UI_DIR/log.tmp"
+        LINES=$((LINES + 1))
+        return 0
+    fi
+    grep -a -v -E "$PRIV" "$file" > "$UI_DIR/filter.tmp" 2>/dev/null
+    emit_tail "$name" "$PER_SOURCE" "$UI_DIR/filter.tmp"
+}
+# One package log directory: every *.log in it.
 collect_source() {
-    typeset dir=$1 name=${1##*/} file size
+    typeset dir=$1 name=${1##*/} file
     name=${name#gen5w.kr.}
     for file in "$dir"/*.log; do
-        [ -f "$file" ] && [ ! -L "$file" ] || continue
-        [ "$LINES" -lt "$MAX_LINES" ] || return 0
-        size=$(file_size "$file") || continue
-        if [ "$size" -gt "$MAX_SOURCE_BYTES" ]; then
-            print -r -- "$name|(로그가 너무 커서 건너뜀)" >> "$UI_DIR/log.tmp"
-            LINES=$((LINES + 1))
-            continue
-        fi
-        grep -a -v -E "$PRIV" "$file" > "$UI_DIR/filter.tmp" 2>/dev/null
-        emit_tail "$name" "$PER_SOURCE" "$UI_DIR/filter.tmp"
+        collect_file "$file" "$name"
     done
 }
 
@@ -98,6 +103,15 @@ collect_log() {
     : > "$UI_DIR/log.tmp" || return 1
     # The wireless bridge first, so a busy package cannot push it out of the line budget.
     [ -d "$LOGS/gen5w.kr.bridge" ] && [ ! -L "$LOGS/gen5w.kr.bridge" ] && collect_source "$LOGS/gen5w.kr.bridge"
+    # The wireless installer writes its log next to the folders, not inside one.
+    collect_file "$NEMDIR/gen5w.kr.wireless.log" wireless
+    # Service output (WAIT/FAIL lines of the bridge, start/stop of our packages) lands in the main
+    # NEMESIS log on this unit, not in a package folder: take only our own lines from it.
+    typeset nl="$NEMDIR/nemesis.log" nsize
+    if [ -f "$nl" ] && [ ! -L "$nl" ] && nsize=$(file_size "$nl") && [ "$nsize" -le 1048576 ] && [ "$LINES" -lt "$MAX_LINES" ]; then
+        grep -a -E 'gen5w|bridge:|wireless' "$nl" 2>/dev/null | grep -a -v -E "$PRIV" > "$UI_DIR/filter.tmp"
+        emit_tail nemesis 60 "$UI_DIR/filter.tmp"
+    fi
     typeset dir
     for dir in "$LOGS"/gen5w.kr.*; do
         [ -d "$dir" ] && [ ! -L "$dir" ] || continue
@@ -214,6 +228,15 @@ collect_facts() {
         ls -ln "$DATA" 2>/dev/null | grep -a -F " nemesis"
         print -r -- "-- packages matching ota|fota|redbend|nemesis|update"
         "$PM" list packages 2>/dev/null | grep -a -i -E 'ota|redbend|nemesis|update'
+        print -r -- "-- wifi (read-only)"
+        for k in wifi.interface init.svc.wpa_supplicant init.svc.hostapd init.svc.p2p_supplicant persist.gen5w.wifi.backend wlan.driver.status; do
+            print -r -- "prop $k=$(getprop "$k" 2>/dev/null)"
+        done
+        print -r -- "interfaces: $(ls /sys/class/net 2>/dev/null)"
+        for k in wlan0 ap0 p2p0; do
+            [ -d "/sys/class/net/$k" ] && print -r -- "$k: $(cat /sys/class/net/$k/operstate 2>/dev/null)"
+        done
+        ps 2>/dev/null | grep -a -E 'hostapd|wpa_supplicant|dnsmasq|dhcp|wirelesshost'
         print -r -- "-- usb mount"
         grep -a -F "$USB" "$MOUNTS" 2>/dev/null
     } 2>/dev/null | grep -a -v -E "$PRIV" | while IFS= read -r line; do
