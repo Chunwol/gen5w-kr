@@ -87,6 +87,7 @@ public final class BtRelaySession {
             phase = Phase.IAP2_BLUETOOTH;
             component4Requested = true;
             deadline = now + IAP2_TIMEOUT_MS;
+            requestApIfReady(now, commands);
             commands.add(command(CommandType.START_IAP2, 4));
         }
         return update(commands);
@@ -97,11 +98,11 @@ public final class BtRelaySession {
         if (!current(callbackGeneration)) return update(commands);
         if (component == 4 && phase == Phase.IAP2_BLUETOOTH && component4Requested) {
             phase = Phase.CARPLAY_HANDOVER;
-            deadline = now + HANDOVER_TIMEOUT_MS;
+            if (!apRequested) deadline = now + HANDOVER_TIMEOUT_MS;
         } else if (component == 5 && phase == Phase.CARPLAY_HANDOVER && component5Requested &&
                 !component5Connected) {
             component5Connected = true;
-            deadline = now + HANDOVER_TIMEOUT_MS;
+            if (!apRequested) deadline = now + HANDOVER_TIMEOUT_MS;
             requestApIfReady(now, commands);
         }
         return update(commands);
@@ -113,7 +114,7 @@ public final class BtRelaySession {
         if (current(callbackGeneration) && phase == Phase.CARPLAY_HANDOVER &&
                 component4Requested && !component5Requested) {
             component5Requested = true;
-            deadline = now + HANDOVER_TIMEOUT_MS;
+            if (!apRequested) deadline = now + HANDOVER_TIMEOUT_MS;
             commands.add(command(CommandType.START_IAP2, 5));
         }
         return update(commands);
@@ -122,7 +123,8 @@ public final class BtRelaySession {
     /** Credentials are represented only by readiness; values are never retained. */
     public synchronized Update credentialsReady(long callbackGeneration, long now) {
         List<Command> commands = new ArrayList<Command>();
-        if (current(callbackGeneration) && phase == Phase.CARPLAY_HANDOVER) {
+        if (current(callbackGeneration) && (phase == Phase.SPP_CONNECTING ||
+                phase == Phase.IAP2_BLUETOOTH || phase == Phase.CARPLAY_HANDOVER)) {
             credentialsReady = true;
             requestApIfReady(now, commands);
         }
@@ -131,7 +133,8 @@ public final class BtRelaySession {
 
     public synchronized Update apReady(long callbackGeneration, long now) {
         List<Command> commands = new ArrayList<Command>();
-        if (current(callbackGeneration) && phase == Phase.CARPLAY_HANDOVER && apRequested && !apReady) {
+        if (current(callbackGeneration) && (phase == Phase.IAP2_BLUETOOTH ||
+                phase == Phase.CARPLAY_HANDOVER) && apRequested && !apReady) {
             apReady = true;
             deadline = now + ACTIVATION_TIMEOUT_MS;
         }
@@ -190,7 +193,10 @@ public final class BtRelaySession {
     public synchronized long generation() { return generation; }
 
     private void requestApIfReady(long now, List<Command> commands) {
-        if (component5Connected && credentialsReady && !apRequested) {
+        // The phone must join our AP before the CarPlay channel (component 5)
+        // can exist. Start connectivity Wi-Fi as soon as SPP and credentials
+        // are available, while component 4 authenticates over Bluetooth.
+        if (component4Requested && credentialsReady && !apRequested) {
             apRequested = true;
             deadline = now + AP_TIMEOUT_MS;
             commands.add(command(CommandType.START_AP, 0));
@@ -218,7 +224,7 @@ public final class BtRelaySession {
 
     private FailureReason timeoutReason() {
         if (phase == Phase.SPP_CONNECTING) return FailureReason.SPP_TIMEOUT;
-        if (phase == Phase.IAP2_BLUETOOTH) return FailureReason.IAP2_TIMEOUT;
+        if (phase == Phase.IAP2_BLUETOOTH && !apRequested) return FailureReason.IAP2_TIMEOUT;
         if (apReady) return FailureReason.ACTIVATION_TIMEOUT;
         if (apRequested) return FailureReason.AP_TIMEOUT;
         return FailureReason.HANDOVER_TIMEOUT;

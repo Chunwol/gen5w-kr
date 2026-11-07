@@ -39,14 +39,58 @@ public final class BtRelaySessionTest {
         check(session.phase() == BtRelaySession.Phase.ACTIVE, "projection activation completes relay");
     }
 
-    private static void credentialsAndComponentFiveMayArriveInEitherOrder() {
+    private static void credentialsStartApWithoutWaitingForComponentFive() {
         BtRelaySession session = new BtRelaySession();
         long generation = session.start(0).generation;
         session.sppConnected(generation, 1);
         session.iap2Connected(generation, 4, 2);
-        commands(session.credentialsReady(generation, 3), new BtRelaySession.CommandType[0]);
+        commands(session.credentialsReady(generation, 3), BtRelaySession.CommandType.START_AP);
         session.handoverRequested(generation, 4);
-        commands(session.iap2Connected(generation, 5, 5), BtRelaySession.CommandType.START_AP);
+        commands(session.iap2Connected(generation, 5, 5), new BtRelaySession.CommandType[0]);
+    }
+
+    private static void firstConnectionStartsApBeforeCarPlayChannelExists() {
+        BtRelaySession session = new BtRelaySession();
+        long generation = session.start(0).generation;
+        commands(session.credentialsReady(generation, 1));
+        commands(session.sppConnected(generation, 2), BtRelaySession.CommandType.START_AP,
+                BtRelaySession.CommandType.START_IAP2);
+        commands(session.apReady(generation, 3));
+        commands(session.iap2Connected(generation, 4, 4));
+        check(session.phase() == BtRelaySession.Phase.CARPLAY_HANDOVER, "AP precedes Wi-Fi handover");
+        commands(session.handoverRequested(generation, 5), BtRelaySession.CommandType.START_IAP2);
+        commands(session.iap2Connected(generation, 5, 6));
+        session.projectionActivated(generation, 7);
+        check(session.phase() == BtRelaySession.Phase.ACTIVE, "first connection completes without pre-existing AP");
+    }
+
+    private static void lateCredentialsStartApWhileBluetoothAuthenticationRuns() {
+        BtRelaySession session = new BtRelaySession();
+        long generation = session.start(0).generation;
+        session.sppConnected(generation, 1);
+        commands(session.credentialsReady(generation, 2), BtRelaySession.CommandType.START_AP);
+        commands(session.credentialsReady(generation, 3));
+        session.iap2Connected(generation, 4, 4);
+        session.handoverRequested(generation, 100);
+        session.iap2Connected(generation, 5, 200);
+        check(session.tick(generation, 2 + BtRelaySession.AP_TIMEOUT_MS).failure ==
+                BtRelaySession.FailureReason.AP_TIMEOUT, "handover callbacks do not postpone AP timeout");
+    }
+
+    private static void earlyApIsCleanedUpAndStaleCredentialsCannotRestartIt() {
+        BtRelaySession session = new BtRelaySession();
+        long generation = session.start(0).generation;
+        session.sppConnected(generation, 1);
+        commands(session.credentialsReady(generation, 2), BtRelaySession.CommandType.START_AP);
+        commands(session.cancel(generation, BtRelaySession.CancelReason.WIRED),
+                BtRelaySession.CommandType.STOP_AP, BtRelaySession.CommandType.STOP_IAP2,
+                BtRelaySession.CommandType.DISCONNECT_SPP);
+        commands(session.credentialsReady(generation, 3));
+        commands(session.apReady(generation, 4));
+        session.cleanupCompleted(generation);
+        long next = session.start(5).generation;
+        commands(session.credentialsReady(generation, 6));
+        commands(session.sppConnected(next, 7), BtRelaySession.CommandType.START_IAP2);
     }
 
     private static void duplicateAndWrongComponentEventsDoNotStartExtraWork() {
@@ -203,8 +247,11 @@ public final class BtRelaySessionTest {
     }
 
     public static void main(String[] args) {
+        firstConnectionStartsApBeforeCarPlayChannelExists();
+        lateCredentialsStartApWhileBluetoothAuthenticationRuns();
+        earlyApIsCleanedUpAndStaleCredentialsCannotRestartIt();
         startsOneOrderedRelayAndActivatesAfterApReady();
-        credentialsAndComponentFiveMayArriveInEitherOrder();
+        credentialsStartApWithoutWaitingForComponentFive();
         duplicateAndWrongComponentEventsDoNotStartExtraWork();
         timeoutFailsAndCleansUpOnlyStartedStages();
         cancellationInvalidatesOldCallbacksAndCleansUpInReverseOrder();

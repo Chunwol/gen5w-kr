@@ -124,5 +124,11 @@ public final class I18n {
         add("이 조건에 맞는 기록이 없습니다.", "No log lines match.");
         add("전체", "All"); add("오류", "Errors"); add("설치", "Install");
         add("모든 출처", "All sources");
+        add("출처", "Source"); add("모두", "All");
+        // Right-hand descriptions
+        add("무선 연결 상태와 설치된 구성 요소를 보여 줍니다.", "Shows the wireless connection status and the installed parts.");
+        add("기능을 켜고 끕니다. 설치된 파일은 지워지지 않습니다.", "Turns features on or off. Installed files are not deleted.");
+        add("최근 기록을 보여 줍니다. 종류와 출처로 걸러 볼 수 있습니다.", "Shows the recent log. You can filter by kind and source.");
+        add("진단 저장과 제거 같은 관리 작업을 합니다.", "Management tasks such as saving a diagnosis or removing.");
     }
 }

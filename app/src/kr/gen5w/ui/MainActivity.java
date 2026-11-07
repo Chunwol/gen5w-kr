@@ -36,23 +36,27 @@ public final class MainActivity extends Activity {
     private static final int INFO = 0, ONOFF = 1, LOG = 2, MANAGE = 3;
     private static final String[] TABS = {"정보", "켜기/끄기", "기록", "관리"};
     private static final long REFRESH_MS = 5000;
+    private static final String[] HELP = {
+        "무선 연결 상태와 설치된 구성 요소를 보여 줍니다.",
+        "기능을 켜고 끕니다. 설치된 파일은 지워지지 않습니다.",
+        "최근 기록을 보여 줍니다. 종류와 출처로 걸러 볼 수 있습니다.",
+        "진단 저장과 제거 같은 관리 작업을 합니다."};
     private static final String LANG_FILE = "lang-en"; // present = English; absent = Korean (default)
     private static final String UI_DIR = "/data/nemesis/gen5wkr.ui";
-    // Values read from the head unit's own Settings app (Settings_W resources): white titles, #888888
-    // summaries, cyan #00C2FF accent, #2DC4F3 for the chosen menu entry, #505050 for disabled, sizes
-    // 26sp title / 22sp summary / 28sp bar title, 72dp rows, a 250dp menu, separators of 6% white. The
-    // stock window is transparent over the car's navy background; the gradient below is measured
-    // from a photo of that screen (approximate). Status colors that the stock app does not have
-    // (warning, error, locked text) stay on Hyundai's published colors: Gold, Active Red, Sand.
-    private static final int WHITE = 0xFFFFFFFF, GREY = 0xFF888888, DISABLED = 0xFF505050, CYAN = 0xFF00C2FF,
-            CYAN_PICK = 0xFF2DC4F3, SAND = 0xFFE4DCD3, GOLD = 0xFFA36B4F, ACTIVE_RED = 0xFFE63312,
-            BG_TOP = 0xFF101015, BG_BOTTOM = 0xFF1B2B4E, LIGHT_GREY = 0xFFCCCCCC;
-    private static final int ACCENT = CYAN, TEXT = WHITE, DIM = GREY, OK = CYAN, WARN = GOLD, RED = ACTIVE_RED,
-            LINE = 0x14FFFFFF, BAR = 0x08FFFFFF, BAND = 0x3300C2FF, OUTLINE = 0x66FFFFFF, TILE = 0x14FFFFFF;
+    // Every color on this screen is one of the nine on Hyundai's published color page (hyundai.com CI,
+    // "전용색상"): Hyundai Blue #002C5F, Sand #E4DCD3, Light Sand #F6F3F2, Gold #A36B4F, White, Black,
+    // Active Blue #00AAD2, Sky Blue #AACAE6, Active Red #E63312. Nothing else is used: no transparency
+    // and no blended grays. The background copies the stock screen: black at the top, Hyundai Blue
+    // rising from the bottom (measured from a photo of the car's own settings screen).
+    private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
+            LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
+    private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = SKY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
+            LINE = SKY, BAR = BLACK, BAND = BLUE, BAND_END = BLACK, PANEL = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
     private static final int ROUND = 2; // dp: the stock screen uses almost square corners
     private static final java.util.Random RANDOM = new java.util.Random();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private TextView helpText;
     private final LinearLayout[] menuItems = new LinearLayout[TABS.length];
     private FrameLayout content;
     private int tab = INFO;
@@ -91,26 +95,23 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BG_TOP, BG_BOTTOM}));
+        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLACK, BLUE}));
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
         bar.setBackgroundColor(BAR);
-        bar.setMinimumHeight(dp(60));
+        bar.setMinimumHeight(dp(56));
         TextView back = label("‹", 44, TEXT, false);
         back.setGravity(Gravity.CENTER);
         back.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { finish(); }
         });
-        bar.addView(back, new FrameLayout.LayoutParams(dp(84), dp(60), Gravity.LEFT | Gravity.CENTER_VERTICAL));
-        TextView title = label("Gen5W KR", 28, TEXT, true);
-        title.setGravity(Gravity.CENTER);
-        bar.addView(title, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(60), Gravity.CENTER));
+        bar.addView(back, new FrameLayout.LayoutParams(dp(84), dp(56), Gravity.LEFT | Gravity.CENTER_VERTICAL));
         langButton = new TextView(this);
         langButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         langButton.setTextColor(TEXT);
         langButton.setGravity(Gravity.CENTER);
         langButton.setMinWidth(dp(120));
-        langButton.setMinHeight(dp(46));
+        langButton.setMinHeight(dp(42));
         langButton.setPadding(dp(18), 0, dp(18), 0);
         GradientDrawable langShape = new GradientDrawable();
         langShape.setCornerRadius(dp(ROUND));
@@ -124,6 +125,10 @@ public final class MainActivity extends Activity {
         langLp.setMargins(0, 0, dp(24), 0);
         bar.addView(langButton, langLp);
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView title = label("Gen5W KR", 28, TEXT, true);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, dp(10), 0, dp(10));
+        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(divider());
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
@@ -132,8 +137,9 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < TABS.length; i++) {
             final int index = i;
             LinearLayout item = new LinearLayout(this);
-            item.setGravity(Gravity.CENTER);
-            item.addView(label(TABS[i], 26, TEXT, false));
+            item.setGravity(Gravity.CENTER_VERTICAL);
+            item.setPadding(dp(22), 0, dp(8), 0);
+            item.addView(label(TABS[i], 26, TEXT, true));
             item.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) { tab = index; render(); }
             });
@@ -147,6 +153,16 @@ public final class MainActivity extends Activity {
         body.addView(sideLine, new LinearLayout.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT));
         content = new FrameLayout(this);
         body.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        if (getResources().getConfiguration().screenWidthDp >= 900) {
+            View helpLine = new View(this);
+            helpLine.setBackgroundColor(LINE);
+            body.addView(helpLine, new LinearLayout.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT));
+            helpText = label(HELP[0], 20, TEXT, false);
+            helpText.setGravity(Gravity.CENTER_HORIZONTAL);
+            helpText.setLineSpacing(dp(2), 1f);
+            helpText.setPadding(dp(18), dp(22), dp(18), dp(18));
+            body.addView(helpText, new LinearLayout.LayoutParams(dp(250), ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
         render();
@@ -201,17 +217,18 @@ public final class MainActivity extends Activity {
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            menuItems[i].setBackgroundColor(on ? BAND : 0x00000000);
+            if (on) menuItems[i].setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {BAND, BAND_END}));
+            else menuItems[i].setBackgroundColor(0x00000000);
             TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
-            name.setTextColor(on ? CYAN_PICK : TEXT);
-            name.setTypeface(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL);
+            name.setTextColor(on ? ACTIVE_BLUE : TEXT);
         }
+        if (helpText != null) helpText.setText(I18n.t(HELP[tab]));
         panel = null;
         panelRows = 0;
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(30), dp(6), dp(30), dp(24));
+        page.setPadding(0, 0, 0, dp(16));
         if (tab == INFO) buildInfo(page);
         else if (tab == LOG) buildLog(page);
         else if (tab == ONOFF) buildSwitches(page);
@@ -222,7 +239,15 @@ public final class MainActivity extends Activity {
         final ScrollView scroll = new ScrollView(this);
         scrollView = scroll;
         scroll.addView(page);
-        if (keepY > 0) scroll.post(new Runnable() { public void run() { scroll.scrollTo(0, keepY); } });
+        if (keepY > 0) {
+            scroll.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                public boolean onPreDraw() {
+                    scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                    scroll.scrollTo(0, keepY);
+                    return false; // skip this frame; the next one is already at the right position
+                }
+            });
+        }
         content.removeAllViews();
         content.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
@@ -315,11 +340,11 @@ public final class MainActivity extends Activity {
         boolean enabled = locked == null && known;
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(dp(92));
-        r.setPadding(dp(22), dp(10), dp(22), dp(10));
+        r.setMinimumHeight(dp(84));
+        r.setPadding(dp(22), dp(8), dp(22), dp(8));
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        text.addView(label(name, 26, TEXT, false));
+        text.addView(label(name, 26, TEXT, true));
         TextView hint = label(locked != null ? locked : help, 20, locked != null ? SAND : DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
@@ -330,7 +355,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.setMargins(0, 0, dp(14), 0);
         r.addView(word, wl);
-        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, DISABLED, WHITE, LIGHT_GREY);
+        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, BLACK, WHITE, SKY);
         toggle.set(on, enabled);
         r.addView(toggle, new LinearLayout.LayoutParams(dp(78), dp(44)));
         if (enabled) r.setOnClickListener(click); // the whole row is the touch target
@@ -341,11 +366,11 @@ public final class MainActivity extends Activity {
     private void buttonRow(LinearLayout page, String name, String help, String buttonText, boolean enabled, int tone, View.OnClickListener click) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(dp(92));
-        r.setPadding(dp(22), dp(10), dp(22), dp(10));
+        r.setMinimumHeight(dp(84));
+        r.setPadding(dp(22), dp(8), dp(22), dp(8));
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        text.addView(label(name, 26, TEXT, false));
+        text.addView(label(name, 26, TEXT, true));
         TextView hint = label(help, 20, DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
@@ -354,7 +379,7 @@ public final class MainActivity extends Activity {
         r.addView(text, tl);
         boolean filled = tone == 0 || tone == 1;
         int tint = tone == 1 || tone == 3 ? RED : ACCENT;
-        TextView button = label(buttonText, 24, !enabled ? DISABLED : tone == 0 ? 0xFF000000 : tone == 1 ? WHITE : tone == 3 ? RED : TEXT, false);
+        TextView button = label(buttonText, 24, !enabled ? DISABLED : tone == 0 ? BLACK : tone == 1 ? WHITE : tone == 3 ? RED : TEXT, false);
         button.setGravity(Gravity.CENTER);
         button.setMinWidth(dp(132));
         button.setMinHeight(dp(56));
@@ -468,19 +493,37 @@ public final class MainActivity extends Activity {
         LinkedHashSet<String> sources = new LinkedHashSet<String>();
         for (String line : logLines) { int bar = line.indexOf('|'); if (bar > 0) sources.add(line.substring(0, bar)); }
         if (!sources.contains(sourceFilter)) sourceFilter = "all";
-        LinearLayout categories = new LinearLayout(this);
-        chip(categories, "전체", "all", true); chip(categories, "오류", "error", true);
-        chip(categories, "무선", "wireless", true); chip(categories, "설치", "install", true);
-        page.addView(categories);
-        LinearLayout from = new LinearLayout(this);
-        chip(from, "모든 출처", "all", false);
-        for (String source : sources) chip(from, source, source, false);
-        HorizontalScrollView fromScroll = new HorizontalScrollView(this);
-        fromScroll.setHorizontalScrollBarEnabled(false);
-        fromScroll.addView(from);
-        page.addView(fromScroll);
+        LinearLayout filters = new LinearLayout(this);
+        filters.setGravity(Gravity.BOTTOM);
+        filters.setPadding(dp(8), 0, 0, 0);
+        tab(filters, "전체", "all"); tab(filters, "오류", "error"); tab(filters, "무선", "wireless"); tab(filters, "설치", "install");
+        View gap = new View(this);
+        filters.addView(gap, new LinearLayout.LayoutParams(0, 1, 1f));
+        final ArrayList<String> order = new ArrayList<String>();
+        order.add("all");
+        order.addAll(sources);
+        TextView from = label(I18n.t("출처") + ": " + (sourceFilter.equals("all") ? I18n.t("모두") : sourceFilter), 22, TEXT, false);
+        from.setGravity(Gravity.CENTER);
+        from.setMinHeight(dp(44));
+        from.setPadding(dp(12), dp(6), dp(12), dp(6));
+        GradientDrawable fromShape = new GradientDrawable();
+        fromShape.setCornerRadius(dp(ROUND));
+        fromShape.setColor(TILE);
+        fromShape.setStroke(dp(1), OUTLINE);
+        from.setBackgroundDrawable(fromShape);
+        from.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                sourceFilter = order.get((order.indexOf(sourceFilter) + 1) % order.size());
+                render();
+            }
+        });
+        LinearLayout.LayoutParams fromLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fromLp.setMargins(0, 0, dp(8), dp(6));
+        filters.addView(from, fromLp);
+        page.addView(filters);
+        page.addView(divider());
         panel = null;
-        openPanel(page, dp(14));
+        openPanel(page, 0);
         int shown = 0;
         for (String line : logLines) {
             int bar = line.indexOf('|');
@@ -491,9 +534,9 @@ public final class MainActivity extends Activity {
             String korean = I18n.english() ? raw : LogTranslator.translate(raw);
             boolean error = LogTranslator.category(raw).equals("error");
             LinearLayout entry = new LinearLayout(this);
-            entry.setPadding(0, dp(12), 0, dp(12));
+            entry.setPadding(dp(22), dp(12), dp(22), dp(12));
             if (source.length() > 0) {
-                TextView tag = label(source, 16, error ? RED : CYAN_PICK, false);
+                TextView tag = label(source, 16, error ? RED : ACTIVE_BLUE, false);
                 tag.setGravity(Gravity.CENTER);
                 tag.setMinWidth(dp(76));
                 tag.setPadding(dp(8), dp(3), dp(8), dp(3));
@@ -519,32 +562,30 @@ public final class MainActivity extends Activity {
         if (shown == 0) note(page, "이 조건에 맞는 기록이 없습니다.");
     }
 
-    private void chip(LinearLayout row, String text, final String value, final boolean category) {
-        boolean on = category ? categoryFilter.equals(value) : sourceFilter.equals(value);
-        TextView chip = label(text, 22, on ? 0xFF000000 : TEXT, false);
-        chip.setGravity(Gravity.CENTER);
-        chip.setMinHeight(dp(44));
-        chip.setPadding(dp(18), dp(8), dp(18), dp(8));
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(ROUND));
-        shape.setColor(on ? ACCENT : TILE);
-        shape.setStroke(dp(1), on ? ACCENT : OUTLINE);
-        chip.setBackgroundDrawable(shape);
-        chip.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                if (category) categoryFilter = value; else sourceFilter = value;
-                render();
-            }
+    /** A text tab with a cyan underline when chosen, like the stock tab strips. */
+    private void tab(LinearLayout row, String text, final String value) {
+        boolean on = categoryFilter.equals(value);
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView name = label(text, 24, on ? ACTIVE_BLUE : TEXT, on);
+        name.setGravity(Gravity.CENTER);
+        name.setPadding(0, dp(12), 0, dp(10));
+        int width = (int) name.getPaint().measureText(name.getText().toString()) + dp(24); // a MATCH_PARENT underline would stretch the tab
+        t.addView(name, new LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT));
+        View underline = new View(this);
+        underline.setBackgroundColor(on ? ACTIVE_BLUE : 0x00000000);
+        t.addView(underline, new LinearLayout.LayoutParams(width, dp(3)));
+        t.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { categoryFilter = value; render(); }
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, dp(10), dp(10), dp(2));
-        row.addView(chip, lp);
+        row.addView(t);
     }
 
     /** A group of rows: they are added until the next section starts, with a thin line between them. */
     private void openPanel(LinearLayout page, int topMargin) {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(PANEL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, topMargin, 0, 0);
         page.addView(p, lp);
@@ -561,8 +602,8 @@ public final class MainActivity extends Activity {
     }
 
     private void section(LinearLayout page, String title) {
-        TextView t = label(title, 22, CYAN_PICK, false);
-        t.setPadding(dp(22), dp(24), 0, dp(8));
+        TextView t = label(title, 22, ACTIVE_BLUE, false);
+        t.setPadding(dp(22), dp(14), 0, dp(8));
         page.addView(t);
         page.addView(divider());
         openPanel(page, 0);
@@ -574,8 +615,8 @@ public final class MainActivity extends Activity {
         r.setOrientation(LinearLayout.VERTICAL);
         r.setMinimumHeight(dp(72));
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(dp(22), dp(8), dp(22), dp(8));
-        r.addView(label(name, 26, TEXT, false));
+        r.setPadding(dp(22), dp(6), dp(22), dp(6));
+        r.addView(label(name, 26, TEXT, true));
         r.addView(label(value, 22, color == TEXT ? DIM : color, false));
         add(page, r);
     }
@@ -590,7 +631,7 @@ public final class MainActivity extends Activity {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(22), dp(18), dp(16), dp(18));
-        col.addView(label(title, 32, TEXT, false));
+        col.addView(label(title, 32, TEXT, true));
         if (text.length() > 0) {
             TextView sub = label(text, 22, color == DIM ? DIM : color, false);
             sub.setLineSpacing(dp(2), 1f);
@@ -598,7 +639,7 @@ public final class MainActivity extends Activity {
         }
         h.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, dp(14), 0, 0);
+        lp.setMargins(0, 0, 0, dp(8));
         page.addView(h, lp);
     }
 
@@ -617,7 +658,7 @@ public final class MainActivity extends Activity {
         col.addView(body);
         b.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, dp(14), 0, dp(6));
+        lp.setMargins(0, 0, 0, 0);
         if (panel != null) panel.addView(b, lp); else page.addView(b, lp);
     }
 
