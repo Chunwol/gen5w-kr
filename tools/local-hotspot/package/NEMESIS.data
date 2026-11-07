@@ -4,7 +4,12 @@ id=gen5w.kr.localhotspot
 name=Gen5W KR - V039 local hotspot switch (experimental)
 package-version=0.3.54
 short-desc=순정 핫스팟 스위치의 로컬 Wi-Fi 사용 허용 (V039 전용 시험판)
-types=service
+types=application
 preinstall=scripts/pre.sh
 postinstall=scripts/post.sh
 preuninstall=scripts/preun.sh
+
+[app.0]
+kind=sh
+path=scripts/status.sh
+uid=root

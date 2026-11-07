@@ -11,6 +11,7 @@ BACKUP=$SYS/etc/gen5w-kr-backup/local-hotspot
 LOCK=$DATA/nemesis/gen5wkr.localhotspot.lock
 ACTION=${1:-check}
 case "$ACTION" in check|install|remove|status) ;; *) exit 2;; esac
+if [ -z "${HOTSPOT_TEST_PATCH:-}" ]; then chmod 0755 "$PATCH"; fi
 safe_paths() {
     for p in "$SYS" "$SYS/app" "$SYS/etc" "$SYS/etc/gen5w-kr-backup" "$BACKUP" "$DATA" "$DATA/nemesis"; do
         [ ! -L "$p" ] || return 1
@@ -35,8 +36,14 @@ mkdir -p "$DATA/nemesis"
 mkdir "$LOCK" || { echo 'FAIL: local hotspot operation is already running'; exit 1; }
 mounted=no
 finish() {
-    if [ "$mounted" = yes ]; then "$NEM" remount ro >/dev/null 2>&1 || :; fi
+    result=$?
+    trap - EXIT
+    if [ "$mounted" = yes ] && ! "$NEM" remount ro >/dev/null 2>&1; then
+        echo 'FAIL: could not remount system read-only'
+        result=1
+    fi
     rmdir "$LOCK" 2>/dev/null || :
+    exit "$result"
 }
 trap finish EXIT
 trap 'exit 1' HUP INT TERM

@@ -47,11 +47,11 @@ public final class MainActivity extends Activity {
     // "전용색상"): Hyundai Blue #002C5F, Sand #E4DCD3, Light Sand #F6F3F2, Gold #A36B4F, White, Black,
     // Active Blue #00AAD2, Sky Blue #AACAE6, Active Red #E63312. Nothing else is used: no transparency
     // and no blended grays. The background copies the stock screen: black at the top, Hyundai Blue
-    // rising from the bottom (measured from a photo of the car's own settings screen).
+    // flat; the screen has no gradients.
     private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
             LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
     private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = SKY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
-            LINE = SKY, BAR = BLACK, BAND = BLUE, BAND_END = BLACK, PANEL = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
+            LINE = SKY, BAR = BLACK, PANEL = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
     private static final int ROUND = 2; // dp: the stock screen uses almost square corners
     private static final java.util.Random RANDOM = new java.util.Random();
 
@@ -96,7 +96,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE}));
+        root.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(BLACK));
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
         bar.setBackgroundColor(BAR); // the stock bars are flat, not raised
@@ -237,8 +237,7 @@ public final class MainActivity extends Activity {
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            if (on) menuItems[i].setBackgroundDrawable(glow(dp(72)));
-            else menuItems[i].setBackgroundColor(0x00000000);
+            menuItems[i].setBackgroundColor(on ? BLUE : BLACK); // flat: no gradients anywhere
             TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
             name.setTextColor(on ? ACTIVE_BLUE : TEXT);
@@ -589,27 +588,11 @@ public final class MainActivity extends Activity {
         if (shown == 0) note(page, "이 조건에 맞는 기록이 없습니다.");
     }
 
-    /**
-     * The stock selected-item look (co_btn_bg_list_sel / co_btn_bg_tab_sel): a glow that rises from the bottom
-     * edge, with a bright line along the bottom. Colors are Hyundai Blue and Active Blue only. A height of 0
-     * leaves out the line (the tab draws its own underline).
-     */
-    private android.graphics.drawable.Drawable glow(int height) {
-        GradientDrawable rise = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE});
-        if (height == 0) return rise;
-        GradientDrawable line = new GradientDrawable();
-        line.setColor(ACTIVE_BLUE);
-        android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {rise, line});
-        both.setLayerInset(1, 0, height - dp(3), 0, 0);
-        return both;
-    }
-
     /** A text tab with a cyan underline when chosen, like the stock tab strips. */
     private void tab(LinearLayout row, String text, final String value) {
         boolean on = categoryFilter.equals(value);
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
-        if (on) t.setBackgroundDrawable(glow(0));
         TextView name = label(text, 24, on ? ACTIVE_BLUE : TEXT, on);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, dp(12), 0, dp(10));

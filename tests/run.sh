@@ -23,6 +23,7 @@ wsl)
 esac
 
 python_tests="tests/unit_commands.py tests/source_revision.py tests/mkpkg_import.py tests/iap2_control.py tests/bt_recipe.py tests/dipo_control.py tests/dipo_relay_structure.py tests/dipo_relay_builder.py tests/v039_bt_adapter.py tests/gpm_control.py tests/fastboot_recovery.py tests/recovery_usb.py"
+python_tests="$python_tests tests/hotspot_control.py"
 have_jdk=0
 command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && have_jdk=1
 [ "$have_jdk" = 1 ] && python_tests="tests/core_lifecycle.py $python_tests"

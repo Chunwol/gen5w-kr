@@ -1,6 +1,6 @@
 """Entry-gate decoding, refusal, and optional private exact-stock audit."""
-import importlib.util
 import os
+import json
 from pathlib import Path
 import struct
 import sys
@@ -34,6 +34,7 @@ class HotspotControlTest(unittest.TestCase):
     def test_exact_stock_changes_only_three_gates_and_headers(self):
         raw = Path(os.environ['GEN5W_HOTSPOT_STOCK']).read_bytes()
         recipe, output = patch.make_recipe(raw)
+        self.assertEqual(recipe, json.loads((ROOT / 'tools/iap2/hotspot-v039.json').read_text()))
         dex = Dex(raw)
         self.assertEqual(len(output), len(raw))
         ranges = set()
