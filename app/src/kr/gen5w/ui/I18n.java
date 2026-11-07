@@ -124,6 +124,7 @@ public final class I18n {
         add("이 조건에 맞는 기록이 없습니다.", "No log lines match.");
         add("전체", "All"); add("오류", "Errors"); add("설치", "Install");
         add("모든 출처", "All sources");
+        add("M월 d일 (E)", "EEE, MMM d");
         add("출처", "Source"); add("모두", "All");
         // Right-hand descriptions
         add("무선 연결 상태와 설치된 구성 요소를 보여 줍니다.", "Shows the wireless connection status and the installed parts.");

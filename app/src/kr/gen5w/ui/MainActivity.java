@@ -232,8 +232,8 @@ public final class MainActivity extends Activity {
     private void render() {
         clock.setFormat12Hour("h:mm a");
         clock.setFormat24Hour("h:mm a");
-        date.setFormat12Hour(I18n.english() ? "EEE, MMM d" : "M월 d일 (E)");
-        date.setFormat24Hour(I18n.english() ? "EEE, MMM d" : "M월 d일 (E)");
+        date.setFormat12Hour(I18n.t("M월 d일 (E)"));
+        date.setFormat24Hour(I18n.t("M월 d일 (E)"));
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
