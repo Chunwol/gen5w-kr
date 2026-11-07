@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -14,8 +15,8 @@ def main():
     parser.add_argument('--ndk', type=Path, required=True)
     args = parser.parse_args()
     work = ROOT / '.build/local-hotspot'
-    package = work / 'package'
-    package.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
+    package = Path(tempfile.mkdtemp(prefix='package-', dir=work))
     shutil.copytree(ROOT / 'tools/local-hotspot/package', package, dirs_exist_ok=True)
     (package / 'bin').mkdir(exist_ok=True)
     recipe = json.loads((ROOT / 'tools/iap2/hotspot-v039.json').read_text())
@@ -39,6 +40,10 @@ def main():
         item.chmod(0o755)
     subprocess.run(['python' if os.name == 'nt' else 'python3', '-I', 'tools/mkpkg.py',
                     str(package), str(work / 'gen5w.kr.localhotspot-trial.zip')], cwd=ROOT, check=True)
+    stable = work / 'package'
+    if stable.exists():
+        shutil.rmtree(stable)
+    package.rename(stable)
 
 
 if __name__ == '__main__':

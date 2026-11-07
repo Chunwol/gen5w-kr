@@ -25,7 +25,8 @@ run install
 qemu-arm "$helper" patched "$target"
 qemu-arm "$helper" original "$backup"
 run install
-run remove
+# Resolve recovery helper beside the durable script, from outside the package.
+(cd / && env -u HOTSPOT_TEST_PATCH mksh "${backup%/*}/recover.sh" remove)
 cmp "$target" "$GEN5W_HOTSPOT_STOCK_DIR/HKMC_WifiSettings.odex"
 run remove
 printf x >> "$fixture/system/app/HKMC_WifiSettings.apk"
@@ -38,13 +39,26 @@ if run install; then echo 'FAIL: patched target without original accepted'; exit
 mv "$backup.saved" "$backup"
 run remove
 printf evidence > "$target.localhotspot.tmp"
-if run install; then echo 'FAIL: interrupted temporary file overwritten'; exit 1; fi
-test "$(cat "$target.localhotspot.tmp")" = evidence
+run remove
+test ! -e "$target.localhotspot.tmp"
+test "$(cat "${backup%/*}"/interrupted.*)" = evidence
 cmp "$target" "$GEN5W_HOTSPOT_STOCK_DIR/HKMC_WifiSettings.odex"
-rm "$target.localhotspot.tmp"
 mkdir "$fixture/data/nemesis/gen5wkr.localhotspot.lock"
 if run install; then echo 'FAIL: concurrent operation accepted'; exit 1; fi
-rmdir "$fixture/data/nemesis/gen5wkr.localhotspot.lock"
+run remove
+mkdir "$fixture/data/nemesis/gen5wkr.localhotspot.lock"
+echo $$ > "$fixture/data/nemesis/gen5wkr.localhotspot.lock/owner"
+if run remove; then echo 'FAIL: active removal lock ignored'; exit 1; fi
+echo 99999999 > "$fixture/data/nemesis/gen5wkr.localhotspot.lock/owner"
+run remove
+printf '#!/bin/sh\n[ "$2" != ro ]\n' > "$fixture/nemesis"
+if run install; then echo 'FAIL: read-only remount failure accepted'; exit 1; fi
+cmp "$target" "$GEN5W_HOTSPOT_STOCK_DIR/HKMC_WifiSettings.odex"
+qemu-arm "$helper" original "$backup"
+printf '#!/bin/sh\nexit 0\n' > "$fixture/nemesis"
+ln -s "$target" "$target.localhotspot.rollback"
+if run install; then echo 'FAIL: symlink rollback accepted'; exit 1; fi
+rm "$target.localhotspot.rollback"
 mv "$target" "$target.saved"
 ln -s "$target.saved" "$target"
 if run install; then echo 'FAIL: symlink target accepted'; exit 1; fi

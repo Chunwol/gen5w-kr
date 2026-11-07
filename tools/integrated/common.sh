@@ -14,7 +14,7 @@ AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink gen5w.kr.drivelog'
 ALL_IDS=$IDS
-SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle $IDS"
+SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle gen5w.kr.localhotspot $IDS"
 VARIANT=standard
 if [ -f GEN5W-VARIANT ]; then
     IFS= read -r VARIANT < GEN5W-VARIANT
@@ -35,13 +35,18 @@ if [ "$VARIANT" = dongle ] || [ "$BACKEND" = dongle ]; then
     ALL_IDS=$IDS
 fi
 [ "$BACKEND" = builtin ] || [ "$BACKEND" = dongle ] || { echo 'REFUSED: USB Wi-Fi backend is not available in this build'; exit 1; }
+# Exact-V039 stock hotspot switch is opt-in; recovery always knows its identity.
+if [ -f GEN5W-LOCAL-HOTSPOT ] && [ ! -L GEN5W-LOCAL-HOTSPOT ]; then
+    IDS="$IDS gen5w.kr.localhotspot"
+fi
+ALL_IDS="$ALL_IDS gen5w.kr.localhotspot"
 # Empty GEN5W-FORCE-DONGLE next to this script: use the dongle even with built-in Wi-Fi.
 GEN5W_FORCE_DONGLE=
 [ ! -f GEN5W-FORCE-DONGLE ] || [ -L GEN5W-FORCE-DONGLE ] || GEN5W_FORCE_DONGLE=1
 export GEN5W_FORCE_DONGLE
 # Safe editions leave SystemUI (the boot-critical consent screen) stock.
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
-REVERSE='gen5w.kr.drivelog gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
+REVERSE='gen5w.kr.localhotspot gen5w.kr.drivelog gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 report() {
@@ -71,6 +76,7 @@ gate() {
 hook() { gate "$APPS/$1" "$2"; }
 durable() {
     case "$1" in
+        gen5w.kr.localhotspot) [ -d "$SYS/etc/gen5w-kr-backup/local-hotspot" ];;
         gen5w.kr.wireless|gen5w.kr.audio|gen5w.kr.bridge|gen5w.kr.dongle)
         [ -d "$SYS/etc/gen5w-kr-backup/${1##*.}" ];; *) return 1;; esac
 }

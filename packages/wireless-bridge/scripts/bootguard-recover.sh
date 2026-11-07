@@ -43,7 +43,7 @@ wipe_dalvik() {
     local d f
     for d in $DALVIK_ROOTS; do
         [ -d "$d" ] || continue
-        for f in "$d"/*Iap2ServerApp* "$d"/*HKMC_DiPO* "$d"/*HKMC_GPM*; do
+        for f in "$d"/*Iap2ServerApp* "$d"/*HKMC_DiPO* "$d"/*HKMC_GPM* "$d"/*HKMC_WifiSettings*; do
             [ -e "$f" ] || continue
             rm -f "$f" || return 1
             [ ! -e "$f" ] || return 1
@@ -177,7 +177,16 @@ dongle_preflight() {
     [ "$(guard_digest "$DONGLE_BACKUP")" = "$DONGLE_STOCK_MD5" ] || return 1
     DONGLE_PLAN=yes
 }
-recovery_roots_valid && wireless_preflight && dongle_preflight &&
+hotspot_preflight() {
+    local dir=$SYS/etc/gen5w-kr-backup/local-hotspot
+    HOTSPOT_PLAN=no
+    if [ ! -e "$dir" ] && [ ! -L "$dir" ] && [ ! -e "$_apps/gen5w.kr.localhotspot" ] && [ ! -L "$_apps/gen5w.kr.localhotspot" ]; then return 0; fi
+    [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+    preflight_pair "$dir/original.odex" "$SYS/app/HKMC_WifiSettings.odex" \
+        "$dir/hotspot-patch" "$_apps/gen5w.kr.localhotspot/bin/hotspot-patch" || return 1
+    HOTSPOT_PLAN=yes
+}
+recovery_roots_valid && wireless_preflight && dongle_preflight && hotspot_preflight &&
 preflight_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" \
     "$_apps/gen5w.kr.bridge/bin/iap2-bt-patch-v039" \
     "$_apps/gen5w.kr.bridge/bin/iap2-route-patch-v039" "$_apps/gen5w.kr.bridge/bin/iap2-route-patch-v035" \
@@ -200,6 +209,7 @@ restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipoapkoriginal" "$SYS/app/HKMC_DiP
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" || rc=1
 [ "$DONGLE_PLAN" != yes ] || restore_one "$DONGLE_BACKUP" "$DONGLE_TARGET" || rc=1
+[ "$HOTSPOT_PLAN" != yes ] || restore_one "$SYS/etc/gen5w-kr-backup/local-hotspot/original.odex" "$SYS/app/HKMC_WifiSettings.odex" || rc=1
 [ "$rc" != 0 ] || [ "$WIRELESS_PLAN" != yes ] || wireless_call restore || rc=1
 [ "$rc" = 0 ] && wipe_dalvik || rc=1
 sync

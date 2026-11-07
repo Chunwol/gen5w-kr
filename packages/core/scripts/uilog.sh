@@ -453,7 +453,7 @@ set_adb() {
 # a failing hook), then NEMESIS removes the package. The first failure stops everything and is
 # reported; nothing is forced. Runs in the background so the request reader's time limit does not
 # cut it off, and a lock marker keeps two removals from overlapping.
-REMOVE_IDS='drivelog bluelink timer bridge audio wireless dongle'
+REMOVE_IDS='localhotspot drivelog bluelink timer bridge audio wireless dongle'
 set_removed() {
     [ ! -L "$REMOVED" ] || return 0
     print -r -- "$1 $2${3:+ $3}" > "$REMOVED.tmp" 2>/dev/null && mv "$REMOVED.tmp" "$REMOVED" 2>/dev/null

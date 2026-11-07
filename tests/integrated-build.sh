@@ -4,7 +4,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d); mkdir "$W/dist"
 python3 - "$W/dist" <<'PY'
 import pathlib,sys,zipfile
-for module in ['wireless','audio','bridge','core','timer','bluelink','drivelog']:
+for module in ['wireless','audio','bridge','core','timer','bluelink','drivelog','localhotspot']:
  p=pathlib.Path(sys.argv[1])/('gen5w.kr.'+module+'.zip')
  with zipfile.ZipFile(p,'w') as z:
   z.writestr('NEMESIS.data','[nemesis]\nid=gen5w.kr.'+module+'\n')
@@ -12,6 +12,12 @@ for module in ['wireless','audio','bridge','core','timer','bluelink','drivelog']
 PY
 check 'build complete integrated USB bundle' python3 "$ROOT/tools/integrated/build.py" --skip-native --dist "$W/dist" --output "$W/usb"
 check 'bundle includes staged module gates' test -f "$W/usb/checks/gen5w.kr.bridge/FILES.md5"
+check 'bundle includes optional hotspot recovery gates' test -f "$W/usb/checks/gen5w.kr.localhotspot/FILES.md5"
+check 'hotspot remains opt-in in public bundle' test ! -e "$W/usb/GEN5W-LOCAL-HOTSPOT"
+check 'default IDS exclude hotspot but removal includes it' env IT_DATA="$W/data" IT_SYSTEM="$W/system" mksh -c "cd '$W/usb' && . ./common.sh && [[ \" \$IDS \" != *' gen5w.kr.localhotspot '* ]] && [[ \" \$REVERSE \" = *' gen5w.kr.localhotspot '* ]]"
+touch "$W/usb/GEN5W-LOCAL-HOTSPOT"
+check 'marker opts into hotspot installation' env IT_DATA="$W/data" IT_SYSTEM="$W/system" mksh -c "cd '$W/usb' && . ./common.sh && [[ \" \$IDS \" = *' gen5w.kr.localhotspot '* ]]"
+rm "$W/usb/GEN5W-LOCAL-HOTSPOT"
 check 'source revision metadata uses LF on every build platform' eval '! grep -q "$(printf "\r")" "$W/usb/BUILD-REVISION"'
 check 'USB insertion asks NEMESIS to run NEMESIS.sh (Yes/No)' eval 'grep -qx type=execute "$W/usb/NEMESIS.data" && grep -qx path=NEMESIS.sh "$W/usb/NEMESIS.data"'
 check 'USB never runs without a dialog' test ! -e "$W/usb/NEMESIS.emergency"

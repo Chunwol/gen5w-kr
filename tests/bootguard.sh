@@ -19,7 +19,7 @@ chmod +x "$W/nemesis"
 # Simulate the installed per-profile native tools without distributing OEM files.
 for entry in 'gen5w.kr.bridge:iap2-route-patch-v039' 'gen5w.kr.bridge:iap2-route-patch-v035' \
     'gen5w.kr.bridge:iap2-patch-v039' 'gen5w.kr.bridge:iap2-patch-v035' 'gen5w.kr.bridge:dipo-patch-v039' \
-    'gen5w.kr.bridge:gpm-patch-v039' 'gen5w.kr.audio:audio-patch'; do
+    'gen5w.kr.bridge:gpm-patch-v039' 'gen5w.kr.audio:audio-patch' 'gen5w.kr.localhotspot:hotspot-patch'; do
     id=${entry%%:*}; tool=${entry#*:}
     mkdir -p "$DATA/nemesis/apps/$id/bin"
     cat > "$DATA/nemesis/apps/$id/bin/$tool" <<'SH'
@@ -42,8 +42,13 @@ write_pair "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.od
 write_pair "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex"
 write_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex"
 write_pair "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so"
+mkdir -p "$SYS/etc/gen5w-kr-backup/local-hotspot"
+write_pair "$SYS/etc/gen5w-kr-backup/local-hotspot/original.odex" "$SYS/app/HKMC_WifiSettings.odex"
+# Recovery survives a /data reset: only the durable helper remains.
+cp "$DATA/nemesis/apps/gen5w.kr.localhotspot/bin/hotspot-patch" "$SYS/etc/gen5w-kr-backup/local-hotspot/hotspot-patch"
+rm -rf "$DATA/nemesis/apps/gen5w.kr.localhotspot"
 chmod 640 "$SYS/etc/gen5w-kr-backup/audio/original"
-for name in Iap2ServerApp HKMC_DiPO HKMC_GPM; do
+for name in Iap2ServerApp HKMC_DiPO HKMC_GPM HKMC_WifiSettings; do
     printf stale > "$CACHE/dalvik-cache/${name}.cache"
 done
 printf keep > "$CACHE/dalvik-cache/SystemUI.cache"
@@ -58,7 +63,8 @@ check 'bootguard restores bridge ODEX' cmp -s "$SYS/app/Iap2ServerApp.odex" "$SY
 check 'bootguard restores DiPO ODEX' cmp -s "$SYS/app/HKMC_DiPO.odex" "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal"
 check 'bootguard restores GPM ODEX' cmp -s "$SYS/app/HKMC_GPM.odex" "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal"
 check 'bootguard restores audio library' cmp -s "$SYS/lib/libCarPlayAudio.so" "$SYS/etc/gen5w-kr-backup/audio/original"
-for name in Iap2ServerApp HKMC_DiPO HKMC_GPM; do
+check 'bootguard restores optional hotspot after data reset' cmp -s "$SYS/app/HKMC_WifiSettings.odex" "$SYS/etc/gen5w-kr-backup/local-hotspot/original.odex"
+for name in Iap2ServerApp HKMC_DiPO HKMC_GPM HKMC_WifiSettings; do
     check "bootguard removes stale ${name} cache" test ! -e "$CACHE/dalvik-cache/${name}.cache"
 done
 check 'bootguard leaves untouched boot-critical caches alone' test -e "$CACHE/dalvik-cache/SystemUI.cache"

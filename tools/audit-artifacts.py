@@ -110,17 +110,18 @@ def audit_relay(package):
 
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')
 packages=[p for p in sorted(root.glob('gen5w.kr.*.zip')) if p.name != 'gen5w.kr.dongle.zip']
-assert len(packages)==8, f'expected 8 packages, got {len(packages)}: {[p.name for p in packages]}'
+assert len(packages)==9, f'expected 9 packages, got {len(packages)}: {[p.name for p in packages]}'
 for package in packages:audit(package)
 audit_dongle(root/'gen5w.kr.dongle.zip')
 audit_relay(root/'gen5w.kr.bridge.zip')
 with zipfile.ZipFile(root/'usb-integrated.zip') as z:
     assert z.testzip() is None
-    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==7
-print('AUDITED seven-module integrated installer; no OEM/private inputs required')
+    assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==8
+    assert 'GEN5W-LOCAL-HOTSPOT' not in z.namelist(), 'local hotspot must be opt-in'
+print('AUDITED seven default modules plus optional local hotspot; no OEM/private inputs required')
 assert not (root/'gen5w.kr.consent.zip').exists(), 'local notice-disabling package in distribution'
 assert not (root/'gen5w-kr-skip-consent.zip').exists(), 'local edition in distribution'
-for variant,count in [('standard',7),('dongle',8)]:
+for variant,count in [('standard',8),('dongle',9)]:
     with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
         assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
         assert z.read('GEN5W-VARIANT').decode().strip()==variant

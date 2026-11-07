@@ -80,6 +80,8 @@ def build(dist, output, variant='standard'):
     if output.exists():
         raise SystemExit('Output already exists: ' + str(output))
     pkg_ids = list(IDS)
+    if (dist / 'gen5w.kr.localhotspot.zip').is_file():
+        pkg_ids.append('gen5w.kr.localhotspot')
     if variant == 'dongle':
         dongle_zip = dist / 'gen5w.kr.dongle.zip'
         if not dongle_zip.is_file():
