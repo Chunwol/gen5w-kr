@@ -35,6 +35,7 @@ MAX_SOURCE_BYTES=131072   # a package log above this is not read at all
 PER_SOURCE=25             # newest lines kept per package log
 MAX_LINES=200             # lines in the whole log file
 LOGCAT_LINES=40
+DEEP_LINE=300            # characters per line in the deep section of a saved diagnosis
 MAX_LINE=200              # characters per line
 # Lines that can carry personal data are dropped (same list as the USB diagnosis).
 PRIV='([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}:\*\*|[Ss][Ss][Ii][Dd]|[Pp]assw|PASSW|[Pp]assphrase|[Pp]sk|PSK|[Ss]erial|SERIAL|[Ii]mei|IMEI|[Ii]ccid|ICCID|[Mm]sisdn|MSISDN|VIN[=: ]|vin[=: ]|DEVICE_NAME|[Dd]evice ?[Nn]ame|getName|FRQ:|BND:|ALBUM|TITLE|ARTIST|mArtist'
@@ -46,7 +47,7 @@ prepare() {
     if [ ! -e "$UI_DIR" ]; then mkdir "$UI_DIR" || return 1; fi
     [ -d "$UI_DIR" ] || return 1
     chmod 755 "$UI_DIR" || return 1
-    for _f in status log facts status.tmp log.tmp filter.tmp facts.tmp diag.tmp diag-latest.tmp status-save.tmp facts-save.tmp diag-save.tmp diag-latest-save.tmp diag-latest.txt; do
+    for _f in status log facts status.tmp log.tmp filter.tmp facts.tmp diag.tmp diag-latest.tmp status-save.tmp facts-save.tmp diag-save.tmp diag-latest-save.tmp diag-latest.txt deep-save.tmp deep-in.tmp; do
         [ ! -L "$UI_DIR/$_f" ] || return 1
     done
     return 0
@@ -247,6 +248,92 @@ collect_facts() {
     chmod 644 "$out" && mv "$out" "$UI_DIR/facts"
 }
 
+# Deep section of a saved diagnosis (USB file only, never shown on the screen): everything needed to
+# find out why the wireless host or the Wi-Fi access point is not working, without a second visit.
+# Read-only; every line passes the privacy filter; each part is bounded. Command output arrives on
+# stdin: deep_tail <title> <newest lines to keep>.
+deep_tail() {
+    typeset title=$1 keep=$2 f="$UI_DIR/deep-in.tmp" total=0 skip line
+    grep -a -v -E "$PRIV" > "$f" 2>/dev/null
+    while IFS= read -r line || [ -n "$line" ]; do total=$((total + 1)); done < "$f"
+    skip=$((total - keep))
+    print -r -- "-- $title ($total lines)"
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$skip" -gt 0 ]; then skip=$((skip - 1)); continue; fi
+        print -r -- "${line:0:$DEEP_LINE}"
+    done < "$f"
+}
+deep_logs() {
+    typeset file size d n
+    for d in "$LOGS"/gen5w.kr.*; do
+        [ -d "$d" ] && [ ! -L "$d" ] || continue
+        for file in "$d"/*.log; do
+            [ -f "$file" ] && [ ! -L "$file" ] || continue
+            size=$(file_size "$file") || size=unknown
+            n=${d##*/}; n=${n#gen5w.kr.}
+            if [ "$size" = unknown ] || [ "$size" -le 262144 ]; then
+                cat "$file" 2>/dev/null | deep_tail "package log $n/${file##*/} ($size bytes)" 120
+            else
+                print -r -- "-- package log $n/${file##*/}: $size bytes, too large"
+            fi
+        done
+    done
+}
+deep_markers() {
+    typeset f size
+    for f in "$NEMDIR"/gen5wkr.*; do
+        [ -f "$f" ] && [ ! -L "$f" ] || continue
+        size=$(file_size "$f") || continue
+        [ "$size" -le 200 ] || { print -r -- "${f##*/}: $size bytes"; continue; }
+        print -r -- "${f##*/}: $(cat "$f" 2>/dev/null)"
+    done
+}
+collect_deep() {
+    typeset out="$UI_DIR/${1:-deep}.tmp" hd=/data/data/kr.gen5w.wirelesshost f p
+    : > "$out" || return 1
+    {
+        print -r -- "-- time and boot"
+        print -r -- "uptime: $(cat "$UPTIME" 2>/dev/null)"
+        print -r -- "boot_completed=$(getprop sys.boot_completed 2>/dev/null) date=$(date 2>/dev/null)"
+        print -r -- "-- collector self-check: what the screen log sees"
+        ls -l "$LOGS" 2>/dev/null
+        ls -l "$LOGS/gen5w.kr.bridge" 2>/dev/null
+        print -r -- "bridge.log size per collector: $(file_size "$LOGS/gen5w.kr.bridge/bridge.log")"
+        ls -l "$UI_DIR" 2>/dev/null
+        deep_markers | deep_tail "gen5wkr markers (name: content)" 60
+        ls -ln "$NEMDIR/gen5wkr.bootguard" "$NEMDIR/gen5w-kr-integrated" 2>/dev/null | deep_tail "bootguard and integrated folders" 40
+        cat "$NEMDIR/gen5w.kr.wireless.log" 2>/dev/null | deep_tail "wireless install log" 150
+        cat "$NEMDIR/nemesis.log" 2>/dev/null | grep -a -E 'gen5w|bridge|wireless|reboot|boot|failed|error' | deep_tail "nemesis.log lines about gen5w/boot/errors" 150
+        deep_logs
+        print -r -- "-- wireless host app"
+        ls -ln "$hd" "$hd/files" 2>/dev/null | deep_tail "host app folders" 40
+        for f in "$hd"/files/*; do
+            [ -f "$f" ] && [ ! -L "$f" ] || continue
+            p=$(file_size "$f") || continue
+            [ "$p" -le 65536 ] || continue
+            cat "$f" 2>/dev/null | deep_tail "host file ${f##*/} ($p bytes)" 40
+        done
+        dumpsys activity services kr.gen5w.wirelesshost 2>/dev/null | deep_tail "dumpsys: host service state" 80
+        dumpsys package kr.gen5w.wirelesshost 2>/dev/null | grep -a -E 'versionCode|versionName|userId|codePath|firstInstall|lastUpdate|enabled|stopped|pkgFlags|requested permissions|android.permission|declared' | deep_tail "dumpsys: host package" 60
+        "$PM" list packages -f 2>/dev/null | grep -a -i -E 'gen5w|iap2|dipo|carplay|projection|hotspot|wifi|hkmc' | deep_tail "packages (projection/wifi related)" 60
+        ps 2>/dev/null | grep -a -E 'gen5w|wirelesshost|hostapd|wpa_supplicant|dnsmasq|dhcp|iap|dipo|DiPO|ium|nemesis|zygote|system_server' | deep_tail "processes" 40
+        print -r -- "-- wifi and network"
+        getprop 2>/dev/null | grep -a -i -E 'wifi|wlan|hotspot|tether|ap\.|ium|gen5w|carplay|init\.svc\.(hostapd|wpa|dhcp|dnsmasq|p2p|netd)|sys\.boot|ro\.build\.(fingerprint|version\.release)|ro\.product\.(model|name)|net\.' | deep_tail "getprop (wifi, projection, boot)" 90
+        ifconfig 2>/dev/null | deep_tail "ifconfig" 60
+        netcfg 2>/dev/null | deep_tail "netcfg" 20
+        ls -ln /data/misc/wifi /data/misc/wifi/sockets /data/misc/dhcp 2>/dev/null | deep_tail "wifi data folders (names only, no contents)" 40
+        dmesg 2>/dev/null | grep -a -i -E 'bcmdhd|dhd|wlan|wifi|wl_|hostapd|p2p|sdio|firmware|nvram|killed process|out of memory' | deep_tail "kernel messages about wifi" 100
+        print -r -- "-- vehicle feature files"
+        ls -ln /system/build.prop /system/onebin/oshev_kr/featurexml.cfg /system/etc/permissions/com.hkmc.software.connectivity.carplay_wireless.xml /system/etc/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml /system/etc/permissions/com.hkmc.software.wifihotspot.xml 2>/dev/null
+        grep -a -E 'ium|gen5w|carplay|wireless|hotspot' /system/build.prop 2>/dev/null | deep_tail "build.prop lines" 20
+        grep -a -i -E 'wireless|carplay|hotspot|wifi|projection' /system/onebin/oshev_kr/featurexml.cfg 2>/dev/null | deep_tail "featurexml lines" 40
+        ls -ln "$BRIDGE/app" 2>/dev/null | deep_tail "bridge app folder" 30
+        print -r -- "-- logcat"
+        $LOGCAT -d -v time 2>/dev/null | grep -a -E 'AndroidRuntime|FATAL|wirelesshost|BridgeHost|kr\.gen5w|[Gg]en5[Ww]|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|ActivityManager.*(died|crash|ANR|Killing|Start proc)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
+    } 2>/dev/null >> "$out"
+    chmod 644 "$out"
+}
+
 # The USB must be mounted as a FAT-type filesystem (no links possible); prints nothing, returns 0/1.
 usb_fs_ok() {
     typeset src mp fs _r
@@ -262,6 +349,7 @@ usb_fs_ok() {
 do_save() {
     typeset n=$1 result=nousb dest tmp f
     collect_facts facts-save || :
+    collect_deep deep-save || :
     tmp="$UI_DIR/diag-save.tmp"
     {
         print -r -- "Gen5W KR diagnosis #$n"
@@ -269,6 +357,8 @@ do_save() {
             print -r -- "===== $f"
             [ -f "$UI_DIR/$f" ] && [ ! -L "$UI_DIR/$f" ] && cat "$UI_DIR/$f"
         done
+        print -r -- "===== deep"
+        [ -f "$UI_DIR/deep-save.tmp" ] && [ ! -L "$UI_DIR/deep-save.tmp" ] && cat "$UI_DIR/deep-save.tmp"
     } > "$tmp" 2>/dev/null || { rm -f "$tmp"; set_saved "$n" fail; return; }
     chmod 644 "$tmp"
     cat "$tmp" > "$UI_DIR/diag-latest-save.tmp" && mv "$UI_DIR/diag-latest-save.tmp" "$UI_DIR/diag-latest.txt" || result=fail
@@ -283,7 +373,7 @@ do_save() {
             result=fail
         fi
     fi
-    rm -f "$tmp"
+    rm -f "$tmp" "$UI_DIR/deep-save.tmp" "$UI_DIR/deep-in.tmp"
     set_saved "$n" "$result"
 }
 set_saved() {

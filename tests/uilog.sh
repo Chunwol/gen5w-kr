@@ -45,6 +45,7 @@ run() {
 }
 # Save and removal run in the background after the request is read: give them a moment.
 runs() { run; sleep 0.8; }
+runw() { run; sleep 6; }
 # By default the files go to a root-owned folder under /data/nemesis, never into an app data folder.
 default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1; }
 status() { grep "^$1=" "$UI/status" | { IFS= read -r l; echo "${l#*=}"; }; }
@@ -223,11 +224,16 @@ check 'facts list the adb property line' grep -q '^prop persist.sys.usb.config='
 check 'facts show the nemesis folder mode' grep -q -- '-- /data/nemesis' "$UI/facts"
 check 'facts stay under the line cap' test "$(grep -c '' "$UI/facts")" -le 60
 reset; mkdir -p "$W/usb"; echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"
+printf 'E/AndroidRuntime( 1): FATAL EXCEPTION in kr.gen5w.wirelesshost\n' > "$W/logcat.out"
 sed -i "s# $W/usb # $W/usb #" "$W/mounts"
 printf 'save=12345
-' > "$W/request"; run
+' > "$W/request"; runw
 check 'save writes a file on the mounted USB' test -f "$W/usb/gen5w-kr-diag/diag-12345.txt"
 check 'saved file holds status, facts and log' eval 'grep -q "===== status" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "===== facts" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "===== log" "$W/usb/gen5w-kr-diag/diag-12345.txt"'
+check 'saved file has a deep section with the collector self-check' eval 'grep -q "===== deep" "$W/usb/gen5w-kr-diag/diag-12345.txt" && grep -q "collector self-check" "$W/usb/gen5w-kr-diag/diag-12345.txt"'
+check 'deep section carries the host crash line from logcat' grep -q 'FATAL EXCEPTION in kr.gen5w.wirelesshost' "$W/usb/gen5w-kr-diag/diag-12345.txt"
+check 'deep section never lands in the screen files' eval '! grep -q "FATAL EXCEPTION" "$UI/facts" "$UI/status"'
+check 'deep temp files are cleaned up' eval '[ ! -e "$UI/deep-save.tmp" ] && [ ! -e "$UI/deep-in.tmp" ]'
 check 'a local copy is kept' test -f "$UI/diag-latest.txt"
 check 'status reports the save' test "$(status saved)" = 12345:usb
 rm -f "$W/usb/gen5w-kr-diag/diag-12345.txt"; runs
