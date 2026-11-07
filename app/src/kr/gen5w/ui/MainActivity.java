@@ -50,7 +50,7 @@ public final class MainActivity extends Activity {
     // flat; the screen has no gradients.
     private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
             LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
-    private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = SKY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
+    private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = WHITE, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
             LINE = SKY, BAR = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
     private static final int ROUND = 2; // dp: the stock screen uses almost square corners
     private static final java.util.Random RANDOM = new java.util.Random();
@@ -183,13 +183,13 @@ public final class MainActivity extends Activity {
         render();
     }
 
-    /** Black at the top, Hyundai Blue coming in from about a fifth down and fully there near the bottom, so the blue is clearly visible by the middle. */
+    /** Black for the top two thirds; Hyundai Blue rises over the bottom third only, like the stock screen. */
     private static android.graphics.drawable.Drawable background() {
         android.graphics.drawable.ShapeDrawable d = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
         d.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
             @Override public android.graphics.Shader resize(int width, int height) {
-                return new android.graphics.LinearGradient(0, 0, 0, height, new int[] {BLACK, BLACK, BLUE, BLUE},
-                        new float[] {0f, 0.2f, 0.85f, 1f}, android.graphics.Shader.TileMode.CLAMP);
+                return new android.graphics.LinearGradient(0, 0, 0, height, new int[] {BLACK, BLACK, BLUE},
+                        new float[] {0f, 0.66f, 1f}, android.graphics.Shader.TileMode.CLAMP);
             }
         });
         return d;
@@ -248,7 +248,8 @@ public final class MainActivity extends Activity {
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            menuItems[i].setBackgroundColor(on ? BLUE : 0x00000000); // flat selection
+            if (on) menuItems[i].setBackgroundDrawable(glow(dp(72)));
+            else menuItems[i].setBackgroundColor(0x00000000);
             TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
             name.setTextColor(on ? ACTIVE_BLUE : TEXT);
@@ -599,11 +600,34 @@ public final class MainActivity extends Activity {
         if (shown == 0) note(page, "이 조건에 맞는 기록이 없습니다.");
     }
 
+    /**
+     * The stock selected-item look, measured from a close-up photo: the item is almost black, with only a faint
+     * navy glow over its lower part and a thin dim line along the bottom (co_btn_bg_list_sel / co_btn_bg_tab_sel).
+     * The glow is Hyundai Blue at low opacity; the line is Sky Blue at low opacity. Height 0 leaves out the line.
+     */
+    private android.graphics.drawable.Drawable glow(int height) {
+        final int faintBlue = android.graphics.Color.argb(70, 0x00, 0x2C, 0x5F);
+        android.graphics.drawable.ShapeDrawable rise = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
+        rise.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
+            @Override public android.graphics.Shader resize(int width, int h) {
+                return new android.graphics.LinearGradient(0, 0, 0, h, new int[] {BLACK, BLACK, faintBlue},
+                        new float[] {0f, 0.35f, 1f}, android.graphics.Shader.TileMode.CLAMP);
+            }
+        });
+        if (height == 0) return rise;
+        GradientDrawable line = new GradientDrawable();
+        line.setColor(android.graphics.Color.argb(110, 0xAA, 0xCA, 0xE6));
+        android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {rise, line});
+        both.setLayerInset(1, 0, height - dp(1), 0, 0);
+        return both;
+    }
+
     /** A text tab with a cyan underline when chosen, like the stock tab strips. */
     private void tab(LinearLayout row, String text, final String value) {
         boolean on = categoryFilter.equals(value);
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
+        if (on) t.setBackgroundDrawable(glow(0));
         TextView name = label(text, 24, on ? ACTIVE_BLUE : TEXT, on);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, dp(12), 0, dp(10));
