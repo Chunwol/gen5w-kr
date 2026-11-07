@@ -20,6 +20,9 @@ public final class StatusModelTest {
         same("host", "alive", ok.host());
         same("relay", "on", ok.relay());
         same("backend", "builtin", ok.backend());
+        same("wlan unknown without the key", "unknown", ok.wlan());
+        same("wlan present", "present", StatusModel.parse(l("ts=1000", "wlan=present"), null, 1010).wlan());
+        same("wlan missing", "missing", StatusModel.parse(l("ts=1000", "wlan=missing"), null, 1010).wlan());
         same("version", "0.3.46", ok.bridgeVersion());
         check("apguard on is not off", !ok.apguardOff());
         check("not wired only", !ok.wiredOnly());

@@ -25,6 +25,7 @@ REQ_STEP=${UILOG_TEST_REQ_STEP:-2}
 FACT_LINES=110            # lines of unit facts (read-only checks) kept
 USB=${UILOG_TEST_USB:-/storage/usb0}
 MOUNTS=${UILOG_TEST_MOUNTS:-/proc/mounts}
+NETDIR_SYS=${UILOG_TEST_NET:-/sys/class/net}
 PM=${UILOG_TEST_PM:-pm}
 SAVED=$NEMDIR/gen5wkr.ui-saved   # "<number> <result>" of the last diagnosis save
 NEM=${UILOG_TEST_NEM:-/system/xbin/nemesis}
@@ -157,6 +158,8 @@ collect_status() {
     [ -n "$backend" ] || backend=builtin
     [ -e "$NEMDIR/gen5wkr.apguard.off" ] && apguard=off
     [ -e "$NEMDIR/gen5wkr.wireless-disabled" ] && wired=yes
+    typeset wlan=missing
+    [ -d "$NETDIR_SYS/wlan0" ] && wlan=present
     {
         print -r -- "ts=$ts"
         print -r -- "host=$host"
@@ -171,6 +174,7 @@ collect_status() {
         print -r -- "sw_adb=$(adb_state)"
         print -r -- "saved=$(saved_state)"
         print -r -- "removed=$(removed_state)"
+        print -r -- "wlan=$wlan"
     } > "$tmp" || return 1
     chmod 644 "$tmp" && mv "$tmp" "$UI_DIR/status"
 }
@@ -327,6 +331,10 @@ collect_deep() {
         cat "$MOUNTS" 2>/dev/null | grep -a -E 'usb|media_rw|fuse|vold|sdcard|storage' | deep_tail "mount table (usb, fuse, storage)" 30
         ls -ln /mnt /mnt/media_rw /storage /dev/block/vold 2>&1 | deep_tail "storage folders" 40
         ls -ln "$USB" 2>&1 | deep_tail "usb root listing (names only)" 60
+        print -r -- "-- telematics subscription state read by the stock hotspot menu (read-only; only subscription/status style fields)"
+        for f in prov_info service_info; do
+            content query --uri "content://com.hkmc.telematics.service.util.db.VehicleSettingProvider/$f" 2>&1 | grep -a -o -i -E '(prov|serv|subscri|status|state|enable|bluelink|hotspot|wifi|expire|valid|type|code)[A-Za-z_]*=[^,]*' | deep_tail "$f (selected fields)" 40
+        done
         print -r -- "-- vehicle feature files"
         ls -ln /system/build.prop /system/onebin/oshev_kr/featurexml.cfg /system/etc/permissions/com.hkmc.software.connectivity.carplay_wireless.xml /system/etc/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml /system/etc/permissions/com.hkmc.software.wifihotspot.xml 2>/dev/null
         grep -a -E 'ium|gen5w|carplay|wireless|hotspot' /system/build.prop 2>/dev/null | deep_tail "build.prop lines" 20

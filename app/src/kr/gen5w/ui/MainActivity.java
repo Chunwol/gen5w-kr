@@ -38,15 +38,18 @@ public final class MainActivity extends Activity {
     private static final long REFRESH_MS = 5000;
     private static final String LANG_FILE = "lang-en"; // present = English; absent = Korean (default)
     private static final String UI_DIR = "/data/nemesis/gen5wkr.ui";
-    // Every color on this screen is one of the nine on Hyundai's published color page (hyundai.com CI,
-    // "전용색상"): Hyundai Blue #002C5F, Sand #E4DCD3, Light Sand #F6F3F2, Gold #A36B4F, White, Black,
-    // Active Blue #00AAD2, Sky Blue #AACAE6, Active Red #E63312. Nothing else is used. Only one
-    // dimming is applied (a switch that cannot be changed is drawn at reduced opacity).
-    private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
-            LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
-    private static final int BG = BLACK, TOP = BLUE, SIDE = BLACK, SELECTED = BLUE, ACCENT = ACTIVE_BLUE,
-            TEXT = LIGHT_SAND, DIM = SKY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED, LINE = BLACK,
-            BOX = BLACK, OUTLINE = SKY, PANEL = BLUE, RAISED = BLUE;
+    // Values read from the head unit's own Settings app (Settings_W resources): white titles, #888888
+    // summaries, cyan #00C2FF accent, #2DC4F3 for the chosen menu entry, #505050 for disabled, sizes
+    // 26sp title / 22sp summary / 28sp bar title, 72dp rows, a 250dp menu, separators of 6% white. The
+    // stock window is transparent over the car's navy background; the gradient below is measured
+    // from a photo of that screen (approximate). Status colors that the stock app does not have
+    // (warning, error, locked text) stay on Hyundai's published colors: Gold, Active Red, Sand.
+    private static final int WHITE = 0xFFFFFFFF, GREY = 0xFF888888, DISABLED = 0xFF505050, CYAN = 0xFF00C2FF,
+            CYAN_PICK = 0xFF2DC4F3, SAND = 0xFFE4DCD3, GOLD = 0xFFA36B4F, ACTIVE_RED = 0xFFE63312,
+            BG_TOP = 0xFF101015, BG_BOTTOM = 0xFF1B2B4E, LIGHT_GREY = 0xFFCCCCCC;
+    private static final int ACCENT = CYAN, TEXT = WHITE, DIM = GREY, OK = CYAN, WARN = GOLD, RED = ACTIVE_RED,
+            LINE = 0x14FFFFFF, BAR = 0x08FFFFFF, BAND = 0x3300C2FF, OUTLINE = 0x66FFFFFF, TILE = 0x14FFFFFF;
+    private static final int ROUND = 2; // dp: the stock screen uses almost square corners
     private static final java.util.Random RANDOM = new java.util.Random();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -70,7 +73,6 @@ public final class MainActivity extends Activity {
     private TextView langButton;
     private LinearLayout panel;   // the grouped block rows are added to; null = rows go straight on the page
     private int panelRows;
-    private Widgets.Icon[] menuIcons = new Widgets.Icon[TABS.length];
     private String saveToken; // digits; a new number asks the collector for one diagnosis save
     private long saveAskedAt;
     private String removeToken; // digits; sent only after the second confirmation
@@ -89,60 +91,60 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(BG);
+        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BG_TOP, BG_BOTTOM}));
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable barShape = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {TOP, TOP});
-        bar.setBackgroundDrawable(barShape);
-        bar.setPadding(dp(24), dp(8), dp(16), dp(8));
-        TextView title = label("Gen5W KR", 24, TEXT, true);
-        bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        FrameLayout bar = new FrameLayout(this);
+        bar.setBackgroundColor(BAR);
+        bar.setMinimumHeight(dp(60));
+        TextView back = label("‹", 44, TEXT, false);
+        back.setGravity(Gravity.CENTER);
+        back.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { finish(); }
+        });
+        bar.addView(back, new FrameLayout.LayoutParams(dp(84), dp(60), Gravity.LEFT | Gravity.CENTER_VERTICAL));
+        TextView title = label("Gen5W KR", 28, TEXT, true);
+        title.setGravity(Gravity.CENTER);
+        bar.addView(title, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(60), Gravity.CENTER));
         langButton = new TextView(this);
-        langButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        langButton.setTypeface(Typeface.DEFAULT_BOLD);
+        langButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         langButton.setTextColor(TEXT);
         langButton.setGravity(Gravity.CENTER);
         langButton.setMinWidth(dp(120));
         langButton.setMinHeight(dp(46));
+        langButton.setPadding(dp(18), 0, dp(18), 0);
         GradientDrawable langShape = new GradientDrawable();
-        langShape.setCornerRadius(dp(23));
-        langShape.setColor(BLACK);
+        langShape.setCornerRadius(dp(ROUND));
+        langShape.setColor(TILE);
+        langShape.setStroke(dp(1), OUTLINE);
         langButton.setBackgroundDrawable(langShape);
         langButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { setLanguage(!I18n.english()); }
         });
-        bar.addView(langButton);
+        FrameLayout.LayoutParams langLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        langLp.setMargins(0, 0, dp(24), 0);
+        bar.addView(langButton, langLp);
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        View accentLine = new View(this);
-        accentLine.setBackgroundColor(ACCENT);
-        root.addView(accentLine, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)));
+        root.addView(divider());
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
-        side.setBackgroundColor(SIDE);
-        side.setPadding(dp(12), dp(14), dp(12), dp(8));
         for (int i = 0; i < TABS.length; i++) {
             final int index = i;
             LinearLayout item = new LinearLayout(this);
-            item.setGravity(Gravity.CENTER_VERTICAL);
-            item.setPadding(dp(16), 0, dp(12), 0);
-            menuIcons[i] = new Widgets.Icon(this, i, DIM);
-            LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(30), dp(30));
-            iconLp.setMargins(0, 0, dp(14), 0);
-            item.addView(menuIcons[i], iconLp);
-            item.addView(label(TABS[i], 21, DIM, false));
+            item.setGravity(Gravity.CENTER);
+            item.addView(label(TABS[i], 26, TEXT, false));
             item.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) { tab = index; render(); }
             });
             menuItems[i] = item;
-            LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(66));
-            itemLp.setMargins(0, 0, 0, dp(6));
-            side.addView(item, itemLp);
+            side.addView(item, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)));
+            side.addView(divider());
         }
-        body.addView(side, new LinearLayout.LayoutParams(dp(236), ViewGroup.LayoutParams.MATCH_PARENT));
+        body.addView(side, new LinearLayout.LayoutParams(dp(250), ViewGroup.LayoutParams.MATCH_PARENT));
+        View sideLine = new View(this);
+        sideLine.setBackgroundColor(LINE);
+        body.addView(sideLine, new LinearLayout.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT));
         content = new FrameLayout(this);
         body.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -199,21 +201,17 @@ public final class MainActivity extends Activity {
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            GradientDrawable pick = new GradientDrawable();
-            pick.setCornerRadius(dp(18));
-            pick.setColor(on ? SELECTED : 0x00000000);
-            menuItems[i].setBackgroundDrawable(pick);
-            menuIcons[i].setColor(on ? ACCENT : DIM);
-            TextView name = (TextView) menuItems[i].getChildAt(1);
+            menuItems[i].setBackgroundColor(on ? BAND : 0x00000000);
+            TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
-            name.setTextColor(on ? TEXT : DIM);
+            name.setTextColor(on ? CYAN_PICK : TEXT);
             name.setTypeface(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL);
         }
         panel = null;
         panelRows = 0;
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(28), dp(10), dp(28), dp(24));
+        page.setPadding(dp(30), dp(6), dp(30), dp(24));
         if (tab == INFO) buildInfo(page);
         else if (tab == LOG) buildLog(page);
         else if (tab == ONOFF) buildSwitches(page);
@@ -317,22 +315,22 @@ public final class MainActivity extends Activity {
         boolean enabled = locked == null && known;
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(dp(88));
-        r.setPadding(0, dp(12), 0, dp(12));
+        r.setMinimumHeight(dp(92));
+        r.setPadding(dp(22), dp(10), dp(22), dp(10));
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        text.addView(label(name, 19, TEXT, false));
-        TextView hint = label(locked != null ? locked : help, 14, locked != null ? SAND : DIM, false);
+        text.addView(label(name, 26, TEXT, false));
+        TextView hint = label(locked != null ? locked : help, 20, locked != null ? SAND : DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         tl.setMargins(0, 0, dp(18), 0);
         r.addView(text, tl);
-        TextView word = label(!known ? "확인 못 함" : on ? "켜짐" : "꺼짐", 16, enabled && on ? ACCENT : DIM, true);
+        TextView word = label(!known ? "확인 못 함" : on ? "켜짐" : "꺼짐", 22, enabled && on ? ACCENT : DIM, false);
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.setMargins(0, 0, dp(14), 0);
         r.addView(word, wl);
-        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, BLACK, WHITE, SKY);
+        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, DISABLED, WHITE, LIGHT_GREY);
         toggle.set(on, enabled);
         r.addView(toggle, new LinearLayout.LayoutParams(dp(78), dp(44)));
         if (enabled) r.setOnClickListener(click); // the whole row is the touch target
@@ -343,12 +341,12 @@ public final class MainActivity extends Activity {
     private void buttonRow(LinearLayout page, String name, String help, String buttonText, boolean enabled, int tone, View.OnClickListener click) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(dp(88));
-        r.setPadding(0, dp(12), 0, dp(12));
+        r.setMinimumHeight(dp(92));
+        r.setPadding(dp(22), dp(10), dp(22), dp(10));
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        text.addView(label(name, 19, TEXT, false));
-        TextView hint = label(help, 14, DIM, false);
+        text.addView(label(name, 26, TEXT, false));
+        TextView hint = label(help, 20, DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -356,15 +354,15 @@ public final class MainActivity extends Activity {
         r.addView(text, tl);
         boolean filled = tone == 0 || tone == 1;
         int tint = tone == 1 || tone == 3 ? RED : ACCENT;
-        TextView button = label(buttonText, 18, !enabled ? DIM : tone == 0 ? BLACK : tone == 1 ? WHITE : tone == 3 ? RED : TEXT, true);
+        TextView button = label(buttonText, 24, !enabled ? DISABLED : tone == 0 ? 0xFF000000 : tone == 1 ? WHITE : tone == 3 ? RED : TEXT, false);
         button.setGravity(Gravity.CENTER);
         button.setMinWidth(dp(132));
-        button.setMinHeight(dp(58));
+        button.setMinHeight(dp(56));
         button.setPadding(dp(24), dp(14), dp(24), dp(14));
         GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(29));
-        shape.setColor(enabled && filled ? tint : 0x00000000);
-        shape.setStroke(dp(2), enabled ? (tone == 2 ? OUTLINE : tint) : OUTLINE);
+        shape.setCornerRadius(dp(ROUND));
+        shape.setColor(enabled && filled ? tint : TILE);
+        shape.setStroke(dp(1), enabled ? (tone == 2 ? OUTLINE : tint) : OUTLINE);
         button.setBackgroundDrawable(shape);
         if (enabled) button.setOnClickListener(click);
         r.addView(button);
@@ -453,6 +451,9 @@ public final class MainActivity extends Activity {
         String relay = model.relay();
         row(page, "릴레이 구성", relay.equals("on") ? "● 포함됨" : relay.equals("off") ? "● 없음" : "확인 못 함",
                 stale ? DIM : relay.equals("on") ? OK : relay.equals("off") ? WARN : DIM);
+        String wlan = model.wlan();
+        row(page, "차 Wi-Fi", wlan.equals("present") ? "● 켜짐" : wlan.equals("missing") ? "● 꺼짐 (휴대폰이 접속할 Wi-Fi가 없음)" : "확인 못 함",
+                stale ? DIM : wlan.equals("present") ? OK : wlan.equals("missing") ? WARN : DIM);
         row(page, "유선 전용 모드", model.wiredOnly() ? "켜짐" : "꺼짐", model.wiredOnly() ? WARN : TEXT);
         row(page, "재시작 보호", model.apguardOff() ? "● 걸림(무선 꺼짐)" : "● 정상", model.apguardOff() ? RED : stale ? DIM : OK);
         section(page, "설치");
@@ -492,13 +493,14 @@ public final class MainActivity extends Activity {
             LinearLayout entry = new LinearLayout(this);
             entry.setPadding(0, dp(12), 0, dp(12));
             if (source.length() > 0) {
-                TextView tag = label(source, 12, error ? RED : ACCENT, true);
+                TextView tag = label(source, 16, error ? RED : CYAN_PICK, false);
                 tag.setGravity(Gravity.CENTER);
                 tag.setMinWidth(dp(76));
                 tag.setPadding(dp(8), dp(3), dp(8), dp(3));
                 GradientDrawable tagShape = new GradientDrawable();
-                tagShape.setCornerRadius(dp(10));
-                tagShape.setColor(BLACK);
+                tagShape.setCornerRadius(dp(ROUND));
+                tagShape.setColor(TILE);
+                tagShape.setStroke(dp(1), error ? RED : OUTLINE);
                 tag.setBackgroundDrawable(tagShape);
                 LinearLayout.LayoutParams tagLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 tagLp.setMargins(0, dp(2), dp(14), 0);
@@ -506,10 +508,10 @@ public final class MainActivity extends Activity {
             }
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
-            TextView msg = label(korean, 16, error ? RED : TEXT, error);
+            TextView msg = label(korean, 22, error ? RED : TEXT, false);
             msg.setLineSpacing(dp(2), 1f);
             col.addView(msg);
-            if (!korean.equals(raw)) col.addView(label(raw, 12, DIM, false));
+            if (!korean.equals(raw)) col.addView(label(raw, 16, DIM, false));
             entry.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             add(page, entry);
             shown++;
@@ -519,13 +521,14 @@ public final class MainActivity extends Activity {
 
     private void chip(LinearLayout row, String text, final String value, final boolean category) {
         boolean on = category ? categoryFilter.equals(value) : sourceFilter.equals(value);
-        TextView chip = label(text, 16, on ? BLACK : TEXT, on);
+        TextView chip = label(text, 22, on ? 0xFF000000 : TEXT, false);
         chip.setGravity(Gravity.CENTER);
         chip.setMinHeight(dp(44));
         chip.setPadding(dp(18), dp(8), dp(18), dp(8));
         GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(22));
-        shape.setColor(on ? ACCENT : RAISED);
+        shape.setCornerRadius(dp(ROUND));
+        shape.setColor(on ? ACCENT : TILE);
+        shape.setStroke(dp(1), on ? ACCENT : OUTLINE);
         chip.setBackgroundDrawable(shape);
         chip.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -538,15 +541,10 @@ public final class MainActivity extends Activity {
         row.addView(chip, lp);
     }
 
-    /** A grouped block: rows added until the next section go inside it. */
+    /** A group of rows: they are added until the next section starts, with a thin line between them. */
     private void openPanel(LinearLayout page, int topMargin) {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
-        p.setPadding(dp(22), dp(4), dp(22), dp(4));
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(20));
-        shape.setColor(PANEL);
-        p.setBackgroundDrawable(shape);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, topMargin, 0, 0);
         page.addView(p, lp);
@@ -554,7 +552,7 @@ public final class MainActivity extends Activity {
         panelRows = 0;
     }
 
-    /** Adds a row to the open block (with a thin line above all but the first), or to the page when none is open. */
+    /** Adds a row to the open group (with a thin line above all but the first), or to the page when none is open. */
     private void add(LinearLayout page, View view) {
         if (panel == null) { page.addView(view); return; }
         if (panelRows > 0) panel.addView(divider());
@@ -563,91 +561,74 @@ public final class MainActivity extends Activity {
     }
 
     private void section(LinearLayout page, String title) {
-        TextView t = label(title, 16, DIM, true);
-        t.setPadding(dp(6), dp(22), 0, 0);
+        TextView t = label(title, 22, CYAN_PICK, false);
+        t.setPadding(dp(22), dp(24), 0, dp(8));
         page.addView(t);
-        openPanel(page, dp(8));
+        page.addView(divider());
+        openPanel(page, 0);
     }
 
+    /** Title in white over the value in a pale color, like the stock settings list. */
     private void row(LinearLayout page, String name, String value, int color) {
         LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.VERTICAL);
+        r.setMinimumHeight(dp(72));
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(dp(68));
-        r.addView(label(name, 19, TEXT, false), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView v = label(value, 17, color, color != TEXT && color != DIM);
-        if (color == OK || color == WARN || color == RED) {
-            v.setPadding(dp(14), dp(6), dp(14), dp(6));
-            GradientDrawable pill = new GradientDrawable();
-            pill.setCornerRadius(dp(16));
-            pill.setColor(BLACK);
-            v.setBackgroundDrawable(pill);
-        }
-        r.addView(v);
+        r.setPadding(dp(22), dp(8), dp(22), dp(8));
+        r.addView(label(name, 26, TEXT, false));
+        r.addView(label(value, 22, color == TEXT ? DIM : color, false));
         add(page, r);
     }
 
-    /** The big status card at the top of the info page. */
+    /** The status block at the top of the info page: a colored edge, a big title and the reason. */
     private void hero(LinearLayout page, String title, String text, int color) {
         LinearLayout h = new LinearLayout(this);
         h.setGravity(Gravity.CENTER_VERTICAL);
-        h.setPadding(dp(26), dp(22), dp(26), dp(22));
-        GradientDrawable shape = new GradientDrawable();
-        shape.setColor(PANEL);
-        shape.setCornerRadius(dp(22));
-        shape.setStroke(dp(3), color);
-        h.setBackgroundDrawable(shape);
-        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(dp(44), dp(44));
-        dl.setMargins(0, 0, dp(20), 0);
-        h.addView(new Widgets.Dot(this, color), dl);
+        View edge = new View(this);
+        edge.setBackgroundColor(color);
+        h.addView(edge, new LinearLayout.LayoutParams(dp(6), ViewGroup.LayoutParams.MATCH_PARENT));
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.addView(label(title, 27, TEXT, true));
+        col.setPadding(dp(22), dp(18), dp(16), dp(18));
+        col.addView(label(title, 32, TEXT, false));
         if (text.length() > 0) {
-            TextView sub = label(text, 17, DIM, false);
+            TextView sub = label(text, 22, color == DIM ? DIM : color, false);
             sub.setLineSpacing(dp(2), 1f);
             col.addView(sub);
         }
         h.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, dp(8), 0, 0);
+        lp.setMargins(0, dp(14), 0, 0);
         page.addView(h, lp);
     }
 
     /** A notice with a colored edge: errors, warnings, progress. */
     private void box(LinearLayout page, String title, String text, int color) {
         LinearLayout b = new LinearLayout(this);
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(16));
-        shape.setColor(BOX);
-        shape.setStroke(dp(2), BLUE);
-        b.setBackgroundDrawable(shape);
         View edge = new View(this);
-        GradientDrawable edgeShape = new GradientDrawable();
-        edgeShape.setCornerRadii(new float[] {dp(16), dp(16), 0, 0, 0, 0, dp(16), dp(16)});
-        edgeShape.setColor(color);
-        edge.setBackgroundDrawable(edgeShape);
-        b.addView(edge, new LinearLayout.LayoutParams(dp(7), ViewGroup.LayoutParams.MATCH_PARENT));
+        edge.setBackgroundColor(color);
+        b.addView(edge, new LinearLayout.LayoutParams(dp(6), ViewGroup.LayoutParams.MATCH_PARENT));
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(18), dp(14), dp(18), dp(14));
-        col.addView(label(title, 19, color, true));
-        TextView body = label(text, 16, TEXT, false);
+        col.addView(label(title, 26, color, false));
+        TextView body = label(text, 20, TEXT, false);
         body.setLineSpacing(dp(2), 1f);
         col.addView(body);
         b.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, dp(10), 0, dp(6));
+        lp.setMargins(0, dp(14), 0, dp(6));
         if (panel != null) panel.addView(b, lp); else page.addView(b, lp);
     }
 
     private void note(LinearLayout page, String text) {
-        TextView t = label(text, 16, DIM, false);
+        TextView t = label(text, 20, DIM, false);
         t.setLineSpacing(dp(2), 1f);
         if (panel != null) {
-            t.setPadding(0, dp(16), 0, dp(16));
+            t.setPadding(dp(22), dp(16), dp(22), dp(16));
             add(page, t);
         } else {
-            t.setPadding(dp(6), dp(16), 0, 0);
+            t.setPadding(dp(22), dp(18), dp(22), 0);
             page.addView(t);
         }
     }

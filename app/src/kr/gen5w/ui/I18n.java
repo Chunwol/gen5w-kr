@@ -75,6 +75,9 @@ public final class I18n {
         add("CarPlay HUD 연동", "CarPlay HUD link");
         add("끄면 이 앱의 HUD 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.", "When off, this app's HUD service is stopped. Turning it on starts it again right away.");
         add("개발자 접속 (이번 부팅만)", "Developer access (this boot only)");
+        add("차 Wi-Fi", "Car Wi-Fi");
+        add("● 켜짐", "● On");
+        add("● 꺼짐 (휴대폰이 접속할 Wi-Fi가 없음)", "● Off (no Wi-Fi for the phone to join)");
         add("이 스위치는 차의 Wi-Fi를 켜지 않고 접속 포트만 엽니다. 차가 이미 Wi-Fi에 연결돼 있어야 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요합니다.",
             "This switch does not turn the car's Wi-Fi on; it only opens the port. The car must already be on a Wi-Fi network before a PC can connect with adb connect <car address>:5555. It turns off by itself after a restart. The stock ADB key approval is still required.");
         add("이 화면에서 바꿀 수 없는 것", "Not changeable on this screen");

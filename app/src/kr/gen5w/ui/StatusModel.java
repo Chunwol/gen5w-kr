@@ -12,7 +12,7 @@ public final class StatusModel {
     private final boolean readable;
     private final long ts;          // -1 when missing or not a number
     private final long now;
-    private final String host, relay, backend, version;
+    private final String host, relay, backend, version, wlan;
     private final boolean apguardOff, wired;
     private final String why;
     private final String whyRaw; // the supervisor's own line (English), or "" when none or unknown
@@ -22,15 +22,15 @@ public final class StatusModel {
 
     private StatusModel(boolean readable, long ts, long now, String host, String relay, String backend,
             String version, boolean apguardOff, boolean wired, String why, String whyRaw,
-            String swWireless, String swTimer, String swBluelink, String swAdb, String saved, String removed) {
+            String swWireless, String swTimer, String swBluelink, String swAdb, String saved, String removed, String wlan) {
         this.readable = readable; this.ts = ts; this.now = now; this.host = host; this.relay = relay;
         this.backend = backend; this.version = version; this.apguardOff = apguardOff; this.wired = wired;
         this.why = why; this.whyRaw = whyRaw;
-        this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink; this.swAdb = swAdb; this.saved = saved; this.removed = removed;
+        this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink; this.swAdb = swAdb; this.saved = saved; this.removed = removed; this.wlan = wlan;
     }
 
     public static StatusModel unreadable() {
-        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none", "0:none");
+        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none", "0:none", UNKNOWN);
     }
 
     private static String value(List<String> lines, String key) {
@@ -60,7 +60,8 @@ public final class StatusModel {
                 choice(value(statusLines, "sw_bluelink"), "on", "off"),
                 choice(value(statusLines, "sw_adb"), "on", "off"),
                 value(statusLines, "saved").length() == 0 ? "0:none" : value(statusLines, "saved"),
-                value(statusLines, "removed").length() == 0 ? "0:none" : value(statusLines, "removed"));
+                value(statusLines, "removed").length() == 0 ? "0:none" : value(statusLines, "removed"),
+                choice(value(statusLines, "wlan"), "present", "missing"));
     }
 
     /** The bridge supervisor's own last explanation line, only while the host is not running; null when none. */
@@ -98,6 +99,8 @@ public final class StatusModel {
     public String relay() { return relay; }
     public String backend() { return backend; }
     public String bridgeVersion() { return version; }
+    /** Whether the car's Wi-Fi interface exists right now: present / missing / unknown. */
+    public String wlan() { return wlan; }
     /** State of the screen switch as the collector saw the marker: on, off or unknown. */
     public String switchWireless() { return swWireless; }
     public String switchTimer() { return swTimer; }

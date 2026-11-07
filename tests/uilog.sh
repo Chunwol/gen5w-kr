@@ -66,6 +66,9 @@ check 'script names the core app folder only for the read-only request file' eva
 check 'script never writes to the request file' eval '! grep -v "^ *#" "$PKG/scripts/uilog.sh" | grep -Eq ">+ *\"?\$REQUEST|rm .*\$REQUEST|mv .*\$REQUEST"'
 run
 check 'status has the snapshot keys' eval 'for k in ts host relay backend version apguard wired; do grep -q "^$k=" "$UI/status" || exit 1; done'
+check 'status says the car Wi-Fi interface is missing when wlan0 does not exist' test "$(status wlan)" = missing
+mkdir -p "$W/net/wlan0"; UILOG_TEST_NET=$W/net run
+check 'status says the car Wi-Fi interface is present when wlan0 exists' test "$(status wlan)" = present
 check 'status ts is a number' eval '[ -n "$(status ts)" ] && [ -z "$(status ts | tr -d 0-9)" ]'
 check 'status reads the bridge version' test "$(status version)" = 0.3.47
 check 'backend defaults to builtin' test "$(status backend)" = builtin
