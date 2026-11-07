@@ -96,7 +96,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundDrawable(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {BLACK, BLUE})); // the one background gradient, like the stock settings
+        root.setBackgroundDrawable(background()); // the one background gradient, like the stock settings
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
         bar.setBackgroundColor(BAR); // the stock bars are flat, not raised
@@ -181,6 +181,18 @@ public final class MainActivity extends Activity {
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
         render();
+    }
+
+    /** Black at the top, Hyundai Blue coming in from about a fifth down and fully there near the bottom, so the blue is clearly visible by the middle. */
+    private static android.graphics.drawable.Drawable background() {
+        android.graphics.drawable.ShapeDrawable d = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
+        d.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
+            @Override public android.graphics.Shader resize(int width, int height) {
+                return new android.graphics.LinearGradient(0, 0, 0, height, new int[] {BLACK, BLACK, BLUE, BLUE},
+                        new float[] {0f, 0.2f, 0.85f, 1f}, android.graphics.Shader.TileMode.CLAMP);
+            }
+        });
+        return d;
     }
 
     private void setLanguage(boolean english) {
