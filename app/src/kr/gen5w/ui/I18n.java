@@ -75,8 +75,8 @@ public final class I18n {
         add("CarPlay HUD 연동", "CarPlay HUD link");
         add("끄면 이 앱의 HUD 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.", "When off, this app's HUD service is stopped. Turning it on starts it again right away.");
         add("개발자 접속 (이번 부팅만)", "Developer access (this boot only)");
-        add("켜면 같은 Wi-Fi의 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요하고, PC가 차 핫스팟에 붙으면 인터넷이 끊깁니다.",
-            "When on, a PC on the same Wi-Fi can connect with adb connect <car address>:5555. It turns off by itself after a restart. The stock ADB key approval is still required, and a PC joined to the car hotspot loses internet.");
+        add("이 스위치는 차의 Wi-Fi를 켜지 않고 접속 포트만 엽니다. 차가 이미 Wi-Fi에 연결돼 있어야 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요합니다.",
+            "This switch does not turn the car's Wi-Fi on; it only opens the port. The car must already be on a Wi-Fi network before a PC can connect with adb connect <car address>:5555. It turns off by itself after a restart. The stock ADB key approval is still required.");
         add("이 화면에서 바꿀 수 없는 것", "Not changeable on this screen");
         add("오디오 모듈", "Audio module"); add("설치 / 제거로만", "Install / remove only");
         add("주행 기록", "Drive log"); add("USB 키트가 필요", "Needs the USB kit");

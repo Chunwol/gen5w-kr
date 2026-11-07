@@ -264,7 +264,7 @@ public final class MainActivity extends Activity {
                     }
                 });
         section(page, "개발자 접속 (이번 부팅만)");
-        switchRow(page, "Wi-Fi ADB", "켜면 같은 Wi-Fi의 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요하고, PC가 차 핫스팟에 붙으면 인터넷이 끊깁니다.",
+        switchRow(page, "Wi-Fi ADB", "이 스위치는 차의 Wi-Fi를 켜지 않고 접속 포트만 엽니다. 차가 이미 Wi-Fi에 연결돼 있어야 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요합니다.",
                 readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(3, model.switchAdb()), 3);
         section(page, "이 화면에서 바꿀 수 없는 것");
         row(page, "오디오 모듈", "설치 / 제거로만", DIM);

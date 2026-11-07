@@ -87,6 +87,8 @@ wireless: ssid=secretname
 run
 check 'the wireless installer log next to the folders is collected' grep -q '^wireless|wireless: AP start requested' "$UI/log"
 check 'that log passes the privacy filter' eval '! grep -q secretname "$UI/log"'
+LINES=999 run
+check 'a LINES value in the environment does not empty the log (mksh treats LINES as special)' grep -q '^wireless|wireless: AP start requested' "$UI/log"
 printf 'noise
 2026-11-07 started gen5w.kr.bridge/bridge pid=1
 WAIT bridge: starting the host

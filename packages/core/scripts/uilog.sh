@@ -70,9 +70,9 @@ emit_tail() {
     skip=$((total - $2))
     while IFS= read -r line || [ -n "$line" ]; do
         if [ "$skip" -gt 0 ]; then skip=$((skip - 1)); continue; fi
-        [ "$LINES" -lt "$MAX_LINES" ] || return 0
+        [ "$NLOG" -lt "$MAX_LINES" ] || return 0
         print -r -- "$1|${line:0:$MAX_LINE}" >> "$UI_DIR/log.tmp"
-        LINES=$((LINES + 1))
+        NLOG=$((NLOG + 1))
     done < "$3"
 }
 
@@ -80,11 +80,11 @@ emit_tail() {
 collect_file() {
     typeset file=$1 name=$2 size
     [ -f "$file" ] && [ ! -L "$file" ] || return 0
-    [ "$LINES" -lt "$MAX_LINES" ] || return 0
+    [ "$NLOG" -lt "$MAX_LINES" ] || return 0
     size=$(file_size "$file") || return 0
     if [ "$size" -gt "$MAX_SOURCE_BYTES" ]; then
         print -r -- "$name|(로그가 너무 커서 건너뜀)" >> "$UI_DIR/log.tmp"
-        LINES=$((LINES + 1))
+        NLOG=$((NLOG + 1))
         return 0
     fi
     grep -a -v -E "$PRIV" "$file" > "$UI_DIR/filter.tmp" 2>/dev/null
@@ -100,7 +100,7 @@ collect_source() {
 }
 
 collect_log() {
-    LINES=0
+    NLOG=0
     : > "$UI_DIR/log.tmp" || return 1
     # The wireless bridge first, so a busy package cannot push it out of the line budget.
     [ -d "$LOGS/gen5w.kr.bridge" ] && [ ! -L "$LOGS/gen5w.kr.bridge" ] && collect_source "$LOGS/gen5w.kr.bridge"
@@ -109,7 +109,7 @@ collect_log() {
     # Service output (WAIT/FAIL lines of the bridge, start/stop of our packages) lands in the main
     # NEMESIS log on this unit, not in a package folder: take only our own lines from it.
     typeset nl="$NEMDIR/nemesis.log" nsize
-    if [ -f "$nl" ] && [ ! -L "$nl" ] && nsize=$(file_size "$nl") && [ "$nsize" -le 1048576 ] && [ "$LINES" -lt "$MAX_LINES" ]; then
+    if [ -f "$nl" ] && [ ! -L "$nl" ] && nsize=$(file_size "$nl") && [ "$nsize" -le 1048576 ] && [ "$NLOG" -lt "$MAX_LINES" ]; then
         grep -a -E 'gen5w|bridge:|wireless' "$nl" 2>/dev/null | grep -a -v -E "$PRIV" > "$UI_DIR/filter.tmp"
         emit_tail nemesis 60 "$UI_DIR/filter.tmp"
     fi
@@ -117,12 +117,12 @@ collect_log() {
     for dir in "$LOGS"/gen5w.kr.*; do
         [ -d "$dir" ] && [ ! -L "$dir" ] || continue
         [ "${dir##*/}" != gen5w.kr.bridge ] || continue
-        [ "$LINES" -lt "$MAX_LINES" ] || break
+        [ "$NLOG" -lt "$MAX_LINES" ] || break
         collect_source "$dir"
     done
-    if [ "$LINES" -lt "$MAX_LINES" ]; then
-        $LOGCAT -d -v time 2>/dev/null | grep -a -E 'Gen5w|gen5w|FATAL EXCEPTION' | grep -a -v -E "$PRIV" > "$UI_DIR/filter.tmp"
-        typeset keep=$LOGCAT_LINES room=$((MAX_LINES - LINES))
+    if [ "$NLOG" -lt "$MAX_LINES" ]; then
+        $LOGCAT -d -v time 2>/dev/null | grep -a -E 'Gen5w|gen5w|FATAL EXCEPTION' | grep -a -v -E '\[TEST\]|ModeManagerService|getTopPackageName' | grep -a -v -E "$PRIV" > "$UI_DIR/filter.tmp"
+        typeset keep=$LOGCAT_LINES room=$((MAX_LINES - NLOG))
         [ "$keep" -le "$room" ] || keep=$room
         emit_tail logcat "$keep" "$UI_DIR/filter.tmp"
     fi
@@ -319,17 +319,21 @@ collect_deep() {
         ps 2>/dev/null | grep -a -E 'gen5w|wirelesshost|hostapd|wpa_supplicant|dnsmasq|dhcp|iap|dipo|DiPO|ium|nemesis|zygote|system_server' | deep_tail "processes" 40
         print -r -- "-- wifi and network"
         getprop 2>/dev/null | grep -a -i -E 'wifi|wlan|hotspot|tether|ap\.|ium|gen5w|carplay|init\.svc\.(hostapd|wpa|dhcp|dnsmasq|p2p|netd)|sys\.boot|ro\.build\.(fingerprint|version\.release)|ro\.product\.(model|name)|net\.' | deep_tail "getprop (wifi, projection, boot)" 90
-        ifconfig 2>/dev/null | deep_tail "ifconfig" 60
+        for f in wlan0 ap0 p2p0 bt-pan; do ifconfig "$f" 2>&1; done | deep_tail "ifconfig per interface" 40
         netcfg 2>/dev/null | deep_tail "netcfg" 20
         ls -ln /data/misc/wifi /data/misc/wifi/sockets /data/misc/dhcp 2>/dev/null | deep_tail "wifi data folders (names only, no contents)" 40
         dmesg 2>/dev/null | grep -a -i -E 'bcmdhd|dhd|wlan|wifi|wl_|hostapd|p2p|sdio|firmware|nvram|killed process|out of memory' | deep_tail "kernel messages about wifi" 100
+        print -r -- "-- storage and mounts (why the USB drive log may refuse to write)"
+        cat "$MOUNTS" 2>/dev/null | grep -a -E 'usb|media_rw|fuse|vold|sdcard|storage' | deep_tail "mount table (usb, fuse, storage)" 30
+        ls -ln /mnt /mnt/media_rw /storage /dev/block/vold 2>&1 | deep_tail "storage folders" 40
+        ls -ln "$USB" 2>&1 | deep_tail "usb root listing (names only)" 60
         print -r -- "-- vehicle feature files"
         ls -ln /system/build.prop /system/onebin/oshev_kr/featurexml.cfg /system/etc/permissions/com.hkmc.software.connectivity.carplay_wireless.xml /system/etc/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml /system/etc/permissions/com.hkmc.software.wifihotspot.xml 2>/dev/null
         grep -a -E 'ium|gen5w|carplay|wireless|hotspot' /system/build.prop 2>/dev/null | deep_tail "build.prop lines" 20
         grep -a -i -E 'wireless|carplay|hotspot|wifi|projection' /system/onebin/oshev_kr/featurexml.cfg 2>/dev/null | deep_tail "featurexml lines" 40
         ls -ln "$BRIDGE/app" 2>/dev/null | deep_tail "bridge app folder" 30
         print -r -- "-- logcat"
-        $LOGCAT -d -v time 2>/dev/null | grep -a -E 'AndroidRuntime|FATAL|wirelesshost|BridgeHost|kr\.gen5w|[Gg]en5[Ww]|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|ActivityManager.*(died|crash|ANR|Killing|Start proc)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
+        $LOGCAT -d -v time 2>/dev/null | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
     } 2>/dev/null >> "$out"
     chmod 644 "$out"
 }
