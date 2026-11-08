@@ -17,7 +17,7 @@ rm -rf "$PKG/.build"; mkdir -p "$PKG/.build/stubs" "$PKG/.build/classes" "$PKG/a
 stubpath="$PKG/stubs"
 if [ "$PKG" = packages/wireless-bridge ]; then
     stubpath="probe/stubs${sep}packages/wireless-bridge/stubs"
-    sourcepath="$PKG/src${sep}$stubpath"
+    sourcepath="$PKG/src${sep}$stubpath${sep}shared/src"
     # Exact-V039 relay and AP classes are packaged together so the completion
     # gate cannot enable a transport without its single owner and cleanup path.
     sources="$PKG/src/kr/gen5w/wireless/BridgeHostService.java $PKG/src/kr/gen5w/wireless/WirelessBridge.java $PKG/src/kr/gen5w/wireless/V039RelayCoordinator.java $PKG/src/kr/gen5w/wireless/V039BtRelayAdapter.java $PKG/src/kr/gen5w/wireless/PhoneProjectionAccess.java $PKG/src/kr/gen5w/wireless/StockProjectionSession.java $PKG/src/kr/gen5w/wireless/BluetoothCandidateScan.java $PKG/src/kr/gen5w/wireless/ProjectionWifiAccess.java $PKG/src/kr/gen5w/wireless/DriveLog.java"

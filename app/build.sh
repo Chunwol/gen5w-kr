@@ -15,7 +15,7 @@ mkdir -p build/stubs build/classes build/dex
 javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR" -d build/stubs \
     $(find stubs ../probe/stubs -name '*.java')
 javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR${sep}build/stubs" -d build/classes \
-    $(find src -name '*.java') ../probe/src/kr/gen5w/probe/Item.java ../probe/src/kr/gen5w/probe/Convert.java
+    $(find src ../shared/src -name '*.java') ../probe/src/kr/gen5w/probe/Item.java ../probe/src/kr/gen5w/probe/Convert.java
 "$(t d8)" --min-api 18 --release --lib "$JAR" --classpath build/stubs --output build/dex $(find build/classes -name '*.class')
 "$(t dexdump)" build/dex/classes.dex > build/dexdump.txt
 grep -q "Class descriptor" build/dexdump.txt || { echo "empty dex" >&2; exit 1; }
