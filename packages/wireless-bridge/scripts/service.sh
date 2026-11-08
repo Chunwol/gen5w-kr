@@ -123,6 +123,10 @@ stop_runtime() {
     # privileged child before the potentially slow ActivityManager call.
     [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
     broker_pid=
+    [ -z "${broker_reader:-}" ] || kill "$broker_reader" 2>/dev/null || :
+    broker_reader=
+    [ -z "${broker_fifo:-}" ] || rm -f "$broker_fifo"
+    broker_fifo=
     if [ "$host_started" = yes ]; then
         am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 || :
         host_started=no
@@ -134,6 +138,8 @@ terminate_runtime() {
     trap - EXIT
     [ -n "$pause_pid" ] && kill "$pause_pid" 2>/dev/null || :
     [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null || :
+    [ -z "${broker_reader:-}" ] || kill "$broker_reader" 2>/dev/null || :
+    [ -z "${broker_fifo:-}" ] || rm -f "$broker_fifo"
     if [ "$host_started" = yes ]; then
         am stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService >/dev/null 2>&1 &
     fi
@@ -183,6 +189,12 @@ while [ ! -f "$STOPPING" ]; do
         exit 1
     fi
     if [ "$relay_status" -eq 0 ]; then
+        if [ -n "$broker_pid" ] && ! kill -0 "$broker_pid" 2>/dev/null; then
+            broker_exit=0
+            wait "$broker_pid" || broker_exit=$?
+            err_event bridge runtime ap-broker-exit failed "$broker_exit" unexpected-exit
+            broker_pid=
+        fi
         RETRY_COUNT=$broker_count; RETRY_STABLE=$broker_stable
         if [ -n "$broker_pid" ] && kill -0 "$broker_pid" 2>/dev/null; then retry_action healthy; else retry_action dead; fi
         broker_count=$RETRY_COUNT; broker_stable=$RETRY_STABLE
@@ -191,7 +203,20 @@ while [ ! -f "$STOPPING" ]; do
             stop_runtime
             exit 1
         elif [ "$RETRY_ACTION" = start ]; then
-            "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &
+            # Preserve the real NEMESIS child PID used by stop_runtime. A
+            # wrapper/pipeline around the daemon would orphan it on shutdown.
+            ERR_DIR=${ERR_DIR:-$DATA/nemesis/gen5wkr.errors}
+            broker_fifo= broker_reader=
+            if err_prepare && [ ! -e "$ERR_DIR/broker-stderr.$$.$broker_count" ] && [ ! -L "$ERR_DIR/broker-stderr.$$.$broker_count" ] &&
+                    mknod "$ERR_DIR/broker-stderr.$$.$broker_count" p; then
+                broker_fifo=$ERR_DIR/broker-stderr.$$.$broker_count
+                (err_stderr bridge runtime ap-broker < "$broker_fifo"; rm -f "$broker_fifo") &
+                broker_reader=$!
+                "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2> "$broker_fifo" &
+            else
+                err_event bridge runtime ap-broker-diagnostics failed 1 storage-unavailable
+                "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &
+            fi
             broker_pid=$!
         fi
     fi

@@ -11,6 +11,9 @@
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 export PATH=${CK_TEST_PATH:-/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin}
 DATA=${IT_DATA:-/data}
+. ./errors.sh
+ERR_PERSIST=no
+export ERR_PERSIST
 SYS=${IT_SYSTEM:-/system}
 APPS=$DATA/nemesis/apps
 TX=$DATA/nemesis/gen5w-kr-integrated
@@ -40,7 +43,7 @@ clean() {
     print -r -- "${all//[!a-zA-Z0-9_.:\/ -]/?}"
 }
 first_line() { local line=; IFS= read -r line < "$1" || [ -n "$line" ] || return 1; print -r -- "$line"; }
-prop() { getprop "$1" 2>/dev/null | clean; }
+prop() { err_run check collect property getprop "$1" | clean; }
 digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
 check_progress() {
     local am_bin=${CK_TEST_AM:-/system/bin/am}

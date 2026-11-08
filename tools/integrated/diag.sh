@@ -6,9 +6,14 @@
 # serials, phone/device names or media titles are dropped.
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 DATA=${IT_DATA:-/data}
+. ./errors.sh
+. ./history.sh
+ERR_PERSIST=no
+export ERR_PERSIST
 SYSFS=${IT_SYSFS:-/sys}
 PROC=${IT_PROC:-/proc}
 LOGS=$DATA/nemesis/logs
+ERR_DIR=$DATA/nemesis/gen5wkr.errors
 APPS=$DATA/nemesis/apps
 [ "$(getprop sys.boot_completed 2>/dev/null)" = 1 ] || { echo 'REFUSED Android is not ready; plug the USB in again after boot'; exit 1; }
 [ ! -L GEN5W-REPORT ] || exit 1
@@ -38,7 +43,7 @@ last_lines() {
 }
 clean() { grep -v -E "$PRIV"; }
 section() { echo; echo "== $1"; }
-{
+if {
     echo "# Gen5W KR diagnosis $n"
     section time; date
     section kit; cat BUILD-REVISION 2>/dev/null
@@ -111,18 +116,32 @@ section() { echo; echo "== $1"; }
         last_lines 80 "$f" | clean
     done
     section 'kernel log: wifi/usb'
-    dmesg 2>/dev/null | grep -i -E 'wlan|dhd|wifi|sdio|bcm|usb|hostapd|firmware' | clean
+    err_run diag collect kernel dmesg | grep -i -E 'wlan|dhd|wifi|sdio|bcm|usb|hostapd|firmware' | clean
     section 'logcat main (filtered)'
-    logcat -d -v time 2>/dev/null | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
+    err_run diag collect logcat-main logcat -d -v time | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat system (filtered)'
-    logcat -d -v time -b system 2>/dev/null | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
+    err_run diag collect logcat-system logcat -d -v time -b system | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat buffer range (first and last line)'
     logcat -d -v time 2>/dev/null | clean | {
         IFS= read -r line; print -r -- "$line"
         while IFS= read -r line; do last=$line; done
         print -r -- "$last"
     }
-} > "$OUT" 2>&1
+    section 'first failures and operation journal'
+    err_export
+} 2>&1 | report_stream "$OUT"; then
+    collect_status=("${PIPESTATUS[@]}")
+else
+    collect_status=("${PIPESTATUS[@]}")
+fi
+if [ "${collect_status[1]}" != 0 ]; then
+    echo 'FAILED diagnosis export; USB write failed'
+    exit 1
+fi
+if [ ! -s "$OUT" ]; then
+    echo 'FAILED diagnosis export; USB may be unwritable'
+    exit 1
+fi
 sync
 echo "SAVED GEN5W-REPORT/DIAG-$n.txt"
 toast "진단 $n 저장 완료. USB를 빼도 됩니다."

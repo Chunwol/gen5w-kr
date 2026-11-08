@@ -12,7 +12,7 @@ if [ "$rc" = 77 ] || { [ "$rc" = 0 ] && [ "$AUDIO_OWNED" = no ]; }; then
     exit 0
 fi
 [ "$rc" = 0 ] || exit "$rc"
-"$NEM" remount rw >/dev/null 2>&1 || exit 1
+err_mount audio rw "$NEM" || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 restore_target && stage_clear && cleanup_owned || exit 1

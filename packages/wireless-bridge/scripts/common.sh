@@ -3,6 +3,7 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd) || exit 1
 . "$SCRIPT_DIR/recipe.sh"
+. "$SCRIPT_DIR/errors.sh"
 SYS=${BRIDGE_TEST_SYS:-/system}
 DATA=${BRIDGE_TEST_DATA:-/data}
 NEM=${BRIDGE_TEST_NEM:-/system/xbin/nemesis}
@@ -140,10 +141,10 @@ owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/o
 sys_ro() {
     local n=0
     while [ $n -lt 3 ]; do
-        "$NEM" remount ro >/dev/null 2>&1 && return 0
+        err_mount bridge ro "$NEM" && return 0
         n=$((n + 1)); sleep 1
     done
-    echo 'WARN: /system stays writable until the next reboot (remount busy)'
+    echo 'WARN: /system read-only remount failed; reboot required; see ERR cause'
     return 0
 }
 inspect() {

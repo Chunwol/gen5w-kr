@@ -1,5 +1,6 @@
 # Shared by pre.sh and timer.sh. mksh + Android toolbox only; writes no system file.
 SYS=${TIMER_TEST_SYS:-/system}
+. "$SCRIPT_DIR/errors.sh"
 PKG=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 TARGET=$SYS/priv-app/SystemUI.odex
 # Set from the in-car screen: the stock 10 second timer then runs unchanged.

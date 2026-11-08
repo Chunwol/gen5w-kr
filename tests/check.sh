@@ -10,7 +10,7 @@ check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else echo "FAIL 
 
 U=$W/usb; S=$W/sys; D=$W/data; B=$W/stub; F=$W/sysfs
 mkdir -p "$U" "$S/framework" "$S/priv-app" "$S/lib" "$S/app" "$S/etc/permissions" "$D/nemesis/apps" "$B"
-cp tools/integrated/check.sh "$U/"
+cp tools/integrated/check.sh tools/integrated/errors.sh "$U/"
 echo 0123456789abcdef > "$U/BUILD-REVISION"
 tool() { # checks/<id>/bin/<name>: original if first line "stock", patched if "patched"
     mkdir -p "$U/checks/$1/bin"

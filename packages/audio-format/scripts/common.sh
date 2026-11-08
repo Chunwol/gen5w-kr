@@ -1,6 +1,7 @@
 # Owned, hash-verified library replacement. mksh + Android toolbox only.
 # Each entry point sets SCRIPT_DIR explicitly, including bin/status.sh.
 . "$SCRIPT_DIR/recipe.sh"
+. "$SCRIPT_DIR/errors.sh"
 SYS=${AUDIO_TEST_SYS:-/system}
 DATA=${AUDIO_TEST_DATA:-/data}
 NEM=${AUDIO_TEST_NEM:-/system/xbin/nemesis}
@@ -81,10 +82,10 @@ dependencies() {
 sys_ro() {
     local n=0
     while [ $n -lt 3 ]; do
-        "$NEM" remount ro >/dev/null 2>&1 && return 0
+        err_mount audio ro "$NEM" && return 0
         n=$((n + 1)); sleep 1
     done
-    echo 'WARN: /system stays writable until the next reboot (remount busy)'
+    echo 'WARN: /system read-only remount failed; reboot required; see ERR cause'
     return 0
 }
 stage_clear() {

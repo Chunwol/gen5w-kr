@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
         (bindir/'wc').write_text('#!/bin/sh\nexit 127\n')
         (bindir/'wc').chmod(0o755)
         if which == 'common':
-            script = '. ' + shlex.quote(str(ROOT/'tools/usb-wifi/package/scripts/common.sh'))
+            script = 'SCRIPT_DIR=' + shlex.quote(str(ROOT/'tools/usb-wifi/package/scripts')) + '\n. ' + shlex.quote(str(ROOT/'tools/usb-wifi/package/scripts/common.sh'))
         else:
             source = (ROOT/'tools/usb-wifi/package/bin/gen5w-dongle-load').read_text()
             script = source.split('# Already available')[0]

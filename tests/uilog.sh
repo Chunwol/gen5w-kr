@@ -362,4 +362,15 @@ reset; : > "$N/gen5wkr.ui-removing"; printf '77 working gen5w.kr.audio
 check 'a stale removal lock is cleared at start' test ! -e "$N/gen5wkr.ui-removing"
 check 'an interrupted removal is reported as failed' test "$(status removed)" = 77:failed:gen5w.kr.audio
 rm -f "$W/request"
+reset
+printf '#!/bin/sh\necho "Permission denied SSID=secret-collector" >&2\nexit 13\n' > "$W/logcat"
+chmod +x "$W/logcat"
+printf 'save=98765\n' > "$W/request"
+run
+for _save_wait in $(seq 1 100); do
+    [ ! -f "$UI/diag-latest.txt" ] || break
+    sleep 0.1
+done
+check 'deep logcat acquisition failure is not confused with empty output' grep -q 'operation=logcat-main.*rc=13.*reason=permission' "$UI/diag-latest.txt"
+check 'diagnostic acquisition error never exports secret stderr' eval '! grep -q secret-collector "$UI/diag-latest.txt"'
 done_tests uilog

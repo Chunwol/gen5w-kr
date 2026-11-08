@@ -8,6 +8,7 @@ if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --o
     exit 1
 fi
 PY=$(command -v python3 || command -v python)
+"$PY" -I tools/diagnostics/sync.py
 SDK=${ANDROID_SDK:-${ANDROID_HOME:-$HOME/AppData/Local/Android/Sdk}}
 NDK=${ANDROID_NDK_HOME:-$SDK/ndk/27.2.12479018}
 rm -rf dist; mkdir -p dist

@@ -74,7 +74,7 @@ reject_reason() {
 booted() { [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; }
 send_close() {
     local output rc
-    output=$("$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE 2>&1)
+    output=$(err_run timer runtime close-consent "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE)
     rc=$?
     case "$output" in
         *'Broadcast completed'*) log 'timer: close broadcast command completed';;

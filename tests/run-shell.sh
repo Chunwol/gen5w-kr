@@ -7,6 +7,9 @@ rc=0
 bash tests/local-hotspot.sh || rc=1
 bash tests/local-hotspot-remount.sh || rc=1
 mksh tests/error-journal.sh || rc=1
+bash tests/error-boundaries.sh || rc=1
+bash tests/report-history.sh || rc=1
+bash tests/entry-errors.sh || rc=1
 mksh tests/bridge-retry.sh || rc=1
 echo "== shell syntax (mksh -n)"
 files=$(find packages probe/package probe/usb tools -name '*.sh')
@@ -26,5 +29,5 @@ bash tests/par.sh bash \
     tests/integrated-zip.sh tests/hud-variant-report.sh tests/detect.sh tests/collect.sh \
     tests/stock-projection-source.sh tests/standalone.sh tests/request-envelope.sh tests/adb-health.sh || rc=1
 # Python tests that start mksh themselves.
-bash tests/par.sh python3 tests/dongle_runtime.py || rc=1
+bash tests/par.sh python3 tests/dongle_runtime.py tests/broker_diagnostics.py || rc=1
 exit $rc

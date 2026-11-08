@@ -11,6 +11,7 @@
 # a subscribed car never reaches this check, and signing up runs from
 # [블루링크 설정] > [서비스 설정] > [가입].
 DATA=${BL_TEST_DATA:-/data}
+. "$SCRIPT_DIR/errors.sh"
 SYS=${BL_TEST_SYS:-/system}
 PREFS_DIR=$DATA/data/com.hkmc.telematics.service/shared_prefs
 PREFS=$PREFS_DIR/shard_service_activation_start_setting.xml
@@ -72,7 +73,7 @@ write_prefs() {
         fi
         print -r -- '</map>'
     } > "$TMP" || { rm -f "$TMP"; return 1; }
-    chmod 660 "$TMP" &&
+    err_run bluelink update permissions chmod 660 "$TMP" &&
     { chown 1000:1000 "$TMP" 2>/dev/null || chown 1000.1000 "$TMP" 2>/dev/null; } &&
-    mv "$TMP" "$PREFS" || { rm -f "$TMP"; return 1; }
+    err_run bluelink update replace mv "$TMP" "$PREFS" || { rm -f "$TMP"; return 1; }
 }

@@ -7,6 +7,10 @@
 # data folder: the app owns that folder and could swap a path for a link between our check
 # and our write.
 DATA=${UILOG_TEST_DATA:-/data}
+SCRIPT_DIR=${0%/*}
+. "$SCRIPT_DIR/errors.sh"
+ERR_DIR=$DATA/nemesis/gen5wkr.errors
+export ERR_DIR
 NEMDIR=$DATA/nemesis
 UI_DIR=${UILOG_TEST_DIR:-$NEMDIR/gen5wkr.ui}
 UI_PARENT=${UI_DIR%/*}
@@ -338,6 +342,7 @@ collect_deep() {
         print -r -- "uptime: $(cat "$UPTIME" 2>/dev/null)"
         print -r -- "boot_completed=$(getprop sys.boot_completed 2>/dev/null) date=$(date 2>/dev/null)"
         print -r -- "-- collector self-check: what the screen log sees"
+        err_export
         ls -l "$LOGS" 2>/dev/null
         ls -l "$LOGS/gen5w.kr.bridge" 2>/dev/null
         print -r -- "bridge.log size per collector: $(file_size "$LOGS/gen5w.kr.bridge/bridge.log")"
@@ -355,16 +360,16 @@ collect_deep() {
             [ "$p" -le 65536 ] || continue
             cat "$f" 2>/dev/null | deep_tail "host file ${f##*/} ($p bytes)" 40
         done
-        dumpsys activity services kr.gen5w.wirelesshost 2>/dev/null | deep_tail "dumpsys: host service state" 80
-        dumpsys package kr.gen5w.wirelesshost 2>/dev/null | grep -a -E 'versionCode|versionName|userId|codePath|firstInstall|lastUpdate|enabled|stopped|pkgFlags|requested permissions|android.permission|declared' | deep_tail "dumpsys: host package" 60
-        "$PM" list packages -f 2>/dev/null | grep -a -i -E 'gen5w|iap2|dipo|carplay|projection|hotspot|wifi|hkmc' | deep_tail "packages (projection/wifi related)" 60
+        err_run core collect service-state dumpsys activity services kr.gen5w.wirelesshost | deep_tail "dumpsys: host service state" 80
+        err_run core collect package-state dumpsys package kr.gen5w.wirelesshost | grep -a -E 'versionCode|versionName|userId|codePath|firstInstall|lastUpdate|enabled|stopped|pkgFlags|requested permissions|android.permission|declared' | deep_tail "dumpsys: host package" 60
+        err_run core collect packages "$PM" list packages -f | grep -a -i -E 'gen5w|iap2|dipo|carplay|projection|hotspot|wifi|hkmc' | deep_tail "packages (projection/wifi related)" 60
         ps 2>/dev/null | grep -a -E 'gen5w|wirelesshost|hostapd|wpa_supplicant|dnsmasq|dhcp|iap|dipo|DiPO|ium|nemesis|zygote|system_server' | deep_tail "processes" 40
         print -r -- "-- wifi and network"
         getprop 2>/dev/null | grep -a -i -E 'wifi|wlan|hotspot|tether|ap\.|ium|gen5w|carplay|init\.svc\.(hostapd|wpa|dhcp|dnsmasq|p2p|netd)|sys\.boot|ro\.build\.(fingerprint|version\.release)|ro\.product\.(model|name)|net\.' | deep_tail "getprop (wifi, projection, boot)" 90
         for f in wlan0 ap0 p2p0 bt-pan; do ifconfig "$f" 2>&1; done | deep_tail "ifconfig per interface" 40
-        netcfg 2>/dev/null | deep_tail "netcfg" 20
+        err_run core collect netcfg netcfg | deep_tail "netcfg" 20
         ls -ln /data/misc/wifi /data/misc/wifi/sockets /data/misc/dhcp 2>/dev/null | deep_tail "wifi data folders (names only, no contents)" 40
-        dmesg 2>/dev/null | grep -a -i -E 'bcmdhd|dhd|wlan|wifi|wl_|hostapd|p2p|sdio|firmware|nvram|killed process|out of memory' | deep_tail "kernel messages about wifi" 100
+        err_run core collect kernel dmesg | grep -a -i -E 'bcmdhd|dhd|wlan|wifi|wl_|hostapd|p2p|sdio|firmware|nvram|killed process|out of memory' | deep_tail "kernel messages about wifi" 100
         print -r -- "-- storage and mounts (why the USB drive log may refuse to write)"
         cat "$MOUNTS" 2>/dev/null | grep -a -E 'usb|media_rw|fuse|vold|sdcard|storage' | deep_tail "mount table (usb, fuse, storage)" 30
         ls -ln /mnt /mnt/media_rw /storage /dev/block/vold 2>&1 | deep_tail "storage folders" 40
@@ -379,7 +384,9 @@ collect_deep() {
         grep -a -i -E 'wireless|carplay|hotspot|wifi|projection' /system/onebin/oshev_kr/featurexml.cfg 2>/dev/null | deep_tail "featurexml lines" 40
         ls -ln "$BRIDGE/app" 2>/dev/null | deep_tail "bridge app folder" 30
         print -r -- "-- logcat"
-        $LOGCAT -d -v time 2>/dev/null | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|[Bb]lue[Ll]ink|[Tt]elematics|[Ss]ubscri|WifiManager|[Ww]ifi[Aa]p|[Tt]oast|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
+        err_run core collect logcat-main "$LOGCAT" -d -v time | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|[Bb]lue[Ll]ink|[Tt]elematics|[Ss]ubscri|WifiManager|[Ww]ifi[Aa]p|[Tt]oast|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
+        print -r -- '-- collection status and first failures'
+        err_export
     } 2>/dev/null >> "$out"
     chmod 644 "$out"
 }
@@ -516,15 +523,15 @@ adb_health() {
 set_adb() {
     if [ "$1" = on ]; then
         if [ "$(adb_port)" = "$ADB_PORT" ] && [ "$(adb_health)" = listening ]; then return 0; fi
-        setprop service.adb.tcp.port "$ADB_PORT" || return 1
+        err_run core adb set-port setprop service.adb.tcp.port "$ADB_PORT" || return 1
     else
         if [ "$(adb_port)" = 0 ]; then
             adb_listening "$ADB_PORT"; [ "$?" != 1 ] || return 0
         fi
-        setprop service.adb.tcp.port 0 || return 1
+        err_run core adb set-port setprop service.adb.tcp.port 0 || return 1
     fi
-    stop adbd 2>/dev/null || return 1
-    start adbd 2>/dev/null
+    err_run core adb stop stop adbd || return 1
+    err_run core adb start start adbd
 }
 # In-car removal of every Gen5W KR package EXCEPT the core app (which runs this service and the
 # screen; removing it ends both, so the last step is left to NEMESIS Manager). Same method as the

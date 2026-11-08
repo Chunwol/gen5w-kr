@@ -4,6 +4,9 @@ DATA=${IT_DATA:-/data}
 SYS=${IT_SYSTEM:-/system}
 NEM=${IT_NEM:-/system/xbin/nemesis}
 SH=${IT_SHELL:-/system/bin/sh}
+. ./errors.sh
+ERR_DIR=${ERR_DIR:-$DATA/nemesis/gen5wkr.errors}
+export ERR_DIR
 APPS=$DATA/nemesis/apps
 TX=$DATA/nemesis/gen5w-kr-integrated
 NOREBOOT=$DATA/nemesis/gen5wkr.noreboot
@@ -48,10 +51,12 @@ export GEN5W_FORCE_DONGLE
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
 REVERSE='gen5w.kr.localhotspot gen5w.kr.drivelog gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
-digest() { local v; v=$(md5 "$1" 2>/dev/null) || return 1; set -- $v; echo "$1"; }
+digest() { local v; v=$(err_run integrated verify digest md5 "$1") || return 1; set -- $v; echo "$1"; }
 report() {
     echo "$1"; echo "$1" >> "$TX/report"
-    case "$1" in FAILED*|REFUSED*|MISSING*|RECOVERY*) echo "$1" >> "$TX/failure";; esac
+    case "$1" in FAILED*|REFUSED*|MISSING*|RECOVERY*)
+        echo "$1" >> "$TX/failure"
+        err_event integrated transaction result failed 1 unknown;; esac
 }
 set_state() { echo "$1" > "$TX/state.tmp" && mv "$TX/state.tmp" "$TX/state" && sync; }
 meta() {
@@ -62,16 +67,18 @@ meta() {
     return 1
 }
 gate() {
-    local tree=$1 name=$2 path helper
-    [ -f "$tree/NEMESIS.data" ] || return 1
+    local tree=$1 name=$2 path helper ident=hook
+    [ -f "$tree/NEMESIS.data" ] || { err_event integrated gate metadata failed 1 missing;return 1; }
+    ident=$(meta "$tree/NEMESIS.data" id) || ident=hook
+    err_token "$ident" || ident=hook
     # Native ZIP extraction sets every member to 0644, including our helpers.
     for helper in "$tree"/bin/*; do
         [ ! -f "$helper" ] || { [ ! -L "$helper" ] && chmod 755 "$helper"; } || return 1
     done
     path=$(meta "$tree/NEMESIS.data" "$name") || return 0
-    case "$path" in ''|/*|*..*|*[!a-zA-Z0-9_./-]*) report 'REFUSED unsafe hook path'; return 1;; esac
-    [ -f "$tree/$path" ] && [ ! -L "$tree/$path" ] || return 1
-    (cd "$tree" && "$SH" "$path")
+    case "$path" in ''|/*|*..*|*[!a-zA-Z0-9_./-]*) err_event integrated gate "$ident" failed 1 unsafe-path;report 'REFUSED unsafe hook path'; return 1;; esac
+    [ -f "$tree/$path" ] && [ ! -L "$tree/$path" ] || { err_event integrated gate "$ident" failed 1 missing-hook;return 1; }
+    (cd "$tree" && err_run integrated "$name" "$ident" "$SH" "$path")
 }
 hook() { gate "$APPS/$1" "$2"; }
 durable() {
@@ -155,9 +162,9 @@ safe_remove() {
     # NEMESIS 1.16 runs the installed hook again and keeps the package if it
     # fails. After this bundle's verified hook restored stock, --force (1.16
     # only; never reached on 1.15, which ignores the hook) lets the removal finish.
-    if ! "$NEM" uninstall "$id"; then
+    if ! err_run integrated remove "$id" "$NEM" uninstall "$id"; then
         [ "$recovered" = 1 ] && [ -f "$APPS/$id/NEMESIS.data" ] || return 1
-        "$NEM" uninstall --force "$id" || return 1
+        err_run integrated remove force "$NEM" uninstall --force "$id" || return 1
         report "FORCED $id: removed after this bundle's check (installed hook still refuses)"
     fi
     if [ -e "$APPS/$id" ]; then
@@ -188,8 +195,8 @@ snapshot() {
         tree=$(pwd)/checks/$id
     fi
     [ "$(meta "$tree/NEMESIS.data" id)" = "$id" ] || return 1
-    ./zipstore "$tree" "$TX/prior/$id.zip" || return 1
-    info=$("$NEM" pkg-info "$TX/prior/$id.zip") || return 1
+    err_run integrated snapshot zipstore ./zipstore "$tree" "$TX/prior/$id.zip" || return 1
+    info=$(err_run integrated snapshot metadata "$NEM" pkg-info "$TX/prior/$id.zip") || return 1
     echo "$info" | grep -qx "id=$id" || return 1
     digest "$TX/prior/$id.zip" > "$TX/prior/$id.md5" || return 1
     mkdir "$TX/prior/$id" && cp -R "$tree/." "$TX/prior/$id/" || return 1
@@ -205,7 +212,7 @@ restore_prior() {
     gate "$TX/prior/$id" preinstall; rc=$?
     unset GEN5W_REINSTALL
     [ "$rc" = 0 ] || [ "$rc" = 77 ] || return 1
-    "$NEM" install "$TX/prior/$id.zip" || return 1
+    err_run integrated rollback install "$NEM" install "$TX/prior/$id.zip" || return 1
     [ -f "$APPS/$id/NEMESIS.data" ] || return 1
     hook "$id" postinstall
 }
@@ -245,7 +252,7 @@ rollback_transaction() {
                 continue
             fi
             [ "$prc" = 0 ] || { rc=1; break; }
-            "$NEM" install "$TX/prior/$id.zip" || { rc=1; break; }
+            err_run integrated rollback "$id" "$NEM" install "$TX/prior/$id.zip" || { rc=1; break; }
             hook "$id" postinstall || { rc=1; break; }
             report "RESTORED $id"
         done
@@ -291,9 +298,9 @@ cold_reboot() {
     progress '완료했습니다. 곧 재부팅합니다. 재부팅 후 USB를 빼도 됩니다.'
     sync
     [ "${IT_NO_REBOOT:-0}" = 1 ] && return 0
-    [ -x /system/bin/d_audio ] && /system/bin/d_audio -c reboot force_normal 2>/dev/null && return 0
-    /system/bin/reboot force_normal 2>/dev/null
-    /system/bin/reboot
+    [ -x /system/bin/d_audio ] && err_run integrated reboot d-audio /system/bin/d_audio -c reboot force_normal && return 0
+    err_run integrated reboot force-normal /system/bin/reboot force_normal
+    err_run integrated reboot fallback /system/bin/reboot
 }
 
 # Arm the boot-loop safety net before rebooting into patched /system. The runtime
@@ -674,7 +681,7 @@ install_transaction() {
         safe_remove "$id" || {
             result "$id" failed; rollback_transaction; return 1;
         }
-        "$NEM" install "$(pwd)/packages/$id.zip"
+        err_run integrated install "$id" "$NEM" install "$(pwd)/packages/$id.zip"
         rc=$?
         if [ "$rc" != 0 ] || [ ! -f "$APPS/$id/NEMESIS.data" ]; then
             result "$id" failed

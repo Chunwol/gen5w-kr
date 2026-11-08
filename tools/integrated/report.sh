@@ -223,6 +223,10 @@ write_summary() {
             cat "$TX/failure"
         fi
         echo
+        echo '## 최초 실패와 복구 진단'
+        echo "- 시도: ${ERR_ATTEMPT:-unknown}"
+        err_export
+        echo
         echo '## 사용자가 작성할 내용'
         echo
         echo '- 차량 모델/연식/지역:'

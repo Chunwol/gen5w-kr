@@ -13,6 +13,9 @@ SCRIPT_DIR=${0%/*}
 SYS=${BG_TEST_SYS:-/system}
 DATA=${BG_TEST_DATA:-/data}
 NEM=${BG_TEST_NEM:-/system/xbin/nemesis}
+. "$SCRIPT_DIR/errors.sh"
+ERR_DIR=${ERR_DIR:-$DATA/nemesis/gen5wkr.errors}
+export ERR_DIR
 BG=$DATA/nemesis/gen5wkr.bootguard
 if [ ! -e "$BG" ] && [ ! -L "$BG" ] && [ -d "$BG.previous" ] && [ ! -L "$BG.previous" ]; then
     BG=$BG.previous
@@ -200,7 +203,7 @@ preflight_optional_pair "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libC
     exit 1
 }
 if [ -z "$BG_TEST_SYS" ]; then
-    "$NEM" remount rw >/dev/null 2>&1 || { log 'FAIL bootguard: cannot remount system read-write'; exit 1; }
+    err_mount bootguard rw "$NEM" || { log 'FAIL bootguard: cannot remount system read-write'; exit 1; }
 fi
 rc=0
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.odex" || rc=1
@@ -214,7 +217,7 @@ restore_one "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.
 [ "$rc" = 0 ] && wipe_dalvik || rc=1
 sync
 if [ -z "$BG_TEST_SYS" ]; then
-    "$NEM" remount ro >/dev/null 2>&1 || rc=1
+    err_mount bootguard ro "$NEM" || rc=1
 fi
 
 # Mark recovery as done so the next boot does not recover again in a loop, and

@@ -6,7 +6,7 @@ W=$(mktemp -d); stubs
 D=$W/data/nemesis
 mkdir -p "$W/usb" "$D/apps/gen5w.kr.timer" "$D/logs/gen5w.kr.timer" "$D/logs/gen5w.kr.drivelog" \
     "$D/gen5w-kr-integrated" "$W/sysfs/class/net/wlan0" "$W/sysfs/class/net/lo" "$W/proc"
-cp "$ROOT/tools/integrated/diag.sh" "$W/usb/"
+cp "$ROOT/tools/integrated/diag.sh" "$ROOT/tools/integrated/errors.sh" "$ROOT/tools/integrated/history.sh" "$W/usb/"
 echo 0123abcd > "$W/usb/BUILD-REVISION"
 printf '[nemesis]\nid=gen5w.kr.timer\npackage-version=9.9.9\n' > "$D/apps/gen5w.kr.timer/NEMESIS.data"
 echo committed > "$D/gen5w-kr-integrated/state"
@@ -82,6 +82,11 @@ check 'buffer range shows first and last line' eval 'grep -q "first buffered lin
 check 'only the start and completion toasts are sent' eval '[ "$(grep -c . "$W/calls")" = 2 ] && [ "$(grep -c "am broadcast -a com.hkmc.intent.action.TOAST" "$W/calls")" = 2 ] && grep -q "저장 중" "$W/calls" && grep -q "저장 완료" "$W/calls"'
 check 'second run keeps the first file' run
 check 'second run writes the next number' eval 'test -f "$W/usb/GEN5W-REPORT/DIAG-2.txt" && test -f "$O"'
+printf '#!/bin/sh\necho "Permission denied password=secret-diag" >&2\nexit 13\n' > "$W/bin/dmesg"
+chmod +x "$W/bin/dmesg"
+check 'failed acquisition still saves a classified diagnosis' run
+check 'kernel permission failure is distinct from no kernel messages' grep -q 'operation=kernel.*rc=13.*reason=permission' "$W/usb/GEN5W-REPORT/DIAG-3.txt"
+check 'acquisition stderr secrets are not exported' eval '! grep -q secret-diag "$W/usb/GEN5W-REPORT/DIAG-3.txt"'
 echo 0 > "$W/props/sys.boot_completed"
-check 'refuses before boot completes' eval '! run && test ! -e "$W/usb/GEN5W-REPORT/DIAG-3.txt"'
+check 'refuses before boot completes' eval '! run && test ! -e "$W/usb/GEN5W-REPORT/DIAG-4.txt"'
 done_tests diag

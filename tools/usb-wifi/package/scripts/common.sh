@@ -4,6 +4,7 @@
 SYS=${DONGLE_TEST_SYS:-/system}
 DATA=${DONGLE_TEST_DATA:-/data}
 NEM=${DONGLE_TEST_NEM:-/system/xbin/nemesis}
+. "$SCRIPT_DIR/errors.sh"
 LOG_FILE=$DATA/nemesis/gen5w.kr.dongle.log
 
 # The stock Wi-Fi HAL (libhardware_legacy.so) is never changed. Only the stock
@@ -47,17 +48,17 @@ log() {
     echo "$1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
-sys_rw() { "$NEM" remount rw >/dev/null 2>&1; }
+sys_rw() { err_mount dongle rw "$NEM"; }
 # /system can stay busy for a moment after a change (EBUSY, also seen on a US
 # Ioniq 5). Changes are synced and the install reboots, which mounts /system
 # read-only again, so a busy remount is a warning, not a failure.
 sys_ro() {
     local n=0
     while [ $n -lt 3 ]; do
-        "$NEM" remount ro >/dev/null 2>&1 && return 0
+        err_mount dongle ro "$NEM" && return 0
         n=$((n + 1)); sleep 1
     done
-    echo 'WARN: /system stays writable until the next reboot (remount busy)'
+    echo 'WARN: /system read-only remount failed; reboot required; see ERR cause'
     return 0
 }
 

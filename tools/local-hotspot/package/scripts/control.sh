@@ -9,6 +9,7 @@ SCRIPT_DIR=${0%/*}
 DEFAULT_PATCH=$SCRIPT_DIR/../bin/hotspot-patch
 [ ! -f "$SCRIPT_DIR/hotspot-patch" ] || DEFAULT_PATCH=$SCRIPT_DIR/hotspot-patch
 PATCH=${HOTSPOT_TEST_PATCH:-$DEFAULT_PATCH}
+[ ! -f "$SCRIPT_DIR/errors.sh" ] || . "$SCRIPT_DIR/errors.sh"
 TARGET=$SYS/app/HKMC_WifiSettings.odex
 APK=$SYS/app/HKMC_WifiSettings.apk
 BACKUP=$SYS/etc/gen5w-kr-backup/local-hotspot
@@ -21,7 +22,7 @@ safe_paths() {
         [ ! -L "$p" ] || return 1
         [ ! -e "$p" ] || [ -d "$p" ] || return 1
     done
-    for p in "$TARGET" "$APK" "$BACKUP/original.odex" "$TARGET.localhotspot.tmp" "$TARGET.localhotspot.rollback" "$BACKUP/hotspot-patch" "$BACKUP/recover.sh"; do
+    for p in "$TARGET" "$APK" "$BACKUP/original.odex" "$TARGET.localhotspot.tmp" "$TARGET.localhotspot.rollback" "$BACKUP/hotspot-patch" "$BACKUP/recover.sh" "$BACKUP/errors.sh"; do
         [ ! -L "$p" ] || return 1
         [ ! -e "$p" ] || [ -f "$p" ] || return 1
     done
@@ -63,6 +64,14 @@ restore_stock() {
         "$PATCH" original "$TARGET.localhotspot.rollback" &&
         mv "$TARGET.localhotspot.rollback" "$TARGET" &&
         "$PATCH" original "$TARGET"
+}
+system_readwrite() {
+    if command -v err_mount >/dev/null 2>&1; then
+        err_mount hotspot rw "$NEM"
+    else
+        # Older durable recovery copies must still work without a helper.
+        "$NEM" remount rw
+    fi
 }
 verified_result() {
     check_target || return 1
@@ -119,7 +128,7 @@ finish() {
         result=1
     fi
     if [ "$result" != 0 ] && [ "$ACTION" = install ] && [ "$changed" = yes ]; then
-        if "$NEM" remount rw >/dev/null 2>&1 && restore_stock; then
+        if system_readwrite && restore_stock; then
             echo 'RESTORED: installation failed; original WifiSettings restored'
             rm -f "$DATA/dalvik-cache/system@app@HKMC_WifiSettings.apk@classes.dex"
             sync
@@ -135,13 +144,14 @@ finish() {
 trap finish EXIT
 trap 'exit 1' HUP INT TERM
 check_target
-"$NEM" remount rw
+system_readwrite
 mounted=yes
 mkdir -p "$BACKUP"
 # Keep a verified recovery tool on /system, including after /data is reset.
 if [ "$ACTION" = install ]; then
     cp "$PATCH" "$BACKUP/hotspot-patch"
     cp "$0" "$BACKUP/recover.sh"
+    [ ! -f "$SCRIPT_DIR/errors.sh" ] || cp "$SCRIPT_DIR/errors.sh" "$BACKUP/errors.sh"
     chmod 0755 "$BACKUP/hotspot-patch"
 fi
 if [ -e "$TARGET.localhotspot.tmp" ]; then

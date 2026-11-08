@@ -16,6 +16,7 @@
 SYS=${EN_TEST_SYS:-/system}
 DATA=${EN_TEST_DATA:-/data}
 NEM=${EN_TEST_NEM:-/system/xbin/nemesis}
+. ./scripts/errors.sh
 PERM=$SYS/etc/permissions
 BP=$SYS/build.prop
 MARK=$DATA/nemesis/backup/gen5w.kr.wireless
@@ -31,7 +32,18 @@ AA_XML=com.hkmc.software.connectivity.androidauto_wireless.xml
 HOTSPOT_XML=com.hkmc.software.wifihotspot.xml
 WIFI_XML=android.hardware.wifi.xml
 
-log() { echo "$1"; mkdir -p "$DATA/nemesis" 2>/dev/null; echo "$1" >> "$LOG" 2>/dev/null; true; }
+log() {
+    echo "$1"
+    [ ! -L "$LOG" ] && [ ! -L "$LOG.1" ] || return 0
+    mkdir -p "$DATA/nemesis" 2>/dev/null || return 0
+    if [ -f "$LOG" ]; then
+        local size
+        size=$(err_size "$LOG") || size=65536
+        [ "$size" -lt 61440 ] || mv "$LOG" "$LOG.1" 2>/dev/null || return 0
+    fi
+    echo "$1" >> "$LOG" 2>/dev/null || :
+    return 0
+}
 toast() {
     am broadcast -a com.hkmc.intent.action.TOAST \
         -e com.hkmc.intent.extra.TOAST_MESSAGE "$1" \
@@ -112,8 +124,8 @@ featurexml_path() {
 
 # --- helpers ---------------------------------------------------------------
 file_md5() { local _l; _l=$(md5 "$1" 2>/dev/null) || return 1; set -- $_l; echo "$1"; }
-sys_rw() { "$NEM" remount rw >/dev/null 2>&1; }
-sys_ro() { "$NEM" remount ro >/dev/null 2>&1 || true; }
+sys_rw() { err_mount wireless rw "$NEM"; }
+sys_ro() { err_mount wireless ro "$NEM" || true; }
 
 # Replace a /system file in one step: write a full copy next to it, then rename.
 # A power cut mid-write leaves either the old or the new file, never half of one.

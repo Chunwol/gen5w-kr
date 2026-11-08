@@ -4,7 +4,7 @@ SCRIPT_DIR=${0%/*}
 . "$SCRIPT_DIR/common.sh"
 inspect || exit $?
 dependencies || exit $?
-"$NEM" remount rw >/dev/null 2>&1 || exit 1
+err_mount audio rw "$NEM" || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 save_original || exit 1

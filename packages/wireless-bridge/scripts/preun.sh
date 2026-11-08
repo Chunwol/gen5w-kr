@@ -17,7 +17,7 @@ if [ -z "$BRIDGE_TEST_SYS" ]; then
     /system/bin/am broadcast -a kr.gen5w.wireless.STOP_BRIDGE >/dev/null 2>&1
     sleep 2
 fi
-"$NEM" remount rw >/dev/null 2>&1 || exit 1
+err_mount bridge rw "$NEM" || exit 1
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 restore_target && stage_clear && cleanup_owned && apguard_reset || exit 1

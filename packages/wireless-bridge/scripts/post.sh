@@ -10,7 +10,7 @@ die() { fail "$1"; restore_target || log 'FAIL bridge: rollback incomplete; orig
 inspect; rc=$?
 [ "$rc" = 0 ] || { fail "inspect rc=$rc (state not recognized)"; exit "$rc"; }
 apguard_reset || { fail 'could not reset the hotspot start guard'; exit 1; }
-"$NEM" remount rw >/dev/null 2>&1 || { fail 'could not remount /system read-write'; exit 1; }
+err_mount bridge rw "$NEM" || { fail 'could not remount /system read-write'; exit 1; }
 trap 'sys_ro' EXIT
 trap 'exit 1' HUP INT TERM
 save_original && stage_clear || { fail 'could not save the stock files or clear earlier staging'; exit 1; }
