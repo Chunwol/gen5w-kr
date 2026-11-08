@@ -355,6 +355,13 @@ public final class MainActivity extends Activity {
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setMinimumHeight(dp(84));
         r.setPadding(dp(22), dp(8), dp(22), dp(8));
+        Widgets.Toggle toggle = new Widgets.Toggle(this);
+        toggle.set(on, enabled);
+        toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams checkLayout = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        checkLayout.setMargins(0, 0, dp(8), 0);
+        r.addView(toggle, checkLayout);
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
         text.addView(label(name, 26, enabled ? TEXT : DISABLED, true));
@@ -365,11 +372,17 @@ public final class MainActivity extends Activity {
         tl.setMargins(0, 0, dp(18), 0);
         r.addView(text, tl);
         if (!known) r.addView(label("확인 못 함", 18, DIM, false));
-        Widgets.Toggle toggle = new Widgets.Toggle(this);
-        toggle.set(on, enabled);
-        toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        r.addView(toggle, new LinearLayout.LayoutParams(dp(120), dp(44)));
         r.setEnabled(enabled);
+        final boolean checked = on;
+        r.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host,
+                    android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName("android.widget.CheckBox");
+                info.setCheckable(true);
+                info.setChecked(checked);
+            }
+        });
         r.setContentDescription(I18n.t(name) + ": " + I18n.t(!known ? "확인 못 함" : on ? "켜짐" : "꺼짐")
                 + (locked == null ? "" : ". " + I18n.t(locked)));
         r.setBackgroundDrawable(skin.menu());

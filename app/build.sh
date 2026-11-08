@@ -21,7 +21,7 @@ javac -encoding UTF-8 -nowarn --release 8 -cp "$JAR${sep}build/stubs" -d build/c
 grep -q "Class descriptor" build/dexdump.txt || { echo "empty dex" >&2; exit 1; }
 if grep "Class descriptor" build/dexdump.txt | grep -qv "Lkr/gen5w/"; then echo "non-app class in dex" >&2; exit 1; fi
 "$(t aapt2)" link --manifest AndroidManifest.xml -I "$JAR" --min-sdk-version 18 --target-sdk-version 19 \
-    --version-code 4 --version-name 1.0-rc1 -o build/unsigned.apk
+    -o build/unsigned.apk
 PY=$(command -v python3 || command -v python)
 "$PY" -I -c 'import zipfile; z=zipfile.ZipFile("build/unsigned.apk","a",zipfile.ZIP_DEFLATED); z.write("build/dex/classes.dex","classes.dex"); z.close()'
 "$(t zipalign)" -f -p 4 build/unsigned.apk build/aligned.apk
@@ -29,4 +29,4 @@ PY=$(command -v python3 || command -v python)
     --v1-signing-enabled true --v2-signing-enabled false --v3-signing-enabled false \
     --min-sdk-version 18 --out build/gen5w-core.apk build/aligned.apk
 "$(t apksigner)" verify --min-sdk-version 18 build/gen5w-core.apk
-echo "built app/build/gen5w-core.apk (1.0-rc1; vehicle validation pending)"
+echo "built app/build/gen5w-core.apk (version from source manifest; vehicle validation pending)"

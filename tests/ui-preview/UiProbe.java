@@ -7,7 +7,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.View;
@@ -24,13 +23,11 @@ public final class UiProbe extends Instrumentation {
     private File output;
     private final List<String> failures = new ArrayList<String>();
     private String scenario;
-    private boolean requireNative;
     private boolean captureOnly;
 
     @Override public void onCreate(Bundle args) {
         super.onCreate(args);
         scenario = args == null ? "normal" : args.getString("scenario", "normal");
-        requireNative = args != null && "yes".equals(args.getString("native"));
         captureOnly = args != null && "yes".equals(args.getString("capture-only"));
         start();
     }
@@ -129,36 +126,27 @@ public final class UiProbe extends Instrumentation {
         return null;
     }
     private void compareControls() throws Exception {
-        android.content.res.Resources resources;
-        try { resources = activity.getPackageManager().getResourcesForApplication("com.android.generalsettings"); }
-        catch (android.content.pm.PackageManager.NameNotFoundException e) {
-            if (requireNative) check("required native reference is installed", false);
-            else { Bundle message = new Bundle(); message.putString("stream", "SKIP native pixel comparison: fallback-only environment\n"); sendStatus(0, message); }
-            return;
-        }
         Bitmap board = Bitmap.createBitmap(560, 480, Bitmap.Config.ARGB_8888);
         Canvas sheet = new Canvas(board); sheet.drawColor(0xff101114);
         Paint captions = new Paint(Paint.ANTI_ALIAS_FLAG); captions.setColor(Color.WHITE); captions.setTextSize(18);
-        sheet.drawText("V039 reference", 20, 24, captions); sheet.drawText("Our widget", 300, 24, captions);
+        sheet.drawText("System CheckBox", 20, 24, captions); sheet.drawText("Our widget", 300, 24, captions);
         for (int i = 0; i < 4; i++) {
             boolean on = i != 1, enabled = i < 2 || i == 3, pressed = i == 3;
-            String name = on ? enabled ? "co_bg_switch_on" : "co_bg_switch_on_dis" : "co_bg_switch_off";
-            Drawable track = resources.getDrawable(resources.getIdentifier(name, "drawable", "com.android.generalsettings"));
-            Drawable handle = resources.getDrawable(resources.getIdentifier("co_bt_switch", "drawable", "com.android.generalsettings"));
-            Bitmap expected = Bitmap.createBitmap(120, 44, Bitmap.Config.ARGB_8888);
-            Canvas reference = new Canvas(expected);
-            track.setBounds(0, 0, 120, 44); track.draw(reference);
-            handle.setState(pressed ? new int[] {android.R.attr.state_enabled, android.R.attr.state_pressed} : enabled ? new int[] {android.R.attr.state_enabled} : new int[] {});
-            handle.setBounds(on ? 60 : 0, 0, on ? 120 : 60, 44); handle.draw(reference);
+            android.widget.CheckBox reference = new android.widget.CheckBox(new android.view.ContextThemeWrapper(activity, android.R.style.Theme_NoTitleBar));
+            reference.setClickable(false); reference.setFocusable(false);
+            reference.setChecked(on); reference.setEnabled(enabled); reference.setPressed(pressed);
+            reference.layout(0, 0, 72, 72);
+            Bitmap expected = Bitmap.createBitmap(72, 72, Bitmap.Config.ARGB_8888);
+            reference.draw(new Canvas(expected));
             Widgets.Toggle toggle = newToggle();
-            toggle.set(on, enabled); toggle.setPressed(pressed); toggle.layout(0, 0, 120, 44);
-            Bitmap actual = Bitmap.createBitmap(120, 44, Bitmap.Config.ARGB_8888);
+            toggle.set(on, enabled); toggle.setPressed(pressed); toggle.layout(0, 0, 72, 72);
+            Bitmap actual = Bitmap.createBitmap(72, 72, Bitmap.Config.ARGB_8888);
             toggle.draw(new Canvas(actual));
             int changed = 0;
-            for (int y = 0; y < 44; y++) for (int x = 0; x < 120; x++) if (expected.getPixel(x, y) != actual.getPixel(x, y)) changed++;
-            check("native switch pixels match for state " + i + " (different=" + changed + ")", changed == 0);
-            sheet.save(); sheet.translate(20, 40 + i * 106); sheet.scale(2, 2); sheet.drawBitmap(expected, 0, 0, null); sheet.restore();
-            sheet.save(); sheet.translate(300, 40 + i * 106); sheet.scale(2, 2); sheet.drawBitmap(actual, 0, 0, null); sheet.restore();
+            for (int y = 0; y < 72; y++) for (int x = 0; x < 72; x++) if (expected.getPixel(x, y) != actual.getPixel(x, y)) changed++;
+            check("system checkbox rendering matches for state " + i + " (different=" + changed + ")", changed == 0);
+            sheet.drawBitmap(expected, 20, 40 + i * 106, null);
+            sheet.drawBitmap(actual, 300, 40 + i * 106, null);
         }
         save(board, "controls-comparison");
     }
@@ -187,14 +175,17 @@ public final class UiProbe extends Instrumentation {
             click("켜기/끄기"); capture("switches");
             runOnMainSync(new Runnable() { public void run() {
                 try { compareControls(); } catch (Exception e) { throw new RuntimeException(e); }
-                // A pill has transparent corners; the OEM rectangular track must fill this point.
                 Widgets.Toggle view = newToggle();
                 view.set(true, true);
                 view.layout(0, 0, 120, 44);
                 Bitmap bitmap = Bitmap.createBitmap(120, 44, Bitmap.Config.ARGB_8888);
                 view.draw(new Canvas(bitmap));
                 save(bitmap, "toggle-on");
-                check("rectangular switch fills near-corner rather than a pill cutout", Color.alpha(bitmap.getPixel(4, 5)) > 240);
+                check("hotspot control is a real CheckBox, not a sliding switch", ((View) view) instanceof android.widget.CheckBox);
+                android.view.accessibility.AccessibilityNodeInfo checkedInfo = android.view.accessibility.AccessibilityNodeInfo.obtain();
+                view.onInitializeAccessibilityNodeInfo(checkedInfo);
+                check("checked state reaches accessibility", checkedInfo.isCheckable() && checkedInfo.isChecked());
+                checkedInfo.recycle();
                 view.set(false, false);
                 check("disabled toggle exposes disabled state to Android", !view.isEnabled());
                 TextView summary = text(activity.getWindow().getDecorView(), "끄면 차 순정 10초 타이머로 돌아갑니다.");
@@ -202,12 +193,19 @@ public final class UiProbe extends Instrumentation {
                 if ("normal".equals(scenario) && !captureOnly) {
                     Widgets.Toggle first = firstToggle(activity.getWindow().getDecorView());
                     View row = (View) first.getParent();
-                    Bitmap before = Bitmap.createBitmap(first.getWidth(), first.getHeight(), Bitmap.Config.ARGB_8888);
-                    Bitmap after = Bitmap.createBitmap(first.getWidth(), first.getHeight(), Bitmap.Config.ARGB_8888);
-                    first.draw(new Canvas(before));
+                    TextView title = text(row, "무선 CarPlay / Android Auto");
+                    check("hotspot checkbox precedes the label on the left", first.getRight() <= ((View) title.getParent()).getLeft());
+                    check("checkbox cannot bypass the row request handler", !first.isClickable() && !first.isFocusable());
+                    android.view.accessibility.AccessibilityNodeInfo rowInfo = android.view.accessibility.AccessibilityNodeInfo.obtain();
+                    row.onInitializeAccessibilityNodeInfo(rowInfo);
+                    check("row exposes checked checkbox semantics", rowInfo.isCheckable() && rowInfo.isChecked()
+                            && "android.widget.CheckBox".contentEquals(rowInfo.getClassName()));
+                    rowInfo.recycle();
                     row.setPressed(true);
-                    first.draw(new Canvas(after));
-                    check("pressing the whole row depresses the switch handle", !before.sameAs(after));
+                    boolean receivesPressed = false;
+                    for (int state : first.getDrawableState()) if (state == android.R.attr.state_pressed) receivesPressed = true;
+                    // The native selector may keep identical artwork while its window is unfocused.
+                    check("whole-row press reaches the system checkbox state", receivesPressed);
                     row.setPressed(false);
                 }
                 if (!"normal".equals(scenario)) {

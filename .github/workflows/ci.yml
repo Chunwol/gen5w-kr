@@ -39,7 +39,9 @@ jobs:
       - name: Build all packages once
         run: bash tools/build-all.sh
       - name: Built scripts use only head-unit commands
-        run: python tests/unit_commands.py --dist
+        run: |
+          python tests/unit_commands.py --dist
+          python tests/apk_version.py
       - name: Run combined verification once
         run: |
           sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" "GEN5W_CLANG=$GEN5W_CLANG" bash tests/run.sh

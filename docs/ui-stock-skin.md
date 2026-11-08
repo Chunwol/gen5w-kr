@@ -16,11 +16,31 @@ font rendering must not be presented as a verified car font match.
 Private reference: GeneralSettings.apk extracted read-only from Korean Kona
 V039 system.ext4, SHA256
 `df08d524969a1636af4ad6016ea3f7578a92897f1aadf1ea39074fe64fb27771`.
+Hotspot reference: HKMC_WifiSettings.apk SHA256
+`48edb9bf294fd3ff8346c37beac7ae9252b41b1cbd0320a67ee96b21b9dc4dd6`;
+V039 framework-res.apk SHA256
+`2268d339cdd2ecf7ae7d5e8801b3afc125fae141a5bf68ea5b86169bfd9b9ee1`.
+The latter's `Theme` maps `checkboxStyle` to `Widget.CompoundButton.CheckBox`,
+whose button uses `listChoiceIndicatorMultiple` -> `btn_check.xml` ->
+`co_btn_check_on_nor`, `co_btn_check_off_nor` and their state variants.
+Its Hyundai-hdpi checked artwork is a blue square with a white check, not
+the AOSP emulator's green tick. These private files are reference data only.
 
-- `SlideSwitch`: rectangular ON/OFF track plus half-width rectangular handle.
-  Its four static states are compared against an independently composed native
-  reference using literal 120x44 track / 60x44 handle bounds. The criterion is
-  **zero differing pixels**, not a subjective similarity percentage.
+- On/off rows follow **HKMC WifiHotspot**, not GeneralSettings `SlideSwitch`.
+  `res/xml/wifi_hotspot.xml` maps `hotspot_toggle` to
+  `HotspotCheckBoxPreferenceDAudio`; its layout
+  `checkbox_custom_preference_hotspot.xml` contains a left-hand Android
+  `CheckBox`, followed by the label (22dp outer inset, 8dp label gap).
+  The package's `noAnimTheme` inherits `android:style/Theme.NoTitleBar` without
+  overriding `checkboxStyle`. Our actual `CheckBox` uses that same base theme,
+  so the installed vehicle framework supplies its checked, unchecked, pressed
+  and disabled artwork. The row owns clicks and exposes checkable/checked
+  accessibility semantics. It cannot be toggled separately around request gates.
+  Emulator tests compare to a normal system CheckBox under that theme, **not
+  to an independently captured vehicle screen**. AOSP emulator artwork is not
+  proof of the exact vehicle appearance.
+  The earlier red ON/OFF resource composition was a wrong choice of control;
+  its zero-pixel-difference result never established a match to WifiHotspot.
 - Menu slot: 197dp; title strip: 60dp; menu row: 72dp; content list reference:
   603dp; title/summary: 26sp/22sp. These come from GeneralSettings layout/resource
   entries. Wide layouts expose a separate right-hand explanation pane; narrower
@@ -37,7 +57,8 @@ V039 system.ext4, SHA256
 The wallpaper gradient is an approximation from the user's photographed screen,
 not a verified OEM wallpaper bitmap. Whole-screen pixel identity cannot be
 claimed from a photographed reference, different text, or emulator font output.
-The exact-pixel result applies to the specified native control states only.
+The system-checkbox comparison only establishes use of the same local theme;
+the actual vehicle appearance still requires a vehicle check.
 
 ## Reproduce on an isolated emulator
 
