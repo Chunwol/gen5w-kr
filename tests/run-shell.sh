@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 command -v mksh >/dev/null 2>&1 || { echo "mksh not found"; exit 78; }
 rc=0
 bash tests/local-hotspot.sh || rc=1
+bash tests/local-hotspot-remount.sh || rc=1
+mksh tests/error-journal.sh || rc=1
 mksh tests/bridge-retry.sh || rc=1
 echo "== shell syntax (mksh -n)"
 files=$(find packages probe/package probe/usb tools -name '*.sh')

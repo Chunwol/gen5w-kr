@@ -4,6 +4,7 @@ set -eu
 SYS=${HOTSPOT_TEST_SYS:-/system}
 DATA=${HOTSPOT_TEST_DATA:-/data}
 NEM=${HOTSPOT_TEST_NEM:-/system/xbin/nemesis}
+MOUNTS=${HOTSPOT_TEST_MOUNTS:-/proc/self/mounts}
 SCRIPT_DIR=${0%/*}
 DEFAULT_PATCH=$SCRIPT_DIR/../bin/hotspot-patch
 [ ! -f "$SCRIPT_DIR/hotspot-patch" ] || DEFAULT_PATCH=$SCRIPT_DIR/hotspot-patch
@@ -63,11 +64,58 @@ restore_stock() {
         mv "$TARGET.localhotspot.rollback" "$TARGET" &&
         "$PATCH" original "$TARGET"
 }
+verified_result() {
+    check_target || return 1
+    if [ "$ACTION" = install ]; then
+        "$PATCH" patched "$TARGET" && "$PATCH" original "$BACKUP/original.odex"
+    else
+        "$PATCH" original "$TARGET"
+    fi
+}
+system_mount_state() {
+    mount_count=0 mount_state=unknown
+    if [ -f "$MOUNTS" ] && [ ! -L "$MOUNTS" ]; then
+        while IFS=' ' read -r source point kind options rest; do
+            [ "$point" = "$SYS" ] || continue
+            mount_count=$((mount_count + 1))
+            echo "DETAIL local hotspot system mount: $source $point $kind $options"
+            case ",$options," in
+                *,rw,*) mount_state=rw;;
+                *,ro,*) mount_state=ro;;
+                *) mount_state=unknown;;
+            esac
+        done < "$MOUNTS"
+    fi
+    [ "$mount_count" = 1 ] || mount_state=unknown
+}
+system_readonly() {
+    ro_attempt=0 ro_busy=yes
+    sync
+    while [ "$ro_attempt" -lt 3 ]; do
+        ro_attempt=$((ro_attempt + 1))
+        if ro_message=$("$NEM" remount ro 2>&1); then return 0; fi
+        echo "DETAIL local hotspot remount ro attempt $ro_attempt: $ro_message"
+        case "$ro_message" in
+            *'Device or resource busy'*|*'device or resource busy'*|*'Device busy'*|*'EBUSY'*) ;;
+            *) ro_busy=no;;
+        esac
+        [ "$ro_attempt" = 3 ] || sleep 1
+    done
+    system_mount_state
+    # A transient busy remount does not invalidate verified bytes. The normal
+    # installer reboot mounts /system read-only again. Never suppress unknown
+    # errors, missing/ambiguous mount observations or a failed byte validation.
+    if [ "$ro_busy" = yes ] && [ "$mount_state" = rw ] && verified_result; then
+        echo 'WARN: verified local hotspot files; system read-only remount busy; reboot required'
+        return 0
+    fi
+    echo 'FAIL: could not remount system read-only'
+    return 1
+}
 finish() {
     result=$?
     trap - EXIT
-    if [ "$mounted" = yes ] && ! "$NEM" remount ro >/dev/null 2>&1; then
-        echo 'FAIL: could not remount system read-only'
+    if [ "$mounted" = yes ] && ! system_readonly; then
         result=1
     fi
     if [ "$result" != 0 ] && [ "$ACTION" = install ] && [ "$changed" = yes ]; then
@@ -78,7 +126,7 @@ finish() {
         else
             echo 'RECOVERY REQUIRED: original backup retained'
         fi
-        "$NEM" remount ro >/dev/null 2>&1 || :
+        system_readonly || :
     fi
     rm -f "$LOCK/owner"
     rmdir "$LOCK" 2>/dev/null || :
