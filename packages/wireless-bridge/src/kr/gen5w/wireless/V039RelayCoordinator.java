@@ -160,12 +160,15 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
                     post(new Runnable() { public void run() {
                         if (enable) apply(session.apReady(generation, now())); else cleanupDone(generation);
                     }});
-                } catch (Exception e) { post(new Runnable() { public void run() {
+                } catch (Exception e) {
+                    kr.gen5w.diag.SafeDiagnostic.failure(enable ? "ap.ensure" : "ap.cleanup",e,generation);
+                    post(new Runnable() { public void run() {
                     if (enable) apply(session.fail(generation, BtRelaySession.FailureReason.AP_ERROR));
                     else cleanupDone(generation);
                 }}); }
             }});
         } catch (RuntimeException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("ap.executor",e,generation);
             if (enable) apply(session.fail(generation, BtRelaySession.FailureReason.AP_ERROR));
             else cleanupDone(generation);
         }

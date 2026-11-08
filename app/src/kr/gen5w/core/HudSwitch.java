@@ -17,7 +17,7 @@ public final class HudSwitch {
     public static boolean isOff(File dataDir) {
         if (dataDir == null) return false;
         try { return new File(dataDir, FLAG).isFile(); }
-        catch (SecurityException e) { return false; }
+        catch (SecurityException e) { kr.gen5w.diag.SafeDiagnostic.failure("ui.hud.read",e);return false; }
     }
 
     /** Creates or removes the flag. Returns false when the change could not be made. */
@@ -28,8 +28,10 @@ public final class HudSwitch {
             if (off) return flag.isFile() || flag.createNewFile();
             return !flag.exists() || flag.delete();
         } catch (IOException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("ui.hud.write",e);
             return false;
         } catch (SecurityException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("ui.hud.permission",e);
             return false;
         }
     }

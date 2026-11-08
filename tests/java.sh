@@ -33,6 +33,7 @@ javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     probe/src/kr/gen5w/probe/Item.java probe/src/kr/gen5w/probe/Dump.java probe/test/DumpTest.java
 java -cp "$work" HudTest
 java -cp "$work" SafeDiagnosticTest
+java -cp "$work" DiagnosticConsumersTest
 java -cp "$work" I18nTest "$PWD/app/src/kr/gen5w/ui/MainActivity.java"
 java -cp "$work" RequestSafetyTest
 java -cp "$work" V039DipoIconTest

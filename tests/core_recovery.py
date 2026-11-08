@@ -50,13 +50,17 @@ public class OwnerRecoveryTest {
         final Context context = new Context();
         ExecutorService caller = Executors.newSingleThreadExecutor();
         try {
+            java.io.ByteArrayOutputStream diagnostics=new java.io.ByteArrayOutputStream();
+            java.io.PrintStream original=System.err;System.setErr(new java.io.PrintStream(diagnostics));
             Future<Integer> first = caller.submit(new Callable<Integer>() {
                 public Integer call() { return read(context); }
             });
             int result;
             try { result = first.get(700, TimeUnit.MILLISECONDS); }
             catch (TimeoutException e) { throw new AssertionError("provider stall blocks ownership clients", e); }
+            finally { System.setErr(original); }
             check(result == '?', "timeout must be UNKNOWN");
+            check(diagnostics.toString("UTF-8").contains("core.owner.timeout"),"provider timeout reason must be observable");
             for (int i=0; i<30; i++) check(read(context)=='?', "busy provider must remain UNKNOWN");
             check(context.calls == 1, "stalled provider must not spawn more observations");
             context.stalled = false; context.release.countDown();
@@ -73,7 +77,7 @@ if 'static final class Observation' not in owner:
 with tempfile.TemporaryDirectory(prefix='gen5w-recovery-') as tmp:
     path = Path(tmp)/'OwnerRecoveryTest.java'
     path.write_text(harness + methods + '\n' + flag + '\n}', encoding='utf-8')
-    subprocess.run(['javac', '--release', '8', '-d', tmp, str(path)], check=True)
+    subprocess.run(['javac', '--release', '8', '-d', tmp, str(path),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')], check=True)
     subprocess.run(['java', '-cp', tmp, 'OwnerRecoveryTest'], check=True, timeout=10)
 
 core = (root/'app/src/kr/gen5w/core/CoreService.java').read_text(encoding='utf-8')
@@ -176,6 +180,11 @@ public class HudHealthTest {
         service.ownerState="STOCK"; service.outputRetry.run();
         result=new String(java.nio.file.Files.readAllBytes(status.toPath()),"US-ASCII");
         if(!result.equals("123 STOCK\n")) throw new AssertionError("heartbeat must replace ownership atomically");
+        new java.io.File(service.folder,"hud-health.status.tmp").mkdir();
+        java.io.ByteArrayOutputStream diagnostics=new java.io.ByteArrayOutputStream();java.io.PrintStream original=System.err;
+        try {System.setErr(new java.io.PrintStream(diagnostics));service.outputRetry.run();}finally{System.setErr(original);}
+        if(!diagnostics.toString("UTF-8").contains("core.hud.heartbeat.write"))throw new AssertionError("heartbeat write failure lost");
+        if(!new String(java.nio.file.Files.readAllBytes(status.toPath()),"US-ASCII").equals("123 STOCK\n"))throw new AssertionError("failed heartbeat corrupted last observation");
         System.out.println("PASS periodic HUD ownership heartbeat");
     }
 '''
@@ -198,5 +207,5 @@ public class AtomicFile {
     }
     public void failWrite(java.io.FileOutputStream out) { try { out.close(); } catch(java.io.IOException e) {} }
 }''', encoding='utf-8')
-    subprocess.run(['javac','--release','8','-d',tmp,str(path),str(clock),str(atomic)],check=True)
+    subprocess.run(['javac','--release','8','-d',tmp,str(path),str(clock),str(atomic),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')],check=True)
     subprocess.run(['java','-cp',tmp,'HudHealthTest',tmp],check=True,timeout=10)

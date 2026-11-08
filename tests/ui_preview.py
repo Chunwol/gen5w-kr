@@ -81,7 +81,7 @@ def main():
         shutil.copyfile(ROOT / 'tests/ui-preview' / name, source / name)
     classes, dex = work / 'classes', work / 'dex'
     classes.mkdir(); dex.mkdir()
-    run(['javac', '-encoding', 'UTF-8', '--release', '8', '-cp', jar, '-d', classes, *source.glob('*.java')])
+    run(['javac', '-encoding', 'UTF-8', '--release', '8', '-cp', jar, '-d', classes, ROOT/'shared/src/kr/gen5w/diag/SafeDiagnostic.java', *source.glob('*.java')])
     run([tool('d8'), '--min-api', '21', '--lib', jar, '--output', dex, *classes.rglob('*.class')])
     unsigned = work / 'unsigned.apk'
     run([tool('aapt2'), 'link', '--manifest', ROOT / 'tests/ui-preview/AndroidManifest.xml', '-I', jar, '-o', unsigned])

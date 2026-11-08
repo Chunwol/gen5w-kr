@@ -79,6 +79,7 @@ public final class ApBroker {
             client.getOutputStream().write('O');
             client.getOutputStream().flush();
         } catch (Exception e) {
+            kr.gen5w.diag.SafeDiagnostic.failure(operation == 'E' ? "ap.broker.ensure" : "ap.broker.stop",e);
             Log.e("gen5w-wireless", "AP broker failure: " + e.getClass().getName());
             try { client.getOutputStream().write('F'); } catch (IOException ignoredAgain) { }
         } finally { try { client.close(); } catch (IOException ignored) { } }

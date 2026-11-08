@@ -48,11 +48,14 @@ public final class StockOwner {
                 pending = null;
                 return value;
             } catch (java.util.concurrent.TimeoutException e) {
+                kr.gen5w.diag.SafeDiagnostic.failure("core.owner.timeout",e);
                 return '?';
             } catch (InterruptedException e) {
+                kr.gen5w.diag.SafeDiagnostic.failure("core.owner.interrupted",e);
                 Thread.currentThread().interrupt();
                 return '?';
             } catch (java.util.concurrent.ExecutionException e) {
+                kr.gen5w.diag.SafeDiagnostic.failure("core.owner.worker",e.getCause());
                 pending = null;
                 return '?';
             }
@@ -72,7 +75,7 @@ public final class StockOwner {
                 public boolean isNull() { return rows.isNull(0); }
                 public String text() { return rows.getString(0); }
             });
-        } catch (RuntimeException e) { return '?'; }
+        } catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("core.owner.query",e); return '?'; }
         finally {
             if (cursor != null) try { cursor.close(); } catch (RuntimeException ignored) { }
         }

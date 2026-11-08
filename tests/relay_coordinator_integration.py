@@ -61,5 +61,5 @@ with tempfile.TemporaryDirectory(prefix='gen5w-relay-coordinator-') as tmp:
     test = base / 'kr/gen5w/wireless/RelayCoordinatorIntegrationTest.java'
     test.write_text(harness, encoding='utf-8')
     prod = root / 'packages/wireless-bridge/src/kr/gen5w/wireless'
-    subprocess.run(['javac', '--release', '8', '-d', tmp] + [str(p) for p in base.rglob('*.java')] + [str(prod/n) for n in ['V039RelayCoordinator.java', 'BtRelaySession.java']], check=True)
+    subprocess.run(['javac', '--release', '8', '-d', tmp,str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')] + [str(p) for p in base.rglob('*.java')] + [str(prod/n) for n in ['V039RelayCoordinator.java', 'BtRelaySession.java']], check=True)
     subprocess.run(['java', '-cp', tmp, 'kr.gen5w.wireless.RelayCoordinatorIntegrationTest'], check=True)

@@ -33,8 +33,10 @@ public final class BoundedLines {
             }
             return lines;
         } catch (IOException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("ui.status.read",e);
             return null;
         } catch (SecurityException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("ui.status.permission",e);
             return null;
         } finally {
             if (in != null) try { in.close(); } catch (IOException ignored) { }

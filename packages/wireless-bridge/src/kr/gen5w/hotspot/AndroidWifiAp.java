@@ -115,7 +115,7 @@ public final class AndroidWifiAp implements ApProfiles.Port {
         try {
             java.io.File dir = new java.io.File(GUARD_DIR);
             return dir.isDirectory() && dir.getCanonicalPath().equals(GUARD_DIR);
-        } catch (java.io.IOException e) { return false; }
+        } catch (java.io.IOException e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.guard.directory",e);return false; }
     }
     private static String bootId() {
         try {
@@ -124,15 +124,15 @@ public final class AndroidWifiAp implements ApProfiles.Port {
                 String id = r.readLine();
                 return id != null && id.matches("[0-9a-f-]{8,64}") ? id : null;
             } finally { r.close(); }
-        } catch (Exception e) { return null; }
+        } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.guard.boot",e);return null; }
     }
     private static void writeSync(String path, String value) {
         java.io.File tmp = new java.io.File(path + ".tmp");
         try {
             java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
             try { out.write((value + "\n").getBytes("UTF-8")); out.getFD().sync(); } finally { out.close(); }
-            if (!tmp.renameTo(new java.io.File(path))) tmp.delete();
-        } catch (Exception e) { tmp.delete(); }
+            if (!tmp.renameTo(new java.io.File(path))) { kr.gen5w.diag.SafeDiagnostic.failure("ap.guard.rename",null);tmp.delete(); }
+        } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.guard.write",e);tmp.delete(); }
     }
     /** Match mode: the stock AP start stored the CarPlay name and key as the
      * ordinary hotspot values. Once the start has finished (the store write
@@ -153,7 +153,7 @@ public final class AndroidWifiAp implements ApProfiles.Port {
                 WifiConfiguration saved = new WifiConfiguration(now);
                 saved.SSID = ssid; saved.preSharedKey = key;
                 wifi.setWifiApConfiguration(saved);
-            } catch (Exception ignored) { }
+            } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.profile.restore",e); }
         }
     }
     /** Stock WifiService saves "AP on" (Settings.Global wifi_ap_on) and, with the
@@ -169,8 +169,9 @@ public final class AndroidWifiAp implements ApProfiles.Port {
                 java.io.InputStream out = p.getInputStream();
                 byte[] buf = new byte[256];
                 while (out.read(buf) >= 0) { }
-                p.waitFor();
-            } catch (Exception ignored) { }
+                int code=p.waitFor();
+                if (code!=0) kr.gen5w.diag.SafeDiagnostic.failure("ap.bootRestore.exit."+code,null);
+            } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.bootRestore.command",e); }
         } }, "gen5wkr-ap-boot-clear");
         t.setDaemon(true);
         t.start();

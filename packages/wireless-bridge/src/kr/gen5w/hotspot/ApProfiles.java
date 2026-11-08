@@ -87,7 +87,8 @@ public final class ApProfiles {
                 if (port.mode() != CONNECTIVITY) throw new Exception("CarPlay AP mode unavailable");
                 port.transitionDone(true);
             } catch (Exception failure) {
-                if (attempted) try { port.transitionDone(false); } catch (Exception ignored) { }
+                kr.gen5w.diag.SafeDiagnostic.failure("ap.transition",failure);
+                if (attempted) try { port.transitionDone(false); } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.transition.cleanup",e); }
                 // Cleanup is another guarded radio operation. An expired
                 // generation must never stop the AP of its replacement.
                 if (attempted) try {
@@ -95,7 +96,7 @@ public final class ApProfiles {
                     if (port.mode() == CONNECTIVITY && port.state() != DISABLED) {
                         port.disable(); waitState(port, guard, DISABLED, 15000);
                     }
-                } catch (Exception ignored) { }
+                } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("ap.rollback",e); }
                 throw failure;
             }
             liveSsid = ordinary.carplaySsid; liveKey = ordinary.carplayKey;

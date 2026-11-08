@@ -187,7 +187,7 @@ public final class MainActivity extends Activity {
         File flag = new File(getFilesDir(), LANG_FILE);
         try {
             if (english) { if (!flag.exists()) flag.createNewFile(); } else { flag.delete(); }
-        } catch (java.io.IOException e) { /* the choice then only lasts until the screen is closed */ }
+        } catch (java.io.IOException e) { kr.gen5w.diag.SafeDiagnostic.failure("ui.settings.write",e); }
         I18n.setEnglish(english);
         render();
     }

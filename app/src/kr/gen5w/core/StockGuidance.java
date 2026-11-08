@@ -18,8 +18,10 @@ final class StockGuidance {
             int value = socket.getInputStream().read();
             return value == '0' ? IDLE : value == '1' ? ACTIVE : UNKNOWN;
         } catch (java.io.IOException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("core.owner.socket",e);
             return UNKNOWN;
         } catch (RuntimeException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("core.owner.protocol",e);
             return UNKNOWN;
         } finally {
             try { socket.close(); } catch (java.io.IOException ignored) { }

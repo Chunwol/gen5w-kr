@@ -35,6 +35,10 @@ public class RelayAdapterOwnershipTest {
  check(android.util.Log.lines.contains("path=relay event=cleanup result=local-owner-released-oem-spp-retained"),"explicit physical SPP limitation diagnostic");
  a.disconnect();m.connected=true;check(a.connect(5,"phone"),"reviewed OEM query permits retained SPP reuse");check(m.connects==2&&connectedCallbacks==1,"retained link attaches fresh pipe without duplicate OEM connect");
  a.stop(4);a.disconnect();check(a.connect(6,"phone"),"reuse after component stop");check(connectedCallbacks==2,"component stop releases pipe before clearing adapter owner");
+ set(a,"iap2",new com.tcc.iap2.IIap2Service(){public boolean Iap2SvcTransportReadDone(byte[] b,int n)throws android.os.RemoteException{throw new android.os.RemoteException();}});
+ java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();java.io.PrintStream original=System.err;
+ boolean sent;try{System.setErr(new java.io.PrintStream(bytes));sent=a.readDone(4,new byte[]{1},1);}finally{System.setErr(original);}
+ check(!sent&&bytes.toString("UTF-8").contains("bt.iap.read"),"iAP transport failure must retain false and diagnostic");
  a.close();System.out.println("PASS production relay adapter ownership cleanup");
  }}'''
 with tempfile.TemporaryDirectory(prefix='gen5w-adapter-owner-') as tmp:
@@ -44,5 +48,5 @@ with tempfile.TemporaryDirectory(prefix='gen5w-adapter-owner-') as tmp:
     (base/'kr/gen5w/wireless/RelayAdapterOwnershipTest.java').write_text(harness,encoding='utf-8')
     prod=root/'packages/wireless-bridge/src/kr/gen5w/wireless'
     oem=root/'packages/wireless-bridge/stubs/com/broadcom/bt/hfdevice/hfbtcm'
-    subprocess.run(['javac','--release','8','-d',tmp]+[str(p) for p in base.rglob('*.java')]+[str(prod/n) for n in ['V039BtRelayAdapter.java','BtRelayPipe.java']]+[str(p) for p in oem.glob('*.java')],check=True)
+    subprocess.run(['javac','--release','8','-d',tmp,str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')]+[str(p) for p in base.rglob('*.java')]+[str(prod/n) for n in ['V039BtRelayAdapter.java','BtRelayPipe.java']]+[str(p) for p in oem.glob('*.java')],check=True)
     subprocess.run(['java','-cp',tmp,'kr.gen5w.wireless.RelayAdapterOwnershipTest'],check=True)

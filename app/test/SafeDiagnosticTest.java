@@ -11,6 +11,8 @@ public final class SafeDiagnosticTest {
         for(int i=0;i<1000;i++)check(!d.emit(sink,"core.owner.query",secret,7,101+i),"repeat rate gated");
         check(lines.size()==1&&!lines.get(0).contains("secret")&&!lines.get(0).contains("00:11"),"exception message never logged");
         check(lines.get(0).contains("IllegalStateException")&&lines.get(0).contains("generation=7"),"class and generation retained");
+        check(d.emit(sink,"core.storage.write",new java.io.IOException("/private/secret-key: No space left on device"),0,2000),"storage failure emitted");
+        check(lines.get(lines.size()-1).contains("reason=no-space")&&!lines.get(lines.size()-1).contains("secret-key"),"classify storage cause without path");
         check(d.emit(sink,"core.owner.query",secret,7,30100),"thirty second retry observable");
         check(d.emit(sink,"core.owner.query",secret,8,30101),"new generation observable");
         check(d.emit(sink,"core.owner.query",secret,8,1),"clock rollback observable");

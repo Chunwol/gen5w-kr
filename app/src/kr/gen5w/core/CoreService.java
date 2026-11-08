@@ -233,7 +233,7 @@ public final class CoreService extends Service {
                 java.io.FileOutputStream out = openFileOutput("hud-owner.status", MODE_PRIVATE);
                 try { out.write((owner + "\n").getBytes("US-ASCII")); }
                 finally { out.close(); }
-            } catch (java.io.IOException e) { Log.w(TAG, "HUD owner status unavailable"); }
+            } catch (java.io.IOException e) { kr.gen5w.diag.SafeDiagnostic.failure("core.hud.owner.write",e);Log.w(TAG, "HUD owner status unavailable"); }
         }
         return allowed;
     }
@@ -269,10 +269,11 @@ public final class CoreService extends Service {
     /** Set when this head unit's cluster API lacks an optional method; the output is then skipped. */
     private boolean subInfoMissing, destMissing;
     private boolean outputError(Throwable e) {
+        boolean report=kr.gen5w.diag.SafeDiagnostic.failure("core.hud.output",e);
         cluster = null;
         session.invalidateOutput();
         DriveLog.core(27, e instanceof LinkageError ? 2 : 1, 0, 0, 0, 0, 0);
-        Log.w(TAG, "cluster output failed: " + e.getClass().getSimpleName());
+        if(report)Log.w(TAG, "cluster output failed: " + e.getClass().getSimpleName());
         return false;
     }
     private void recordWarningCapability() {
@@ -284,7 +285,7 @@ public final class CoreService extends Service {
             java.io.FileOutputStream out = openFileOutput("hud-native-warning.status", MODE_PRIVATE);
             try { out.write((status + "\n").getBytes("US-ASCII")); }
             finally { out.close(); }
-        } catch (java.io.IOException e) { Log.w(TAG, "native warning status unavailable"); }
+        } catch (java.io.IOException e) { kr.gen5w.diag.SafeDiagnostic.failure("core.warning.status.write",e);Log.w(TAG, "native warning status unavailable"); }
     }
     private void recordHudVariant() {
         String status = "UNKNOWN";
@@ -297,7 +298,7 @@ public final class CoreService extends Service {
             java.io.FileOutputStream out = openFileOutput("hud-variant.status", MODE_PRIVATE);
             try { out.write((status + "\n").getBytes("US-ASCII")); }
             finally { out.close(); }
-        } catch (java.io.IOException e) { Log.w(TAG, "HUD configuration status unavailable"); }
+        } catch (java.io.IOException e) { kr.gen5w.diag.SafeDiagnostic.failure("core.hud.config.write",e);Log.w(TAG, "HUD configuration status unavailable"); }
     }
     private final Runnable outputRetry = new Runnable() { public void run() {
         if (stopping) return;
@@ -319,8 +320,9 @@ public final class CoreService extends Service {
             out.write(status.getBytes("US-ASCII"));
             target.finishWrite(out);
         } catch (java.io.IOException e) {
+            boolean report=kr.gen5w.diag.SafeDiagnostic.failure("core.hud.heartbeat.write",e);
             if (out != null) target.failWrite(out);
-            Log.w(TAG, "HUD health status unavailable");
+            if(report)Log.w(TAG, "HUD health status unavailable");
         }
     }
     private void bind() {
@@ -328,7 +330,7 @@ public final class CoreService extends Service {
         Intent intent = new Intent("com.remote.service.IAP2SERVICE");
         intent.setPackage("com.tcc.iap2server");
         try { bound = bindService(intent, connection, Context.BIND_AUTO_CREATE); }
-        catch (RuntimeException e) { bound = false; }
+        catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("core.iap.bind",e);bound = false; }
         Log.i(TAG, "iap2 binding=" + bound);
         if (!bound) main.postDelayed(bindRetry, RETRY_MS);
     }
@@ -899,7 +901,8 @@ public final class CoreService extends Service {
                 // The next icon has no road metadata here; preserve it as received.
                 renderAaTbt(icon, second, dist, road);
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("core.aa.receive",e);
         } finally {
             try { client.close(); } catch (Throwable ignored) {}
         }

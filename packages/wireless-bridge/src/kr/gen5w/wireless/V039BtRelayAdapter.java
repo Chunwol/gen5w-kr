@@ -90,7 +90,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         try {
             alreadyConnected = manager.IbtcmIsSppConnectedDevice(candidateAddress);
             result = alreadyConnected || manager.IbtcmSppConnect(candidateAddress);
-        } catch (RuntimeException e) { result = false; }
+        } catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.spp.connect",e,ownerGeneration);result = false; }
         if (!result) fail(ownerGeneration, Failure.SPP_CONNECT);
         else if (alreadyConnected && pipe.attach(ownerGeneration)) listener.sppConnected(ownerGeneration);
         return result;
@@ -113,6 +113,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             }
             return true;
         } catch (RuntimeException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("bt.iap.start",e,ownerGeneration);
             fail(ownerGeneration, Failure.IAP2_START);
             return false;
         }
@@ -123,7 +124,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         synchronized (lock) { manager = btcm; peer = address; }
         if (manager == null || peer == null || payload == null || length <= 0 || length > payload.length) return false;
         try { return manager.IbtcmSppOutPutStreamWrite(peer, Arrays.copyOf(payload, length)); }
-        catch (RuntimeException e) { return false; }
+        catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.spp.write",e,generation);return false; }
     }
 
     public boolean readDone(int component, byte[] payload, int length) {
@@ -131,7 +132,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         synchronized (lock) { service = iap2; }
         if (service == null || component != 4 || payload == null || length <= 0 || length > payload.length) return false;
         try { return service.Iap2SvcTransportReadDone(Arrays.copyOf(payload, length), length); }
-        catch (RemoteException e) { return false; }
+        catch (RemoteException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.iap.read",e,generation);return false; }
     }
 
     public void stop(int component) {
@@ -145,7 +146,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             Intent intent = new Intent(IAP2_ACTION).setPackage(IAP2_PACKAGE);
             intent.putExtra(COMPONENT_EXTRA, -component);
             context.startService(intent);
-        } catch (RuntimeException ignored) { }
+        } catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.iap.stop",e,owner); }
         if (component == COMPONENT_BT_TRANSPORT && owner != 0) clear(owner);
     }
 

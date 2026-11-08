@@ -75,9 +75,13 @@ public final class SwitchRequest {
             try { out.write((envelope + content(wireless, timer, bluelink, adb, save, remove)).getBytes("UTF-8")); }
             finally { out.close(); }
             // Android replaces the target atomically; some desktop systems refuse, so retry once after deleting it.
-            if (!tmp.renameTo(target) && !(target.delete() && tmp.renameTo(target))) { tmp.delete(); return false; }
+            if (!tmp.renameTo(target) && !(target.delete() && tmp.renameTo(target))) {
+                kr.gen5w.diag.SafeDiagnostic.failure("ui.request.rename",null);
+                tmp.delete(); return false;
+            }
             return true;
         } catch (IOException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("ui.request.write",e);
             tmp.delete();
             return false;
         }
