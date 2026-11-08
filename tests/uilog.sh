@@ -40,6 +40,13 @@ mklog() { mkdir -p "$LOGS/$1"; cat > "$LOGS/$1/$2"; }
 reset() { rm -rf "$UI" "$LOGS" "$W/data/nemesis/gen5wkr."* "$W/ready" "$W/backend" "$W/adbport" "$W/adbcalls"; mkdir -p "$LOGS"; : > "$W/logcat.out"; }
 printf '#!/bin/sh\ncat "%s/logcat.out"\n' "$W" > "$W/logcat"; chmod +x "$W/logcat"
 run() {
+    # Existing action cases use the current UI protocol envelope. Invalid/legacy
+    # envelope rejection is exercised independently by request-envelope.sh.
+    if [ -f "$W/request" ] && [ ! -L "$W/request" ]; then
+        sed '/^boot=/d; /^expires=/d' "$W/request" > "$W/request.actions"
+        { printf 'boot=%s\nexpires=%s\n' "$(cat /proc/sys/kernel/random/boot_id)" "$(($(cut -d. -f1 /proc/uptime) + 30))"; cat "$W/request.actions"; } > "$W/request.new"
+        mv "$W/request.new" "$W/request"
+    fi
     UILOG_TEST_DATA=$W/data UILOG_TEST_DIR=${UILOG_DIR:-$UI} UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat \
     UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request UILOG_TEST_USB=$W/usb UILOG_TEST_MOUNTS=$W/mounts UILOG_TEST_PM=$W/bin/pm mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
 }

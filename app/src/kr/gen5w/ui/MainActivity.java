@@ -69,7 +69,8 @@ public final class MainActivity extends Activity {
     private final long[] pendingAt = new long[4];
     private ScrollView scrollView;
     private int shownTab = -1;
-    private int requestSeq;     // only the newest write may undo the clicked states when it fails
+    private long requestSeq;
+    private final SwitchRequest.Writer requests = new SwitchRequest.Writer();
     private String adbToken;    // digits; a new number asks the collector for one Wi-Fi adb change
     private TextView langButton;
     private LinearLayout panel;   // the grouped block rows are added to; null = rows go straight on the page
@@ -204,6 +205,14 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
+    @Override protected void onDestroy() {
+        requests.close();
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    private boolean canRequest() { return model.canControl(SystemClock.elapsedRealtime() / 1000); }
+
     /** Reads both files on a worker thread, then redraws. Overlapping reads are skipped. */
     private void load() {
         if (loading) return;
@@ -218,8 +227,12 @@ public final class MainActivity extends Activity {
                 handler.post(new Runnable() {
                     public void run() {
                         loading = false;
-                        if (isFinishing()) return;
+                        if (isFinishing() || isDestroyed()) return;
                         model = next; logLines = lines; loaded = true;
+                        if (adbToken != null && (adbToken + ":failed").equals(model.adbResult())) {
+                            pending[3] = null;
+                            adbToken = null;
+                        }
                         render();
                     }
                 });
@@ -274,7 +287,8 @@ public final class MainActivity extends Activity {
 
     private void buildSwitches(LinearLayout page) {
         if (!loaded) { note(page, "불러오는 중..."); return; }
-        final boolean readable = model.readable();
+        final boolean readable = canRequest();
+        if (!readable) note(page, "상태가 오래되었거나 수집기가 응답하지 않아 조작을 잠갔습니다.");
         note(page, "끄면 몇 초 안에 반영됩니다. 설치된 파일은 그대로 남아 있어 언제든 다시 켤 수 있습니다. (제거가 아닙니다)");
         section(page, "무선");
         final String wireless = effective(0, model.switchWireless());
@@ -302,6 +316,8 @@ public final class MainActivity extends Activity {
         section(page, "개발자 접속 (이번 부팅만)");
         switchRow(page, "Wi-Fi ADB", "이 스위치는 차의 Wi-Fi를 켜지 않고 접속 포트만 엽니다. 차가 이미 Wi-Fi에 연결돼 있어야 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요합니다.",
                 readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(3, model.switchAdb()), 3);
+        row(page, "ADB 접속 상태", adbHealthText(), DIM);
+        if (model.adbResult().endsWith(":failed")) note(page, "ADB 설정 적용에 실패했습니다. 새 상태를 확인하고 다시 시도하세요.");
         section(page, "이 화면에서 바꿀 수 없는 것");
         row(page, "오디오 모듈", "설치 / 제거로만", DIM);
         row(page, "주행 기록", "USB 키트가 필요", DIM);
@@ -310,17 +326,27 @@ public final class MainActivity extends Activity {
 
     /** Sends the three switch states to the collector. Runs off the main thread. */
     private void sendRequest() {
+        if (!canRequest()) {
+            pending[0] = pending[1] = pending[2] = pending[3] = null;
+            android.widget.Toast.makeText(this, I18n.t("새 상태를 기다린 뒤 다시 시도하세요."), android.widget.Toast.LENGTH_SHORT).show();
+            load();
+            return;
+        }
         final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink()), a = effective(3, model.switchAdb());
         final File dir = getFilesDir();
         final String adb = adbToken != null && ("on".equals(a) || "off".equals(a)) ? a + ":" + adbToken : null;
-        final int seq = ++requestSeq;
+        final long seq = requests.issue();
+        requestSeq = seq;
+        final String boot = model.bootId();
+        final long expires = SystemClock.elapsedRealtime() / 1000 + 30;
         final String token = saveToken;
         final String rtoken = removeToken;
         new Thread(new Runnable() {
             public void run() {
-                final boolean ok = SwitchRequest.write(dir, w, t, b, adb, token, rtoken);
+                final boolean ok = requests.write(seq, dir, SystemClock.elapsedRealtime() / 1000, expires, boot, w, t, b, adb, token, rtoken);
                 handler.post(new Runnable() {
                     public void run() {
+                        if (isFinishing() || isDestroyed()) return;
                         if (!ok && seq == requestSeq) { pending[0] = pending[1] = pending[2] = pending[3] = null; }
                         render();
                     }
@@ -435,13 +461,14 @@ public final class MainActivity extends Activity {
             }
             if (!confirmRemove) {
                 buttonRow(page, "Gen5W KR 전부 제거", "무선, 오디오, 안내창, 블루링크, 주행 기록을 제거하고 차 설정을 처음 값으로 되돌립니다. 앱(CarPlay HUD)은 마지막에 NEMESIS Manager에서 지웁니다.",
-                        "제거...", model.readable(), 3, new View.OnClickListener() {
-                            public void onClick(View v) { confirmRemove = true; render(); }
+                        "제거...", canRequest(), 3, new View.OnClickListener() {
+                            public void onClick(View v) { if (canRequest()) confirmRemove = true; render(); }
                         });
             } else {
                 box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다.", WARN);
-                buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", true, 1, new View.OnClickListener() {
+                buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", canRequest(), 1, new View.OnClickListener() {
                     public void onClick(View v) {
+                        if (!canRequest()) { render(); return; }
                         confirmRemove = false;
                         removeToken = newToken();
                         removeAskedAt = SystemClock.elapsedRealtime();
@@ -465,8 +492,9 @@ public final class MainActivity extends Activity {
                 : saveResult.equals("nousb") ? "USB가 연결되어 있지 않아 차 안에만 저장했습니다. USB를 꽂고 다시 누르세요."
                 : saveResult.equals("fail") ? "USB에 쓰지 못했습니다. USB를 확인하고 다시 누르세요."
                 : "상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.";
-        buttonRow(page, "진단 저장", help, "저장", model.readable() && !saveNow, 0, new View.OnClickListener() {
+        buttonRow(page, "진단 저장", help, "저장", canRequest() && !saveNow, 0, new View.OnClickListener() {
             public void onClick(View v) {
+                if (!canRequest()) { render(); return; }
                 saveToken = newToken();
                 saveAskedAt = SystemClock.elapsedRealtime();
                 sendRequest();
@@ -486,7 +514,7 @@ public final class MainActivity extends Activity {
             long age = model.ageSeconds();
             box(page, "기록이 오래됨", age < 0 ? "이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다." : I18n.t("마지막 갱신이 {0}초 전입니다. 아래 값이 지금과 다를 수 있습니다.", String.valueOf(age)), WARN);
         } else if (host.equals("alive")) {
-            hero(page, "무선 사용 가능", "무선 호스트가 실행 중입니다.", OK);
+            hero(page, "무선 호스트 준비", "호스트 실행은 Wi-Fi나 휴대폰 연결 성공을 뜻하지 않습니다.", OK);
         } else if (host.equals("dead")) {
             String why = I18n.english() ? (model.whyRaw().length() > 0 ? model.whyRaw() : I18n.t(model.why())) : model.why();
             hero(page, "무선 대기 중", why.length() > 0 ? why : "원인을 확인하지 못했습니다", WARN);
@@ -500,14 +528,37 @@ public final class MainActivity extends Activity {
         row(page, "릴레이 구성", relay.equals("on") ? "● 포함됨" : relay.equals("off") ? "● 없음" : "확인 못 함",
                 stale ? DIM : relay.equals("on") ? OK : relay.equals("off") ? WARN : DIM);
         String wlan = model.wlan();
-        row(page, "차 Wi-Fi", wlan.equals("present") ? "● 켜짐" : wlan.equals("missing") ? "● 꺼짐 (휴대폰이 접속할 Wi-Fi가 없음)" : "확인 못 함",
+        row(page, "차 Wi-Fi", wlan.equals("present") ? "인터페이스 있음 (AP 연결 여부는 별도)" : wlan.equals("missing") ? "인터페이스 없음" : "확인 못 함",
                 stale ? DIM : wlan.equals("present") ? OK : wlan.equals("missing") ? WARN : DIM);
         row(page, "유선 전용 모드", model.wiredOnly() ? "켜짐" : "꺼짐", model.wiredOnly() ? WARN : TEXT);
         row(page, "재시작 보호", model.apguardOff() ? "● 걸림(무선 꺼짐)" : "● 정상", model.apguardOff() ? RED : stale ? DIM : OK);
+        row(page, "ADB 접속 상태", adbHealthText(), DIM);
+        row(page, "HUD 소유권 상태", hudHealthText(), DIM);
+        note(page, "Android Auto는 순정 무선 지원과 등록이 필요합니다. CarPlay 전용 중계는 적용되지 않습니다.");
         section(page, "설치");
         row(page, "설치 버전", model.bridgeVersion().length() > 0 ? "v" + model.bridgeVersion() : "확인 못 함", TEXT);
         String backend = model.backend();
         row(page, "Wi-Fi 방식", backend.equals("builtin") ? "내장 Wi-Fi" : backend.equals("dongle") ? "USB 동글" : "확인 못 함", TEXT);
+    }
+
+    private String adbHealthText() {
+        if (!canRequest()) return "확인 못 함";
+        String health = model.adbHealth();
+        if (health.equals("listening")) return "리스닝 확인 (IP·키 승인은 별도)";
+        if (health.equals("daemon-down")) return "포트 설정됨 / adbd 중단";
+        if (health.equals("not-listening")) return "포트 설정됨 / 리스닝 없음";
+        if (health.equals("unexpected-listener")) return "예상 밖의 ADB 리스너 감지";
+        return health.equals("off") ? "꺼짐" : "확인 못 함";
+    }
+
+    private String hudHealthText() {
+        if (HudSwitch.isOff(new File(getApplicationInfo().dataDir))) return "앱에서 꺼짐";
+        String owner = StatusModel.hudOwner(BoundedLines.read(new File(getFilesDir(), "hud-health.status"), 256, 2),
+                SystemClock.elapsedRealtime() / 1000);
+        if (owner.equals("STOCK")) return "순정 내비 우선 (출력 차단)";
+        if (owner.equals("UNKNOWN")) return "소유권 확인 실패 (출력 차단)";
+        if (owner.equals("CARPLAY") || owner.equals("AA")) return "출력 허용 (실제 표시는 별도 확인)";
+        return "서비스 응답 없음";
     }
 
     private void buildLog(LinearLayout page) {

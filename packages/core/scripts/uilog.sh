@@ -14,7 +14,9 @@ LOGS=$NEMDIR/logs
 BRIDGE=$NEMDIR/apps/gen5w.kr.bridge
 HOST_READY=${UILOG_TEST_READY:-/data/data/kr.gen5w.wirelesshost/files/bridge-ready}
 PROC=${UILOG_TEST_PROC:-/proc}
+PROCNET=${UILOG_TEST_PROCNET:-/proc/net}
 UPTIME=${UILOG_TEST_UPTIME:-/proc/uptime}
+BOOT_ID_FILE=${UILOG_TEST_BOOT_ID:-/proc/sys/kernel/random/boot_id}
 LOGCAT=${UILOG_TEST_LOGCAT:-logcat}
 INTERVAL=${UILOG_TEST_INTERVAL:-15}
 # Switch requests written by the screen (the core app) into its own folder. Root only READS this
@@ -162,6 +164,7 @@ collect_status() {
     [ -d "$NETDIR_SYS/wlan0" ] && wlan=present
     {
         print -r -- "ts=$ts"
+        print -r -- "boot=$(cat "$BOOT_ID_FILE" 2>/dev/null)"
         print -r -- "host=$host"
         print -r -- "relay=$relay"
         print -r -- "backend=$backend"
@@ -172,6 +175,8 @@ collect_status() {
         print -r -- "sw_timer=$(switch_state timer)"
         print -r -- "sw_bluelink=$(switch_state bluelink)"
         print -r -- "sw_adb=$(adb_state)"
+        print -r -- "adb_health=$(adb_health)"
+        print -r -- "adb_result=$(adb_result)"
         print -r -- "saved=$(saved_state)"
         print -r -- "removed=$(removed_state)"
         print -r -- "wlan=$wlan"
@@ -205,9 +210,42 @@ apply_requests() {
     return 0
 }
 read_requests() {
-    typeset line n=0
-    while IFS= read -r line && [ "$n" -lt 8 ]; do
+    typeset line n=0 boot= expires= current up _rest seen_boot=0 seen_expires=0 removal= value
+    typeset -a actions
+    # Read the single opened file once; atomic app replacement cannot mix an old
+    # envelope with new actions. The parent still bounds hostile reads to 3s.
+    while IFS= read -r line; do
         n=$((n + 1))
+        [ "$n" -le 10 ] || return 0
+        case "$line" in
+            boot=*) [ "$seen_boot" = 0 ] || return 0; seen_boot=1; boot=${line#boot=};;
+            expires=*) [ "$seen_expires" = 0 ] || return 0; seen_expires=1; expires=${line#expires=};;
+            *) actions[${#actions[@]}]=$line;;
+        esac
+    done < "$REQUEST"
+    current=$(cat "$BOOT_ID_FILE" 2>/dev/null)
+    [ -n "$current" ] && [ "$boot" = "$current" ] || return 0
+    case "$expires" in ''|*[!0-9]*) return 0;; esac
+    [ "${#expires}" -le 9 ] || return 0
+    IFS=' ' read -r up _rest < "$UPTIME" || return 0
+    up=${up%%.*}
+    case "$up" in ''|*[!0-9]*) return 0;; esac
+    [ "${#up}" -le 9 ] || return 0
+    expires=$((10#$expires)); up=$((10#$up))
+    [ "$expires" -ge "$up" ] && [ "$expires" -le "$((up + 30))" ] || return 0
+    # Removal is exclusive. A repeated completed request must not recreate the
+    # markers it just cleared, or restart ADB while packages are being removed.
+    for line in "${actions[@]}"; do
+        case "$line" in remove=*)
+            value=${line#remove=}
+            case "$value" in ''|*[!0-9]*) continue;; esac
+            [ "${#value}" -le 10 ] || continue
+            [ -z "$removal" ] || return 0
+            removal=$value;;
+        esac
+    done
+    if [ -n "$removal" ]; then handle_remove "$removal"; return 0; fi
+    for line in "${actions[@]}"; do
         case "$line" in
             wireless=on|wireless=off|timer=on|timer=off|bluelink=on|bluelink=off)
                 # While a removal runs, markers are not put back right after the removal cleared them.
@@ -216,7 +254,7 @@ read_requests() {
             save=*) handle_save "${line#save=}";;
             remove=*) handle_remove "${line#remove=}";;
         esac
-    done < "$REQUEST"
+    done
 }
 # Read-only facts about this unit, for the next version's features (adb, update check, removal).
 # Nothing here changes anything. Lines pass the same privacy filter as the log, at most FACT_LINES.
@@ -414,7 +452,7 @@ saved_state() {
 # file, so the request file left in the app folder from before a reboot cannot switch it on again.
 ADBTOK=$NEMDIR/gen5wkr.ui-adb
 handle_adb() {
-    typeset v=$1 state n last _r
+    typeset v=$1 state n last _r result=applied
     state=${v%%:*}
     n=${v#*:}
     case "$n" in ''|*[!0-9]*) return 0;; esac
@@ -422,8 +460,16 @@ handle_adb() {
     [ -d "$NEMDIR" ] && [ ! -L "$NEMDIR" ] && [ ! -L "$ADBTOK" ] || return 0
     [ -f "$ADBTOK" ] && IFS=' ' read -r last _r < "$ADBTOK"
     [ "$last" = "$n" ] && return 0
-    print -r -- "$n" > "$ADBTOK.tmp" 2>/dev/null && mv "$ADBTOK.tmp" "$ADBTOK" 2>/dev/null || return 0
-    set_adb "$state"
+    [ ! -L "$ADBTOK.tmp" ] || return 0
+    # Consume before acting to prevent reboot replay, but retain a visible result.
+    print -r -- "$n working" > "$ADBTOK.tmp" 2>/dev/null && mv "$ADBTOK.tmp" "$ADBTOK" 2>/dev/null || return 0
+    set_adb "$state" || result=failed
+    print -r -- "$n $result" > "$ADBTOK.tmp" 2>/dev/null && mv "$ADBTOK.tmp" "$ADBTOK" 2>/dev/null
+}
+adb_result() {
+    typeset n r
+    [ -f "$ADBTOK" ] && [ ! -L "$ADBTOK" ] && IFS=' ' read -r n r < "$ADBTOK"
+    print -r -- "${n:-0}:${r:-none}"
 }
 # adb over the car's Wi-Fi, for this boot only: service.adb.tcp.port is a runtime property and is
 # gone after a reboot, and nothing persistent is set. The stock key check (ro.adb.secure) still
@@ -436,15 +482,48 @@ adb_port() {
     print -r -- "$p"
 }
 adb_state() { if [ "$(adb_port)" -gt 0 ]; then echo on; else echo off; fi; }
+# Inspect kernel socket state, never infer listening from a property alone.
+# 0=LISTEN found, 1=readable tables contain no listener, 2=unobservable.
+adb_listening() {
+    typeset p=$1 file line observed=0
+    # This UI controls only 5555 (0x15B3); other externally configured ports are
+    # explicitly unobserved, not mislabeled as a verified listener.
+    [ "$p" = 5555 ] || return 2
+    for file in "$PROCNET/tcp" "$PROCNET/tcp6"; do
+        [ -r "$file" ] || continue
+        observed=1
+        while IFS= read -r line; do
+            set -- $line
+            [ "${2##*:}" != 15B3 ] || [ "${4:-}" != 0A ] || return 0
+        done < "$file"
+    done
+    [ "$observed" = 1 ] && return 1
+    return 2
+}
+adb_health() {
+    typeset p daemon rc
+    p=$(adb_port)
+    if [ "$p" = 0 ]; then
+        adb_listening "$ADB_PORT"; rc=$?
+        case "$rc" in 0) echo unexpected-listener;; 1) echo off;; *) echo unknown;; esac
+        return
+    fi
+    daemon=$(getprop init.svc.adbd 2>/dev/null)
+    case "$daemon" in running) ;; stopped|stopping|restarting) echo daemon-down; return;; *) echo unknown; return;; esac
+    adb_listening "$p"; rc=$?
+    case "$rc" in 0) echo listening;; 1) echo not-listening;; *) echo unknown;; esac
+}
 set_adb() {
     if [ "$1" = on ]; then
-        [ "$(adb_port)" = "$ADB_PORT" ] && return 0
+        if [ "$(adb_port)" = "$ADB_PORT" ] && [ "$(adb_health)" = listening ]; then return 0; fi
         setprop service.adb.tcp.port "$ADB_PORT" || return 1
     else
-        [ "$(adb_port)" = 0 ] && return 0
+        if [ "$(adb_port)" = 0 ]; then
+            adb_listening "$ADB_PORT"; [ "$?" != 1 ] || return 0
+        fi
         setprop service.adb.tcp.port 0 || return 1
     fi
-    stop adbd 2>/dev/null
+    stop adbd 2>/dev/null || return 1
     start adbd 2>/dev/null
 }
 # In-car removal of every Gen5W KR package EXCEPT the core app (which runs this service and the

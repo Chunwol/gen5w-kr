@@ -12,6 +12,8 @@ public final class StatusModel {
     private final boolean readable;
     private final long ts;          // -1 when missing or not a number
     private final long now;
+    private final String boot;
+    private final String adbHealth, adbResult;
     private final String host, relay, backend, version, wlan;
     private final boolean apguardOff, wired;
     private final String why;
@@ -22,15 +24,18 @@ public final class StatusModel {
 
     private StatusModel(boolean readable, long ts, long now, String host, String relay, String backend,
             String version, boolean apguardOff, boolean wired, String why, String whyRaw,
-            String swWireless, String swTimer, String swBluelink, String swAdb, String saved, String removed, String wlan) {
+            String swWireless, String swTimer, String swBluelink, String swAdb, String saved, String removed, String wlan, String boot, String adbHealth, String adbResult) {
         this.readable = readable; this.ts = ts; this.now = now; this.host = host; this.relay = relay;
         this.backend = backend; this.version = version; this.apguardOff = apguardOff; this.wired = wired;
         this.why = why; this.whyRaw = whyRaw;
         this.swWireless = swWireless; this.swTimer = swTimer; this.swBluelink = swBluelink; this.swAdb = swAdb; this.saved = saved; this.removed = removed; this.wlan = wlan;
+        this.boot = boot;
+        this.adbHealth = adbHealth;
+        this.adbResult = adbResult;
     }
 
     public static StatusModel unreadable() {
-        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none", "0:none", UNKNOWN);
+        return new StatusModel(false, -1, 0, UNKNOWN, UNKNOWN, UNKNOWN, "", false, false, "", "", UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, "0:none", "0:none", UNKNOWN, "", UNKNOWN, "0:none");
     }
 
     private static String value(List<String> lines, String key) {
@@ -61,7 +66,8 @@ public final class StatusModel {
                 choice(value(statusLines, "sw_adb"), "on", "off"),
                 value(statusLines, "saved").length() == 0 ? "0:none" : value(statusLines, "saved"),
                 value(statusLines, "removed").length() == 0 ? "0:none" : value(statusLines, "removed"),
-                choice(value(statusLines, "wlan"), "present", "missing"));
+                choice(value(statusLines, "wlan"), "present", "missing"), value(statusLines, "boot"),
+                value(statusLines, "adb_health"), value(statusLines, "adb_result"));
     }
 
     /** The bridge supervisor's own last explanation line, only while the host is not running; null when none. */
@@ -88,6 +94,27 @@ public final class StatusModel {
     }
 
     public boolean readable() { return readable; }
+    public String bootId() { return boot; }
+    public String adbHealth() { return adbHealth; }
+    public String adbResult() { return adbResult; }
+    /** Heartbeats are observations, not proof of route reception or physical display output. */
+    public static String hudOwner(List<String> lines, long nowSeconds) {
+        if (lines == null || lines.size() != 1) return "NO_RESPONSE";
+        String[] fields = lines.get(0).split(" ");
+        if (fields.length != 2) return "NO_RESPONSE";
+        try {
+            long at = Long.parseLong(fields[0]);
+            if (at < 0 || nowSeconds < at || nowSeconds - at > 5) return "NO_RESPONSE";
+        } catch (NumberFormatException e) { return "NO_RESPONSE"; }
+        String owner = fields[1];
+        return owner.equals("UNKNOWN") || owner.equals("STOCK") || owner.equals("AA") || owner.equals("CARPLAY")
+                ? owner : "NO_RESPONSE";
+    }
+    /** Recheck elapsed uptime at action time: a parsed model can age while the screen stays open. */
+    public boolean canControl(long nowSeconds) {
+        return readable && SwitchRequest.validBoot(boot) && ts >= 0
+                && nowSeconds >= ts - SKEW_SECONDS && nowSeconds - ts <= STALE_SECONDS;
+    }
     /**
      * ts and now are both seconds since boot. A snapshot from a later uptime than now is a
      * leftover from an earlier boot, so it counts as stale too.

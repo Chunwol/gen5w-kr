@@ -34,6 +34,28 @@ public final class SwitchRequest {
 
     private static final Object LOCK = new Object();
 
+    /** Per-activity generation gate: scheduling order cannot overwrite the latest intent. */
+    public static final class Writer {
+        private long latest;
+        private boolean closed;
+        public synchronized long issue() { return closed ? -1 : ++latest; }
+        public synchronized void close() { closed = true; latest++; }
+        public synchronized boolean write(long sequence, File dir, long now, long expires, String boot,
+                String wireless, String timer, String bluelink, String adb, String save, String remove) {
+            if (closed || sequence <= 0 || sequence != latest || now < 0 || expires < now
+                    || expires - now > 30 || expires > 999999999L || !validBoot(boot)
+                    || dir == null || !dir.isDirectory()) return false;
+            synchronized (LOCK) {
+                return writeLocked(dir, wireless, timer, bluelink, adb, save, remove,
+                        "boot=" + boot + "\nexpires=" + expires + "\n");
+            }
+        }
+    }
+
+    static boolean validBoot(String boot) {
+        return boot != null && boot.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+    }
+
     /**
      * @param adb "on:<digits>" or "off:<digits>" (a new number asks for one change), or null
      * @param remove digits only (a new number asks the collector to remove every package except the core app), or null
@@ -42,15 +64,15 @@ public final class SwitchRequest {
      */
     public static boolean write(File filesDir, String wireless, String timer, String bluelink, String adb, String save, String remove) {
         if (filesDir == null || !filesDir.isDirectory()) return false;
-        synchronized (LOCK) { return writeLocked(filesDir, wireless, timer, bluelink, adb, save, remove); }
+        synchronized (LOCK) { return writeLocked(filesDir, wireless, timer, bluelink, adb, save, remove, ""); }
     }
 
-    private static boolean writeLocked(File filesDir, String wireless, String timer, String bluelink, String adb, String save, String remove) {
+    private static boolean writeLocked(File filesDir, String wireless, String timer, String bluelink, String adb, String save, String remove, String envelope) {
         File tmp = new File(filesDir, FILE + ".tmp");
         File target = new File(filesDir, FILE);
         try {
             FileOutputStream out = new FileOutputStream(tmp);
-            try { out.write(content(wireless, timer, bluelink, adb, save, remove).getBytes("UTF-8")); }
+            try { out.write((envelope + content(wireless, timer, bluelink, adb, save, remove)).getBytes("UTF-8")); }
             finally { out.close(); }
             // Android replaces the target atomically; some desktop systems refuse, so retry once after deleting it.
             if (!tmp.renameTo(target) && !(target.delete() && tmp.renameTo(target))) { tmp.delete(); return false; }

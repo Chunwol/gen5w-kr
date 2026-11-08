@@ -11,8 +11,55 @@ import android.os.Process;
 /** System-uid NEMESIS service. Its sole operation reads one non-personal flag. */
 public final class StockOwner {
     private static final Uri STATE = Uri.parse("content://com.mnsoft.navi/State_Table");
+    private static final Observation observation = new Observation();
 
-    private static int read(Context context) {
+    private static int read(final Context context) {
+        return observation.read(new java.util.concurrent.Callable<Integer>() {
+            public Integer call() { return readProvider(context); }
+        });
+    }
+
+    /** One provider worker, one pending observation, and no cached ownership.
+     * A stuck Binder call cannot be reliably interrupted on API 18. Keep it
+     * isolated, fail closed, and discard its late answer before trying afresh. */
+    static final class Observation {
+        private final java.util.concurrent.ExecutorService worker =
+                new java.util.concurrent.ThreadPoolExecutor(1, 1, 0L,
+                        java.util.concurrent.TimeUnit.MILLISECONDS,
+                        new java.util.concurrent.ArrayBlockingQueue<Runnable>(1),
+                        new java.util.concurrent.ThreadFactory() {
+                            public Thread newThread(Runnable runnable) {
+                                Thread thread = new Thread(runnable, "gen5w-stock-query");
+                                thread.setDaemon(true);
+                                return thread;
+                            }
+                        });
+        private java.util.concurrent.Future<Integer> pending;
+
+        synchronized int read(java.util.concurrent.Callable<Integer> query) {
+            if (pending != null) {
+                if (!pending.isDone()) return '?';
+                // A timed-out observation must never grant ownership later.
+                pending = null;
+            }
+            pending = worker.submit(query);
+            try {
+                int value = pending.get(150, java.util.concurrent.TimeUnit.MILLISECONDS);
+                pending = null;
+                return value;
+            } catch (java.util.concurrent.TimeoutException e) {
+                return '?';
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return '?';
+            } catch (java.util.concurrent.ExecutionException e) {
+                pending = null;
+                return '?';
+            }
+        }
+    }
+
+    private static int readProvider(Context context) {
         Cursor cursor = null;
         try {
             cursor = context.getContentResolver().query(STATE,

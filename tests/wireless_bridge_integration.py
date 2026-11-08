@@ -26,12 +26,12 @@ stubs = {
 import android.content.Context; import android.os.Handler;
 final class V039RelayCoordinator {
  interface Events { void relayEvent(String name,String result); }
- int starts;
+ int starts,cancels,losses; long owner; boolean running;
  V039RelayCoordinator(Context c,Handler h,Events e){} void open(){} void tick(){}
- void start(String a){starts++;} void candidateLost(){} void handoverRequested(){}
+ void start(String a){starts++;owner++;} long generation(){return owner;} void candidateLost(){owner++;losses++;running=false;} void handoverRequested(){}
  void handoverConnected(){} void handoverDisconnected(){} void apObservedReady(){}
  void credentialsReady(){} void projectionActive(){} void close(){}
- void cancel(BtRelaySession.CancelReason r){} boolean active(){return false;}
+ void cancel(BtRelaySession.CancelReason r){cancels++;} boolean active(){return running;}
 }''',
 }
 harness = r"""
@@ -44,11 +44,12 @@ public class WirelessBridgeIntegrationTest {
         public boolean getWLDOnOff(){return true;} public boolean getWLDAutoConnection(){return true;}
     }
     public static class Manager {
-        TestContext context; int reads,calls; boolean saved,foreignAfterInspection,unavailableAfterInspection;
+        TestContext context; int reads,calls; boolean saved,foreignAfterInspection,unavailableAfterInspection,idle;
+        volatile CountDownLatch inspectionEntered,inspectionRelease;
         public Object getWLDeviceInfo(String a,String b,int c){return saved?new Info():null;}
-        public String getCPConnectedBTAddress(){outside(); return reads==0?"":"other";}
+        public String getCPConnectedBTAddress(){outside(); return idle||reads==0?"":"other";}
         public String getAAConnectedBTAddress(){outside(); return "";}
-        public int getWirelessConnectState(){outside(); reads++; if(reads>1&&unavailableAfterInspection)throw new SecurityException(); return reads>1&&foreignAfterInspection?3:0;}
+        public int getWirelessConnectState(){outside(); if(inspectionEntered!=null){inspectionEntered.countDown();try{inspectionRelease.await();}catch(InterruptedException e){Thread.currentThread().interrupt();}} reads++; if(reads>1&&unavailableAfterInspection)throw new SecurityException(); return reads>1&&foreignAfterInspection?3:0;}
         public void requestConnectSPP(String a){outside(); calls++;}
         void outside(){check(!Thread.holdsLock(context.bridge.session),"OEM read/call must be outside session monitor");}
     }
@@ -59,7 +60,16 @@ public class WirelessBridgeIntegrationTest {
         public PhoneProjectionAccess.Profile find(String a){return manager.saved?new PhoneProjectionAccess.Profile(a,1,true,true):null;}
         public void sendBroadcast(android.content.Intent i){check(!Thread.holdsLock(bridge.session),"broadcast outside monitor"); broadcasts++; check("com.daudio.app.phoneprojection".equals(i.pkg)&&i.extras.size()==1,"scoped single extra action"); if(foreignAfterBroadcast)manager.foreignAfterInspection=true; if(unavailableAfterBroadcast)manager.unavailableAfterInspection=true;}
     }
-    static void settle(TestContext c) throws Exception {for(int i=0;i<5;i++){c.bridge.oemCalls.submit(new Runnable(){public void run(){}}).get(2,TimeUnit.SECONDS); Thread.sleep(20);}}
+    static void settle(TestContext c) throws Exception {
+        // A barrier on a two-worker pool can finish while the other worker is
+        // still executing OEM inspection. Wait for actual quiescence instead.
+        ThreadPoolExecutor pool=(ThreadPoolExecutor)c.bridge.oemCalls;
+        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
+        while(pool.getActiveCount()!=0 || !pool.getQueue().isEmpty()) {
+            if(System.nanoTime()>deadline)throw new AssertionError("OEM tasks did not settle");
+            Thread.sleep(10);
+        }
+    }
     static void ownershipChangesCancelAtEveryBoundary() throws Exception {
         for(int boundary=0;boundary<3;boundary++)for(boolean unavailable:new boolean[]{false,true}){
             TestContext c=new TestContext();
@@ -93,14 +103,14 @@ public class WirelessBridgeIntegrationTest {
     }
     static void missingProfileFallsBackOnlyForFreshAppleSdp() throws Exception {
         TestContext apple=new TestContext(); try {
-            apple.bridge.enableRelay(); apple.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+            apple.manager.idle=true; apple.bridge.enableRelay(); apple.bridge.appleCarPlay.put("phone",Boolean.TRUE);
             apple.bridge.session.candidate("phone",0); apple.bridge.session.tick(0);
             long generation=apple.bridge.session.generation();
             apple.bridge.session.inspected(generation,new StockProjectionSession.Observation(
                 StockProjectionSession.Result.INVOKED,true,0,StockProjectionSession.ProfileState.DISABLED,
                 false,false,false,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
             java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay"); maintain.setAccessible(true); maintain.invoke(apple.bridge);
-            check(apple.bridge.relay.starts==1,"fresh Apple SDP admits missing-profile CarPlay fallback");
+            settle(apple); check(apple.bridge.relay.starts==1,"fresh Apple SDP admits missing-profile CarPlay fallback");
         } finally { apple.bridge.shutdown(); }
         TestContext android=new TestContext(); try {
             android.bridge.enableRelay(); android.bridge.appleCarPlay.put("phone",Boolean.FALSE);
@@ -113,7 +123,39 @@ public class WirelessBridgeIntegrationTest {
             check(android.bridge.relay.starts==0,"non-Apple device remains on stock Android Auto path");
         } finally { android.bridge.shutdown(); }
     }
-    public static void main(String[] args)throws Exception{ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();System.out.println("PASS production WirelessBridge ownership integration");}
+    static void relayAdmissionRechecksOwnershipAndGeneration()throws Exception {
+      for(int boundary=0;boundary<6;boundary++){
+       TestContext c=new TestContext();try{
+        c.manager.idle=boundary!=0;c.manager.foreignAfterInspection=boundary==0;c.manager.reads=2;c.bridge.enableRelay();c.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+        c.bridge.session.candidate("phone",0);
+        c.manager.inspectionEntered=new CountDownLatch(1);c.manager.inspectionRelease=new CountDownLatch(1);
+        c.bridge.session.tick(0);
+        check(c.manager.inspectionEntered.await(2,TimeUnit.SECONDS),"stock inspection started");
+        c.bridge.session.inspected(c.bridge.session.generation(),new StockProjectionSession.Observation(StockProjectionSession.Result.INVOKED,true,0,StockProjectionSession.ProfileState.DISABLED,false,false,false,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
+        java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);maintain.invoke(c.bridge);
+        check(c.bridge.relay.starts==0,"no relay before fresh ownership inspection");
+        check(c.manager.inspectionEntered.await(2,TimeUnit.SECONDS),"fresh admission inspection started");
+        if(boundary==1)c.bridge.cable=true;
+        if(boundary==2){c.bridge.session.lost("phone",2);c.bridge.session.candidate("phone",3);}
+        if(boundary==3)c.bridge.shuttingDown=true;
+        if(boundary==4){c.bridge.relay.owner++;c.manager.idle=false;c.manager.foreignAfterInspection=true;}
+        if(boundary==5)c.manager.unavailableAfterInspection=true;
+        c.manager.inspectionRelease.countDown();settle(c);
+        check(c.bridge.relay.starts==0,"foreign/wired/stale/shutdown result cannot start relay "+boundary);
+        if(boundary==4)check(c.bridge.relay.cancels==0,"stale inspection cannot cancel newer relay generation");
+       }finally{if(c.manager.inspectionRelease!=null)c.manager.inspectionRelease.countDown();c.bridge.shuttingDown=false;c.bridge.shutdown();}
+      }
+    }
+    static void scanCandidateGenerationResetsRelay()throws Exception{
+      TestContext c=new TestContext();try{
+       c.bridge.enableRelay();c.bridge.session.candidate("phone",0);
+       java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);maintain.invoke(c.bridge);
+       int losses=c.bridge.relay.losses;c.bridge.relay.running=true;
+       c.bridge.session.lost("phone",1);c.bridge.session.candidate("other",2);maintain.invoke(c.bridge);
+       check(c.bridge.relay.losses==losses+1&&!c.bridge.relay.running,"scan replacement cancels old relay even without ACL disconnect broadcast");
+      }finally{c.bridge.shutdown();}
+    }
+    public static void main(String[] args)throws Exception{ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:

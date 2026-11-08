@@ -47,6 +47,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     boolean stopRegistered;
     boolean relayInspectPending;
     boolean relayEnabled;
+    long relayCandidateGeneration = -1;
 
     WirelessBridge(Context context) {
         this.context = context;
@@ -288,24 +289,32 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     }
 
     private void maintainRelay() {
-        if (!relayEnabled) return;
-        StockProjectionSession.Phase phase = session.phase();
-        String address = session.candidate();
-        boolean carPlay = session.observedProfileType() == PhoneProjectionAccess.TYPE_CARPLAY ||
-                (session.observedProfileType() == 0 && Boolean.TRUE.equals(appleCarPlay.get(address)));
-        if (!cable && address != null && carPlay &&
-                (phase == StockProjectionSession.Phase.BLOCKED || phase == StockProjectionSession.Phase.FAILED)) {
-            relay.start(address);
+        if (!relayEnabled || shuttingDown) return;
+        if (relayCandidateGeneration != session.generation()) {
+            relay.candidateLost();
+            relayCandidateGeneration = session.generation();
         }
+        String address = session.candidate();
+        if (address == null) return;
+        if (relayEligible(address) || relay.active()) inspectRelayProjection(address);
         if (!relay.active()) return;
         ProjectionWifiAccess.CredentialStatus credentials = inspectWifiCredentials();
         if (credentials == ProjectionWifiAccess.CredentialStatus.PRESENT) relay.credentialsReady();
         if (apProgress == ProjectionWifiAccess.ApProgress.READY) relay.apObservedReady();
-        inspectRelayProjection(address);
+    }
+
+    private boolean relayEligible(String address) {
+        StockProjectionSession.Phase phase = session.phase();
+        boolean carPlay = session.observedProfileType() == PhoneProjectionAccess.TYPE_CARPLAY ||
+                (session.observedProfileType() == 0 && Boolean.TRUE.equals(appleCarPlay.get(address)));
+        return !cable && !shuttingDown && address != null && address.equals(session.candidate()) && carPlay &&
+                (phase == StockProjectionSession.Phase.BLOCKED || phase == StockProjectionSession.Phase.FAILED);
     }
 
     private void inspectRelayProjection(final String address) {
         if (relayInspectPending || address == null) return;
+        final long candidateGeneration = session.generation();
+        final long relayGeneration = relay.generation();
         relayInspectPending = true;
         try {
             oemCalls.execute(new Runnable() { public void run() {
@@ -315,12 +324,21 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                         }, context, address);
                 main.post(new Runnable() { public void run() {
                     relayInspectPending = false;
+                    if (shuttingDown || !session.current(candidateGeneration) ||
+                            !address.equals(session.candidate()) || relay.generation() != relayGeneration) return;
+                    if (cable) { relay.cancel(BtRelaySession.CancelReason.WIRED); return; }
+                    refreshWired();
+                    if (cable) return;
                     if (StockProjectionSession.foreignOwner(state)) {
                         relay.cancel(BtRelaySession.CancelReason.FOREIGN_OWNER);
                         return;
                     }
                     if (state != null && state.active && state.profileType == PhoneProjectionAccess.TYPE_CARPLAY)
                         relay.projectionActive();
+                    // An idle, successful OEM read is required for every attempt, including retries.
+                    if (!relay.active() && relayEligible(address) && state != null &&
+                            state.result == StockProjectionSession.Result.INVOKED && state.serviceAvailable &&
+                            !state.active && !state.connecting && !state.otherActive) relay.start(address);
                 }});
             }});
         } catch (RuntimeException e) { relayInspectPending = false; }

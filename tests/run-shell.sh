@@ -22,7 +22,7 @@ bash tests/par.sh bash \
     tests/relay-gate.sh tests/bootguard-rollback.sh tests/bootguard-dongle.sh tests/bluelink.sh \
     tests/fat32-integrated.sh tests/dongle-snapshot.sh tests/diag.sh tests/core.sh tests/uilog.sh tests/wireless-legacy.sh \
     tests/integrated-zip.sh tests/hud-variant-report.sh tests/detect.sh tests/collect.sh \
-    tests/stock-projection-source.sh tests/standalone.sh || rc=1
+    tests/stock-projection-source.sh tests/standalone.sh tests/request-envelope.sh tests/adb-health.sh || rc=1
 # Python tests that start mksh themselves.
 bash tests/par.sh python3 tests/dongle_runtime.py || rc=1
 exit $rc

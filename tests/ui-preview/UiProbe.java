@@ -154,7 +154,8 @@ public final class UiProbe extends Instrumentation {
         try {
             File fixtures = new File(getTargetContext().getFilesDir(), "fixture"); fixtures.mkdirs();
             output = getTargetContext().getExternalFilesDir(null);
-            if (!"unknown".equals(scenario)) write(new File(fixtures, "status"), "ts=" + SystemClock.elapsedRealtime()/1000
+            if (!"unknown".equals(scenario)) write(new File(fixtures, "status"), "ts=" + (SystemClock.elapsedRealtime()/1000 - ("stale".equals(scenario) ? 120 : 0))
+                + "\nboot=12345678-1234-1234-1234-123456789abc"
                 + "\nhost=alive\nrelay=on\nwlan=present\nbackend=builtin\nversion=0.3.55\napguard=on\nwired="
                 + ("locked".equals(scenario) ? "yes" : "no")
                 + "\nsw_wireless=on\nsw_timer=off\nsw_bluelink=on\nsw_adb=off\nsaved=0:none\nremoved=0:none\n");
@@ -172,6 +173,13 @@ public final class UiProbe extends Instrumentation {
                 check("native title strip is 60dp high", Math.abs(((View) title.getParent()).getHeight() - 60 * density) <= 1);
             }});
             capture("info");
+            if ("normal".equals(scenario)) runOnMainSync(new Runnable() { public void run() {
+                check("host readiness is not advertised as successful wireless connection",
+                        text(activity.getWindow().getDecorView(), "무선 사용 가능") == null
+                        && text(activity.getWindow().getDecorView(), "무선 호스트 준비") != null);
+                check("ADB configuration has a separate observed health row",
+                        text(activity.getWindow().getDecorView(), "ADB 접속 상태") != null);
+            }});
             click("켜기/끄기"); capture("switches");
             runOnMainSync(new Runnable() { public void run() {
                 try { compareControls(); } catch (Exception e) { throw new RuntimeException(e); }
@@ -230,7 +238,7 @@ public final class UiProbe extends Instrumentation {
             }
             click("기록"); capture("log");
             click("관리"); capture("manage");
-            if (!"unknown".equals(scenario)) {
+            if (!"unknown".equals(scenario) && !"stale".equals(scenario)) {
                 click("제거..."); capture("remove-confirm");
                 click("취소");
                 runOnMainSync(new Runnable() { public void run() {

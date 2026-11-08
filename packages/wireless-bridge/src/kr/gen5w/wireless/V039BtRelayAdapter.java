@@ -138,6 +138,9 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         long owner;
         synchronized (lock) { owner = generation; }
         if (component != COMPONENT_BT_TRANSPORT && component != 5) return;
+        // close marks the pipe inactive before calling this endpoint again. Let
+        // that nested call stop OEM transport exactly once, then release owner.
+        if (component == COMPONENT_BT_TRANSPORT && owner != 0 && pipe.close(owner)) return;
         try {
             Intent intent = new Intent(IAP2_ACTION).setPackage(IAP2_PACKAGE);
             intent.putExtra(COMPONENT_EXTRA, -component);
@@ -146,8 +149,17 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         if (component == COMPONENT_BT_TRANSPORT && owner != 0) clear(owner);
     }
 
-    /** BTCM owns the physical SPP lifetime; component teardown releases our ownership. */
-    public void disconnect() { }
+    /** Releases our local owner even if SPP timed out before component 4 started.
+     * BTCM retains the physical SPP link; no reviewed per-owner disconnect API exists here.
+     */
+    public void disconnect() {
+        long owner;
+        synchronized (lock) { owner = generation; }
+        if (owner == 0) return;
+        pipe.close(owner);
+        clear(owner);
+        android.util.Log.i("Gen5wWireless", "path=relay event=cleanup result=local-owner-released-oem-spp-retained");
+    }
 
     public void close() {
         long owner;

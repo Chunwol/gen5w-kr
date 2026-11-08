@@ -19,9 +19,11 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
     private final V039BtRelayAdapter adapter;
     private final ExecutorService apCalls = Executors.newSingleThreadExecutor();
     private String candidate;
-    private String attemptedCandidate;
+    private int attempts;
+    private long retryAfter;
     private boolean ready;
-    private boolean closed;
+    private volatile boolean closed;
+    private volatile long shutdownDeadline;
     private int cleanupOutstanding;
 
     V039RelayCoordinator(Context context, Handler main, Events events) {
@@ -33,10 +35,11 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
     void open() { if (!adapter.open()) events.relayEvent("relay", "adapter-unavailable"); }
 
     void start(String address) {
-        if (closed || address == null || address.length() == 0 || active() || address.equals(attemptedCandidate)) return;
-        candidate = address;
-        attemptedCandidate = address;
+        if (closed || address == null || address.length() == 0 || active()) return;
+        if (!address.equals(candidate)) { candidate = address; attempts = 0; retryAfter = 0; }
+        if (attempts >= 3 || now() < retryAfter) return;
         if (!ready) { events.relayEvent("relay", "adapter-waiting"); return; }
+        attempts++;
         apply(session.start(now()));
     }
 
@@ -63,16 +66,19 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
 
     void candidateLost() {
         cancel(BtRelaySession.CancelReason.PHONE_LOST);
-        attemptedCandidate = null;
-        if (!active()) candidate = null;
+        attempts = 0;
+        retryAfter = 0;
+        candidate = null;
     }
 
     void close() {
         if (closed) return;
+        shutdownDeadline = now() + 20000;
         cancel(BtRelaySession.CancelReason.SHUTDOWN);
         closed = true;
         adapter.close();
-        apCalls.shutdownNow();
+        // Drain our queued STOP_AP; interrupting the executor loses cleanup.
+        apCalls.shutdown();
     }
 
     boolean active() {
@@ -81,11 +87,13 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
                 phase != BtRelaySession.Phase.CANCELLED;
     }
 
+    long generation() { return session.generation(); }
+
     public void ready() {
         post(new Runnable() { public void run() {
             ready = true;
             events.relayEvent("relay", "adapter-ready");
-            if (candidate != null && !active()) apply(session.start(now()));
+            // Admission (including fresh OEM ownership) belongs to WirelessBridge.
         }});
     }
 
@@ -118,10 +126,10 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         if (update.failure != null) events.relayEvent("relay", "failed-" + update.failure.name().toLowerCase());
         if (update.cancellation != null) events.relayEvent("relay", "cancelled-" + update.cancellation.name().toLowerCase());
         List<BtRelaySession.Command> commands = update.commands;
-        if (update.phase == BtRelaySession.Phase.STOPPING) cleanupOutstanding = commands.size();
+        if (update.phase == BtRelaySession.Phase.STOPPING && !commands.isEmpty()) cleanupOutstanding = commands.size();
         for (BtRelaySession.Command command : commands) execute(update.generation, command);
         if (update.phase == BtRelaySession.Phase.STOPPING && cleanupOutstanding == 0)
-            session.cleanupCompleted(update.generation);
+            finishCleanup(update.generation);
     }
 
     private void execute(final long generation, BtRelaySession.Command command) {
@@ -145,7 +153,8 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
             apCalls.execute(new Runnable() { public void run() {
                 try {
                     ApProfiles.Guard guard = new ApProfiles.Guard() { public void check() throws Exception {
-                        if (closed || session.generation() != generation) throw new Exception("stale relay");
+                        if ((closed && (enable || now() > shutdownDeadline)) ||
+                                session.generation() != generation) throw new Exception("stale relay");
                     }};
                     if (enable) ApBrokerClient.ensure(guard); else ApBrokerClient.stop(guard);
                     post(new Runnable() { public void run() {
@@ -166,9 +175,13 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         if (session.phase() != BtRelaySession.Phase.STOPPING || session.generation() != generation) return;
         if (cleanupOutstanding > 0) cleanupOutstanding--;
         if (cleanupOutstanding == 0) {
-            session.cleanupCompleted(generation);
-            candidate = null;
+            finishCleanup(generation);
         }
+    }
+
+    private void finishCleanup(long generation) {
+        session.cleanupCompleted(generation);
+        retryAfter = now() + attempts * 5000L;
     }
 
     private void post(Runnable action) { main.post(action); }

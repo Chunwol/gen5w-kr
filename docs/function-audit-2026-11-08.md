@@ -1,5 +1,31 @@
 # 기능 미동작 경로 감사 — 2026-11-08
 
+## 후속 소프트웨어 수정 (로컬 작업, 실차 미검증)
+
+아래 본문은 v0.3.56-rc.1 감사 당시 기록이다. 후속 수정으로 동일 폰
+fallback에 최대 3회/5·10초 백오프와 fresh OEM 소유권 검사를 추가했다.
+정리 완료 전 재시작을 차단하고 component 4 정리 시 pipe 소유권을 함께
+해제한다. 종료 시에도 소유한 AP의 STOP 작업을 버리지 않고 drain하며,
+종료 후 활성화는 차단하고 정리 guard는 20초로 제한한다.
+
+화면 요청은 최신 sequence만 기록하고 boot ID/30초 만료를 root에서
+검증한다. stale 상태에서는 조작·최종 제거 확인을 차단한다. 제거는 다른
+스위치 처리보다 배타적으로 실행해 완료된 제거 요청이 표식을 재생성하지
+않는다. ADB 요청 결과와 실제 daemon/listener 상태를 별도 표시하며 같은
+ON 요청으로 고장난 daemon을 복구할 수 있다.
+
+HUD는 fresh 소유권 heartbeat를 별도 표시하고 provider 관찰 timeout 뒤
+무한 worker 생성을 막았다. AA 소켓 bind/accept 실패는 재시도하며 종료 시
+server/client를 닫는다. 호스트 준비/Wi-Fi 인터페이스 존재를 연결 성공으로
+표시하지 않는다. 회귀 근거: RequestSafetyTest, request-envelope.sh,
+adb-health.sh, core_recovery.py, relay_coordinator_integration.py,
+relay_adapter_ownership.py 및 wireless_bridge_integration.py.
+
+미해결 전제조건: wlan0/드라이버 기동, 순정 연결용 자격 증명, OEM 지원 및
+실제 CarPlay/HUD 출력. 물리 SPP disconnect는 검토된 API가 없어 그대로
+유지하고 로컬 소유권만 해제한다. CarPlay의 ADB용 AP 중단 정책은 유지한다.
+이 수정은 기존 게시 릴리스/USB에 자동 반영되지 않는다.
+
 대상: v0.3.56-rc.1 후보. UI 수정과 별개로 무선 연결, 핫스팟/ADB,
 HUD, 안내창, 화면 요청, 설치/제거 흐름을 읽었다. 아래 항목은 실차
 재현 결과가 아니다. 코드에서 확인한 조건과 실차에서 확인할 사실을 구분한다.

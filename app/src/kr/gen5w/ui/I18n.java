@@ -32,6 +32,25 @@ public final class I18n {
     private static void add(String ko, String en) { EN.put(ko, en); }
 
     static {
+        add("상태가 오래되었거나 수집기가 응답하지 않아 조작을 잠갔습니다.", "Controls are locked because status is stale or the collector is not responding.");
+        add("무선 호스트 준비", "Wireless host ready");
+        add("호스트 실행은 Wi-Fi나 휴대폰 연결 성공을 뜻하지 않습니다.", "A running host does not confirm Wi-Fi or phone connection.");
+        add("인터페이스 있음 (AP 연결 여부는 별도)", "Interface present (AP connection not confirmed)");
+        add("인터페이스 없음", "Interface absent");
+        add("ADB 접속 상태", "ADB listener status");
+        add("리스닝 확인 (IP·키 승인은 별도)", "Listening verified (network and key approval still required)");
+        add("포트 설정됨 / adbd 중단", "Port configured / adbd not running");
+        add("포트 설정됨 / 리스닝 없음", "Port configured / not listening");
+        add("예상 밖의 ADB 리스너 감지", "Unexpected ADB listener detected");
+        add("ADB 설정 적용에 실패했습니다. 새 상태를 확인하고 다시 시도하세요.", "ADB configuration failed. Check fresh status and retry.");
+        add("HUD 소유권 상태", "HUD ownership status");
+        add("앱에서 꺼짐", "Disabled in this app");
+        add("순정 내비 우선 (출력 차단)", "Stock navigation has priority (output blocked)");
+        add("소유권 확인 실패 (출력 차단)", "Ownership unknown (output blocked)");
+        add("출력 허용 (실제 표시는 별도 확인)", "Output permitted (physical display not verified)");
+        add("서비스 응답 없음", "No service heartbeat");
+        add("Android Auto는 순정 무선 지원과 등록이 필요합니다. CarPlay 전용 중계는 적용되지 않습니다.", "Android Auto requires stock wireless support and registration. The CarPlay-only relay does not apply.");
+        add("새 상태를 기다린 뒤 다시 시도하세요.", "Wait for a fresh status update, then try again.");
         // Menu
         add("정보", "Info"); add("켜기/끄기", "On/Off"); add("기록", "Log"); add("관리", "Manage");
         add("불러오는 중...", "Loading...");

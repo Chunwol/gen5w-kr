@@ -199,7 +199,7 @@ public final class CoreService extends Service {
         try { unregisterReceiver(aaReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(mediaReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(systemReceiver); } catch (Exception ignored) {}
-        if (aaServer != null) { try { aaServer.close(); } catch (Exception ignored) {} }
+        stopAaSocketServer();
         epoch.close();
         main.removeCallbacksAndMessages(null);
         if (iap2 != null) {
@@ -302,10 +302,27 @@ public final class CoreService extends Service {
     private final Runnable outputRetry = new Runnable() { public void run() {
         if (stopping) return;
         refreshOwnership();
+        recordHudHealth();
         flushAaClear();
         session.retryOutput();
         io.postDelayed(this, 1000);
     }};
+    /** Fresh ownership observation only; this does not assert HUD delivery. */
+    private void recordHudHealth() {
+        android.util.AtomicFile target = new android.util.AtomicFile(
+                new java.io.File(getFilesDir(), "hud-health.status"));
+        java.io.FileOutputStream out = null;
+        try {
+            String status = (android.os.SystemClock.elapsedRealtime() / 1000) + " "
+                    + (ownerState == null ? "UNKNOWN" : ownerState) + "\n";
+            out = target.startWrite();
+            out.write(status.getBytes("US-ASCII"));
+            target.finishWrite(out);
+        } catch (java.io.IOException e) {
+            if (out != null) target.failWrite(out);
+            Log.w(TAG, "HUD health status unavailable");
+        }
+    }
     private void bind() {
         if (stopping || bound) return;
         Intent intent = new Intent("com.remote.service.IAP2SERVICE");
@@ -734,19 +751,66 @@ public final class CoreService extends Service {
         }
     };
 
-    private LocalServerSocket aaServer;
+    private final Object aaSocketLock = new Object();
+    private volatile LocalServerSocket aaServer;
+    private volatile LocalSocket aaClient;
+    private Thread aaThread;
+
+    private void stopAaSocketServer() {
+        synchronized (aaSocketLock) {
+            if (aaClient != null) try { aaClient.close(); } catch (java.io.IOException ignored) { }
+            if (aaServer != null) try { aaServer.close(); } catch (java.io.IOException ignored) { }
+            aaClient = null;
+            aaServer = null;
+        }
+        if (aaThread != null) aaThread.interrupt();
+    }
+
     private void startAaSocketServer() {
-        new Thread(new Runnable() {
+        aaThread = new Thread(new Runnable() {
             public void run() {
-                try {
-                    aaServer = new LocalServerSocket("gen5wkr.aa.tbt");
-                    while (!stopping) {
-                        LocalSocket client = aaServer.accept();
-                        handleAaClient(client);
+                while (!stopping) {
+                    LocalServerSocket server = null;
+                    try {
+                        server = new LocalServerSocket("gen5wkr.aa.tbt");
+                        synchronized (aaSocketLock) {
+                            if (stopping) return;
+                            aaServer = server;
+                        }
+                        Log.i(TAG, "AA input listener ready");
+                        while (!stopping) {
+                            LocalSocket client = server.accept();
+                            synchronized (aaSocketLock) {
+                                if (stopping) {
+                                    client.close();
+                                    break;
+                                }
+                                aaClient = client;
+                            }
+                            try { handleAaClient(client); }
+                            finally {
+                                synchronized (aaSocketLock) {
+                                    if (aaClient == client) aaClient = null;
+                                }
+                            }
+                        }
+                    } catch (java.io.IOException e) {
+                        if (!stopping) Log.w(TAG, "AA input listener unavailable; retry scheduled");
+                    } catch (RuntimeException e) {
+                        if (!stopping) Log.w(TAG, "AA input listener failed; retry scheduled");
+                    } finally {
+                        if (server != null) try { server.close(); } catch (java.io.IOException ignored) { }
+                        synchronized (aaSocketLock) {
+                            if (aaServer == server) aaServer = null;
+                        }
                     }
-                } catch (Throwable ignored) {}
+                    if (stopping) return;
+                    try { Thread.sleep(RETRY_MS); }
+                    catch (InterruptedException e) { return; }
+                }
             }
-        }, "gen5w-aa-tbt").start();
+        }, "gen5w-aa-tbt");
+        aaThread.start();
     }
 
     private void handleAaClient(LocalSocket client) {
