@@ -23,6 +23,7 @@ case "$MODE" in
  retry) [ "$n" -ge 2 ] && exit 0; echo 'remount: Device or resource busy' >&2;;
  busy) echo 'remount: Device or resource busy' >&2;;
  denied) echo 'remount: Permission denied' >&2;;
+ huge) python3 -c 'import sys;sys.stderr.write("Permission denied password=hotspot-private " + "x"*262144)' ;;
  unknown) :;;
  corrupt) if [ "$n" -le 3 ]; then echo corrupted > "$CASE_DIR/system/app/HKMC_WifiSettings.odex"; fi; echo 'remount: Device or resource busy' >&2;;
 esac
@@ -48,7 +49,7 @@ run install || { cat "$fixture/output"; echo 'FAIL verified busy install rejecte
 test "$(cat "$target")" = patched
 test "$(cat "$fixture/count")" = 3
 grep -q 'WARN:.*read-only' "$fixture/output"
-grep -q 'Device or resource busy' "$fixture/output"
+grep -q 'reason=busy\|Device or resource busy' "$fixture/output"
 grep -q 'ext4 rw,relatime' "$fixture/output"
 run remove
 test "$(cat "$target")" = original
@@ -62,6 +63,11 @@ for MODE in denied unknown corrupt; do
  if run install; then echo "FAIL unsafe $MODE accepted"; exit 1; fi
  test "$(cat "$target")" = original
 done
+reset_case; export MODE=huge
+if run install; then echo 'FAIL huge permission failure accepted'; exit 1; fi
+test "$(cat "$target")" = original
+! grep -q hotspot-private "$fixture/output"
+test "$(wc -c < "$fixture/output")" -lt 16384
 reset_case; export MODE=busy
 echo '/dev/block/system /different ext4 rw 0 0' > "$fixture/mounts"
 if run install; then echo 'FAIL busy with unknown mount accepted'; exit 1; fi

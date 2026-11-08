@@ -29,5 +29,5 @@ bash tests/par.sh bash \
     tests/integrated-zip.sh tests/hud-variant-report.sh tests/detect.sh tests/collect.sh \
     tests/stock-projection-source.sh tests/standalone.sh tests/request-envelope.sh tests/adb-health.sh || rc=1
 # Python tests that start mksh themselves.
-bash tests/par.sh python3 tests/dongle_runtime.py tests/broker_diagnostics.py || rc=1
+bash tests/par.sh python3 tests/dongle_runtime.py tests/broker_diagnostics.py tests/diagnostic_concurrency.py || rc=1
 exit $rc

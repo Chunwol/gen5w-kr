@@ -102,12 +102,27 @@ system_readonly() {
     sync
     while [ "$ro_attempt" -lt 3 ]; do
         ro_attempt=$((ro_attempt + 1))
-        if ro_message=$("$NEM" remount ro 2>&1); then return 0; fi
-        echo "DETAIL local hotspot remount ro attempt $ro_attempt: $ro_message"
-        case "$ro_message" in
-            *'Device or resource busy'*|*'device or resource busy'*|*'Device busy'*|*'EBUSY'*) ;;
-            *) ro_busy=no;;
-        esac
+        ro_reason=unknown ro_rc=0
+        if command -v err_classify_stream >/dev/null 2>&1; then
+            if "$NEM" remount ro 2>&1 | err_classify_stream; then
+                ro_statuses=("${PIPESTATUS[@]}")
+            else
+                ro_statuses=("${PIPESTATUS[@]}")
+            fi
+            ro_rc=${ro_statuses[0]}
+            case "${ro_statuses[1]}" in
+                10) ro_reason=permission;; 11) ro_reason=busy;; 12) ro_reason=missing;;
+                13) ro_reason=no-space;; 14) ro_reason=read-only;; 15) ro_reason=io;; 16) ro_reason=timeout;;
+            esac
+            [ "$ro_rc" != 0 ] || return 0
+            err_event hotspot mount ro failed "$ro_rc" "$ro_reason"
+        else
+            # Older durable recovery may lack the helper. Never capture raw
+            # output; missing diagnostics cannot authorize the busy exception.
+            "$NEM" remount ro >/dev/null 2>&1 && return 0
+        fi
+        echo "DETAIL local hotspot remount ro attempt $ro_attempt: reason=$ro_reason"
+        [ "$ro_reason" = busy ] || ro_busy=no
         [ "$ro_attempt" = 3 ] || sleep 1
     done
     system_mount_state

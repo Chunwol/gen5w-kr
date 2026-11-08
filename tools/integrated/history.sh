@@ -54,11 +54,21 @@ report_write_line() {
         fi
         print -r -- "$line" >> "$out" || return 1
 }
+report_attempt_end() {
+    [ -z "${REPORT_LOCK_DIR:-}" ] || err_unlock "$REPORT_LOCK_DIR" "$REPORT_LOCK_BOOT"
+}
 report_attempt_begin() {
     typeset action=$1 report=GEN5W-REPORT history=GEN5W-REPORT/HISTORY
     typeset slot=0 next dir name owner= item known
     [ ! -L "$report" ] && [ ! -L "$history" ] || return 1
     mkdir -p "$report" || return 1
+    REPORT_LOCK_BOOT=unknown
+    [ ! -r /proc/sys/kernel/random/boot_id ] || IFS= read -r REPORT_LOCK_BOOT < /proc/sys/kernel/random/boot_id
+    err_lock "$report" "$REPORT_LOCK_BOOT" || return 1
+    REPORT_LOCK_DIR=$report
+    # Keep the lock through the real operation and current report publication,
+    # not only the archive slot counter. A contender must not truncate either.
+    trap report_attempt_end EXIT
     if [ -e "$history" ]; then
         [ -d "$history" ] && [ ! -L "$history/.owner" ] && [ -f "$history/.owner" ] || return 1
         IFS= read -r owner < "$history/.owner" || return 1

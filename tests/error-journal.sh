@@ -58,4 +58,6 @@ ERR_DIR=$W/link
 rc=0; err_run core install symlink "$W/command" > "$W/out" 2> "$W/err" || rc=$?
 [ "$rc" = 13 ] && [ "$(cat "$W/out")" = parsed-value ] || fail 'diagnostic failure changed operation'
 [ -z "$(ls -A "$W/elsewhere")" ] || fail 'followed diagnostic symlink'
+mksh -ec '. "$1"; mkdir "$2/unlock"; err_lock "$2/unlock" boot; rm() { return 13; }; err_unlock "$2/unlock" boot; print survived' test "$PWD/tools/diagnostics/errors.sh" "$W" > "$W/unlock-result"
+grep -q survived "$W/unlock-result" || fail 'unlock failure interrupted operation under set-e'
 echo 'PASS bounded error journal rc/stdout/first-failure/privacy/rotation/symlink'

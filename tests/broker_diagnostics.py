@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-broker-diag-') as folder:
     child.write_text('''#!/bin/sh
 echo "$$" > "$TEST_PID_FILE"
 echo 'java.lang.NoClassDefFoundError SSID=secret-broker password=private' >&2
+echo 'Gen5wDiag ERR code=ap.transition exception=TimeoutException reason=timeout generation=1 monotonicMs=1' >&2
 trap 'exit 23' TERM
 while :;do sleep 0.05;done
 ''',encoding='utf-8')
@@ -29,10 +30,21 @@ NEM=$TEST_WORK/nemesis
 DEX=unused
 broker_count=1
 ''' + launch + '''
+trap '[ -z "$broker_pid" ] || kill "$broker_pid" 2>/dev/null; kill "$broker_reader" 2>/dev/null || :; rm -f "$broker_fifo"' EXIT
 n=0
 while [ ! -s "$TEST_PID_FILE" ];do n=$((n+1));[ "$n" -lt 100 ] || exit 10;sleep 0.02;done
 IFS= read -r actual < "$TEST_PID_FILE"
 [ "$broker_pid" = "$actual" ] || { echo 'FAIL child PID replaced by diagnostic wrapper';exit 11; }
+n=0
+while ! grep -q 'operation=ap-broker.*reason=missing-class' "$ERR_DIR/errors.0" 2>/dev/null;do
+  n=$((n+1));[ "$n" -lt 100 ] || { echo 'FAIL live broker error waits for EOF';exit 16; };sleep 0.02
+done
+grep -q 'operation=ap.transition.*reason=timeout' "$ERR_DIR/errors.0" || {
+  n=0
+  while ! grep -q 'operation=ap.transition.*reason=timeout' "$ERR_DIR/errors.0";do
+    n=$((n+1));[ "$n" -lt 100 ] || exit 17;sleep 0.02
+  done
+}
 kill "$broker_pid"
 n=0
 while kill -0 "$broker_pid" 2>/dev/null;do n=$((n+1));[ "$n" -lt 100 ] || exit 12;sleep 0.02;done

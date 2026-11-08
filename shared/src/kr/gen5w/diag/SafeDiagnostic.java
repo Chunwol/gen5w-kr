@@ -52,6 +52,8 @@ public final class SafeDiagnostic {
                 // Only classifications escape; the message itself never does.
                 if(error instanceof SecurityException) return "permission";
                 if(type.contains("Timeout")) return "timeout";
+                if(type.equals("ApRejectedException")) return "rejected";
+                if(error instanceof java.util.concurrent.CancellationException) return "cancelled";
                 if(message!=null) {
                     if(message.contains("Permission denied")||message.contains("Operation not permitted")) return "permission";
                     if(message.contains("No space left")||message.contains("ENOSPC")) return "no-space";

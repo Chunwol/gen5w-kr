@@ -7,7 +7,7 @@ public final class ApProfilesTest {
         ApProfiles.Profile config = ORIGINAL, submitted;
         String liveSsid, liveKey;
         int state = 11, mode = 1, enables, disables;
-        boolean fail, cancelled, hang, locked, ordinaryEditOnDisable, cpEditOnDisable;
+        boolean fail, cancelled, hang, locked, ordinaryEditOnDisable, cpEditOnDisable, rejectMode;
         long time;
         public void check() throws Exception { if (cancelled) throw new Exception("cancelled generation"); }
         public void lock(ApProfiles.Guard guard) throws Exception { guard.check(); locked = true; }
@@ -34,7 +34,7 @@ public final class ApProfilesTest {
             // Contract of the hash-gated native implementation: save unchanged
             // ordinary fields, select CP fields only for the live mode-2 command.
             config = new ApProfiles.Profile(expected.ssid, expected.key, expected.carplaySsid, expected.carplayKey, 2);
-            mode = 2; state = hang ? 12 : 13;
+            mode = rejectMode ? 1 : 2; state = hang ? 12 : 13;
             liveSsid = expected.carplaySsid; liveKey = expected.carplayKey;
             if (fail) throw new Exception("native start failed");
         }
@@ -75,8 +75,21 @@ public final class ApProfilesTest {
         try { new ApProfiles().ensure(f, f); throw new AssertionError("must retry changed CP profile"); } catch (Exception expected) { }
         check(f.enables == 0 && "cp2".equals(f.config.carplaySsid) && !f.locked, "CP edits during stop abort stale activation");
         f = new Fake(); f.hang = true;
-        try { new ApProfiles().ensure(f, f); throw new AssertionError("must time out"); } catch (Exception expected) { }
+        java.io.ByteArrayOutputStream diagnostics = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream previousErr = System.err;
+        try {
+            System.setErr(new java.io.PrintStream(diagnostics));
+            try { new ApProfiles().ensure(f, f); throw new AssertionError("must time out"); } catch (Exception expected) { }
+        } finally { System.setErr(previousErr); }
+        check(diagnostics.toString("UTF-8").contains("reason=timeout"), "actual AP timeout classified distinctly");
         preserved(f); check(f.time == 20000 && f.state == 11, "timeout bounded and owned AP stopped");
+        diagnostics.reset(); f = new Fake(); f.rejectMode = true;
+        try {
+            System.setErr(new java.io.PrintStream(diagnostics));
+            try { new ApProfiles().ensure(f, f); throw new AssertionError("must reject mode"); } catch (Exception expected) { }
+        } finally { System.setErr(previousErr); }
+        check(diagnostics.toString("UTF-8").contains("reason=rejected"), "different AP failure not suppressed after timeout");
+        preserved(f); check(f.doneFail == 1, "mode rejection still finalizes failed transition");
         f = new Fake(); f.config = new ApProfiles.Profile("ordinary", "ordinary-key", null, null, 1);
         try { new ApProfiles().ensure(f, f); throw new AssertionError("must reject missing CP settings"); } catch (Exception expected) { }
         check(f.enables == 0 && f.disables == 0 && !f.locked, "validate before any radio operation");

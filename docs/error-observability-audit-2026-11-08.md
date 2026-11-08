@@ -1,7 +1,7 @@
 # 오류 처리·로그 보강 감사
 
 대상: 3dc8a7a 이후 로컬 변경. 실차 재설치·원래 remount errno·연결 실패 팝업은
-이번 코드 시험으로 확정하지 않는다. 상태: 구현 후 최종 검증/독립 리뷰 진행 중.
+이번 코드 시험으로 확정하지 않는다. 구현·독립 리뷰와 검증 근거를 구분해 아래에 기록한다.
 
 ## 기록 계약
 
@@ -22,6 +22,10 @@
   레코드는 고정 토큰 필드이고 1KiB 이하; 임의 모듈명/파일명은 받지 않는다.
 - 기록 잠금은 대기하지 않는다. boot/PID가 확인되는 죽은 writer 잠금은 복구하며,
   소유권을 모르는 잠금은 삭제하지 않고 stderr로 persistence=busy를 알린다.
+- stale 회수는 별도 비대기 mutex로 직렬화하고, 해제는 boot와 실제 `/proc/self/stat`
+  PID 소유자가 일치할 때만 한다. mksh 백그라운드의 부모 `$$`를 소유자로 쓰지 않는다.
+- 보고서 잠금은 archive 준비부터 실제 작업·최종 현재 보고서 쓰기까지 유지한다.
+  동시 entry는 대기하거나 기존 보고서를 잘라내지 않고 거부한다.
 - USB REPORT/HISTORY는 소유 표식이 있는 최근8개 슬롯만 재사용한다. 알 수 없는
   파일·심볼릭 링크가 있으면 보존하고 새 기록 준비를 거부한다. 재귀 삭제하지 않는다.
 - EXEC/DIAG 스트림은 각64KiB 이하4세그먼트. 긴 줄·민감 문자열은 표시를 남기고
@@ -89,6 +93,14 @@
 - `tests/entry-errors.sh`: 준비 전 내부 쓰기 금지/boot 조회 권한13/작업17과 저장1 분리/
   writer 실패 후 producer 완료/최초 작업 실패 보존/비식별화.
 - `tests/broker_diagnostics.py`: 실제 launch/exit 코드의 native child PID·stderr·rc·정리·비식별화.
+  종료 전 분류·검토된 Java 코드가 보이는지도 확인한다. live sink는 1024자 청크/
+  64자 carry로 제한하며 최대16이벤트/30초와 연속 중복 억제를 적용한다.
+- `tests/diagnostic_concurrency.py`: stale 회수 직전 barrier의 경쟁, 부모가 살아 있는
+  백그라운드 writer 강제 종료, 실제 겹치는 entry 거부·원래 rc·후속 시도 확인.
+- 실제 `ApProfilesTest`의 timeout/rejected는 별도 원인으로 남고, 연속 실패도
+  같은 unknown으로 rate-suppression되지 않는다. 기존 guarded cleanup은 유지한다.
+- 핫스팟 ro도 rw와 마찬가지로 원시 stderr를 저장하지 않는다. 256KiB/민감 문자열
+  실패 주입에서도 기존 verified-busy/retry/rollback 정책과 출력 상한을 확인한다.
 - `SafeDiagnosticTest`, `DiagnosticConsumersTest`: rate/capacity/예외 분류/비식별화,
   실제 요청 rename 실패의 false 반환과 기존 파일 보존.
 - `tests/core_recovery.py`: 실제 provider timeout·heartbeat 쓰기 실패를 원인별로 기록하고
@@ -110,5 +122,19 @@
 - 전원 강제 차단, 저장장치 전체 고장, 초기 Android/커널이 서비스 전에 멈춘 경우에는
   앱 로그가 생성되지 않을 수 있다. 외부 NEMESIS/커널의 내부 원인을 전부 관측하지 못한다.
 - 소유권 없는 lock/보고서 슬롯은 자동 삭제하지 않는다. 안전한 거부·저장 불가 결과로 남는다.
+  회수 중 프로세스가 죽어 `reclaim.lock`만 남는 극단적인 창도 임의 회수하지 않는다.
+  이 경우 stderr fallback은 남지만 private 저장은 수동 확인 전 불가할 수 있다.
 - 일치하는 private V039 fixture가 없는 exact-stock 시험과 실제 차량 설치·CarPlay/HUD는
   미검증이다. Wi-Fi 드라이버/자격 증명/물리 SPP API 제약은 이번 범위에서 바꾸지 않는다.
+
+## 독립 리뷰 및 판정
+
+- fresh-context 리뷰 범위 `dca66ee..fe7e809`: Critical0, Important5, Minor0.
+  동시 보고서/잠금 회수·실제 PID/EOF 대기 sink/AP timeout/핫스팟 raw capture를
+  모두 채택하고 실패 시험 RED→GREEN으로 수정했다. 수정 뒤 전체 회귀/빌드는 별도 검증한다.
+- 실차·exact-stock·원래 errno는 증거 부재로 판정 보류한다(대상 전용 결함 잔존 가능).
+- 기존 verified-busy 정책은 유지한다(잘못된 경우 재부팅/복구가 여전히 필요할 수 있음).
+- transport·자격 증명·물리 SPP 설계는 범위 밖으로 유지한다(연결 제약 자체는 미해결).
+- fatal JVM 자원 고갈/적대적인 custom Throwable·Sink는 실제 경로 근거가 없어
+  치명적 오류를 억지로 삼키지 않는다(해당 경우 앱 진단 누락 가능).
+- 이연 Minor 없음. 공개 발행/USB 쓰기 없음.

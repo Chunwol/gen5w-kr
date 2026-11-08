@@ -28,7 +28,16 @@ err_size() {
 }
 err_lock() {
     typeset dir=$1 boot=$2 owner_boot= owner_pid= extra=
+    # mksh $$ stays the supervisor PID in background function subshells.
+    # A builtin read resolves /proc/self for the actual writer, without $().
+    typeset writer_pid
+    IFS=' ' read -r writer_pid extra < /proc/self/stat || return 1
+    case "$writer_pid" in ''|*[!0-9]*) return 1;; esac
     if ! mkdir "$dir/write.lock" 2>/dev/null; then
+        # Reclaimers serialize separately: a delayed stale observer must never
+        # remove a replacement lock acquired by another live writer.
+        mkdir "$dir/reclaim.lock" 2>/dev/null || return 1
+        (
         [ -d "$dir/write.lock" ] && [ ! -L "$dir/write.lock" ] &&
             [ -f "$dir/write.lock/owner" ] && [ ! -L "$dir/write.lock/owner" ] || return 1
         IFS=' ' read -r owner_boot owner_pid extra < "$dir/write.lock/owner" || return 1
@@ -37,9 +46,24 @@ err_lock() {
         [ -z "$extra" ] || return 1
         if [ "$owner_boot" = "$boot" ] && kill -0 "$owner_pid" 2>/dev/null;then return 1;fi
         # Only the known owner file is removed; foreign lock contents remain.
-        rm -f "$dir/write.lock/owner" && rmdir "$dir/write.lock" 2>/dev/null && mkdir "$dir/write.lock" 2>/dev/null || return 1
+        rm -f "$dir/write.lock/owner" && rmdir "$dir/write.lock" 2>/dev/null && mkdir "$dir/write.lock" 2>/dev/null
+        )
+        typeset reclaimed=$?
+        rmdir "$dir/reclaim.lock" 2>/dev/null || :
+        [ "$reclaimed" = 0 ] || return 1
     fi
-    (umask 077; print -r -- "$boot $$" > "$dir/write.lock/owner") || { rmdir "$dir/write.lock" 2>/dev/null;return 1; }
+    (umask 077; print -r -- "$boot $writer_pid" > "$dir/write.lock/owner") || { rmdir "$dir/write.lock" 2>/dev/null;return 1; }
+}
+err_unlock() {
+    typeset dir=$1 boot=$2 owner_boot= owner_pid= extra=
+    typeset writer_pid
+    IFS=' ' read -r writer_pid extra < /proc/self/stat || return 0
+    [ -d "$dir/write.lock" ] && [ ! -L "$dir/write.lock" ] &&
+        [ -f "$dir/write.lock/owner" ] && [ ! -L "$dir/write.lock/owner" ] || return 0
+    IFS=' ' read -r owner_boot owner_pid extra < "$dir/write.lock/owner" || return 0
+    [ "$owner_boot" = "$boot" ] && [ "$owner_pid" = "$writer_pid" ] && [ -z "$extra" ] || return 0
+    rm -f "$dir/write.lock/owner" 2>/dev/null || return 0
+    rmdir "$dir/write.lock" 2>/dev/null || :
 }
 err_event() {
     typeset module=$1 stage=$2 operation=$3 result=$4 code=$5 reason=$6
@@ -89,8 +113,7 @@ err_event() {
             esac
         fi
     ) || print -r -- 'ERR persistence=failed' >&2
-    rm -f "$dir/write.lock/owner"
-    rmdir "$dir/write.lock" 2>/dev/null || :
+    err_unlock "$dir" "$boot"
     return 0
 }
 err_classify_stream() {
@@ -103,7 +126,7 @@ err_classify_stream() {
         chunk=$carry$chunk
         case "$chunk" in
             *'Permission denied'*|*'Operation not permitted'*) reason=10;;
-            *'Device or resource busy'*|*'device or resource busy'*|*'EBUSY'*) [ "$reason" != 10 ] || continue; reason=11;;
+            *'Device or resource busy'*|*'device or resource busy'*|*'Device busy'*|*'EBUSY'*) [ "$reason" != 10 ] || continue; reason=11;;
             *'not found'*|*'No such file or directory'*) [ "$reason" != 0 ] || reason=12;;
             *'No space left on device'*) reason=13;;
             *'Read-only file system'*) reason=14;;
@@ -154,14 +177,54 @@ err_run() {
 }
 err_mount() { typeset module=$1 mode=$2 command=$3; err_run "$module" mount "$mode" "$command" remount "$mode"; }
 err_stderr() {
-    typeset code reason=redacted
-    if err_classify_stream; then code=0; else code=$?; fi
+    typeset module=$1 stage=$2 operation=$3 char line= carry= nl='
+'
+    typeset live_window=0 live_count=0 live_last=
+    # A character read returns a short newline-terminated error immediately,
+    # unlike mksh read -n1024, which waits for 1024 bytes or EOF.
+    while IFS= read -r -n 1 char; do
+        if [ "$char" = "$nl" ]; then
+            err_live_record "$module" "$stage" "$operation" "$carry$line"
+            line= carry=
+        else
+            line=$line$char
+            if [ "${#line}" -ge 1024 ]; then
+                err_live_record "$module" "$stage" "$operation" "$carry$line"
+                carry=${line:$((${#line}-64))};line=
+            fi
+        fi
+    done
+    [ -z "$line" ] || err_live_record "$module" "$stage" "$operation" "$carry$line"
+}
+err_live_record() {
+    typeset module=$1 stage=$2 operation=$3 text=$4 code reason=redacted key now=0 extra fixed
+    if print -r -- "$text" | err_classify_stream; then code=0; else code=$?; fi
     case "$code" in
         10) reason=permission;; 11) reason=busy;; 12) reason=missing;;
         13) reason=no-space;; 14) reason=read-only;; 15) reason=io;; 16) reason=timeout;;
         17) reason=missing-class;; 18) reason=linkage;; 19) reason=socket-bind;;
     esac
-    err_event "$1" "$2" "$3" observed 0 "$reason"
+    # Only reviewed producer codes and fixed reason enums may survive as-is.
+    case "$text" in
+      'Gen5wDiag ERR code='*)
+        fixed=${text#*code=};fixed=${fixed%% *}
+        case "$fixed" in
+          ap.transition|ap.transition.cleanup|ap.rollback|ap.executor|ap.profile.restore|ap.guard.boot|ap.guard.directory|ap.guard.rename|ap.guard.write|ap.bootRestore.command|ap.bootRestore.exit.[0-9]|ap.bootRestore.exit.[0-9][0-9]|ap.bootRestore.exit.[0-9][0-9][0-9])
+            operation=$fixed
+            fixed=${text#* reason=};fixed=${fixed%% *}
+            case "$fixed" in permission|busy|missing|no-space|read-only|io|timeout|linkage|binder|unknown|rejected|cancelled) reason=$fixed;; esac;;
+        esac;;
+    esac
+    [ ! -r /proc/uptime ] || IFS=' ' read -r now extra < /proc/uptime
+    now=${now%%.*}
+    case "$now" in ''|*[!0-9]*) now=0;; esac
+    if [ "$now" -lt "$live_window" ] || [ "$((now-live_window))" -ge 30 ]; then
+        live_window=$now;live_count=0;live_last=
+    fi
+    key=$operation:$reason
+    [ "$key" != "$live_last" ] && [ "$live_count" -lt 16 ] || return 0
+    live_last=$key;live_count=$((live_count+1))
+    err_event "$module" "$stage" "$operation" observed 0 "$reason"
 }
 err_export() {
     typeset dir=${ERR_DIR:-/data/nemesis/gen5wkr.errors} name line count size module slot names=

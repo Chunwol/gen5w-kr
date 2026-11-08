@@ -84,7 +84,7 @@ public final class ApProfiles {
                 attempted = true; port.enable(latest);
                 waitState(port, guard, ENABLED, 20000);
                 guard.check();
-                if (port.mode() != CONNECTIVITY) throw new Exception("CarPlay AP mode unavailable");
+                if (port.mode() != CONNECTIVITY) throw new ApRejectedException();
                 port.transitionDone(true);
             } catch (Exception failure) {
                 kr.gen5w.diag.SafeDiagnostic.failure("ap.transition",failure);
@@ -122,7 +122,8 @@ public final class ApProfiles {
             if (port.state() == state) return;
             port.pause();
         } while (port.now() < end);
-        throw new Exception("AP transition timed out");
+        throw new java.util.concurrent.TimeoutException("AP transition timed out");
     }
+    private static final class ApRejectedException extends Exception { }
     private static boolean same(String a, String b) { return a == null ? b == null : a.equals(b); }
 }

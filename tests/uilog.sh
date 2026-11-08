@@ -48,11 +48,13 @@ run() {
         mv "$W/request.new" "$W/request"
     fi
     UILOG_TEST_DATA=$W/data UILOG_TEST_DIR=${UILOG_DIR:-$UI} UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat \
-    UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request UILOG_TEST_USB=$W/usb UILOG_TEST_MOUNTS=$W/mounts UILOG_TEST_PM=$W/bin/pm mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
+    UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc UILOG_TEST_REQUEST=$W/request UILOG_TEST_USB=$W/usb UILOG_TEST_MOUNTS=$W/mounts UILOG_TEST_PM=$W/bin/pm \
+    python3 "$ROOT/tests/wait-descendants.py" mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1
 }
-# Save and removal run in the background after the request is read: give them a moment.
-runs() { run; sleep 0.8; }
-runw() { run; sleep 6; }
+# Tests inspect completed actions. The test-owned subreaper joins even orphaned
+# grandchildren, so no case inspects or resets a live worker's files.
+runs() { run; }
+runw() { run; }
 # By default the files go to a root-owned folder under /data/nemesis, never into an app data folder.
 default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UILOG_TEST_ONCE=1 UILOG_TEST_LOGCAT=$W/logcat UILOG_TEST_READY=$W/ready UILOG_TEST_PROC=$W/proc mksh "$PKG/scripts/uilog.sh" > "$W/out" 2>&1; }
 status() { grep "^$1=" "$UI/status" | { IFS= read -r l; echo "${l#*=}"; }; }
