@@ -43,21 +43,17 @@ public final class MainActivity extends Activity {
         "진단 저장과 제거 같은 관리 작업을 합니다."};
     private static final String LANG_FILE = "lang-en"; // present = English; absent = Korean (default)
     private static final String UI_DIR = "/data/nemesis/gen5wkr.ui";
-    // Every color on this screen is one of the nine on Hyundai's published color page (hyundai.com CI,
-    // "전용색상"): Hyundai Blue #002C5F, Sand #E4DCD3, Light Sand #F6F3F2, Gold #A36B4F, White, Black,
-    // Active Blue #00AAD2, Sky Blue #AACAE6, Active Red #E63312. Nothing else is used: no transparency
-    // and no blended grays. The background copies the stock screen: black at the top, Hyundai Blue
-    // flat; the screen has no gradients.
-    private static final int BLACK = 0xFF000000, WHITE = 0xFFFFFFFF, BLUE = 0xFF002C5F, SAND = 0xFFE4DCD3,
-            LIGHT_SAND = 0xFFF6F3F2, GOLD = 0xFFA36B4F, ACTIVE_BLUE = 0xFF00AAD2, SKY = 0xFFAACAE6, ACTIVE_RED = 0xFFE63312;
-    private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = WHITE, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
-            LINE = SKY, BAR = BLACK, OUTLINE = SKY, TILE = BLACK, DISABLED = BLUE;
+    // The installed Korean V039 Settings skin takes precedence over corporate CI colors.
+    private static final int BLACK = 0xFF000000, WHITE = StockSkin.WHITE, BLUE = StockSkin.BOTTOM, SAND = StockSkin.SUMMARY,
+            GOLD = 0xFFCAA675, ACTIVE_BLUE = StockSkin.CYAN, ACTIVE_RED = 0xFFE63312;
+    private static final int ACCENT = ACTIVE_BLUE, TEXT = WHITE, DIM = StockSkin.SUMMARY, OK = ACTIVE_BLUE, WARN = GOLD, RED = ACTIVE_RED,
+            LINE = StockSkin.LINE, BAR = StockSkin.TOP, OUTLINE = 0xFF5B606A, TILE = 0x00000000, DISABLED = StockSkin.DISABLED;
     private static final int ROUND = 2; // dp: the stock screen uses almost square corners
     private static final java.util.Random RANDOM = new java.util.Random();
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView helpText;
-    private android.widget.TextClock clock, date;
+    private StockSkin skin;
     private final LinearLayout[] menuItems = new LinearLayout[TABS.length];
     private FrameLayout content;
     private int tab = INFO;
@@ -94,66 +90,54 @@ public final class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        skin = new StockSkin(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundDrawable(background()); // the one background gradient, like the stock settings
         I18n.setEnglish(new File(getFilesDir(), LANG_FILE).exists());
         FrameLayout bar = new FrameLayout(this);
-        bar.setBackgroundColor(BAR); // the stock bars are flat, not raised
-        bar.setMinimumHeight(dp(56));
+        // The vehicle's SystemUI already supplies back/home, clock, date and status icons.
+        // Do not draw another fake status bar inside the application.
+        bar.setBackgroundDrawable(skin.drawable("co_bg_title_bar", new ColorDrawable(BAR)));
+        bar.setMinimumHeight(dp(60));
         TextView back = label("‹", 44, TEXT, false);
         back.setGravity(Gravity.CENTER);
         back.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { finish(); }
         });
-        bar.addView(back, new FrameLayout.LayoutParams(dp(84), dp(56), Gravity.LEFT | Gravity.CENTER_VERTICAL));
-        LinearLayout clockBox = new LinearLayout(this);
-        clockBox.setGravity(Gravity.CENTER_VERTICAL);
-        clock = new android.widget.TextClock(this);
-        clock.setTextColor(TEXT);
-        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
-        clock.setTypeface(Typeface.DEFAULT_BOLD);
-        clockBox.addView(clock);
-        date = new android.widget.TextClock(this);
-        date.setTextColor(TEXT);
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        date.setPadding(dp(22), 0, 0, 0);
-        clockBox.addView(date);
-        bar.addView(clockBox, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(56), Gravity.CENTER));
+        bar.addView(back, new FrameLayout.LayoutParams(dp(68), dp(60), Gravity.LEFT | Gravity.CENTER_VERTICAL));
+        TextView title = label("Gen5W KR", 28, TEXT, true);
+        title.setGravity(Gravity.CENTER);
+        bar.addView(title, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(60), Gravity.CENTER));
         langButton = new TextView(this);
         langButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         langButton.setTextColor(TEXT);
         langButton.setGravity(Gravity.CENTER);
-        langButton.setMinWidth(dp(120));
+        langButton.setMinWidth(dp(100));
         langButton.setMinHeight(dp(42));
         langButton.setPadding(dp(18), 0, dp(18), 0);
-        GradientDrawable langShape = new GradientDrawable();
-        langShape.setCornerRadius(dp(ROUND));
-        langShape.setColor(TILE);
-        langShape.setStroke(dp(1), OUTLINE);
-        langButton.setBackgroundDrawable(langShape);
+        langButton.setBackgroundDrawable(skin.button());
         langButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { setLanguage(!I18n.english()); }
         });
         FrameLayout.LayoutParams langLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         langLp.setMargins(0, 0, dp(24), 0);
         bar.addView(langButton, langLp);
-        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView title = label("Gen5W KR", 28, TEXT, true);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, dp(10), 0, dp(10));
-        title.setBackgroundColor(BAR);
-        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // An OEM nodpi background may have a larger intrinsic minimum on low-density screens.
+        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)));
         root.addView(divider());
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
+        side.setBackgroundColor(0x28000000);
         for (int i = 0; i < TABS.length; i++) {
             final int index = i;
             LinearLayout item = new LinearLayout(this);
             item.setGravity(Gravity.CENTER_VERTICAL);
             item.setPadding(dp(22), 0, dp(8), 0);
+            item.setBackgroundDrawable(skin.menu());
+            item.setFocusable(true);
             item.addView(label(TABS[i], 26, TEXT, true));
             item.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) { tab = index; render(); }
@@ -162,34 +146,37 @@ public final class MainActivity extends Activity {
             side.addView(item, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)));
             side.addView(divider());
         }
-        body.addView(side, new LinearLayout.LayoutParams(dp(250), ViewGroup.LayoutParams.MATCH_PARENT));
+        // GeneralSettings tab_content_setting: 197dp slot, not the tab child's 250dp width.
+        body.addView(side, new LinearLayout.LayoutParams(dp(197), ViewGroup.LayoutParams.MATCH_PARENT));
         View sideLine = new View(this);
-        sideLine.setBackgroundColor(LINE);
-        body.addView(sideLine, new LinearLayout.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT));
+        sideLine.setBackgroundDrawable(skin.drawable("co_bg_list_tabline", new ColorDrawable(LINE)));
+        body.addView(sideLine, new LinearLayout.LayoutParams(dp(2), ViewGroup.LayoutParams.MATCH_PARENT));
         content = new FrameLayout(this);
-        body.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        if (getResources().getConfiguration().screenWidthDp >= 900) {
+        boolean wide = getResources().getConfiguration().screenWidthDp >= 1000;
+        body.addView(content, wide ? new LinearLayout.LayoutParams(dp(603), ViewGroup.LayoutParams.MATCH_PARENT)
+                : new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        if (wide) {
             View helpLine = new View(this);
             helpLine.setBackgroundColor(LINE);
-            body.addView(helpLine, new LinearLayout.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT));
-            helpText = label(HELP[0], 20, TEXT, false);
-            helpText.setGravity(Gravity.CENTER_HORIZONTAL);
+            body.addView(helpLine, new LinearLayout.LayoutParams(dp(2), ViewGroup.LayoutParams.MATCH_PARENT));
+            helpText = label(HELP[0], 22, TEXT, false);
+            helpText.setGravity(Gravity.TOP | Gravity.LEFT);
             helpText.setLineSpacing(dp(2), 1f);
-            helpText.setPadding(dp(18), dp(22), dp(18), dp(18));
-            body.addView(helpText, new LinearLayout.LayoutParams(dp(250), ViewGroup.LayoutParams.MATCH_PARENT));
+            helpText.setPadding(dp(24), dp(18), dp(22), dp(18));
+            body.addView(helpText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         }
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
         render();
     }
 
-    /** Black for the top two thirds; Hyundai Blue rises over the bottom third only, like the stock screen. */
+    /** Wallpaper approximation measured from the user's photo; native controls remain native. */
     private static android.graphics.drawable.Drawable background() {
         android.graphics.drawable.ShapeDrawable d = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
         d.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
             @Override public android.graphics.Shader resize(int width, int height) {
-                return new android.graphics.LinearGradient(0, 0, 0, height, new int[] {BLACK, BLACK, BLUE},
-                        new float[] {0f, 0.66f, 1f}, android.graphics.Shader.TileMode.CLAMP);
+                return new android.graphics.LinearGradient(0, 0, 0, height, new int[] {StockSkin.TOP, StockSkin.TOP, BLUE},
+                        new float[] {0f, 0.30f, 1f}, android.graphics.Shader.TileMode.CLAMP);
             }
         });
         return d;
@@ -241,18 +228,13 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
-        clock.setFormat12Hour("h:mm a");
-        clock.setFormat24Hour("h:mm a");
-        date.setFormat12Hour(I18n.t("M월 d일 (E)"));
-        date.setFormat24Hour(I18n.t("M월 d일 (E)"));
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
-            if (on) menuItems[i].setBackgroundDrawable(glow(dp(72)));
-            else menuItems[i].setBackgroundColor(0x00000000);
+            menuItems[i].setSelected(on);
             TextView name = (TextView) menuItems[i].getChildAt(0);
             name.setText(I18n.t(TABS[i]));
-            name.setTextColor(on ? ACTIVE_BLUE : TEXT);
+            name.setTextColor(on ? StockSkin.SELECTED : TEXT);
         }
         if (helpText != null) helpText.setText(I18n.t(HELP[tab]));
         panel = null;
@@ -375,20 +357,22 @@ public final class MainActivity extends Activity {
         r.setPadding(dp(22), dp(8), dp(22), dp(8));
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        text.addView(label(name, 26, TEXT, true));
-        TextView hint = label(locked != null ? locked : help, 20, locked != null ? SAND : DIM, false);
+        text.addView(label(name, 26, enabled ? TEXT : DISABLED, true));
+        TextView hint = label(locked != null ? locked : help, 22, DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         tl.setMargins(0, 0, dp(18), 0);
         r.addView(text, tl);
-        TextView word = label(!known ? "확인 못 함" : on ? "켜짐" : "꺼짐", 22, enabled && on ? ACCENT : DIM, false);
-        LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        wl.setMargins(0, 0, dp(14), 0);
-        r.addView(word, wl);
-        Widgets.Toggle toggle = new Widgets.Toggle(this, ACCENT, BLACK, WHITE, SKY);
+        if (!known) r.addView(label("확인 못 함", 18, DIM, false));
+        Widgets.Toggle toggle = new Widgets.Toggle(this);
         toggle.set(on, enabled);
-        r.addView(toggle, new LinearLayout.LayoutParams(dp(78), dp(44)));
+        toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        r.addView(toggle, new LinearLayout.LayoutParams(dp(120), dp(44)));
+        r.setEnabled(enabled);
+        r.setContentDescription(I18n.t(name) + ": " + I18n.t(!known ? "확인 못 함" : on ? "켜짐" : "꺼짐")
+                + (locked == null ? "" : ". " + I18n.t(locked)));
+        r.setBackgroundDrawable(skin.menu());
         if (enabled) r.setOnClickListener(click); // the whole row is the touch target
         add(page, r);
     }
@@ -402,31 +386,19 @@ public final class MainActivity extends Activity {
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
         text.addView(label(name, 26, TEXT, true));
-        TextView hint = label(help, 20, DIM, false);
+        TextView hint = label(help, 22, DIM, false);
         hint.setLineSpacing(dp(2), 1f);
         text.addView(hint);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         tl.setMargins(0, 0, dp(18), 0);
         r.addView(text, tl);
-        boolean filled = tone == 0 || tone == 1;
-        int tint = tone == 1 || tone == 3 ? RED : ACCENT;
-        TextView button = label(buttonText, 24, !enabled ? DISABLED : tone == 0 ? BLACK : tone == 1 ? WHITE : tone == 3 ? RED : TEXT, false);
+        TextView button = label(buttonText, 24, !enabled ? DISABLED : tone == 1 || tone == 3 ? RED : TEXT, false);
         button.setGravity(Gravity.CENTER);
         button.setMinWidth(dp(132));
         button.setMinHeight(dp(56));
         button.setPadding(dp(24), dp(14), dp(24), dp(14));
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(ROUND));
-        shape.setColor(enabled && filled ? tint : TILE);
-        shape.setStroke(dp(1), enabled ? (tone == 2 ? OUTLINE : tint) : OUTLINE);
-        android.graphics.drawable.StateListDrawable states = new android.graphics.drawable.StateListDrawable();
-        GradientDrawable pressed = new GradientDrawable();
-        pressed.setCornerRadius(dp(ROUND));
-        pressed.setColor(BLUE);
-        pressed.setStroke(dp(1), enabled ? ACTIVE_BLUE : OUTLINE);
-        if (enabled) states.addState(new int[] {android.R.attr.state_pressed}, pressed);
-        states.addState(new int[] {}, shape);
-        button.setBackgroundDrawable(states);
+        button.setBackgroundDrawable(skin.button());
+        button.setEnabled(enabled);
         if (enabled) button.setOnClickListener(click);
         r.addView(button);
         add(page, r);
@@ -600,41 +572,20 @@ public final class MainActivity extends Activity {
         if (shown == 0) note(page, "이 조건에 맞는 기록이 없습니다.");
     }
 
-    /**
-     * The stock selected-item look, measured from a close-up photo: the item is almost black, with only a faint
-     * navy glow over its lower part and a thin dim line along the bottom (co_btn_bg_list_sel / co_btn_bg_tab_sel).
-     * The glow is Hyundai Blue at low opacity; the line is Sky Blue at low opacity. Height 0 leaves out the line.
-     */
-    private android.graphics.drawable.Drawable glow(int height) {
-        final int faintBlue = android.graphics.Color.argb(70, 0x00, 0x2C, 0x5F);
-        android.graphics.drawable.ShapeDrawable rise = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
-        rise.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
-            @Override public android.graphics.Shader resize(int width, int h) {
-                return new android.graphics.LinearGradient(0, 0, 0, h, new int[] {BLACK, BLACK, faintBlue},
-                        new float[] {0f, 0.35f, 1f}, android.graphics.Shader.TileMode.CLAMP);
-            }
-        });
-        if (height == 0) return rise;
-        GradientDrawable line = new GradientDrawable();
-        line.setColor(android.graphics.Color.argb(110, 0xAA, 0xCA, 0xE6));
-        android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {rise, line});
-        both.setLayerInset(1, 0, height - dp(1), 0, 0);
-        return both;
-    }
-
     /** A text tab with a cyan underline when chosen, like the stock tab strips. */
     private void tab(LinearLayout row, String text, final String value) {
         boolean on = categoryFilter.equals(value);
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
-        if (on) t.setBackgroundDrawable(glow(0));
+        t.setBackgroundDrawable(skin.tab());
+        t.setSelected(on);
         TextView name = label(text, 24, on ? ACTIVE_BLUE : TEXT, on);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, dp(12), 0, dp(10));
         int width = (int) name.getPaint().measureText(name.getText().toString()) + dp(24); // a MATCH_PARENT underline would stretch the tab
         t.addView(name, new LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT));
         View underline = new View(this);
-        underline.setBackgroundColor(on ? ACTIVE_BLUE : 0x00000000);
+        underline.setBackgroundColor(0x00000000); // OEM tab drawable already carries its highlight line.
         t.addView(underline, new LinearLayout.LayoutParams(width, dp(3)));
         t.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { categoryFilter = value; render(); }
@@ -677,30 +628,14 @@ public final class MainActivity extends Activity {
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(dp(22), dp(6), dp(22), dp(6));
         r.addView(label(name, 26, TEXT, true));
-        r.addView(label(value, 22, color == TEXT ? DIM : color, false));
+        r.addView(label(value, 22, color, false));
         add(page, r);
     }
 
-    /** The status block at the top of the info page: a colored edge, a big title and the reason. */
+    /** Use the same title/summary hierarchy as stock list rows, not a dashboard card. */
     private void hero(LinearLayout page, String title, String text, int color) {
-        LinearLayout h = new LinearLayout(this);
-        h.setGravity(Gravity.CENTER_VERTICAL);
-        View edge = new View(this);
-        edge.setBackgroundColor(color);
-        h.addView(edge, new LinearLayout.LayoutParams(dp(6), ViewGroup.LayoutParams.MATCH_PARENT));
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(22), dp(18), dp(16), dp(18));
-        col.addView(label(title, 32, TEXT, true));
-        if (text.length() > 0) {
-            TextView sub = label(text, 22, color == DIM ? DIM : color, false);
-            sub.setLineSpacing(dp(2), 1f);
-            col.addView(sub);
-        }
-        h.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 0, 0, dp(8));
-        page.addView(h, lp);
+        row(page, title, text, color);
+        page.addView(divider());
     }
 
     /** A notice with a colored edge: errors, warnings, progress. */
@@ -736,8 +671,8 @@ public final class MainActivity extends Activity {
 
     private View divider() {
         View v = new View(this);
-        v.setBackgroundColor(LINE);
-        v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        v.setBackgroundDrawable(skin.drawable("co_bg_list_line", new ColorDrawable(LINE)));
+        v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return v;
     }
 
@@ -746,6 +681,8 @@ public final class MainActivity extends Activity {
         t.setText(I18n.t(text));
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
+        t.setIncludeFontPadding(false);
+        t.setShadowLayer(1f, 0f, 1f, BLACK);
         if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
         return t;
     }

@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="kr.gen5w.uipreview">
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="28" />
+    <application android:debuggable="true" android:label="Gen5W UI test" android:theme="@android:style/Theme.Black.NoTitleBar">
+        <activity android:name="kr.gen5w.ui.MainActivity" android:screenOrientation="landscape" android:exported="true" />
+        <service android:name="kr.gen5w.core.CoreService" android:exported="false" />
+    </application>
+    <instrumentation android:name="kr.gen5w.ui.UiProbe" android:targetPackage="kr.gen5w.uipreview" />
+</manifest>
