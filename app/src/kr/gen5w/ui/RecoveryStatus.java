@@ -26,6 +26,7 @@ public final class RecoveryStatus {
         return s.length()>0 && ("|"+choices+"|").contains("|"+s+"|")?s:"unknown";
     }
     public String state(){return state;}
+    public String displayState(boolean fresh){return fresh?state:"unknown";}
     public String reason(){return reason;}
     public String stage(){return stage;}
     public String request(){return request;}

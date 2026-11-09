@@ -582,13 +582,16 @@ run_hook() {
 }
 do_remove() {
     typeset n=$1 short id lock="$NEMDIR/gen5wkr.ui-removing"
-    typeset tx="$NEMDIR/gen5w-kr-integrated"
+    typeset tx="$NEMDIR/gen5w-kr-integrated" guard
     [ ! -L "$tx" ] || return 0
     mkdir -p "$tx" || return 0
-    mkdir "$tx/lock" 2>/dev/null || { set_removed "$n" failed busy; return 0; }
+    guard=$(recovery_guard_path) || return 0
+    mkdir "$guard" 2>/dev/null || { set_removed "$n" failed busy; return 0; }
+    mkdir "$tx/lock" 2>/dev/null || { rmdir "$guard"; set_removed "$n" failed busy; return 0; }
     typeset lockpid rest
     IFS=' ' read -r lockpid rest < /proc/self/stat || return 0
     print -r -- "$lockpid" > "$tx/lock/pid" || return 0
+    rmdir "$guard" || return 0
     trap 'rm -f "$tx/lock/pid"; rmdir "$tx/lock" 2>/dev/null' EXIT
     [ ! -L "$lock" ] && ( set -C; : > "$lock" ) 2>/dev/null || return 0
     set_removed "$n" working
@@ -626,8 +629,17 @@ removed_state() {
 }
 switch_state() { if [ -e "$NEMDIR/gen5wkr.ui-$1-off" ]; then echo off; else echo on; fi; }
 
+recovery_guard_path() {
+    typeset boot
+    IFS= read -r boot < /proc/sys/kernel/random/boot_id || return 1
+    case "$boot" in ''|*[!0-9a-f-]*) return 1;; esac
+    [ "${#boot}" = 36 ] || return 1
+    echo "$NEMDIR/gen5w-kr-integrated/acquire-guard.$boot"
+}
 recovery_lock_live() {
-    typeset pid rest tx="$NEMDIR/gen5w-kr-integrated"
+    typeset pid rest tx="$NEMDIR/gen5w-kr-integrated" guard
+    guard=$(recovery_guard_path) || return 0
+    [ ! -e "$guard" ] && [ ! -L "$guard" ] || return 0
     [ -e "$tx/lock" ] || [ -L "$tx/lock" ] || return 1
     [ ! -L "$tx/lock" ] && [ ! -L "$tx/lock/pid" ] && [ -f "$tx/lock/pid" ] || return 0
     IFS=' ' read -r pid rest < "$tx/lock/pid" || return 0
@@ -696,7 +708,7 @@ handle_recovery() {
     fi
     [ ! -L "$NEMDIR/gen5wkr.recovery-worker.log" ] || return 0
     # No pipes to collector: core removal must not break the recovery worker.
-    ( trap '' HUP; exec "$SH" "$runner" run "$token" ) </dev/null > "$NEMDIR/gen5wkr.recovery-worker.log" 2>&1 &
+    ( trap '' HUP; exec "$SH" "$SCRIPT_DIR/recovery-launch.sh" "$token" ) </dev/null >/dev/null 2>&1 &
 }
 
 round() {

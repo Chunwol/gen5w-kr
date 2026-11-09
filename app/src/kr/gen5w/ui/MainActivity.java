@@ -454,12 +454,14 @@ public final class MainActivity extends Activity {
 
     private void buildRecovery(LinearLayout page, boolean manage) {
         final RecoveryStatus r = model.recovery();
-        if (!manage && "none".equals(r.state())) return;
+        final boolean fresh=model.canControl(SystemClock.elapsedRealtime()/1000);
+        final String shownState=r.displayState(fresh);
+        if (!manage && "none".equals(shownState)) return;
         section(page, "설치 복구");
-        String title = "working".equals(r.state()) || recoveryPending() ? "복구하는 중입니다"
-                : "required".equals(r.state()) ? "설치 중단 · 복구 필요"
-                : "restored".equals(r.state()) ? "이전 상태로 복구됨"
-                : "none".equals(r.state()) ? "복구 필요 없음" : "복구 상태 확인 불가";
+        String title = fresh && ("working".equals(shownState) || recoveryPending()) ? "복구하는 중입니다"
+                : "required".equals(shownState) ? "설치 중단 · 복구 필요"
+                : "restored".equals(shownState) ? "이전 상태로 복구됨"
+                : "none".equals(shownState) ? "복구 필요 없음" : "복구 상태 확인 불가";
         String help = !model.canControl(SystemClock.elapsedRealtime()/1000) ? "새 상태를 기다린 뒤 다시 시도하세요."
                 : "working".equals(r.state()) || recoveryPending() ? "전원을 끄거나 USB를 분리하지 마세요. 성공하면 재부팅합니다."
                 : "required".equals(r.state()) ? "설치가 끝나지 않아 추가 변경을 중단했습니다. 이전 상태로 복구한 뒤 다시 설치하세요."
@@ -485,7 +487,7 @@ public final class MainActivity extends Activity {
             row(page,"실패 단계", "localhotspot".equals(r.stage()) ? "순정 핫스팟 스위치" : r.stage(),DIM);
             String why = "runner-unavailable".equals(r.reason()) ? "복구 USB 준비가 필요합니다."
                     : "snapshot-invalid".equals(r.reason()) ? "복구 백업이 없거나 검증되지 않았습니다."
-                    : "busy".equals(r.reason()) ? "다른 작업이 진행 중입니다."
+                    : "busy".equals(r.reason()) ? "다른 작업이 진행 중입니다. 중단된 작업이라면 재부팅 후 상태를 다시 확인하세요."
                     : "rollback-failed".equals(r.reason()) || "interrupted".equals(r.reason()) ? "복구가 실패했거나 중단되었습니다. 원본과 진단을 보존하고 오류 상세를 확인하세요."
                     : "ready".equals(r.reason()) ? "실행 전에 백업과 복구 도구를 다시 검사합니다." : "원인 기록을 읽을 수 없습니다.";
             note(page,why);

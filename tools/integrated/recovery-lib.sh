@@ -5,7 +5,7 @@ RT=$RD/gen5w-kr-integrated
 recovery_reason=unknown
 r_fail() { recovery_reason=$1; return 1; }
 r_safe() {
-    local p=$1 target=$1 info mode owner parent name line found expected=0
+    local p=$1 target=$1 platform=${IT_DATA:-/data} info mode owner parent name line found expected=0
     # Host harness runs unprivileged; production always requires uid 0.
     if [ -n "${IT_DATA:-}" ]; then expected=$(id); expected=${expected#uid=}; expected=${expected%%\(*}; fi
     while [ -n "$p" ] && [ "$p" != / ]; do
@@ -22,6 +22,10 @@ r_safe() {
 $info
 EOF
         [ "$found" = 1 ] || return 1
+        if [ "$p" = "$platform" ]; then
+            case "$owner" in 0|1000|"$expected") ;; *) return 1;; esac
+            case "$mode" in d???????w*) return 1;; d*) return 0;; *) return 1;; esac
+        fi
         [ "$owner" = "$expected" ] || { [ "$p" != "$target" ] && [ "$owner" = 0 ]; } || return 1
         case "$mode" in
             d????????t) [ "$p" != "$target" ] || return 1;;
@@ -144,6 +148,14 @@ r_run() {
     case "$token" in ''|*[!0-9]*) r_fail invalid-request; return 1;; esac
     [ "${#token}" -le 10 ] || return 1
     r_safe "$RB/current" || return 1
+    # The UI path is first validated by core's independent trusted launcher.
+    # Also refuse corrupted common/hooks before sourcing them on direct runs.
+    r_manifest "$RB/current" || return 1
+    local required
+    for required in common.sh errors.sh report.sh; do
+        [ -f "$RB/current/$required" ] &&
+            grep -qxF "$(r_hash "$RB/current/$required")  $required" "$RB/current/RECOVERY.md5" || return 1
+    done
     cd "$RB/current" || return 1
     . ./common.sh
     acquire || return 1

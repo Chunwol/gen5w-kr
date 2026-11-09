@@ -9,6 +9,7 @@ public final class RecoveryStatusTest {
         check(!RecoveryStatus.parse(null).canRequest(true));
         RecoveryStatus r = RecoveryStatus.parse(Arrays.asList("recovery_state=required", "recovery_available=yes", "recovery_reason=ready"));
         check(r.canRequest(true)); check(!r.canRequest(false));
+        check("unknown".equals(RecoveryStatus.parse(Arrays.asList("recovery_state=restored")).displayState(false)));
         check(!RecoveryStatus.parse(Arrays.asList("recovery_state=working", "recovery_available=yes")).canRequest(true));
         check(!RecoveryStatus.parse(Arrays.asList("recovery_state=required", "recovery_state=none", "recovery_available=yes")).canRequest(true));
         check("unknown".equals(RecoveryStatus.parse(Arrays.asList("recovery_state=garbage")).state()));

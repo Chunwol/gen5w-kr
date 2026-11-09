@@ -139,6 +139,7 @@ def build(dist, output, variant='standard'):
     for p in HERE.glob('*.sh'):
         shutil.copyfile(p, output / p.name)
         (output / p.name).chmod(0o755)
+    shutil.copyfile(HERE.parents[1] / 'packages/core/scripts/recovery-verify.sh', output / 'recovery-verify.sh')
     shutil.copyfile(HERE / 'bin/zipstore', output / 'zipstore')
     (output / 'zipstore').chmod(0o755)
     # Only the documents a user needs on the USB; developer documents stay in the repository.

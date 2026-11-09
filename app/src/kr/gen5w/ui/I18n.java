@@ -159,6 +159,7 @@ public final class I18n {
         add("복구 USB 준비가 필요합니다.", "Prepare the recovery USB first.");
         add("복구 백업이 없거나 검증되지 않았습니다.", "Recovery backup is missing or unverified.");
         add("다른 작업이 진행 중입니다.", "Another operation is running.");
+        add("다른 작업이 진행 중입니다. 중단된 작업이라면 재부팅 후 상태를 다시 확인하세요.", "Another operation is running. If it was interrupted, reboot and check the status again.");
         add("실행 전에 백업과 복구 도구를 다시 검사합니다.", "Backups and recovery tools are checked again before execution.");
         add("원인 기록을 읽을 수 없습니다.", "The cause record cannot be read.");
         add("앱에서 복구할 수 없으면 새 복구 USB에서 recovery-prepare 후 rollback을 실행하세요. 복구 표식을 지우지 마세요.", "If app recovery is unavailable, run recovery-prepare then rollback using the new recovery USB. Do not delete recovery markers.");

@@ -274,6 +274,21 @@ rollback_transaction() {
 }
 acquire() {
     [ ! -L "$DATA" ] && [ ! -L "$DATA/nemesis" ] && [ ! -L "$TX" ] && [ ! -L "$TX/lock" ] || return 1
+    mkdir -p "$TX" || return 1
+    local boot guard
+    IFS= read -r boot < /proc/sys/kernel/random/boot_id || return 1
+    case "$boot" in ''|*[!0-9a-f-]*) return 1;; esac
+    [ "${#boot}" = 36 ] || return 1
+    guard=$TX/acquire-guard.$boot
+    # Serialize the entire dead-owner inspection/removal/new-owner publication.
+    # A guard left by a crash fails closed; never delete an unknown live guard.
+    mkdir "$guard" 2>/dev/null || { report 'REFUSED transaction lock inspection already running; if interrupted, reboot before retrying'; return 1; }
+    acquire_locked
+    local rc=$?
+    rmdir "$guard" || return 1
+    return "$rc"
+}
+acquire_locked() {
     chmod 755 ./zipstore 2>/dev/null || true
     mkdir -p "$TX" || return 1
     if ! mkdir "$TX/lock" 2>/dev/null; then
