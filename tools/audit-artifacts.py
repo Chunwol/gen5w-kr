@@ -97,15 +97,21 @@ def audit_relay(package):
     import hashlib
     with zipfile.ZipFile(package) as z:
         names=set(z.namelist())
-        need={'app/HKMC_DiPO.relay.lpd','app/relay-v039.complete','app/relay-v039.md5','bin/lpatch'}
+        hashed={'app/bridge.dex','app/wireless-host.apk','app/HKMC_DiPO.relay.lpd','app/HKMC_GPM.guard.lpd',
+                'bin/iap2-bt-patch-v039','bin/dipo-patch-v039','bin/gpm-patch-v039','bin/lpatch'}
+        need=hashed|{'app/relay-v039.complete','app/relay-v039.md5'}
         assert need<=names, 'V039 relay payload incomplete: '+str(sorted(need-names))
-        assert not any(n.endswith('.relay.apk') for n in names), 'manufacturer-derived relay APK shipped'
-        lpd=z.read('app/HKMC_DiPO.relay.lpd')
-        assert lpd==(Path(__file__).resolve().parents[1]/'tools/v039-relay/HKMC_DiPO.relay.lpd').read_bytes(), 'relay delta differs from the reviewed one'
-        assert z.read('app/relay-v039.complete').strip()==b'gen5w.kr.bridge:v039-relay-3', 'relay marker'
+        assert not any(n.endswith(('.relay.apk','.odex','HKMC_GPM.apk','HKMC_DiPO.apk','classes.dex')) for n in names), 'manufacturer-derived file shipped'
+        for delta in ('HKMC_DiPO.relay.lpd','HKMC_GPM.guard.lpd'):
+            assert z.read('app/'+delta)==(Path(__file__).resolve().parents[1]/'tools/v039-relay'/delta).read_bytes(), 'delta differs from reviewed source: '+delta
+        assert z.read('app/relay-v039.complete')==b'gen5w.kr.bridge:v039-relay-4\n', 'relay marker'
+        seen=set()
         for line in z.read('app/relay-v039.md5').decode().splitlines():
-            digest,name=line.split(None,1)
-            assert hashlib.md5(z.read(name.strip())).hexdigest()==digest, 'relay hash list mismatch: '+name
+            digest,name=line.split()
+            assert name in hashed and name not in seen, 'unknown/duplicate relay checksum member'
+            seen.add(name)
+            assert hashlib.md5(z.read(name)).hexdigest()==digest, 'relay hash list mismatch: '+name
+        assert seen==hashed, 'relay checksum member omitted'
     print('AUDITED V039 relay delta payload; no manufacturer file shipped')
 
 root=Path(sys.argv[1] if len(sys.argv)>1 else 'dist')

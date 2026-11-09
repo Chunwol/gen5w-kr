@@ -1,11 +1,13 @@
 """Public transformation tests; optional exact-private delta audit."""
 from pathlib import Path
 import argparse
+import ast
 import hashlib
 import importlib.util
 import sys
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT/'tools/v039-relay/build_gpm_guard.py'
@@ -41,6 +43,22 @@ class BuilderTest(unittest.TestCase):
     def test_bad_inputs_rejected(self):
         a=self.tree/'stock.apk';o=self.tree/'stock.odex';a.write_bytes(b'not stock');o.write_bytes(b'not stock')
         with self.assertRaises(ValueError): self.b.validate_inputs(a,o)
+    def test_actual_package_audit_requires_all_manifest_entries(self):
+        script=ROOT/'tools/audit-artifacts.py'
+        function=next(n for n in ast.parse(script.read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='audit_relay')
+        namespace={'zipfile':zipfile,'Path':Path,'__file__':str(script)}
+        exec(compile(ast.Module(body=[function],type_ignores=[]),str(script),'exec'),namespace)
+        data={name:b'fixture' for name in ('app/bridge.dex','app/wireless-host.apk','bin/iap2-bt-patch-v039','bin/dipo-patch-v039','bin/gpm-patch-v039','bin/lpatch')}
+        for name in ('HKMC_DiPO.relay.lpd','HKMC_GPM.guard.lpd'):data['app/'+name]=(ROOT/'tools/v039-relay'/name).read_bytes()
+        for omitted in (False,True):
+            package=self.tree/('bad.zip' if omitted else 'good.zip')
+            with zipfile.ZipFile(package,'w') as z:
+                for name,body in data.items():z.writestr(name,body)
+                z.writestr('app/relay-v039.complete','gen5w.kr.bridge:v039-relay-4\n')
+                z.writestr('app/relay-v039.md5',''.join(hashlib.md5(body).hexdigest()+'  '+name+'\n' for name,body in data.items() if not(omitted and name.endswith('HKMC_GPM.guard.lpd'))))
+            if omitted:
+                with self.assertRaises(AssertionError):namespace['audit_relay'](package)
+            else:namespace['audit_relay'](package)
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--stock',type=Path);parser.add_argument('--delta',type=Path)
