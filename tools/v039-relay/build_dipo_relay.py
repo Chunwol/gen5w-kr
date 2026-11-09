@@ -63,7 +63,7 @@ def patch_stock_smali(tree: Path) -> None:
     insert_method_entry(carplay, ".method public onSessionCreated()V",
         "    invoke-static {p0}, Lkr/gen5w/dipo/RelayBridge;->sessionCreated(Lcom/daudio/app/dipo/telechips/CarPlayService;)V\n")
     insert_method_entry(carplay, ".method public onSessionStarted(I)V",
-        "    invoke-static {p1}, Lkr/gen5w/dipo/RelayBridge;->sessionStarted(I)V\n")
+        "    invoke-static {p0, p1}, Lkr/gen5w/dipo/RelayBridge;->sessionStarted(Lcom/daudio/app/dipo/telechips/CarPlayService;I)V\n")
     insert_method_entry(carplay, ".method public onSessionFinalized(I)V",
         "    invoke-static {p0}, Lkr/gen5w/dipo/RelayBridge;->sessionFinalized(Lcom/daudio/app/dipo/telechips/CarPlayService;)V\n")
     insert_method_entry(carplay, ".method public oniAPSendMessage([BI)V",
@@ -105,6 +105,31 @@ def patch_stock_smali(tree: Path) -> None:
     absolute = start + match.start()
     text = text[:absolute] + replacement + text[absolute + len(match.group(0)):]
     dipo_service.write_text(text, encoding="utf-8", newline="\n")
+    patch_reconnect(tree / "com/daudio/app/dipo/service/q.smali")
+
+
+def patch_reconnect(path: Path) -> None:
+    """Only session-details may substitute an identity; other K() callers stay stock."""
+    text = path.read_text(encoding="utf-8")
+    marker = ".method public final a(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V\n"
+    if text.count(marker) != 1:
+        raise ValueError("missing unique V039 session-details method")
+    start = text.index(marker); end = text.index(".end method", start)
+    method = text[start:end]
+    old = ("    invoke-virtual {v1}, Lcom/daudio/app/dipo/e/b;->K()Ljava/lang/String;\n\n"
+           "    move-result-object v1\n\n"
+           "    invoke-virtual {v1}, Ljava/lang/String;->toUpperCase()Ljava/lang/String;\n\n"
+           "    move-result-object v1\n\n"
+           "    invoke-virtual {p1, v1}, Ljava/lang/String;->equalsIgnoreCase(Ljava/lang/String;)Z")
+    new = ("    invoke-virtual {v1}, Lcom/daudio/app/dipo/e/b;->K()Ljava/lang/String;\n\n"
+           "    move-result-object v1\n\n"
+           "    invoke-static {v1, p1}, Lkr/gen5w/dipo/RelayBridge;->reconnectAddress(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;\n\n"
+           "    move-result-object v1\n\n"
+           "    if-eqz v1, :goto_62\n\n"
+           "    invoke-virtual {v1, p1}, Ljava/lang/String;->equalsIgnoreCase(Ljava/lang/String;)Z")
+    if method.count(old) != 1 or method.count("    :goto_62\n") != 1:
+        raise ValueError("unreviewed V039 reconnect control flow")
+    path.write_text(text[:start] + method.replace(old, new) + text[end:], encoding="utf-8", newline="\n")
 
 
 def add_classes_dex(stock_apk: Path, classes_dex: Path, output: Path) -> None:
@@ -172,6 +197,7 @@ def main() -> int:
         "-d", args.framework, "-o", smali_tree, args.stock_odex)
     source = ROOT / "tools/v039-relay/dipo-src/kr/gen5w/dipo/RelayBridge.java"
     sourcepath = os.pathsep.join((str(ROOT / "tools/v039-relay/dipo-src"),
+                                  str(ROOT / "shared/src"),
                                   str(ROOT / "tools/v039-relay/dipo-stubs"),
                                   str(ROOT / "probe/stubs")))
     run(javac, "-encoding", "UTF-8", "-nowarn", "--release", "8", "-cp", android_jar,
@@ -186,6 +212,7 @@ def main() -> int:
     if not authored.is_dir():
         raise SystemExit("adapter compilation did not produce the expected package")
     shutil.copytree(authored, smali_tree / "kr/gen5w/dipo", dirs_exist_ok=False)
+    shutil.copytree(adapter_smali / "kr/gen5w/diag", smali_tree / "kr/gen5w/diag", dirs_exist_ok=False)
     patch_stock_smali(smali_tree)
 
     rebuilt = work / "classes.base.dex"

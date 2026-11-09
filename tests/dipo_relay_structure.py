@@ -5,11 +5,13 @@ OEM code or embeds private ODEX bytes in the repository.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import struct
 import sys
 import unittest
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools/iap2'))
@@ -81,6 +83,36 @@ def audit_private_v039(path):
     return recipe
 
 
+def audit_relay_delta(stock, delta_path):
+    """Audit the actual shipped delta, not only its Java source or marker."""
+    raw = stock.read_bytes(); delta = delta_path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == V039_SHA256
+    assert delta[:4] == b'LPD1' and hashlib.md5(raw).digest() == delta[8:24]
+    spec = importlib.util.spec_from_file_location('relay_delta', ROOT/'tools/v039-relay/mkdelta.py')
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    rebuilt = module.apply(raw, delta)
+    assert len(rebuilt) == struct.unpack_from('<I', delta, 24)[0]
+    assert hashlib.md5(rebuilt).digest() == delta[28:44]
+    assert hashlib.sha1(rebuilt[32:]).digest() == rebuilt[12:32]
+    assert zlib.adler32(rebuilt[12:]) & 0xffffffff == struct.unpack_from('<I', rebuilt, 8)[0]
+    dex = Dex(rebuilt); original = Dex(raw)
+    assert set(original.code).issubset(dex.code), 'stock method lost'
+    bridge = 'Lkr/gen5w/dipo/RelayBridge;->'
+    for caller, callee in (
+        (CARPLAY+'onSessionCreated()V', bridge+'sessionCreated(Lcom/daudio/app/dipo/telechips/CarPlayService;)V'),
+        (CARPLAY+'onSessionStarted(I)V', bridge+'sessionStarted(Lcom/daudio/app/dipo/telechips/CarPlayService;I)V'),
+        (CARPLAY+'onSessionFinalized(I)V', bridge+'sessionFinalized(Lcom/daudio/app/dipo/telechips/CarPlayService;)V'),
+        ('Lcom/daudio/app/dipo/service/q;->a(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V',
+         bridge+'reconnectAddress(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;')):
+        assert callee in invoke_refs(dex, caller), 'missing shipped hook: '+callee
+    assert 'Lkr/gen5w/dipo/RelayBridge$TransportListener;' in dex.class_names
+    assert 'Lkr/gen5w/diag/SafeDiagnostic;' in dex.class_names
+    native_send = CARPLAY+'TccCarPlayNativeMethod_iAPSendMessage([BI)I'
+    assert dex.code[native_send][0] == 0
+    assert native_send in invoke_refs(dex, CARPLAY+'iAPSendMessage([BI)Lcom/daudio/app/dipo/telechips/CarPlayReturn;')
+    print('PASS shipped DiPO delta identities/checksums/hooks/native boundary sha256='+hashlib.sha256(rebuilt).hexdigest())
+
+
 class DiPORelayStructureTest(unittest.TestCase):
     def test_profile_is_explicitly_incomplete_without_raw_channel_write(self):
         recipe = json.loads((ROOT / 'tools/iap2/dipo-v039.json').read_text(encoding='utf-8'))
@@ -92,6 +124,7 @@ class DiPORelayStructureTest(unittest.TestCase):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--stock-v039', type=Path)
+    parser.add_argument('--relay-delta', type=Path)
     args = parser.parse_args()
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(DiPORelayStructureTest)
     result = unittest.TextTestRunner().run(suite)
@@ -99,4 +132,7 @@ if __name__ == '__main__':
         sys.exit(1)
     if args.stock_v039:
         audit_private_v039(args.stock_v039)
-        print('PASS exact V039 DiPO boundary/scope audit; component-5 adapter remains blocked')
+        print('PASS exact V039 DiPO stock boundary/call-key recipe scope audit')
+    if args.relay_delta:
+        if not args.stock_v039: parser.error('--relay-delta requires --stock-v039')
+        audit_relay_delta(args.stock_v039, args.relay_delta)
