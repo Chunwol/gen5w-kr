@@ -22,6 +22,9 @@ printf dex > "$PKG/app/HKMC_DiPO.relay.lpd"
 printf gpm > "$PKG/app/HKMC_GPM.guard.lpd"
 manifest
 check 'relay gate accepts one complete hash-bound V039 payload' relay_status
+rm "$PKG/app/relay-v039.complete"
+check 'relay gate refuses marker omitted from relay artifacts' eval 'relay_status; test "$?" = 1'
+echo gen5w.kr.bridge:v039-relay-4 > "$PKG/app/relay-v039.complete"
 grep -v 'HKMC_GPM.guard.lpd' "$PKG/app/relay-v039.md5" > "$W/omitted"
 cp "$W/omitted" "$PKG/app/relay-v039.md5"
 check 'relay gate rejects omitted required checksum' eval 'relay_status; test "$?" = 1'

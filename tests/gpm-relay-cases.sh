@@ -38,6 +38,36 @@ gpm_reset() {
 }
 gpm_stock() { cmp -s "$GPM" "$W/fixture/gpm-v039-original" && cmp -s "$GPMAPK" "$W/fixture/gpm-v039-apk"; }
 gpm_live() { grep -q '^gpm-guard-apk' "$GPMAPK" && grep -q '^optimized:gpm-guard-apk' "$GPM"; }
+gpm_old_partial_setup() {
+    gpm_reset;run post || bad 'GPM older partial setup'
+    echo older-generated-odex > "$GPM"
+    md5sum "$GPM" | cut -d' ' -f1 > "$PERSIST/gpmrelay.odex.md5"
+    cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
+}
+gpm_old_partial_retry() {
+    # A failed retry must neither hide the first error nor strand the pair.
+    gpm_old_partial_setup
+    check 'GPM older partial identity accepted' run pre
+    touch "$W/fixture/fail-gpm-apk-mv"
+    if run post;then bad 'GPM older partial retry failure reported';else ok 'GPM older partial retry failure reported';fi
+    rm -f "$W/fixture/fail-gpm-apk-mv"
+    check 'GPM older partial failed retry remains removable' run preun
+    check 'GPM older partial failed retry exact originals' gpm_stock
+    # Without the fault the same state is reinstalled from the verified originals.
+    gpm_old_partial_setup
+    check 'GPM older partial retry reinstalls' run post
+    check 'GPM older partial retry yields a coherent generated pair' gpm_live
+    check 'GPM older partial reinstall remains removable' run preun
+    check 'GPM older partial final exact originals' gpm_stock
+}
+if [ "${GPM_OLD_PARTIAL_ONLY:-0}" = 1 ]; then gpm_old_partial_retry;return;fi
+gpm_reset
+cp "$W/pkg/app/relay-v039.complete" "$W/complete"
+rm "$W/pkg/app/relay-v039.complete"
+if run pre;then bad 'GPM marker omission rejects pre';else ok 'GPM marker omission rejects pre';fi
+if run post;then bad 'GPM marker omission rejects post';else ok 'GPM marker omission rejects post';fi
+check 'GPM marker omission cannot mutate any pair' eval 'gpm_stock && cmp -s "$TARGET" "$W/fixture/v039-original" && test ! -e "$PERSIST"'
+cp "$W/complete" "$W/pkg/app/relay-v039.complete"
 gpm_reset
 check 'GPM guard fresh preflight' run pre
 check 'GPM guard fresh install' run post
@@ -47,6 +77,7 @@ check 'GPM guard repeat install' run post
 check 'GPM guard remove' run preun
 check 'GPM pair restored byte for byte' gpm_stock
 check 'GPM journal cleaned only after pair restored' test ! -e "$PERSIST"
+gpm_old_partial_retry
 
 for side in apk odex missing-odex missing-apk; do
     gpm_reset;run post || bad "GPM partial $side setup"
@@ -60,6 +91,12 @@ for side in apk odex missing-odex missing-apk; do
     check "GPM partial $side restored" run preun
     check "GPM partial $side exact pair" gpm_stock
 done
+gpm_reset;run post || bad 'GPM staging symlink setup'
+echo sentinel > "$W/sentinel"
+rm "$PERSIST/gpmrelaystaging";ln -s "$W/sentinel" "$PERSIST/gpmrelaystaging"
+if run preun;then bad 'GPM staging symlink rejected';else ok 'GPM staging symlink rejected';fi
+check 'GPM staging symlink cannot overwrite outside file' grep -qx sentinel "$W/sentinel"
+check 'GPM staging symlink leaves live pair unchanged' gpm_live
 for side in apk odex; do
     gpm_reset;touch "$W/fixture/fail-gpm-$side-mv"
     if run post;then bad "GPM $side rename failure rejected";else ok "GPM $side rename failure rejected";fi
@@ -96,10 +133,11 @@ ln -s "$W/fixture/gpm-v039-apk" "$PERSIST/gpmapkoriginal"
 if run post;then bad 'GPM backup symlink rejected';else ok 'GPM backup symlink rejected';fi
 check 'GPM symlink cannot mutate originals' gpm_stock
 gpm_reset
-# Own legacy HUD state from the normal ODEX-only install path.
-rm "$W/pkg/app/relay-v039.complete"
+# Own legacy HUD state from a genuinely non-relay package, not a damaged marker.
+mkdir -p "$W/nonrelay"
+mv "$W/pkg/app/relay-v039.complete" "$W/pkg/app/relay-v039.md5" "$W/pkg/app/HKMC_DiPO.relay.lpd" "$W/pkg/app/HKMC_GPM.guard.lpd" "$W/nonrelay/"
 check 'GPM legacy HUD install' run post
-echo gen5w.kr.bridge:v039-relay-4 > "$W/pkg/app/relay-v039.complete"
+mv "$W/nonrelay/"* "$W/pkg/app/"
 check 'GPM legacy owned update' run post
 check 'GPM legacy update uses original delta input' gpm_live
 check 'GPM legacy update removal' run preun

@@ -9,9 +9,7 @@ fail() { log "FAIL bridge: $1"; }
 die() { fail "$1"; restore_target || log 'FAIL bridge: rollback incomplete; originals retained'; exit 1; }
 inspect; rc=$?
 [ "$rc" = 0 ] || { fail "inspect rc=$rc (state not recognized)"; exit "$rc"; }
-if [ "$VERSION" = v039 ] && { [ -e "$SCRIPT_DIR/../app/relay-v039.complete" ] || [ -L "$SCRIPT_DIR/../app/relay-v039.complete" ]; }; then
-    relay_packaged || { fail 'incomplete or unsafe relay payload'; exit 1; }
-fi
+relay_install_ready || { fail 'incomplete or unsafe relay payload'; exit 1; }
 apguard_reset || { fail 'could not reset the hotspot start guard'; exit 1; }
 err_mount bridge rw "$NEM" || { fail 'could not remount /system read-write'; exit 1; }
 trap 'sys_ro' EXIT

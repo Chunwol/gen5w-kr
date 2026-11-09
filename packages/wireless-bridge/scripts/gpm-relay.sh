@@ -20,6 +20,12 @@ gpm_relay_intent() {
         [ "$(cat "$STATE/gpmrelaystaging")" = "$OWNER" ]
 }
 gpm_relay_known_pair() {
+    typeset p
+    owned || return 1
+    for p in "$STATE/gpmrelaystaging" "$STATE/gpmrelay.apk.md5" "$STATE/gpmrelay.odex.md5"; do
+        [ ! -L "$p" ] && { [ ! -e "$p" ] || [ -f "$p" ]; } || return 1
+    done
+    if [ -e "$STATE/gpmrelaystaging" ]; then gpm_relay_intent || return 1; fi
     gpm_relay_backups || return 1
     { gpm_relay_apk_live || "$GPM_TOOL" verify "$GPM_APK" "$GPM_APK_SHA" ||
       { [ ! -e "$GPM_APK" ] && [ ! -L "$GPM_APK" ] && gpm_relay_intent; }; } &&
@@ -71,11 +77,16 @@ gpm_relay_install() {
     typeset opt=$GPM_TARGET.gen5w-kr-bridge.tmp.opt assembled=$STATE/gpmrelay.assembled p rc
     gpm_relay_enabled && gpm_relay_backups && gpm_relay_known_pair || return 1
     gpm_relay_live && return 0
+    # A half left by an earlier run would lose its identity once new checksums are
+    # recorded: put both stock files back and verify them before generating anything.
+    if ! { gpm_original "$GPM_TARGET" && "$GPM_TOOL" verify "$GPM_APK" "$GPM_APK_SHA"; }; then
+        gpm_relay_restore || { log 'FAIL bridge GPM: partial state not restored to stock'; return 1; }
+    fi
     gpm_relay_stage_clear || return 1
     for p in "$apk" "$odex" "$opt" "$STATE/gpmrelay.apk.md5" "$STATE/gpmrelay.odex.md5" "$STATE/gpmrelay.log"; do
         [ ! -L "$p" ] || return 1
     done
-    echo "$OWNER" > "$STATE/gpmrelaystaging" && sync || return 1
+    [ ! -L "$STATE/gpmrelaystaging" ] && echo "$OWNER" > "$STATE/gpmrelaystaging" && sync || return 1
     if ! gpm_relay_assemble "$assembled" > "$STATE/gpmrelay.log" 2>&1; then
         log 'FAIL bridge GPM: delta assembly failed'
         cat "$STATE/gpmrelay.log"
@@ -105,7 +116,7 @@ gpm_relay_restore() {
     typeset apk=$GPM_APK.gen5w-kr-bridge.tmp odex=$GPM_TARGET.gen5w-kr-bridge.tmp rc=0
     gpm_relay_known_pair || return 1
     [ ! -L "$apk" ] && [ ! -L "$odex" ] || return 1
-    echo "$OWNER" > "$STATE/gpmrelaystaging" && sync || return 1
+    [ ! -L "$STATE/gpmrelaystaging" ] && echo "$OWNER" > "$STATE/gpmrelaystaging" && sync || return 1
     cp -p "$STATE/gpmapkoriginal" "$apk" && cp -p "$STATE/gpmoriginal" "$odex" &&
         "$GPM_TOOL" verify "$apk" "$GPM_APK_SHA" && gpm_original "$odex" || return 1
     mv "$apk" "$GPM_APK" || rc=1

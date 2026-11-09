@@ -7,7 +7,12 @@ GATE_DIGEST=${GEN5W_TEST_DIGEST:-md5}
 
 [ ! -L "$PKG" ] && [ -d "$PKG" ] || exit 1
 [ ! -L "$PKG/app" ] && [ ! -L "$PKG/bin" ] || exit 1
-if [ ! -e "$MARK" ] && [ ! -L "$MARK" ]; then exit 77; fi
+if [ ! -e "$MARK" ] && [ ! -L "$MARK" ]; then
+    for path in "$PKG/app/HKMC_DiPO.relay.lpd" "$PKG/app/HKMC_GPM.guard.lpd" "$PKG/app/relay-v039.md5"; do
+        [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1
+    done
+    exit 77
+fi
 [ -f "$MARK" ] && [ ! -L "$MARK" ] || exit 1
 {
     IFS= read -r value || exit 1

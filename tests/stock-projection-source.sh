@@ -42,7 +42,8 @@ if grep -nEi '(log\(|Log\.[idwev]\(|DriveLog\.).*(getAddress\(|\+ *(address|valu
 fi
 grep -Fq 'relay-gate.sh' packages/wireless-bridge/scripts/service.sh
 grep -Fq 'relay_v039 true' packages/wireless-bridge/scripts/service.sh
-grep -Fq 'gen5w.kr.bridge:v039-relay-3' packages/wireless-bridge/scripts/relay-gate.sh
+# Exercise the gate contract rather than freezing a previous marker spelling.
+bash tests/relay-gate.sh
 grep -q 'SEND_CONNECTION_PHONEPROJECTION' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getWLDeviceInfo' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getWLDAutoConnection' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java

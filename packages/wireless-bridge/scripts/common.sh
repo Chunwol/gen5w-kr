@@ -58,6 +58,12 @@ digest() {
     echo "$1"
 }
 relay_packaged() { [ "$VERSION" = v039 ] && sh "$RELAY_GATE" "$SCRIPT_DIR/.." >/dev/null 2>&1; }
+relay_install_ready() {
+    typeset rc
+    [ "$VERSION" = v039 ] || return 0
+    sh "$RELAY_GATE" "$SCRIPT_DIR/.." >/dev/null 2>&1; rc=$?
+    [ "$rc" = 0 ] || [ "$rc" = 77 ]
+}
 relay_live() {
     [ -f "$STATE/diporelay.apk.md5" ] && [ -f "$STATE/diporelay.odex.md5" ] &&
     [ ! -L "$STATE/diporelay.apk.md5" ] && [ ! -L "$STATE/diporelay.odex.md5" ] &&

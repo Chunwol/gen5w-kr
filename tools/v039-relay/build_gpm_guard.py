@@ -17,7 +17,6 @@ from build_dipo_relay import run, sha256
 from gpm_patch import make_recipe, INIT
 from control_patch import Dex
 from dipo_patch import instructions
-import mkdelta
 
 APK_SHA='8e7e9805f237f0690124af4b797466d716df12b55df065142a4f426a567f6bde'
 ODEX_SHA='caee2cdf77a101d9b103d850658c85c4ed922e863d6566166b87037a11fd55c8'
@@ -55,6 +54,7 @@ def refs(dex,method):
     return [dex.methods[words[pc+1]] for pc,op,_ in instructions(words) if op in (0x6e,0x6f,0x70,0x71,0x72,0x74,0x75,0x76,0x77,0x78)]
 
 def audit_delta(stock:Path,delta:Path)->None:
+    import mkdelta
     raw=stock.read_bytes();d=delta.read_bytes()
     assert hashlib.sha256(raw).hexdigest()==ODEX_SHA
     assert d[:4]==b'LPD1' and hashlib.md5(raw).digest()==d[8:24]

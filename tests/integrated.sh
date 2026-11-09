@@ -141,6 +141,13 @@ check 'prior core retained after failure' grep -qx original "$W/data/nemesis/app
 check 'failed update shown as restored' grep -q '실패 후 이전 상태로 원복' "$W/usb/GEN5W-REPORT/RESULT.md"
 check 'explicit rollback' run rollback
 check 'update after explicit rollback' run update
+# An unresolved recovery blocks every new install; only an explicit rollback of the recorded snapshot clears it.
+echo recovery-required > "$TX/state"; touch "$W/data/nemesis/gen5wkr.noreboot"
+check 'install is refused while recovery is unresolved' eval '! run install'
+check 'refused install keeps the recovery state' grep -qx recovery-required "$TX/state"
+check 'explicit rollback resolves an unresolved recovery' run rollback
+check 'rollback records a non-blocking state' eval 'grep -qx rolled-back "$TX/state" && test ! -e "$W/data/nemesis/gen5wkr.noreboot"'
+check 'install works again once the recovery is resolved' run update
 echo dongle > "$W/usb/GEN5W-VARIANT"
 check 'dongle variant installs eight modules' run update
 check 'dongle variant registers dongle module' test -f "$W/data/nemesis/apps/gen5w.kr.dongle/NEMESIS.data"
