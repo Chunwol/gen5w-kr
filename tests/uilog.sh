@@ -69,6 +69,12 @@ printf 'recovery=123\nwireless=off\n' > "$W/request"
 run
 check 'mixed recovery and switch request changes nothing' test ! -e "$W/data/nemesis/gen5wkr.ui-wireless-off"
 mkdir -p "$W/data/nemesis/gen5w-kr-integrated/lock"
+echo $$ > "$W/data/nemesis/gen5w-kr-integrated/lock/pid"
+printf 'committed\n' > "$W/data/nemesis/gen5w-kr-integrated/state"
+printf 'wireless=off\n' > "$W/request"
+run
+check 'active installer lock prevents settings before state transition' test ! -e "$W/data/nemesis/gen5wkr.ui-wireless-off"
+printf 'recovery-required\n' > "$W/data/nemesis/gen5w-kr-integrated/state"
 echo 99999999 > "$W/data/nemesis/gen5w-kr-integrated/lock/pid"
 printf 'recovery_request=123\nrecovery_result=working\nrecovery_reason=ready\n' > "$W/data/nemesis/gen5wkr.recovery-result"
 run

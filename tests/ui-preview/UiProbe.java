@@ -96,7 +96,8 @@ public final class UiProbe extends Instrumentation {
     }
     private void show(final String label) {
         runOnMainSync(new Runnable(){public void run(){
-            TextView target=text(activity.getWindow().getDecorView(),label);
+            TextView target=clickableText(activity.getWindow().getDecorView(),label);
+            if(target==null) target=text(activity.getWindow().getDecorView(),label);
             check("scroll target exists: "+label,target!=null);
             if(target!=null) target.requestRectangleOnScreen(new android.graphics.Rect(0,0,target.getWidth(),target.getHeight()),true);
         }});

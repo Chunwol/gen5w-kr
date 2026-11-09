@@ -246,6 +246,7 @@ read_requests() {
             handle_recovery "$recovery"; return 0;;
         esac
     done
+    if recovery_lock_live; then return 0; fi
     # Recovery owns all changing actions; diagnosis saving remains read-only.
     case "$(cat "$NEMDIR/gen5w-kr-integrated/state" 2>/dev/null)" in recovery-required|applying|removing|recovering)
         for line in "${actions[@]}"; do case "$line" in save=*) handle_save "${line#save=}";; esac; done
@@ -671,6 +672,7 @@ recovery_status() {
         if recovery_lock_live; then state=working; available=no
         else result=interrupted; reason=interrupted; fi
     fi
+    if [ "$state" = none ]; then token=0; result=none; reason=unknown; fi
     # Never print raw failure messages: they can contain paths or identifiers.
     if [ -f "$tx/failure" ] && [ ! -L "$tx/failure" ]; then
         IFS= read -r line < "$tx/failure"

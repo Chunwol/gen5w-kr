@@ -152,7 +152,7 @@ r_run() {
     r_check || { r_record failed "$recovery_reason" "$token"; return 1; }
     trap '' HUP
     R_TOKEN=$token
-    trap 'r_record failed interrupted "$R_TOKEN"; transaction_exit 1' EXIT
+    trap 'set_state recovery-required; r_record failed interrupted "$R_TOKEN"; transaction_exit 1' EXIT
     : > "$NOREBOOT" || return 1
     KEEP_NOREBOOT=1
     if rollback_transaction && bootguard_reconcile_previous rolled-back; then
