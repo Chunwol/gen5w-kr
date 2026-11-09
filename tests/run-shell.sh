@@ -6,6 +6,7 @@ command -v mksh >/dev/null 2>&1 || { echo "mksh not found"; exit 78; }
 rc=0
 bash tests/local-hotspot.sh || rc=1
 bash tests/local-hotspot-remount.sh || rc=1
+bash tests/usb-rollback-finalize.sh || rc=1
 mksh tests/error-journal.sh || rc=1
 bash tests/error-boundaries.sh || rc=1
 bash tests/report-history.sh || rc=1

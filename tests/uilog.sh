@@ -350,6 +350,21 @@ check 'without the NEMESIS tool nothing is removed' eval '[ "$(status removed)" 
 check 'a hook path that leaves the package folder is refused' eval 'printf "[nemesis]\npreuninstall=../../evil.sh\n" > "$N/apps/gen5w.kr.bridge/NEMESIS.data"; printf "remove=559\n" > "$W/request"; rmrun; [ "$(status removed)" = 559:failed:gen5w.kr.bridge ]'
 rm -f "$W/request" "$W/rmcalls"
 
+# State can change after the reader accepts remove but before its worker locks.
+reset; mkpkg gen5w.kr.bridge
+mkdir -p "$N/gen5w-kr-integrated"
+echo committed > "$N/gen5w-kr-integrated/state"
+printf '#!/bin/sh\nif [ "$1" = "%s/gen5w-kr-integrated/lock" ]; then echo recovery-required > "%s/gen5w-kr-integrated/state"; fi\nexec /bin/mkdir "$@"\n' "$N" "$N" > "$W/bin/mkdir"
+chmod +x "$W/bin/mkdir"
+printf 'remove=560\n' > "$W/request"; rmrun
+check 'queued removal rechecks recovery state after acquiring transaction lock' eval '[ -d "$N/apps/gen5w.kr.bridge" ] && test ! -f "$W/rmcalls" && [ "$(status removed)" = 560:failed:recovery-required ]'
+check 'refused queued removal releases transaction lock' test ! -d "$N/gen5w-kr-integrated/lock"
+printf '#!/bin/sh\nif [ "$1" = "%s/gen5w-kr-integrated/lock" ]; then : > "%s/gen5w-kr-integrated/state"; fi\nexec /bin/mkdir "$@"\n' "$N" "$N" > "$W/bin/mkdir"
+echo committed > "$N/gen5w-kr-integrated/state"
+printf 'remove=561\n' > "$W/request"; rmrun
+check 'queued removal refuses an existing empty transaction state' eval '[ -d "$N/apps/gen5w.kr.bridge" ] && test ! -f "$W/rmcalls" && [ "$(status removed)" = 561:failed:recovery-required ]'
+rm -f "$W/bin/mkdir" "$N/gen5w-kr-integrated/state" "$W/request"
+
 # adb over Wi-Fi: a one-time numbered command; runtime property only, adbd restarted only when the state changes.
 reset; printf 'adb=on:111
 ' > "$W/request"; run

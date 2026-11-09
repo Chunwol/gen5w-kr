@@ -174,13 +174,14 @@ r_run() {
     r_check || { r_record failed "$recovery_reason" "$token"; return 1; }
     trap '' HUP
     R_TOKEN=$token
-    trap 'set_state recovery-required; r_record failed interrupted "$R_TOKEN"; transaction_exit 1' EXIT
+    trap '[ -L "$NOREBOOT" ] || : > "$NOREBOOT"; set_state recovery-required; r_record failed interrupted "$R_TOKEN"; transaction_exit 1' EXIT
     : > "$NOREBOOT" || return 1
     KEEP_NOREBOOT=1
     if rollback_transaction && bootguard_reconcile_previous rolled-back; then
         # Persist before reboot (and before the collector/core might disappear).
         r_record restored ready "$token" || return 1
         rm -f "$NOREBOOT" || return 1
+        set_state rolled-back || return 1
         trap 'transaction_exit $?' EXIT
         cold_reboot
         return $?

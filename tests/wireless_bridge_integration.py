@@ -39,6 +39,15 @@ package kr.gen5w.wireless;
 import java.util.concurrent.*;
 public class WirelessBridgeIntegrationTest {
     static void check(boolean b,String m){if(!b)throw new AssertionError(m);}
+    static class TrackedPool extends ThreadPoolExecutor {
+        final java.util.concurrent.atomic.AtomicInteger pending=new java.util.concurrent.atomic.AtomicInteger();
+        TrackedPool(){super(2,2,0L,TimeUnit.MILLISECONDS,new LinkedBlockingQueue<Runnable>());}
+        public void execute(final Runnable task){
+            pending.incrementAndGet();
+            try {super.execute(new Runnable(){public void run(){try{task.run();}finally{pending.decrementAndGet();}}});}
+            catch(RuntimeException e){pending.decrementAndGet();throw e;}
+        }
+    }
     public static class Info {
         public String getWLDevBtAddr(){return "phone";} public int getWLDType(){return 1;}
         public boolean getWLDOnOff(){return true;} public boolean getWLDAutoConnection(){return true;}
@@ -55,17 +64,22 @@ public class WirelessBridgeIntegrationTest {
     }
     public static class TestContext extends android.content.Context implements PhoneProjectionAccess.ProfileProvider {
         Manager manager=new Manager(); WirelessBridge bridge; int broadcasts; boolean foreignAfterBroadcast,unavailableAfterBroadcast;
-        TestContext(){manager.context=this; bridge=new WirelessBridge(this);}
+        TestContext(){manager.context=this; bridge=new WirelessBridge(this);
+            try { java.lang.reflect.Field f=WirelessBridge.class.getDeclaredField("oemCalls");f.setAccessible(true);
+                bridge.oemCalls.shutdownNow();f.set(bridge,new TrackedPool());
+            }catch(Exception e){throw new AssertionError(e);}
+        }
         public Object getSystemService(String n){if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");return "phoneprojection".equals(n)?manager:null;}
         public PhoneProjectionAccess.Profile find(String a){return manager.saved?new PhoneProjectionAccess.Profile(a,1,true,true):null;}
         public void sendBroadcast(android.content.Intent i){check(!Thread.holdsLock(bridge.session),"broadcast outside monitor"); broadcasts++; check("com.daudio.app.phoneprojection".equals(i.pkg)&&i.extras.size()==1,"scoped single extra action"); if(foreignAfterBroadcast)manager.foreignAfterInspection=true; if(unavailableAfterBroadcast)manager.unavailableAfterInspection=true;}
     }
     static void settle(TestContext c) throws Exception {
-        // A barrier on a two-worker pool can finish while the other worker is
-        // still executing OEM inspection. Wait for actual quiescence instead.
-        ThreadPoolExecutor pool=(ThreadPoolExecutor)c.bridge.oemCalls;
+        // Active-count/queue snapshots can both be zero before a newly started
+        // worker locks its first task. Count submissions before execute returns,
+        // including nested continuations, and wait for their completion instead.
+        TrackedPool pool=(TrackedPool)c.bridge.oemCalls;
         long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
-        while(pool.getActiveCount()!=0 || !pool.getQueue().isEmpty()) {
+        while(pool.pending.get()!=0) {
             if(System.nanoTime()>deadline)throw new AssertionError("OEM tasks did not settle");
             Thread.sleep(10);
         }

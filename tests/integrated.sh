@@ -143,8 +143,14 @@ check 'explicit rollback' run rollback
 check 'update after explicit rollback' run update
 # An unresolved recovery blocks every new install; only an explicit rollback of the recorded snapshot clears it.
 echo recovery-required > "$TX/state"; touch "$W/data/nemesis/gen5wkr.noreboot"
+echo 'FAILED original localhotspot restore' > "$TX/failure"
 check 'install is refused while recovery is unresolved' eval '! run install'
+check 'refused install preserves original recovery cause' grep -qx 'FAILED original localhotspot restore' <(head -n 1 "$TX/failure")
 check 'refused install keeps the recovery state' grep -qx recovery-required "$TX/state"
+mkdir -p "$W/data/nemesis/gen5wkr.bootguard.previous"
+check 'rollback refuses an invalid previous boot guard' eval '! run rollback && grep -q "previous boot guard could not be reconciled" "$W/out"'
+check 'failed USB rollback finalization remains recoverable' eval 'grep -qx recovery-required "$TX/state" && test -f "$W/data/nemesis/gen5wkr.noreboot"'
+rmdir "$W/data/nemesis/gen5wkr.bootguard.previous"
 check 'explicit rollback resolves an unresolved recovery' run rollback
 check 'rollback records a non-blocking state' eval 'grep -qx rolled-back "$TX/state" && test ! -e "$W/data/nemesis/gen5wkr.noreboot"'
 check 'install works again once the recovery is resolved' run update

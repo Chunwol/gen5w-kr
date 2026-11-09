@@ -4,7 +4,13 @@ result() {
         echo "$2" > "$TX/result.$1";;
     esac
 }
-reset_results() { rm -f "$TX"/result.* "$TX/failure" "$TX/recovery-mode"; }
+reset_results() {
+    # A refused new operation must not erase the original recovery diagnosis.
+    case "$(cat "$TX/state" 2>/dev/null)" in
+        applying|removing|recovering|recovery-required) return 0;;
+    esac
+    rm -f "$TX"/result.* "$TX/failure" "$TX/recovery-mode"
+}
 feature_name() {
     case "$1" in
         gen5w.kr.dongle) echo 'USB Wi-Fi 동글 드라이버';;

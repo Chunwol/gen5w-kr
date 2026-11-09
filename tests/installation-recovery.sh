@@ -112,6 +112,12 @@ check 'bootguard failure retains recovery required' grep -qx recovery-required "
 check 'bootguard failure is recorded separately' grep -qx 'recovery_result=failed' "$W/data/nemesis/gen5wkr.recovery-result"
 check 'failed report offers actionable recovery instructions' grep -q 'recovery-prepare' "$W/data/nemesis/gen5wkr.recovery/current/GEN5W-REPORT/RESULT.md"
 rmdir "$W/data/nemesis/gen5wkr.bootguard.previous"
+printf '#!/bin/sh\nif [ "$1" = "$IT_DATA/nemesis/gen5w-kr-integrated/state.tmp" ] && grep -qx rolled-back "$1"; then exit 1; fi\nexec /bin/mv "$@"\n' > "$W/bin/mv"
+chmod +x "$W/bin/mv"
+run run 457 > "$W/out" 2>&1
+check 'app terminal state write failure is refused' test $? != 0
+check 'app terminal state write failure retains recovery and suppression' eval 'grep -qx recovery-required "$W/data/nemesis/gen5w-kr-integrated/state" && test -f "$W/data/nemesis/gen5wkr.noreboot"'
+rm "$W/bin/mv"
 mkdir -p "$W/app" "$W/ui"
 cp "$W/data/nemesis/gen5wkr.recovery/current/common.sh" "$W/common.original"
 printf '\necho executed > "%s/unverified-executed"\n' "$W" >> "$W/data/nemesis/gen5wkr.recovery/current/common.sh"

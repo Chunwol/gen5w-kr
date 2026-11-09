@@ -593,6 +593,17 @@ do_remove() {
     print -r -- "$lockpid" > "$tx/lock/pid" || return 0
     rmdir "$guard" || return 0
     trap 'rm -f "$tx/lock/pid"; rmdir "$tx/lock" 2>/dev/null' EXIT
+    # Request acceptance precedes this background worker. Another transaction
+    # may have failed in between; only this under-lock check authorizes removal.
+    if [ -e "$tx/state" ] || [ -L "$tx/state" ]; then
+        typeset state
+        [ -f "$tx/state" ] && [ ! -L "$tx/state" ] && state=$(cat "$tx/state" 2>/dev/null) ||
+            { set_removed "$n" failed recovery-required; return 0; }
+        case "$state" in
+            committed|rolled-back) ;;
+            *) set_removed "$n" failed recovery-required; return 0;;
+        esac
+    fi
     [ ! -L "$lock" ] && ( set -C; : > "$lock" ) 2>/dev/null || return 0
     set_removed "$n" working
     if [ ! -x "$NEM" ]; then set_removed "$n" failed nemesis; rm -f "$lock"; return 0; fi

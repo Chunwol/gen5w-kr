@@ -258,10 +258,22 @@ rollback_transaction() {
         done
     fi
     if [ "$rc" = 0 ]; then
-        set_state rolled-back || { report 'RECOVERY REQUIRED: rollback state could not be recorded'; return 1; }
         if [ "${KEEP_NOREBOOT:-0}" != 1 ]; then
-            rm -f "$NOREBOOT" || { report 'RECOVERY REQUIRED: reboot suppression could not be cleared'; return 1; }
+            bootguard_reconcile_previous rolled-back || {
+                set_state recovery-required
+                report 'RECOVERY REQUIRED: previous boot guard could not be reconciled; no reboot'
+                return 1
+            }
+            rm -f "$NOREBOOT" || { set_state recovery-required; report 'RECOVERY REQUIRED: reboot suppression could not be cleared'; return 1; }
+            set_state rolled-back || {
+                [ -L "$NOREBOOT" ] || : > "$NOREBOOT"
+                set_state recovery-required
+                report 'RECOVERY REQUIRED: rollback state could not be recorded'
+                return 1
+            }
         fi
+        # A caller retaining suppression owns finalization too. Stay recovering
+        # until its boot-guard reconciliation and suppression cleanup succeed.
         for id in gen5w.kr.dongle $ALL_IDS; do
             [ -f "$TX/attempt.$id" ] || continue
             case "$(cat "$TX/result.$id" 2>/dev/null)" in failed*) result "$id" failed-restored;; *) result "$id" restored;; esac

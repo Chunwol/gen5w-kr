@@ -8,6 +8,8 @@ cat > "$W/common.sh" <<'SH'
 TX=$CASE_DIR/transaction
 NOREBOOT=$CASE_DIR/no-reboot
 acquire() { :; }
+set_state() { print -r -- "$1" > "$TX/state"; }
+transaction_exit() { return "$1"; }
 report() { print -r -- "$1" >> "$CASE_DIR/report"; }
 rollback_transaction() {
     [ "$KEEP_NOREBOOT" = 1 ] || rm -f "$NOREBOOT"
