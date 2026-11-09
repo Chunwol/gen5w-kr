@@ -26,7 +26,7 @@ python_tests="tests/unit_commands.py tests/source_revision.py tests/mkpkg_import
 python_tests="$python_tests tests/hotspot_control.py tools/diagnostics/sync.py"
 have_jdk=0
 command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && have_jdk=1
-[ "$have_jdk" = 1 ] && python_tests="tests/core_lifecycle.py tests/core_recovery.py $python_tests"
+[ "$have_jdk" = 1 ] && python_tests="tests/core_lifecycle.py tests/core_recovery.py tests/dipo_relay_runtime.py tests/gpm_usb_guard_runtime.py $python_tests"
 
 ( bash tests/par.sh python3 $python_tests >"$out/py.out" 2>&1; echo $? >"$out/py.rc" ) &
 ( bash tests/java.sh >"$out/jvm.out" 2>&1; echo $? >"$out/jvm.rc" ) &
