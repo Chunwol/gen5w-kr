@@ -89,11 +89,17 @@ r_snapshot() {
     done
 }
 r_check() {
+    local required
     r_safe "$RD" && r_safe "$RT" || { r_fail unsafe-path; return 1; }
     [ -f "$RT/state" ] && [ ! -L "$RT/state" ] && [ ! -L "$RT/state.tmp" ] || { r_fail unsafe-path; return 1; }
     case "$(cat "$RT/state" 2>/dev/null)" in recovery-required|applying|removing|recovering) ;; *) r_fail state-not-recoverable; return 1;; esac
     r_safe "$RB/current" && r_manifest "$RB/current" || { r_fail runner-unavailable; return 1; }
     r_snapshot || { r_fail snapshot-invalid; return 1; }
+    [ -x "${IT_NEM:-/system/xbin/nemesis}" ] && [ -x "${IT_SHELL:-/system/bin/sh}" ] && [ -x "$RB/current/zipstore" ] || { r_fail runner-unavailable; return 1; }
+    for required in common.sh recovery.sh recovery-lib.sh rollback.sh report.sh errors.sh; do
+        [ -f "$RB/current/$required" ] &&
+            grep -qxF "$(r_hash "$RB/current/$required")  $required" "$RB/current/RECOVERY.md5" || { r_fail runner-unavailable; return 1; }
+    done
     recovery_reason=ready
 }
 r_prepare() {

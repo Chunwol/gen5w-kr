@@ -6,8 +6,9 @@ W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 stubs
 mkdir -p "$W/usb" "$W/data/nemesis/gen5w-kr-integrated/prior"
 cp "$ROOT/tools/integrated/"*.sh "$W/usb/"
+cp "$ROOT/tools/integrated/bin/zipstore-host" "$W/usb/zipstore"
 printf 'sentinel\n' > "$W/data/nemesis/gen5w-kr-integrated/prior/preserved"
-run() { (cd "$W/usb" && IT_DATA="$W/data" IT_SYSTEM="$W/system" IT_NO_REBOOT=1 IT_SHELL=$(command -v mksh) PATH="$W/bin:$PATH" mksh ${RECOVERY_TRACE:+-x} recovery.sh "$@"); }
+run() { (cd "$W/usb" && IT_DATA="$W/data" IT_NEM="${RECOVERY_TEST_NEM:-$W/nemesis}" IT_SYSTEM="$W/system" IT_NO_REBOOT=1 IT_SHELL=$(command -v mksh) PATH="$W/bin:$PATH" mksh ${RECOVERY_TRACE:+-x} recovery.sh "$@"); }
 run check > "$W/out" 2>&1
 check 'missing published runner is refused' test $? != 0
 # The builder provides a complete immutable manifest; this small fixture verifies
@@ -44,6 +45,16 @@ p=pathlib.Path(sys.argv[1]); (p/'RECOVERY.md5').write_text(''.join(hashlib.md5(f
 PY
 run check > "$W/out" 2>&1
 check 'valid empty prior transaction can recover' test $? = 0
+RECOVERY_TEST_NEM="$W/missing" run check > "$W/out" 2>&1
+check 'missing package manager refuses recovery before changes' test $? != 0
+printf corrupt >> "$W/data/nemesis/gen5w-kr-integrated/prior/preserved"
+run check > "$W/out" 2>&1
+check 'prior file corruption refuses recovery before changes' test $? != 0
+printf 'sentinel\n' > "$W/data/nemesis/gen5w-kr-integrated/prior/preserved"
+ln -s "$W/usb/payload" "$W/data/nemesis/gen5w-kr-integrated/prior/link"
+run check > "$W/out" 2>&1
+check 'prior symlink refuses recovery before changes' test $? != 0
+rm "$W/data/nemesis/gen5w-kr-integrated/prior/link"
 mkdir "$W/data/nemesis/gen5w-kr-integrated/prior/gen5w.kr.core"
 : > "$W/data/nemesis/gen5w-kr-integrated/attempt.gen5w.kr.core"
 run check > "$W/out" 2>&1
@@ -69,4 +80,15 @@ check 'bootguard reconciliation failure remains recoverable' test $? != 0
 check 'bootguard failure retains recovery required' grep -qx recovery-required "$W/data/nemesis/gen5w-kr-integrated/state"
 check 'bootguard failure is recorded separately' grep -qx 'recovery_result=failed' "$W/data/nemesis/gen5wkr.recovery-result"
 check 'failed report offers actionable recovery instructions' grep -q 'recovery-prepare' "$W/data/nemesis/gen5wkr.recovery/current/GEN5W-REPORT/RESULT.md"
+rmdir "$W/data/nemesis/gen5wkr.bootguard.previous"
+mkdir -p "$W/app" "$W/ui"
+read -r up rest < /proc/uptime
+printf 'boot=%s\nexpires=%s\nrecovery=789\n' "$(cat /proc/sys/kernel/random/boot_id)" "$((${up%%.*}+30))" > "$W/app/ui-request"
+IT_DATA="$W/data" IT_NEM="$W/nemesis" IT_SYSTEM="$W/system" IT_NO_REBOOT=1 IT_SHELL=$(command -v mksh) \
+UILOG_TEST_DATA="$W/data" UILOG_TEST_DIR="$W/ui" UILOG_TEST_REQUEST="$W/app/ui-request" \
+UILOG_TEST_SH=$(command -v mksh) UILOG_TEST_ONCE=1 PATH="$W/bin:$PATH" \
+    python3 "$ROOT/tests/wait-descendants.py" mksh "$ROOT/packages/core/scripts/uilog.sh" > "$W/out" 2>&1
+check 'collector request runs independent real recovery worker' test $? = 0
+check 'collector-triggered worker persists final restoration' grep -qx 'recovery_result=restored' "$W/data/nemesis/gen5wkr.recovery-result"
+check 'collector-triggered worker preserves request identity' grep -qx 'recovery_request=789' "$W/data/nemesis/gen5wkr.recovery-result"
 done_tests installation-recovery
