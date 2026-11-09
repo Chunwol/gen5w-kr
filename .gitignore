@@ -20,5 +20,6 @@ packages/consent-timer/bin/sha256-check
 .superpowers/
 packages/wireless-bridge/bin/lpatch
 packages/wireless-bridge/app/HKMC_DiPO.relay.lpd
+packages/wireless-bridge/app/HKMC_GPM.guard.lpd
 packages/wireless-bridge/app/relay-v039.md5
 packages/wireless-bridge/app/relay-v039.complete
