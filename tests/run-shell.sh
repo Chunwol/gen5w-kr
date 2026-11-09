@@ -21,7 +21,7 @@ for f in $(find packages probe/package probe/usb tools -name '*.sh' -o -name '*.
 done
 echo "== shell package tests (parallel)"
 bash tests/par.sh bash \
-    tests/integrated.sh#3 tests/integrated.sh#1 tests/integrated-edge.sh tests/bridge.sh tests/timer.sh tests/dongle.sh tests/check.sh \
+    tests/integrated.sh#3 tests/integrated.sh#1 tests/integrated-edge.sh tests/bridge.sh tests/gpm-relay.sh tests/timer.sh tests/dongle.sh tests/check.sh \
     tests/drivelog.sh tests/wireless.sh tests/audio.sh tests/bootguard.sh tests/system-reinstall.sh \
     tests/recovery.sh tests/integrated.sh#2 tests/integrated-build.sh tests/bootguard-runtime.sh tests/wireless-preserve.sh \
     tests/relay-gate.sh tests/bootguard-rollback.sh tests/bootguard-dongle.sh tests/bluelink.sh \

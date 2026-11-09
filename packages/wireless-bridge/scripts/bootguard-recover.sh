@@ -77,6 +77,33 @@ preflight_pair() {
 # The bridge installs without a GPM backup only on units that have no
 # HKMC_GPM.odex at all; there is nothing to restore there.
 preflight_gpm() {
+    local state=$SYS/etc/gen5w-kr-backup/bridge tool=$_apps/gen5w.kr.bridge/bin/gpm-patch-v039 p sum intent=no
+    if [ -e "$state/gpmapkoriginal" ] || [ -L "$state/gpmapkoriginal" ]; then
+        for p in "$state" "$state/owner" "$state/gpmapkoriginal" "$state/gpmoriginal" \
+            "$state/gpmrelay.apk.md5" "$state/gpmrelay.odex.md5" "$state/gpmrelaystaging" \
+            "$SYS/app/HKMC_GPM.apk" "$SYS/app/HKMC_GPM.odex" "$tool"; do
+            [ ! -L "$p" ] || return 1
+        done
+        [ -x "$tool" ] && [ "$(cat "$state/owner")" = gen5w.kr.bridge:v039-1 ] &&
+            "$tool" original "$state/gpmoriginal" &&
+            "$tool" verify "$state/gpmapkoriginal" 8e7e9805f237f0690124af4b797466d716df12b55df065142a4f426a567f6bde || return 1
+        if [ -f "$state/gpmrelaystaging" ] && [ "$(cat "$state/gpmrelaystaging")" = gen5w.kr.bridge:v039-1 ]; then intent=yes; fi
+        if ! "$tool" verify "$SYS/app/HKMC_GPM.apk" 8e7e9805f237f0690124af4b797466d716df12b55df065142a4f426a567f6bde; then
+            if [ ! -e "$SYS/app/HKMC_GPM.apk" ]; then [ "$intent" = yes ] || return 1
+            else
+                sum=$(cat "$state/gpmrelay.apk.md5")
+                [ ${#sum} -eq 32 ] && [ "$(guard_digest "$SYS/app/HKMC_GPM.apk")" = "$sum" ] || return 1
+            fi
+        fi
+        if ! "$tool" original "$SYS/app/HKMC_GPM.odex" && ! "$tool" patched "$SYS/app/HKMC_GPM.odex"; then
+            if [ ! -e "$SYS/app/HKMC_GPM.odex" ]; then [ "$intent" = yes ] || return 1
+            else
+                sum=$(cat "$state/gpmrelay.odex.md5")
+                [ ${#sum} -eq 32 ] && [ "$(guard_digest "$SYS/app/HKMC_GPM.odex")" = "$sum" ] || return 1
+            fi
+        fi
+        return 0
+    fi
     if [ ! -e "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" ] && [ ! -L "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" ] &&
        [ ! -e "$SYS/app/HKMC_GPM.odex" ] && [ ! -L "$SYS/app/HKMC_GPM.odex" ]; then
         return 0
@@ -210,6 +237,7 @@ restore_one "$SYS/etc/gen5w-kr-backup/bridge/original" "$SYS/app/Iap2ServerApp.o
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal" "$SYS/app/HKMC_DiPO.odex" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/dipoapkoriginal" "$SYS/app/HKMC_DiPO.apk" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex" || rc=1
+restore_one "$SYS/etc/gen5w-kr-backup/bridge/gpmapkoriginal" "$SYS/app/HKMC_GPM.apk" || rc=1
 restore_one "$SYS/etc/gen5w-kr-backup/audio/original" "$SYS/lib/libCarPlayAudio.so" || rc=1
 [ "$DONGLE_PLAN" != yes ] || restore_one "$DONGLE_BACKUP" "$DONGLE_TARGET" || rc=1
 [ "$HOTSPOT_PLAN" != yes ] || restore_one "$SYS/etc/gen5w-kr-backup/local-hotspot/original.odex" "$SYS/app/HKMC_WifiSettings.odex" || rc=1

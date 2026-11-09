@@ -9,6 +9,9 @@ fail() { log "FAIL bridge: $1"; }
 die() { fail "$1"; restore_target || log 'FAIL bridge: rollback incomplete; originals retained'; exit 1; }
 inspect; rc=$?
 [ "$rc" = 0 ] || { fail "inspect rc=$rc (state not recognized)"; exit "$rc"; }
+if [ "$VERSION" = v039 ] && { [ -e "$SCRIPT_DIR/../app/relay-v039.complete" ] || [ -L "$SCRIPT_DIR/../app/relay-v039.complete" ]; }; then
+    relay_packaged || { fail 'incomplete or unsafe relay payload'; exit 1; }
+fi
 apguard_reset || { fail 'could not reset the hotspot start guard'; exit 1; }
 err_mount bridge rw "$NEM" || { fail 'could not remount /system read-write'; exit 1; }
 trap 'sys_ro' EXIT
@@ -38,6 +41,10 @@ elif [ "$BRIDGE_STATE" != route-patched ]; then
     log 'STEP bridge: iAP2 ODEX patched'
 fi
 if relay_packaged; then
+    if [ "$DIPO_STATE" != relay ] && [ "$DIPO_STATE" != stock ]; then
+        replace_target "$STATE/dipooriginal" original "$DIPO_TARGET" "$DIPO_TOOL" "$STATE/dipooriginal" "$STATE/dipostaging" || die 'could not prepare owned DiPO migration'
+        DIPO_STATE=stock
+    fi
     [ "$DIPO_STATE" = relay ] || install_relay_dipo || die 'the DiPO relay install failed (details above)'
 elif [ "$DIPO_STATE" != patched ]; then
     [ ! -L "$STATE/diporeplacement" ] || die 'DiPO replacement path is a symlink'
@@ -49,7 +56,9 @@ elif [ "$DIPO_STATE" != patched ]; then
         exit 1
     fi
 fi
-if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ "$GPM_STATE" = stock ]; then
+if gpm_relay_enabled; then
+    gpm_relay_install || die 'the GPM guard install failed (details above)'
+elif [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ "$GPM_STATE" = stock ]; then
     [ ! -L "$STATE/gpmreplacement" ] || die 'GPM replacement path is a symlink'
     rm -f "$STATE/gpmreplacement" || die 'could not remove an old GPM replacement'
     if ! { "$GPM_TOOL" apply "$STATE/gpmoriginal" "$STATE/gpmreplacement" && gpm_patched "$STATE/gpmreplacement" &&
@@ -61,7 +70,7 @@ if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ "$GPM_STATE" = stock ]; then
 fi
 { { relay_packaged && bt_patched "$TARGET" && relay_live; } ||
    { ! relay_packaged && route_patched "$TARGET" && dipo_patched "$DIPO_TARGET"; }; } &&
-   { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; } || die 'the final check of the patched files failed'
+   { [ -z "$GPM_TOOL" ] || { ! gpm_relay_enabled && { [ ! -f "$GPM_TARGET" ] || gpm_patched "$GPM_TARGET"; }; } || gpm_relay_live; } || die 'the final check of the patched files failed'
 rm -f "$STATE/replacement" "$STATE/diporeplacement" "$STATE/gpmreplacement" || { fail 'could not remove the replacement copies'; exit 1; }
 [ ! -L "$STOPPING" ] && rm -f "$STOPPING" || { fail 'could not clear the stopping marker'; exit 1; }
 wipe_dalvik || { fail 'cache cleanup failed'; restore_target || log 'FAIL bridge: rollback incomplete; originals retained'; exit 1; }

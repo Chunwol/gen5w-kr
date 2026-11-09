@@ -98,6 +98,32 @@ check 'interrupted ODEX-first pair restores exact stock APK' grep -qx 'stock-apk
 check 'interrupted ODEX-first pair restores exact stock ODEX' cmp -s "$SYS/app/HKMC_DiPO.odex" "$SYS/etc/gen5w-kr-backup/bridge/dipooriginal"
 rm -f "$SYS/etc/gen5w-kr-backup/bridge/dipoapkoriginal" "$SYS/etc/gen5w-kr-backup/bridge/diporelay.apk.md5" "$SYS/etc/gen5w-kr-backup/bridge/diporelay.odex.md5" "$SYS/app/HKMC_DiPO.apk"
 
+gpm_partial_recovery() {
+    local side=$1 state=$SYS/etc/gen5w-kr-backup/bridge
+    rm -f "$BG/recovered" "$BG/recovery-required";echo armed > "$BG/armed"
+    echo gen5w.kr.bridge:v039-1 > "$state/owner"
+    echo gen5w.kr.bridge:v039-1 > "$state/gpmrelaystaging"
+    echo stock-apk-gpm > "$state/gpmapkoriginal"
+    echo generated-gpm-apk > "$SYS/app/HKMC_GPM.apk"
+    echo generated-gpm-odex > "$SYS/app/HKMC_GPM.odex"
+    md5sum "$SYS/app/HKMC_GPM.apk" | cut -d' ' -f1 > "$state/gpmrelay.apk.md5"
+    md5sum "$SYS/app/HKMC_GPM.odex" | cut -d' ' -f1 > "$state/gpmrelay.odex.md5"
+    case "$side" in
+        apk) cp "$state/gpmapkoriginal" "$SYS/app/HKMC_GPM.apk";;
+        odex) cp "$state/gpmoriginal" "$SYS/app/HKMC_GPM.odex";;
+        missing-apk) rm "$SYS/app/HKMC_GPM.apk";;
+        missing-odex) rm "$SYS/app/HKMC_GPM.odex";;
+    esac
+    BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" \
+        mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh" > "$W/gpm-$side.out" 2>&1
+}
+for side in apk odex missing-apk missing-odex; do
+    check "GPM bootguard recognizes $side pair" gpm_partial_recovery "$side"
+    check "GPM bootguard restores $side APK" cmp -s "$SYS/app/HKMC_GPM.apk" "$SYS/etc/gen5w-kr-backup/bridge/gpmapkoriginal"
+    check "GPM bootguard restores $side ODEX" cmp -s "$SYS/app/HKMC_GPM.odex" "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal"
+done
+rm -f "$SYS/etc/gen5w-kr-backup/bridge/gpmapkoriginal" "$SYS/etc/gen5w-kr-backup/bridge/gpmrelay.apk.md5" "$SYS/etc/gen5w-kr-backup/bridge/gpmrelay.odex.md5" "$SYS/etc/gen5w-kr-backup/bridge/gpmrelaystaging" "$SYS/app/HKMC_GPM.apk"
+
 rm -f "$DATA/nemesis/gen5wkr.bootguard/armed"
 rm -f "$DATA/nemesis/gen5wkr.bootguard/recovered"
 check 'bootguard refuses unarmed recovery' eval '! BG_TEST_SYS="$SYS" BG_TEST_DATA="$DATA" BG_TEST_NEM="$W/nemesis" BG_TEST_DALVIK="$CACHE/dalvik-cache" mksh "$ROOT/packages/wireless-bridge/scripts/bootguard-recover.sh"'

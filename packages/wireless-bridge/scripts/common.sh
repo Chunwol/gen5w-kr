@@ -134,6 +134,7 @@ dipo_previous() {
 }
 gpm_original() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" original "$1"; }
 gpm_patched() { [ -f "$1" ] && [ ! -L "$1" ] && [ -n "$GPM_TOOL" ] && "$GPM_TOOL" patched "$1"; }
+. "$SCRIPT_DIR/gpm-relay.sh"
 owned() { [ -f "$STATE/owner" ] && [ ! -L "$STATE/owner" ] && [ "$(cat "$STATE/owner")" = "$OWNER" ]; }
 # /system can stay busy for a moment after a change (EBUSY, also seen on a US
 # Ioniq 5). Changes are synced and the install reboots, which mounts /system
@@ -203,7 +204,15 @@ inspect() {
         return 1
     fi
     GPM_STATE=
-    if [ -f "$GPM_TARGET" ]; then
+    if [ "$BRIDGE_OWNED" = yes ] && [ "$VERSION" = v039 ] &&
+       { [ -e "$STATE/gpmrelay.apk.md5" ] || [ -L "$STATE/gpmrelay.apk.md5" ] ||
+         [ -e "$STATE/gpmrelay.odex.md5" ] || [ -L "$STATE/gpmrelay.odex.md5" ] ||
+         [ -e "$STATE/gpmrelaystaging" ] || [ -L "$STATE/gpmrelaystaging" ]; }; then
+        GPM_TOOL=$SCRIPT_DIR/../bin/gpm-patch-v039
+        GPM_VERSION=v039; GPM_APK_SHA=$BRIDGE_GPM_APK_V039_SHA
+        gpm_relay_known_pair || { log 'FAIL bridge: unknown or damaged GPM relay pair'; return 1; }
+        GPM_STATE=relay
+    elif [ -f "$GPM_TARGET" ]; then
         for gpm_version in v035 v039; do
             GPM_TOOL=$SCRIPT_DIR/../bin/gpm-patch-$gpm_version
             [ -f "$GPM_TOOL" ] && [ -x "$GPM_TOOL" ] || continue
@@ -233,7 +242,7 @@ inspect() {
         [ "$BRIDGE_OWNED" = no ] && return 77
         return 1
     fi
-    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ -n "$GPM_APK_SHA" ]; then
+    if [ "$GPM_STATE" != relay ] && [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && [ -n "$GPM_APK_SHA" ]; then
         if ! "$GPM_TOOL" verify "$GPM_APK" "$GPM_APK_SHA"; then
             log 'SKIP bridge: stock GPM APK and ODEX version do not match'
             [ "$BRIDGE_OWNED" = no ] && return 77
@@ -241,6 +250,9 @@ inspect() {
         fi
     fi
     if [ "$BRIDGE_OWNED" = yes ]; then
+        if [ -e "$STATE/gpmapkoriginal" ] || [ -L "$STATE/gpmapkoriginal" ]; then
+            gpm_relay_backups || { log 'FAIL bridge: durable GPM pair backup damaged'; return 1; }
+        fi
         if [ -e "$STATE/original" ] || [ -L "$STATE/original" ]; then
             original "$STATE/original" || { log 'FAIL bridge: durable backup damaged'; return 1; }
         fi
@@ -268,6 +280,9 @@ inspect() {
         if [ -e "$MARK/original" ] || [ -L "$MARK/original" ]; then original "$MARK/original" || return 1; fi
         if [ -e "$MARK/dipooriginal" ] || [ -L "$MARK/dipooriginal" ]; then dipo_original "$MARK/dipooriginal" || return 1; fi
         if [ -e "$MARK/gpmoriginal" ] || [ -L "$MARK/gpmoriginal" ]; then gpm_original "$MARK/gpmoriginal" || return 1; fi
+        if [ -e "$MARK/gpmapkoriginal" ] || [ -L "$MARK/gpmapkoriginal" ]; then
+            [ ! -L "$MARK/gpmapkoriginal" ] && "$GPM_TOOL" verify "$MARK/gpmapkoriginal" "$GPM_APK_SHA" || return 1
+        fi
     fi
 }
 save_original() {
@@ -308,6 +323,7 @@ save_original() {
         [ ! -L "$MARK/gpmoriginal.tmp" ] || return 1
         cp -p "$STATE/gpmoriginal" "$MARK/gpmoriginal.tmp" && gpm_original "$MARK/gpmoriginal.tmp" && mv "$MARK/gpmoriginal.tmp" "$MARK/gpmoriginal" || return 1
     fi
+    gpm_relay_save_apk || return 1
     chmod 700 "$STATE" "$MARK" || return 1
     sync
 }
@@ -323,6 +339,7 @@ stage_clear_one() {
     rm -f "$stage_marker"
 }
 stage_clear() {
+    gpm_relay_stage_clear || return 1
     stage_clear_one "$STAGE" "$STATE/staging" "$ROUTE_TOOL" &&
         stage_clear_one "$DIPO_TARGET.gen5w-kr-bridge.tmp" "$STATE/dipostaging" "$DIPO_TOOL" &&
         { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || stage_clear_one "$GPM_TARGET.gen5w-kr-bridge.tmp" "$STATE/gpmstaging" "$GPM_TOOL"; } &&
@@ -422,13 +439,16 @@ restore_target() {
         { dipo_patched "$DIPO_TARGET" || dipo_previous "$DIPO_TARGET"; } && dipo_original "$STATE/dipooriginal" &&
             replace_target "$STATE/dipooriginal" original "$DIPO_TARGET" "$DIPO_TOOL" "$STATE/dipooriginal" "$STATE/dipostaging" || restore_rc=1
     fi
-    if [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && ! gpm_original "$GPM_TARGET"; then
+    if [ -e "$STATE/gpmapkoriginal" ] || [ -L "$STATE/gpmapkoriginal" ]; then
+        gpm_relay_restore || restore_rc=1
+    elif [ -n "$GPM_TOOL" ] && [ -f "$GPM_TARGET" ] && ! gpm_original "$GPM_TARGET"; then
         gpm_patched "$GPM_TARGET" && gpm_original "$STATE/gpmoriginal" &&
             replace_target "$STATE/gpmoriginal" original "$GPM_TARGET" "$GPM_TOOL" "$STATE/gpmoriginal" "$STATE/gpmstaging" || restore_rc=1
     fi
     return "$restore_rc"
 }
 cleanup_owned() {
+    owned && gpm_relay_cleanup || return 1
     owned && original "$TARGET" && dipo_original "$DIPO_TARGET" &&
         { [ -z "$GPM_TOOL" ] || [ ! -f "$GPM_TARGET" ] || gpm_original "$GPM_TARGET"; } || return 1
     for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp diporelay.apk.md5 diporelay.odex.md5 diporelaystaging diporelay.assembled diporelay.assembled.classes.dex gpmoriginal gpmoriginal.tmp replacement diporeplacement gpmreplacement staging dipostaging gpmstaging owner; do
@@ -454,11 +474,11 @@ clear_runtime_copy() {
     if [ -n "$TOOL" ]; then ! patched "$TARGET" || return 1; fi
     if [ -n "$DIPO_TOOL" ]; then ! dipo_patched "$DIPO_TARGET" || return 1; fi
     if [ -n "$GPM_TOOL" ]; then ! gpm_patched "$GPM_TARGET" || return 1; fi
-    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp gpmoriginal gpmoriginal.tmp owner; do
+    for bridge_file in original original.tmp dipooriginal dipooriginal.tmp dipoapkoriginal dipoapkoriginal.tmp gpmoriginal gpmoriginal.tmp gpmapkoriginal gpmapkoriginal.tmp owner; do
         [ ! -L "$MARK/$bridge_file" ] || return 1
     done
     rm -f "$MARK/original" "$MARK/original.tmp" "$MARK/dipooriginal" "$MARK/dipooriginal.tmp" \
-        "$MARK/dipoapkoriginal" "$MARK/dipoapkoriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/owner" &&
+        "$MARK/dipoapkoriginal" "$MARK/dipoapkoriginal.tmp" "$MARK/gpmoriginal" "$MARK/gpmoriginal.tmp" "$MARK/gpmapkoriginal" "$MARK/gpmapkoriginal.tmp" "$MARK/owner" &&
         rmdir "$MARK" || return 1
     log 'CLEARED bridge: runtime copies left by a system reinstall'
 }

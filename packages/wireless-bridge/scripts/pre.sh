@@ -10,6 +10,9 @@ if [ -z "$BRIDGE_TEST_SYS" ] && [ ! -f "$NOREBOOT" ]; then
     exit 1
 fi
 inspect || exit $?
+if [ "$VERSION" = v039 ] && { [ -e "$SCRIPT_DIR/../app/relay-v039.complete" ] || [ -L "$SCRIPT_DIR/../app/relay-v039.complete" ]; }; then
+    relay_packaged || { log 'FAIL bridge: incomplete or unsafe relay payload'; exit 1; }
+fi
 [ -f "$SCRIPT_DIR/../app/bridge.dex" ] && [ ! -L "$SCRIPT_DIR/../app/bridge.dex" ] &&
     [ -f "$SCRIPT_DIR/../app/wireless-host.apk" ] && [ ! -L "$SCRIPT_DIR/../app/wireless-host.apk" ] || { log 'FAIL bridge: stock projection host absent'; exit 1; }
 log 'READY bridge: exact stock APK/ODEX pair and recovery ownership verified'

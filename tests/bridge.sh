@@ -112,6 +112,11 @@ case "$2" in
 if [ -f "$BRIDGE_TEST_FIXTURE/fail-mv" ]; then rm "$BRIDGE_TEST_FIXTURE/fail-mv"; exit 1; fi;;
 *HKMC_DiPO.odex)
 if [ -f "$BRIDGE_TEST_FIXTURE/fail-dipo-mv" ]; then rm "$BRIDGE_TEST_FIXTURE/fail-dipo-mv"; exit 1; fi;;
+*HKMC_GPM.apk)
+if [ -f "$BRIDGE_TEST_FIXTURE/fail-gpm-apk-mv" ]; then rm "$BRIDGE_TEST_FIXTURE/fail-gpm-apk-mv"; exit 1; fi;;
+*HKMC_GPM.odex)
+if [ -f "$BRIDGE_TEST_FIXTURE/fail-gpm-odex-always" ]; then exit 1; fi
+if [ -f "$BRIDGE_TEST_FIXTURE/fail-gpm-odex-mv" ]; then rm "$BRIDGE_TEST_FIXTURE/fail-gpm-odex-mv"; exit 1; fi;;
 esac
 exec /bin/mv "$@"
 EOF
@@ -153,6 +158,11 @@ DIPO=$W/sys/app/HKMC_DiPO.odex; DIPOAPK=$W/sys/app/HKMC_DiPO.apk
 GPM=$W/sys/app/HKMC_GPM.odex; GPMAPK=$W/sys/app/HKMC_GPM.apk
 PERSIST=$W/sys/etc/gen5w-kr-backup/bridge; MARK=$W/data/nemesis/backup/gen5w.kr.bridge
 run() { mksh "$W/pkg/scripts/$1.sh" >"$W/last-run" 2>&1; rc=$?; if [ "$rc" != 0 ] && [ -n "${BRIDGE_TEST_VERBOSE:-}" ]; then cat "$W/last-run"; fi; return "$rc"; }
+if [ "${GPM_RELAY_ONLY:-0}" = 1 ]; then
+    . tests/gpm-relay-cases.sh
+    done_tests gpm-relay
+    exit $?
+fi
 cp "$W/fixture/v035-original" "$TARGET"; cp "$W/fixture/v035-apk" "$APK"
 cp "$W/fixture/dipo-v035-original" "$DIPO"; cp "$W/fixture/dipo-v035-apk" "$DIPOAPK"
 if run pre; then bad 'missing daemon payload refused'; else ok 'missing daemon payload refused'; fi
@@ -499,20 +509,21 @@ cp "$W/fixture/gpm-v039-original" "$GPM"; cp "$W/fixture/gpm-v039-apk" "$GPMAPK"
 # The package carries a delta and lpatch, never a manufacturer APK. The fake lpatch refuses any
 # source that is not the exact stock file, like the real tool does for a hash mismatch.
 printf 'delta\n' > "$W/pkg/app/HKMC_DiPO.relay.lpd"
+printf 'gpm-delta\n' > "$W/pkg/app/HKMC_GPM.guard.lpd"
 cat > "$W/bin/lpatch" <<EOF
 #!/bin/sh
 [ "\${BRIDGE_TEST_LPATCH_FAIL:-0}" != 1 ] || { echo "RESULT delta status=MISMATCH file=\$3 md5=aaaa want=bbbb"; exit 1; }
 case "\$1" in
-    delta) cmp -s "\$3" "$W/fixture/dipo-v039-original" && [ -s "\$2" ] && printf 'relay-dex\n' > "\$4" ;;
-    zipadd) cmp -s "\$2" "$W/fixture/dipo-v039-apk" && [ -s "\$3" ] && printf 'private-relay-apk\n' > "\$4" ;;
+    delta) { cmp -s "\$3" "$W/fixture/dipo-v039-original" || cmp -s "\$3" "$W/fixture/gpm-v039-original"; } && [ -s "\$2" ] && printf 'relay-dex\n' > "\$4" ;;
+    zipadd) if cmp -s "\$2" "$W/fixture/dipo-v039-apk"; then printf 'private-relay-apk\n' > "\$4"; elif cmp -s "\$2" "$W/fixture/gpm-v039-apk"; then printf 'gpm-guard-apk\n' > "\$4"; else exit 1; fi ;;
     *) exit 1 ;;
 esac
 EOF
 # Like every native file NEMESIS extracts, the packaged lpatch is 0644; the script must make it executable.
 cp "$W/bin/lpatch" "$W/pkg/bin/lpatch"; chmod 644 "$W/pkg/bin/lpatch"
 printf 'private-relay-apk\n' > "$W/relay-apk-expected"
-(cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.lpd bin/iap2-bt-patch-v039 bin/dipo-patch-v039 bin/lpatch > app/relay-v039.md5)
-printf '%s\n' 'gen5w.kr.bridge:v039-relay-3' > "$W/pkg/app/relay-v039.complete"
+(cd "$W/pkg" && md5sum app/bridge.dex app/wireless-host.apk app/HKMC_DiPO.relay.lpd app/HKMC_GPM.guard.lpd bin/iap2-bt-patch-v039 bin/dipo-patch-v039 bin/gpm-patch-v039 bin/lpatch > app/relay-v039.md5)
+printf '%s\n' 'gen5w.kr.bridge:v039-relay-4' > "$W/pkg/app/relay-v039.complete"
 export BRIDGE_TEST_DEXOPT="$W/bin/dexopt" BRIDGE_TEST_BCP_LOG="$W/bcp"
 check 'private relay installs as one reviewed pair' run post
 check 'relay makes the extracted lpatch executable' test -x "$W/pkg/bin/lpatch"
