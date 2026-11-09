@@ -17,6 +17,7 @@ python3 - "$W/usb" <<'PY'
 import hashlib,pathlib,sys
 p=pathlib.Path(sys.argv[1]); (p/'payload').write_text('verified')
 (p/'RECOVERY.md5').write_text(''.join(hashlib.md5(f.read_bytes()).hexdigest()+'  '+f.name+'\n' for f in sorted(p.iterdir()) if f.is_file()))
+(p/'RECOVERY.receipt').write_text(hashlib.md5((p/'RECOVERY.md5').read_bytes()).hexdigest()+'\n')
 PY
 run prepare > "$W/out" 2>&1
 prep_rc=$?; [ "$prep_rc" = 0 ] || cat "$W/out"
@@ -42,9 +43,18 @@ check 'legacy snapshot without per-file integrity requires USB fallback' test $?
 python3 - "$W/data/nemesis/gen5w-kr-integrated/prior" <<'PY'
 import pathlib,hashlib,sys
 p=pathlib.Path(sys.argv[1]); (p/'RECOVERY.md5').write_text(''.join(hashlib.md5(f.read_bytes()).hexdigest()+'  '+f.name+'\n' for f in sorted(p.iterdir()) if f.is_file() and f.name!='complete'))
+(p/'RECOVERY.receipt').write_text(hashlib.md5((p/'RECOVERY.md5').read_bytes()).hexdigest()+'\n')
 PY
 run check > "$W/out" 2>&1
 check 'valid empty prior transaction can recover' test $? = 0
+cp "$W/data/nemesis/gen5w-kr-integrated/prior/RECOVERY.md5" "$W/snapshot.manifest"
+python3 - "$W/data/nemesis/gen5w-kr-integrated/prior/RECOVERY.md5" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); p.write_text(p.read_text().splitlines()[0]+'\n')
+PY
+run check > "$W/out" 2>&1
+check 'truncated but syntactically valid inventory is refused' test $? != 0
+cp "$W/snapshot.manifest" "$W/data/nemesis/gen5w-kr-integrated/prior/RECOVERY.md5"
 RECOVERY_TEST_NEM="$W/missing" run check > "$W/out" 2>&1
 check 'missing package manager refuses recovery before changes' test $? != 0
 printf corrupt >> "$W/data/nemesis/gen5w-kr-integrated/prior/preserved"

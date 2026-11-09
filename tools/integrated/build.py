@@ -173,6 +173,9 @@ def build(dist, output, variant='standard'):
     (output / 'RECOVERY.md5').write_text(''.join(
         hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(output).as_posix() + '\n'
         for p in sorted(recovery_files)), encoding='ascii', newline='\n')
+    (output / 'RECOVERY.receipt').write_text(
+        hashlib.md5((output / 'RECOVERY.md5').read_bytes()).hexdigest() + '\n',
+        encoding='ascii', newline='\n')
     archive = output.with_suffix('.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
         for p in sorted(output.rglob('*')):

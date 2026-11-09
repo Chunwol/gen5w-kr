@@ -45,7 +45,7 @@ r_inventory() {
         if [ -d "$p" ]; then r_inventory "$root" "$p" || return 1; continue; fi
         [ -f "$p" ] || return 1
         rel=${p#"$root/"}
-        case "$rel" in complete|RECOVERY.md5|RECOVERY.md5.tmp) continue;;
+        case "$rel" in complete|RECOVERY.md5|RECOVERY.md5.tmp|RECOVERY.receipt) continue;;
             ''|/*|*..*|*[!a-zA-Z0-9_./-]*) return 1;; esac
         sum=$(r_hash "$p") || return 1
         echo "$sum  $rel"
@@ -53,8 +53,12 @@ r_inventory() {
 }
 r_hash() { local x; x=$(md5 "$1") || return 1; set -- $x; echo "$1"; }
 r_manifest() {
-    local root=$1 sum rel extra seen='|' count=0 part
+    local root=$1 sum rel extra seen='|' count=0 part receipt
     [ -f "$root/RECOVERY.md5" ] && [ ! -L "$root/RECOVERY.md5" ] || return 1
+    [ -f "$root/RECOVERY.receipt" ] && [ ! -L "$root/RECOVERY.receipt" ] || return 1
+    IFS= read -r receipt < "$root/RECOVERY.receipt" || return 1
+    case "$receipt" in ''|*[!0-9a-f]*) return 1;; esac
+    [ "${#receipt}" = 32 ] && [ "$(r_hash "$root/RECOVERY.md5")" = "$receipt" ] || return 1
     while IFS=' ' read -r sum rel extra; do
         case "$sum" in ''|*[!0-9a-f]*) return 1;; esac
         [ "${#sum}" = 32 ] && [ -z "$extra" ] || return 1
@@ -120,7 +124,7 @@ r_prepare() {
         parent=${rel%/*}; [ "$parent" != "$rel" ] || parent=.
         mkdir -p "$RB/staging/$parent" && cp "./$rel" "$RB/staging/$rel" || return 1
     done < RECOVERY.md5
-    cp RECOVERY.md5 "$RB/staging/RECOVERY.md5" && r_manifest "$RB/staging" || return 1
+    cp RECOVERY.md5 "$RB/staging/RECOVERY.md5" && cp RECOVERY.receipt "$RB/staging/RECOVERY.receipt" && r_manifest "$RB/staging" || return 1
     if [ -e "$RB/previous" ] || [ -L "$RB/previous" ]; then
         r_safe "$RB/previous" && r_manifest "$RB/previous" && r_no_links "$RB/previous" || { r_fail unsafe-path; return 1; }
         rm -rf "$RB/previous" || return 1

@@ -525,7 +525,8 @@ begin_steps() {
     if [ -f ./recovery-lib.sh ]; then
         . ./recovery-lib.sh
         r_inventory "$TX/prior" > "$TX/prior/RECOVERY.md5.tmp" &&
-            mv "$TX/prior/RECOVERY.md5.tmp" "$TX/prior/RECOVERY.md5" || return 1
+            mv "$TX/prior/RECOVERY.md5.tmp" "$TX/prior/RECOVERY.md5" &&
+            r_hash "$TX/prior/RECOVERY.md5" > "$TX/prior/RECOVERY.receipt" || return 1
     fi
     echo 1 > "$TX/prior/complete" && sync
 }
