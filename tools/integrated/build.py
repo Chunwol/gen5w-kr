@@ -166,6 +166,13 @@ def build(dist, output, variant='standard'):
         (output / 'GEN5W-CHECK-ONLY').write_text('check\n', encoding='ascii', newline='\n')
     (output / 'NEMESIS.sh').write_text(nemesis_sh, encoding='ascii', newline='\n')
     (output / 'NEMESIS.sh').chmod(0o755)
+    recovery_files = [p for p in output.rglob('*') if p.is_file() and (
+        p.parent == output and (p.suffix == '.sh' or p.name in (
+            'zipstore', 'GEN5W-VARIANT', 'GEN5W-BACKEND', 'BUILD-REVISION'))
+        or p.relative_to(output).parts[0] in ('checks', 'packages'))]
+    (output / 'RECOVERY.md5').write_text(''.join(
+        hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(output).as_posix() + '\n'
+        for p in sorted(recovery_files)), encoding='ascii', newline='\n')
     archive = output.with_suffix('.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
         for p in sorted(output.rglob('*')):

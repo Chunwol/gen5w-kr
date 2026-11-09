@@ -18,7 +18,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--serial', required=True)
     parser.add_argument('--stock-dir', type=Path)
-    parser.add_argument('--scenario', default='normal', choices=['normal', 'locked', 'unknown', 'stale'])
+    parser.add_argument('--scenario', default='normal', choices=['normal', 'locked', 'unknown', 'stale',
+        'recovery', 'recovery-unavailable', 'recovery-working', 'recovery-failed', 'recovery-restored'])
     parser.add_argument('--revision', help='Capture a committed UI for before/after comparison')
     parser.add_argument('--capture-only', action='store_true', help='Do not claim assertions passed for a historical UI')
     args = parser.parse_args()

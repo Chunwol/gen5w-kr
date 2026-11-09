@@ -58,7 +58,7 @@ report() {
         echo "$1" >> "$TX/failure"
         err_event integrated transaction result failed 1 unknown;; esac
 }
-set_state() { echo "$1" > "$TX/state.tmp" && mv "$TX/state.tmp" "$TX/state" && sync; }
+set_state() { [ ! -L "$TX/state.tmp" ] && [ ! -L "$TX/state" ] && echo "$1" > "$TX/state.tmp" && mv "$TX/state.tmp" "$TX/state" && sync; }
 meta() {
     local section= line
     while IFS= read -r line || [ -n "$line" ]; do
@@ -273,17 +273,20 @@ rollback_transaction() {
     return "$rc"
 }
 acquire() {
+    [ ! -L "$DATA" ] && [ ! -L "$DATA/nemesis" ] && [ ! -L "$TX" ] && [ ! -L "$TX/lock" ] || return 1
     chmod 755 ./zipstore 2>/dev/null || true
     mkdir -p "$TX" || return 1
     if ! mkdir "$TX/lock" 2>/dev/null; then
         local pid=
         [ ! -f "$TX/lock/pid" ] || pid=$(cat "$TX/lock/pid")
-        case "$pid" in ''|*[!0-9]*) rm -rf "$TX/lock" 2>/dev/null || true;; esac
+        [ ! -L "$TX/lock" ] && [ -d "$TX/lock" ] && [ ! -L "$TX/lock/pid" ] || return 1
+        case "$pid" in ''|*[!0-9]*) report 'REFUSED unknown transaction lock owner'; return 1;; esac
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then report 'REFUSED another transaction is running'; return 1; fi
-        rm -rf "$TX/lock" 2>/dev/null || true
+        # Never recursively delete foreign contents when reclaiming a dead lock.
+        rm -f "$TX/lock/pid" && rmdir "$TX/lock" || return 1
         mkdir "$TX/lock" || return 1
     fi
-    echo $$ > "$TX/lock/pid"
+    [ ! -L "$TX/lock/pid" ] && echo $$ > "$TX/lock/pid" || return 1
     trap 'transaction_exit $?' EXIT
 }
 # A plain reboot may resume a QuickBoot snapshot. A mismatch between a snapshot
@@ -471,6 +474,11 @@ begin() {
 }
 begin_steps() {
     local state= id
+    # Older fixture/standalone trees have no manifest; shipped bundles always do.
+    if [ -f RECOVERY.md5 ]; then
+        . ./recovery-lib.sh
+        r_prepare || { report "REFUSED recovery preparation: $recovery_reason"; return 1; }
+    fi
     if [ -f "$TX/state" ]; then
         state=$(cat "$TX/state" 2>/dev/null)
         case "$state" in
@@ -485,6 +493,7 @@ begin_steps() {
                 ;;
             recovery-required)
                 report 'REFUSED unresolved system recovery required'
+                progress '복구가 필요합니다. 관리 화면의 이전 상태로 복구 또는 USB rollback을 사용하세요. 설치를 반복하지 마세요.'
                 return 1
                 ;;
             committed|rolled-back|capturing) ;;
@@ -511,6 +520,13 @@ begin_steps() {
     if [ -f "$WIRELESS_OFF" ]; then echo disabled; else echo enabled; fi > "$TX/prior/wireless-mode" || return 1
     [ ! -L "$AP_MATCH" ] && [ ! -L "$AP_FEATURE" ] || return 1
     { [ -f "$AP_MATCH" ] && echo match; [ -f "$AP_FEATURE" ] && echo feature; :; } > "$TX/prior/ap-markers" || return 1
+    # Old snapshots remain usable by explicit USB rollback. In-app recovery
+    # requires this complete per-file identity before executing saved hooks.
+    if [ -f ./recovery-lib.sh ]; then
+        . ./recovery-lib.sh
+        r_inventory "$TX/prior" > "$TX/prior/RECOVERY.md5.tmp" &&
+            mv "$TX/prior/RECOVERY.md5.tmp" "$TX/prior/RECOVERY.md5" || return 1
+    fi
     echo 1 > "$TX/prior/complete" && sync
 }
 # On-screen progress, so nobody pulls the USB while a step is still running.

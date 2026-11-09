@@ -113,6 +113,7 @@ collect_log() {
     [ -d "$LOGS/gen5w.kr.bridge" ] && [ ! -L "$LOGS/gen5w.kr.bridge" ] && collect_source "$LOGS/gen5w.kr.bridge"
     # The wireless installer writes its log next to the folders, not inside one.
     collect_file "$NEMDIR/gen5w.kr.wireless.log" wireless
+    collect_file "$NEMDIR/gen5wkr.recovery-worker.log" recovery
     # Service output (WAIT/FAIL lines of the bridge, start/stop of our packages) lands in the main
     # NEMESIS log on this unit, not in a package folder: take only our own lines from it.
     typeset nl="$NEMDIR/nemesis.log" nsize
@@ -184,6 +185,7 @@ collect_status() {
         print -r -- "saved=$(saved_state)"
         print -r -- "removed=$(removed_state)"
         print -r -- "wlan=$wlan"
+        recovery_status
     } > "$tmp" || return 1
     chmod 644 "$tmp" && mv "$tmp" "$UI_DIR/status"
 }
@@ -214,7 +216,7 @@ apply_requests() {
     return 0
 }
 read_requests() {
-    typeset line n=0 boot= expires= current up _rest seen_boot=0 seen_expires=0 removal= value
+    typeset line n=0 boot= expires= current up _rest seen_boot=0 seen_expires=0 removal= value recovery=
     typeset -a actions
     # Read the single opened file once; atomic app replacement cannot mix an old
     # envelope with new actions. The parent still bounds hostile reads to 3s.
@@ -237,6 +239,18 @@ read_requests() {
     [ "${#up}" -le 9 ] || return 0
     expires=$((10#$expires)); up=$((10#$up))
     [ "$expires" -ge "$up" ] && [ "$expires" -le "$((up + 30))" ] || return 0
+    for line in "${actions[@]}"; do
+        case "$line" in recovery=*)
+            [ "${#actions[@]}" = 1 ] || return 0
+            recovery=${line#recovery=}
+            handle_recovery "$recovery"; return 0;;
+        esac
+    done
+    # Recovery owns all changing actions; diagnosis saving remains read-only.
+    case "$(cat "$NEMDIR/gen5w-kr-integrated/state" 2>/dev/null)" in recovery-required|applying|removing|recovering)
+        for line in "${actions[@]}"; do case "$line" in save=*) handle_save "${line#save=}";; esac; done
+        return 0;;
+    esac
     # Removal is exclusive. A repeated completed request must not recreate the
     # markers it just cleared, or restart ADB while packages are being removed.
     for line in "${actions[@]}"; do
@@ -567,6 +581,14 @@ run_hook() {
 }
 do_remove() {
     typeset n=$1 short id lock="$NEMDIR/gen5wkr.ui-removing"
+    typeset tx="$NEMDIR/gen5w-kr-integrated"
+    [ ! -L "$tx" ] || return 0
+    mkdir -p "$tx" || return 0
+    mkdir "$tx/lock" 2>/dev/null || { set_removed "$n" failed busy; return 0; }
+    typeset lockpid rest
+    IFS=' ' read -r lockpid rest < /proc/self/stat || return 0
+    print -r -- "$lockpid" > "$tx/lock/pid" || return 0
+    trap 'rm -f "$tx/lock/pid"; rmdir "$tx/lock" 2>/dev/null' EXIT
     [ ! -L "$lock" ] && ( set -C; : > "$lock" ) 2>/dev/null || return 0
     set_removed "$n" working
     if [ ! -x "$NEM" ]; then set_removed "$n" failed nemesis; rm -f "$lock"; return 0; fi
@@ -603,6 +625,78 @@ removed_state() {
 }
 switch_state() { if [ -e "$NEMDIR/gen5wkr.ui-$1-off" ]; then echo off; else echo on; fi; }
 
+recovery_lock_live() {
+    typeset pid rest tx="$NEMDIR/gen5w-kr-integrated"
+    [ -e "$tx/lock" ] || [ -L "$tx/lock" ] || return 1
+    [ ! -L "$tx/lock" ] && [ ! -L "$tx/lock/pid" ] && [ -f "$tx/lock/pid" ] || return 0
+    IFS=' ' read -r pid rest < "$tx/lock/pid" || return 0
+    case "$pid" in ''|*[!0-9]*) return 0;; esac
+    [ "${#pid}" -le 9 ] || return 0
+    kill -0 "$pid" 2>/dev/null
+}
+recovery_status() {
+    typeset tx="$NEMDIR/gen5w-kr-integrated" rb="$NEMDIR/gen5wkr.recovery/current"
+    typeset state=unknown available=no reason=unknown stage=unknown token=0 result=none line n=0
+    if [ ! -e "$tx" ]; then state=none
+    elif [ ! -L "$tx" ] && [ -f "$tx/state" ] && [ ! -L "$tx/state" ]; then
+        case "$(cat "$tx/state")" in
+            recovery-required|applying|removing|recovering) state=required;;
+            rolled-back) state=restored;;
+            committed) state=none;;
+        esac
+    fi
+    # This is preliminary availability only; worker validates every checksum
+    # under the transaction lock before it touches /system.
+    if [ "$state" = required ]; then
+        reason=runner-unavailable
+        if [ -d "$rb" ] && [ ! -L "$rb" ] && [ ! -L "${rb%/*}" ] &&
+            [ -f "$rb/recovery.sh" ] && [ ! -L "$rb/recovery.sh" ]; then
+            reason=snapshot-invalid
+            if [ -f "$tx/prior/complete" ] && [ -f "$tx/prior/RECOVERY.md5" ] && [ ! -L "$tx/prior" ] && [ ! -L "$tx/prior/complete" ] && [ ! -L "$tx/prior/RECOVERY.md5" ]; then available=yes; reason=ready; fi
+        fi
+        recovery_lock_live && { reason=busy; available=no; }
+    fi
+    if [ -f "$NEMDIR/gen5wkr.recovery-result" ] && [ ! -L "$NEMDIR/gen5wkr.recovery-result" ]; then
+        while IFS= read -r line; do
+            n=$((n+1)); [ "$n" -le 4 ] || break
+            case "$line" in
+                recovery_request=*) token=${line#*=}; case "$token" in ''|*[!0-9]*) token=0;; esac; [ "${#token}" -le 10 ] || token=0;;
+                recovery_result=working|recovery_result=restored|recovery_result=failed|recovery_result=interrupted) result=${line#*=};;
+                recovery_reason=rollback-failed|recovery_reason=interrupted|recovery_reason=snapshot-invalid|recovery_reason=unsafe-path|recovery_reason=runner-unavailable)
+                    [ "$state" = required ] && reason=${line#*=};;
+            esac
+        done < "$NEMDIR/gen5wkr.recovery-result"
+    fi
+    if [ "$result" = working ]; then
+        if recovery_lock_live; then state=working; available=no
+        else result=interrupted; reason=interrupted; fi
+    fi
+    # Never print raw failure messages: they can contain paths or identifiers.
+    if [ -f "$tx/failure" ] && [ ! -L "$tx/failure" ]; then
+        IFS= read -r line < "$tx/failure"
+        case "$line" in *gen5w.kr.localhotspot*) stage=localhotspot;; *gen5w.kr.bridge*) stage=bridge;; *gen5w.kr.audio*) stage=audio;; *gen5w.kr.core*) stage=core;; *gen5w.kr.wireless*) stage=wireless;; *) stage=install;; esac
+    fi
+    echo "recovery_state=$state"
+    echo "recovery_available=$available"
+    echo "recovery_reason=$reason"
+    echo "recovery_stage=$stage"
+    echo "recovery_request=$token"
+    echo "recovery_result=$result"
+}
+handle_recovery() {
+    typeset token=$1 runner="$NEMDIR/gen5wkr.recovery/current/recovery.sh" last= line
+    case "$token" in ''|*[!0-9]*) return 0;; esac
+    [ "${#token}" -le 10 ] || return 0
+    [ -f "$runner" ] && [ ! -L "$runner" ] && [ ! -L "${runner%/*}" ] && [ ! -L "$NEMDIR/gen5wkr.recovery" ] || return 0
+    if [ -f "$NEMDIR/gen5wkr.recovery-result" ] && [ ! -L "$NEMDIR/gen5wkr.recovery-result" ]; then
+        IFS= read -r line < "$NEMDIR/gen5wkr.recovery-result"
+        [ "$line" != "recovery_request=$token" ] || return 0
+    fi
+    [ ! -L "$NEMDIR/gen5wkr.recovery-worker.log" ] || return 0
+    # No pipes to collector: core removal must not break the recovery worker.
+    ( trap '' HUP; exec "$SH" "$runner" run "$token" ) </dev/null > "$NEMDIR/gen5wkr.recovery-worker.log" 2>&1 &
+}
+
 round() {
     prepare || return 0
     collect_status || :
@@ -617,6 +711,7 @@ round() {
 clear_stale_removal() {
     typeset n r id
     [ -e "$NEMDIR/gen5wkr.ui-removing" ] && [ ! -L "$NEMDIR/gen5wkr.ui-removing" ] || return 0
+    recovery_lock_live && return 0
     rm -f "$NEMDIR/gen5wkr.ui-removing"
     [ -f "$REMOVED" ] && [ ! -L "$REMOVED" ] && IFS=' ' read -r n r id < "$REMOVED"
     [ "$r" = working ] && set_removed "${n:-0}" failed "${id:-interrupted}"

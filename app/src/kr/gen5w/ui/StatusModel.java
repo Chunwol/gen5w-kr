@@ -21,6 +21,8 @@ public final class StatusModel {
     private final String swWireless, swTimer, swBluelink, swAdb; // on / off / unknown
     private final String removed; // "<number>:<working|done|failed|none>[:<package id>]"
     private final String saved; // "<number>:<usb|nousb|fail|working|none>"
+    private RecoveryStatus recovery = RecoveryStatus.parse(null);
+    public RecoveryStatus recovery() { return recovery; }
 
     private StatusModel(boolean readable, long ts, long now, String host, String relay, String backend,
             String version, boolean apguardOff, boolean wired, String why, String whyRaw,
@@ -55,7 +57,7 @@ public final class StatusModel {
         try { ts = Long.parseLong(value(statusLines, "ts")); } catch (NumberFormatException e) { ts = -1; }
         String host = choice(value(statusLines, "host"), "alive", "dead");
         String backend = value(statusLines, "backend");
-        return new StatusModel(true, ts, nowSeconds, host,
+        StatusModel parsed = new StatusModel(true, ts, nowSeconds, host,
                 choice(value(statusLines, "relay"), "on", "off"),
                 backend.length() == 0 ? UNKNOWN : backend, value(statusLines, "version"),
                 "off".equals(value(statusLines, "apguard")), "yes".equals(value(statusLines, "wired")),
@@ -68,6 +70,8 @@ public final class StatusModel {
                 value(statusLines, "removed").length() == 0 ? "0:none" : value(statusLines, "removed"),
                 choice(value(statusLines, "wlan"), "present", "missing"), value(statusLines, "boot"),
                 value(statusLines, "adb_health"), value(statusLines, "adb_result"));
+        parsed.recovery = RecoveryStatus.parse(statusLines);
+        return parsed;
     }
 
     /** The bridge supervisor's own last explanation line, only while the host is not running; null when none. */

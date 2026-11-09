@@ -138,6 +138,34 @@ public final class I18n {
         add("상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.",
             "Saves the status, recent log and this car's system information to one file on the USB. Lines that may hold personal data are left out.");
         add("저장", "Save");
+        add("설치 복구", "Installation recovery");
+        add("복구하는 중입니다", "Recovery in progress");
+        add("설치 중단 · 복구 필요", "Installation stopped - recovery needed");
+        add("이전 상태로 복구됨", "Previous state restored");
+        add("복구 필요 없음", "No recovery required");
+        add("복구 상태 확인 불가", "Recovery status unavailable");
+        add("전원을 끄거나 USB를 분리하지 마세요. 성공하면 재부팅합니다.", "Do not turn off power or disconnect USB. Successful recovery will reboot.");
+        add("설치가 끝나지 않아 추가 변경을 중단했습니다. 이전 상태로 복구한 뒤 다시 설치하세요.", "Installation did not finish. Further changes are blocked. Restore the previous state before reinstalling.");
+        add("설치 직전 상태로 되돌렸습니다. 순정 초기화나 재설치 완료를 뜻하지 않습니다.", "Restored the pre-installation state. This is not a factory reset or a completed reinstall.");
+        add("설치 복구가 필요한 기록이 없습니다.", "No installation recovery is recorded as necessary.");
+        add("복구 기록을 읽을 수 없습니다. 정상 상태로 확인된 것은 아닙니다.", "Recovery records cannot be read. This does not confirm a healthy state.");
+        add("관리 화면에서 원인과 다음 행동을 확인하세요.", "See Manage for the cause and next action.");
+        add("복구 요청을 저장하지 못했습니다. 다시 확인하고 요청하세요.", "Could not save the recovery request. Check and try again.");
+        add("복구 요청 응답을 확인하지 못했습니다. 진단을 저장하고 USB 복구 안내를 확인하세요.", "No recovery response confirmed. Save a diagnosis and follow the USB recovery instructions.");
+        add("복구가 실패했거나 중단되었습니다. 원본과 진단을 보존하고 오류 상세를 확인하세요.", "Recovery failed or was interrupted. Preserve originals and diagnosis; check error details.");
+        add("오류 상세", "Error details");
+        add("실패 단계와 복구 가능 여부를 확인합니다.", "Check the failed stage and recovery availability.");
+        add("상세", "Details"); add("실패 단계", "Failed stage"); add("순정 핫스팟 스위치", "Stock hotspot switch");
+        add("복구 USB 준비가 필요합니다.", "Prepare the recovery USB first.");
+        add("복구 백업이 없거나 검증되지 않았습니다.", "Recovery backup is missing or unverified.");
+        add("다른 작업이 진행 중입니다.", "Another operation is running.");
+        add("실행 전에 백업과 복구 도구를 다시 검사합니다.", "Backups and recovery tools are checked again before execution.");
+        add("원인 기록을 읽을 수 없습니다.", "The cause record cannot be read.");
+        add("앱에서 복구할 수 없으면 새 복구 USB에서 recovery-prepare 후 rollback을 실행하세요. 복구 표식을 지우지 마세요.", "If app recovery is unavailable, run recovery-prepare then rollback using the new recovery USB. Do not delete recovery markers.");
+        add("이전 상태로 복구", "Restore previous state");
+        add("주차 후 실행하세요. 공장 초기화가 아닙니다.", "Park before running. This is not a factory reset.");
+        add("복구...", "Recover..."); add("복구 시작", "Start recovery");
+        add("설치 전 상태로 되돌립니다. 성공하면 재부팅됩니다. 전원을 끄거나 USB를 분리하지 마세요.", "Restores the pre-installation state and reboots on success. Do not turn off power or disconnect USB.");
         // Log
         add("표시할 기록이 없습니다.", "There is no log to show.");
         add("이 조건에 맞는 기록이 없습니다.", "No log lines match.");

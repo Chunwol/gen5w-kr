@@ -94,6 +94,14 @@ public final class UiProbe extends Instrumentation {
             save(bitmap, name);
         }});
     }
+    private void show(final String label) {
+        runOnMainSync(new Runnable(){public void run(){
+            TextView target=text(activity.getWindow().getDecorView(),label);
+            check("scroll target exists: "+label,target!=null);
+            if(target!=null) target.requestRectangleOnScreen(new android.graphics.Rect(0,0,target.getWidth(),target.getHeight()),true);
+        }});
+        waitForIdleSync(); SystemClock.sleep(250);
+    }
     private void save(Bitmap bitmap, String name) {
         try {
             FileOutputStream stream = new FileOutputStream(new File(output, name + ".png"));
@@ -158,7 +166,11 @@ public final class UiProbe extends Instrumentation {
                 + "\nboot=12345678-1234-1234-1234-123456789abc"
                 + "\nhost=alive\nrelay=on\nwlan=present\nbackend=builtin\nversion=0.3.55\napguard=on\nwired="
                 + ("locked".equals(scenario) ? "yes" : "no")
-                + "\nsw_wireless=on\nsw_timer=off\nsw_bluelink=on\nsw_adb=off\nsaved=0:none\nremoved=0:none\n");
+                + "\nsw_wireless=on\nsw_timer=off\nsw_bluelink=on\nsw_adb=off\nsaved=0:none\nremoved=0:none\n"
+                + "recovery_state=" + (scenario.equals("recovery-working") ? "working" : scenario.equals("recovery-restored") ? "restored" : scenario.startsWith("recovery") ? "required" : "none")
+                + "\nrecovery_available=" + (scenario.equals("recovery-unavailable") ? "no" : "yes")
+                + "\nrecovery_reason=" + (scenario.equals("recovery-unavailable") ? "runner-unavailable" : scenario.equals("recovery-failed") ? "rollback-failed" : "ready")
+                + "\nrecovery_stage=localhotspot\nrecovery_request=0\nrecovery_result=" + (scenario.equals("recovery-failed") ? "failed" : "none") + "\n");
             write(new File(fixtures, "log"), "bridge|READY bridge: relay\nwireless|WAIT wireless: phone\ncore|FAIL test fixture\n");
             Intent intent = new Intent(getTargetContext(), MainActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -173,6 +185,26 @@ public final class UiProbe extends Instrumentation {
                 check("native title strip is 60dp high", Math.abs(((View) title.getParent()).getHeight() - 60 * density) <= 1);
             }});
             capture("info");
+            if (scenario.startsWith("recovery")) {
+                click("관리"); capture("recovery-manage");
+                click("상세"); capture("recovery-details");
+                final boolean ready=scenario.equals("recovery") || scenario.equals("recovery-failed");
+                runOnMainSync(new Runnable(){public void run(){
+                    check("recovery availability controls the button",text(activity.getWindow().getDecorView(),"복구...").isEnabled()==ready);
+                    if(!scenario.equals("recovery-restored")) check("recovery blocks removal",!text(activity.getWindow().getDecorView(),"제거...").isEnabled());
+                }});
+                if(ready){
+                    click("복구..."); show("복구 시작"); capture("recovery-confirm");
+                    click("취소");
+                    check("cancel does not write a recovery request",!new File(getTargetContext().getFilesDir(),"ui-request").exists());
+                    click("복구..."); click("복구 시작"); SystemClock.sleep(500); capture("recovery-pending");
+                    String req=new String(java.nio.file.Files.readAllBytes(new File(getTargetContext().getFilesDir(),"ui-request").toPath()),"UTF-8");
+                    check("confirmed recovery emits exclusive real request",req.contains("recovery=") && !req.contains("wireless=") && !req.contains("remove="));
+                }
+                click("English"); capture("recovery-en");
+                Bundle result=new Bundle(); result.putString("stream","UI failures="+failures.size()+" "+failures+"\n");
+                finish(failures.isEmpty()?Activity.RESULT_OK:Activity.RESULT_CANCELED,result); return;
+            }
             if ("normal".equals(scenario)) runOnMainSync(new Runnable() { public void run() {
                 check("host readiness is not advertised as successful wireless connection",
                         text(activity.getWindow().getDecorView(), "무선 사용 가능") == null

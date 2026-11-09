@@ -60,6 +60,21 @@ default_dir() { rm -rf "$W/data/nemesis/gen5wkr.ui"; UILOG_TEST_DATA=$W/data UIL
 status() { grep "^$1=" "$UI/status" | { IFS= read -r l; echo "${l#*=}"; }; }
 
 reset
+mkdir -p "$W/data/nemesis/gen5w-kr-integrated"
+printf 'recovery-required\n' > "$W/data/nemesis/gen5w-kr-integrated/state"
+run
+check 'unresolved installation is visible in app snapshot' test "$(status recovery_state)" = required
+check 'legacy car without runner needs USB preparation' test "$(status recovery_available)" = no
+printf 'recovery=123\nwireless=off\n' > "$W/request"
+run
+check 'mixed recovery and switch request changes nothing' test ! -e "$W/data/nemesis/gen5wkr.ui-wireless-off"
+mkdir -p "$W/data/nemesis/gen5w-kr-integrated/lock"
+echo 99999999 > "$W/data/nemesis/gen5w-kr-integrated/lock/pid"
+printf 'recovery_request=123\nrecovery_result=working\nrecovery_reason=ready\n' > "$W/data/nemesis/gen5wkr.recovery-result"
+run
+check 'dead recovery worker is interrupted not permanently working' test "$(status recovery_result)" = interrupted
+rm -rf "$W/data/nemesis/gen5w-kr-integrated" "$W/request"
+reset
 mklog gen5w.kr.bridge bridge.log <<'EOF'
 WAIT bridge: wireless is not in match mode (ap-match is not 'match')
 WAIT bridge: starting the host (relay=0)

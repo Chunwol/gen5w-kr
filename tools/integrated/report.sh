@@ -147,6 +147,15 @@ write_summary() {
     {
         echo '# Gen5W KR 적용 결과'
         echo
+        case "$state" in recovery-required|applying|removing|recovering)
+            echo '## 설치 중단 · 복구 필요'
+            echo '추가 설치를 반복하거나 복구 표식을 삭제하지 마세요. 설치 직전 상태 복구가 필요합니다.'
+            echo '앱이 실행되면 관리 → 설치 복구 → 이전 상태로 복구에서 확인하세요.'
+            echo '앱 복구가 불가능하면 새 키트의 GEN5W-ACTION을 recovery-prepare로 지정해 복구 도구만 준비하고, 다음 실행에서 rollback으로 지정하세요.'
+            echo 'rollback은 백업으로 이전 상태를 복구하며 성공하면 재부팅합니다. 공장 초기화가 아닙니다. 주차 후 전원을 유지하세요.'
+            echo '복구 백업이 없거나 손상되면 실행이 거부됩니다. 원본과 진단을 보존하세요.'
+            echo;;
+        esac
         if [ -f "$TX/recovery-mode" ]; then echo '**핫스팟 복구 경로로 진행했습니다. 전체 설치 완료가 아닙니다.**'; echo; fi
         if [ -n "$advice" ]; then echo "**받을 버전 안내:** $advice"; echo; fi
         if [ "$VARIANT" = dongle ]; then echo '- 동글형(USB Wi-Fi)'; else echo '- 기본형(내장 Wi-Fi)'; fi

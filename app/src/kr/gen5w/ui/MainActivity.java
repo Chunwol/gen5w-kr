@@ -80,6 +80,10 @@ public final class MainActivity extends Activity {
     private String removeToken; // digits; sent only after the second confirmation
     private long removeAskedAt;
     private boolean confirmRemove;
+    private boolean confirmRecovery, recoveryDetails;
+    private String recoveryToken;
+    private long recoveryAskedAt;
+    private boolean recoveryWriteFailed;
 
     private final Runnable tick = new Runnable() {
         public void run() {
@@ -211,7 +215,11 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private boolean canRequest() { return model.canControl(SystemClock.elapsedRealtime() / 1000); }
+    private boolean canRequest() { return model.canControl(SystemClock.elapsedRealtime() / 1000) && !model.recovery().blocksChanges() && !recoveryPending(); }
+    private boolean recoveryPending() {
+        return recoveryToken != null && !recoveryWriteFailed && SystemClock.elapsedRealtime()-recoveryAskedAt < PENDING_MS
+                && !recoveryToken.equals(model.recovery().request());
+    }
 
     /** Reads both files on a worker thread, then redraws. Overlapping reads are skipped. */
     private void load() {
@@ -304,7 +312,7 @@ public final class MainActivity extends Activity {
         section(page, "HUD");
         final boolean hudOff = HudSwitch.isOff(new File(getApplicationInfo().dataDir));
         switchRowView(page, "CarPlay HUD 연동", "끄면 이 앱의 HUD 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.",
-                null, hudOff ? "off" : "on", new View.OnClickListener() {
+                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", hudOff ? "off" : "on", new View.OnClickListener() {
                     public void onClick(View v) {
                         boolean nowOff = HudSwitch.isOff(new File(getApplicationInfo().dataDir));
                         if (!HudSwitch.setOff(new File(getApplicationInfo().dataDir), !nowOff)) return;
@@ -326,13 +334,14 @@ public final class MainActivity extends Activity {
 
     /** Sends the three switch states to the collector. Runs off the main thread. */
     private void sendRequest() {
-        if (!canRequest()) {
+        if (!model.canControl(SystemClock.elapsedRealtime()/1000) || "working".equals(model.recovery().state()) || recoveryPending()) {
             pending[0] = pending[1] = pending[2] = pending[3] = null;
             android.widget.Toast.makeText(this, I18n.t("새 상태를 기다린 뒤 다시 시도하세요."), android.widget.Toast.LENGTH_SHORT).show();
             load();
             return;
         }
-        final String w = effective(0, model.switchWireless()), t = effective(1, model.switchTimer()), b = effective(2, model.switchBluelink()), a = effective(3, model.switchAdb());
+        final boolean blocked = model.recovery().blocksChanges();
+        final String w = blocked ? null : effective(0, model.switchWireless()), t = blocked ? null : effective(1, model.switchTimer()), b = blocked ? null : effective(2, model.switchBluelink()), a = blocked ? null : effective(3, model.switchAdb());
         final File dir = getFilesDir();
         final String adb = adbToken != null && ("on".equals(a) || "off".equals(a)) ? a + ":" + adbToken : null;
         final long seq = requests.issue();
@@ -340,7 +349,7 @@ public final class MainActivity extends Activity {
         final String boot = model.bootId();
         final long expires = SystemClock.elapsedRealtime() / 1000 + 30;
         final String token = saveToken;
-        final String rtoken = removeToken;
+        final String rtoken = blocked ? null : removeToken;
         new Thread(new Runnable() {
             public void run() {
                 final boolean ok = requests.write(seq, dir, SystemClock.elapsedRealtime() / 1000, expires, boot, w, t, b, adb, token, rtoken);
@@ -443,7 +452,82 @@ public final class MainActivity extends Activity {
         add(page, r);
     }
 
+    private void buildRecovery(LinearLayout page, boolean manage) {
+        final RecoveryStatus r = model.recovery();
+        if (!manage && "none".equals(r.state())) return;
+        section(page, "설치 복구");
+        String title = "working".equals(r.state()) || recoveryPending() ? "복구하는 중입니다"
+                : "required".equals(r.state()) ? "설치 중단 · 복구 필요"
+                : "restored".equals(r.state()) ? "이전 상태로 복구됨"
+                : "none".equals(r.state()) ? "복구 필요 없음" : "복구 상태 확인 불가";
+        String help = !model.canControl(SystemClock.elapsedRealtime()/1000) ? "새 상태를 기다린 뒤 다시 시도하세요."
+                : "working".equals(r.state()) || recoveryPending() ? "전원을 끄거나 USB를 분리하지 마세요. 성공하면 재부팅합니다."
+                : "required".equals(r.state()) ? "설치가 끝나지 않아 추가 변경을 중단했습니다. 이전 상태로 복구한 뒤 다시 설치하세요."
+                : "restored".equals(r.state()) ? "설치 직전 상태로 되돌렸습니다. 순정 초기화나 재설치 완료를 뜻하지 않습니다."
+                : "none".equals(r.state()) ? "설치 복구가 필요한 기록이 없습니다."
+                : "복구 기록을 읽을 수 없습니다. 정상 상태로 확인된 것은 아닙니다.";
+        box(page, title, help, r.blocksChanges() ? WARN : DIM);
+        if (!manage) {
+            buttonRow(page,"설치 복구","관리 화면에서 원인과 다음 행동을 확인하세요.","관리",true,0,new View.OnClickListener(){
+                public void onClick(View v){ tab=MANAGE; render(); }
+            });
+            return;
+        }
+        if (recoveryWriteFailed) note(page,"복구 요청을 저장하지 못했습니다. 다시 확인하고 요청하세요.");
+        if (recoveryToken != null && !recoveryPending() && !recoveryToken.equals(r.request()) && !recoveryWriteFailed)
+            note(page,"복구 요청 응답을 확인하지 못했습니다. 진단을 저장하고 USB 복구 안내를 확인하세요.");
+        if ("failed".equals(r.result()) || "interrupted".equals(r.result()))
+            note(page,"복구가 실패했거나 중단되었습니다. 원본과 진단을 보존하고 오류 상세를 확인하세요.");
+        buttonRow(page,"오류 상세","실패 단계와 복구 가능 여부를 확인합니다.","상세",true,0,new View.OnClickListener(){
+            public void onClick(View v){ recoveryDetails=!recoveryDetails; render(); }
+        });
+        if (recoveryDetails) {
+            row(page,"실패 단계", "localhotspot".equals(r.stage()) ? "순정 핫스팟 스위치" : r.stage(),DIM);
+            String why = "runner-unavailable".equals(r.reason()) ? "복구 USB 준비가 필요합니다."
+                    : "snapshot-invalid".equals(r.reason()) ? "복구 백업이 없거나 검증되지 않았습니다."
+                    : "busy".equals(r.reason()) ? "다른 작업이 진행 중입니다."
+                    : "rollback-failed".equals(r.reason()) || "interrupted".equals(r.reason()) ? "복구가 실패했거나 중단되었습니다. 원본과 진단을 보존하고 오류 상세를 확인하세요."
+                    : "ready".equals(r.reason()) ? "실행 전에 백업과 복구 도구를 다시 검사합니다." : "원인 기록을 읽을 수 없습니다.";
+            note(page,why);
+        }
+        final boolean ready = r.canRequest(model.canControl(SystemClock.elapsedRealtime()/1000)) && !recoveryPending();
+        if (!ready && "required".equals(r.state()) && !"busy".equals(r.reason()))
+            note(page,"앱에서 복구할 수 없으면 새 복구 USB에서 recovery-prepare 후 rollback을 실행하세요. 복구 표식을 지우지 마세요.");
+        if (!confirmRecovery) {
+            buttonRow(page,"이전 상태로 복구","주차 후 실행하세요. 공장 초기화가 아닙니다.","복구...",ready,3,new View.OnClickListener(){
+                public void onClick(View v){ if(model.recovery().canRequest(model.canControl(SystemClock.elapsedRealtime()/1000))){confirmRecovery=true;render();} }
+            });
+        } else {
+            box(page,"이전 상태로 복구","설치 전 상태로 되돌립니다. 성공하면 재부팅됩니다. 전원을 끄거나 USB를 분리하지 마세요.",WARN);
+            buttonRow(page,"복구 시작","주차 후 실행하세요. 공장 초기화가 아닙니다.","복구 시작",ready,1,new View.OnClickListener(){
+                public void onClick(View v){ sendRecovery(); }
+            });
+            buttonRow(page,"취소","아무것도 바꾸지 않습니다.","취소",true,2,new View.OnClickListener(){
+                public void onClick(View v){ confirmRecovery=false;render(); }
+            });
+        }
+    }
+
+    private void sendRecovery() {
+        if (!model.recovery().canRequest(model.canControl(SystemClock.elapsedRealtime()/1000)) || recoveryPending()) { load(); return; }
+        confirmRecovery=false;
+        recoveryToken=newToken(); recoveryAskedAt=SystemClock.elapsedRealtime(); recoveryWriteFailed=false;
+        final String token=recoveryToken, boot=model.bootId(); final File dir=getFilesDir();
+        final long seq=requests.issue(), expires=SystemClock.elapsedRealtime()/1000+30;
+        requestSeq=seq;
+        new Thread(new Runnable(){public void run(){
+            final boolean ok=requests.writeRecovery(seq,dir,SystemClock.elapsedRealtime()/1000,expires,boot,token);
+            handler.post(new Runnable(){public void run(){
+                if(isFinishing() || isDestroyed())return;
+                if(token.equals(recoveryToken)) recoveryWriteFailed=!ok;
+                render();load();
+            }});
+        }},"gen5w-recovery-request").start();
+        render();
+    }
+
     private void buildManage(LinearLayout page) {
+        buildRecovery(page, true);
         section(page, "전체 제거");
         String removed = model.removedState();
         String[] parts = removed.split(":");
@@ -492,9 +576,9 @@ public final class MainActivity extends Activity {
                 : saveResult.equals("nousb") ? "USB가 연결되어 있지 않아 차 안에만 저장했습니다. USB를 꽂고 다시 누르세요."
                 : saveResult.equals("fail") ? "USB에 쓰지 못했습니다. USB를 확인하고 다시 누르세요."
                 : "상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.";
-        buttonRow(page, "진단 저장", help, "저장", canRequest() && !saveNow, 0, new View.OnClickListener() {
+        buttonRow(page, "진단 저장", help, "저장", model.canControl(SystemClock.elapsedRealtime()/1000) && !"working".equals(model.recovery().state()) && !recoveryPending() && !saveNow, 0, new View.OnClickListener() {
             public void onClick(View v) {
-                if (!canRequest()) { render(); return; }
+                if (!model.canControl(SystemClock.elapsedRealtime()/1000) || "working".equals(model.recovery().state()) || recoveryPending()) { render(); return; }
                 saveToken = newToken();
                 saveAskedAt = SystemClock.elapsedRealtime();
                 sendRequest();
@@ -504,6 +588,7 @@ public final class MainActivity extends Activity {
 
     private void buildInfo(LinearLayout page) {
         if (!loaded) { note(page, "불러오는 중..."); return; }
+        buildRecovery(page, false);
         if (!model.readable()) {
             box(page, "상태를 읽을 수 없음", "상태 수집 서비스가 아직 실행되지 않았거나, 이 앱이 상태 폴더를 읽을 권한이 없을 수 있습니다. 잠시 뒤 다시 확인하고, 계속 이러면 진단을 저장해 주세요.", RED);
             return;
