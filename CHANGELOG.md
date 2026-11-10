@@ -550,3 +550,9 @@
 - 기존 설치 이관과 자동 복구
 - 기능별 적용 결과와 진단 로그 생성
 - 한국 내수용 차종 지원 요청과 GitHub Sponsors 연결
+# Recovery USB follow-up (after v0.3.61-rc.1)
+
+- Add explicit stock recovery without reinstalling prior hotspot packages; retain the snapshot and fail closed on verification/finalization failure.
+- Detect pending recovery before supported-runtime installation, require a different boot before installing, and try stock recovery once if installation and snapshot rollback both fail.
+- Keep legacy installation refused: recover first, update official NEMESIS separately, then install.
+- Support Android toolbox file-size output without a hard-link-count column in private error persistence.

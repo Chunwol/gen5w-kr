@@ -2,6 +2,9 @@
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 . ./common.sh
 acquire || exit 1
+[ ! -e "$TX/stock-recovery-mode" ] && [ ! -L "$TX/stock-recovery-mode" ] || {
+    report 'REFUSED snapshot rollback after stock recovery; use GEN5W-ACTION=stock-recover'; exit 1;
+}
 [ -f "$TX/prior/complete" ] || { report 'No complete previous transaction'; exit 1; }
 [ ! -L "$NOREBOOT" ] || { report 'REFUSED linked reboot suppression'; exit 1; }
 if [ -e "$NOREBOOT" ]; then

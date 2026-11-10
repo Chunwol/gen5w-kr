@@ -7,8 +7,21 @@ if [ -f GEN5W-ACTION ]; then
     IFS= read -r action < GEN5W-ACTION || [ -n "$action" ] || exit 1
     action=${action%$'\r'}
 fi
-case "$action" in install|update|rollback|remove|status|wired-only|check|diag|recovery-prepare) ;;
+case "$action" in install|update|rollback|remove|stock-recover|status|wired-only|check|diag|recovery-prepare) ;;
     *) echo 'REFUSED unknown GEN5W-ACTION'; exit 1;; esac
+requested_action=$action
+entry_install_supported=no
+case "$action" in install|update)
+    case "$("${IT_NEM:-/system/xbin/nemesis}" version 2>/dev/null)" in
+        1.16.4|1.16.5|1.16.6|1.16.7)
+            entry_install_supported=yes
+            case "$(cat "${IT_DATA:-/data}/nemesis/gen5w-kr-integrated/state" 2>/dev/null)" in
+                recovery-required|recovering|applying|removing)
+                    GEN5W_RECOVERY_NEXT=$action; export GEN5W_RECOVERY_NEXT
+                    action=stock-recover;;
+            esac;;
+    esac;;
+esac
 case "$action" in check|diag|status) ERR_PERSIST=no; export ERR_PERSIST;; esac
 # Only fixed phase names and exit codes; never copy subprocess output or secrets.
 # The read-only diagnosis keeps the install report: it uses its own file names.
@@ -37,7 +50,29 @@ fi
 ERR_PERSIST=$persist_after_boot
 export ERR_PERSIST
 err_event integrated entry "$action" started 0 android-ready
-if "${IT_SHELL:-/system/bin/sh}" "./$action.sh" 2>&1 | report_stream "GEN5W-REPORT/$log"; then
+run_entry_action() {
+    typeset action_rc=0 recovery_rc=0 completed_boot= current_boot= recovery_root=${IT_DATA:-/data}/nemesis/gen5w-kr-integrated
+    case "$action" in install|update)
+        if [ "$entry_install_supported" = yes ] && [ -f "$recovery_root/stock-recovered-boot" ]; then
+            IFS= read -r completed_boot < "$recovery_root/stock-recovered-boot" || return 1
+            IFS= read -r current_boot < /proc/sys/kernel/random/boot_id || return 1
+            [ "$completed_boot" != "$current_boot" ] || { echo 'REFUSED full reboot required after stock recovery before installation'; return 1; }
+        fi;;
+    esac
+    "${IT_SHELL:-/system/bin/sh}" "./$action.sh" || action_rc=$?
+    # A failed install already tried snapshot rollback. If that also failed,
+    # recover stock once under a newly acquired lock; never recurse into install.
+    case "$action:$action_rc" in install:0|update:0) ;;
+        install:*|update:*)
+            if [ "$entry_install_supported" = yes ] && [ "$(cat "${IT_DATA:-/data}/nemesis/gen5w-kr-integrated/state" 2>/dev/null)" = recovery-required ]; then
+                echo 'AUTOMATIC STOCK RECOVERY: prior rollback failed; preserving original install failure'
+                "${IT_SHELL:-/system/bin/sh}" ./stock-recover.sh || recovery_rc=$?
+                echo "automatic_stock_recovery_exit=$recovery_rc"
+            fi;;
+    esac
+    return "$action_rc"
+}
+if run_entry_action 2>&1 | report_stream "GEN5W-REPORT/$log"; then
     statuses=("${PIPESTATUS[@]}")
 else
     statuses=("${PIPESTATUS[@]}")

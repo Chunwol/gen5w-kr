@@ -23,8 +23,14 @@ err_size() {
     info=$(ls -ln "$1" 2>/dev/null) || return 1
     set -- $info
     [ $# -ge 5 ] || return 1
-    case "$5" in ''|*[!0-9]*) return 1;; esac
-    echo "$5"
+    case "$5" in
+        ''|*[!0-9]*)
+            # Android 4.4 toolbox has no hard-link count: mode uid gid size date.
+            case "$5" in ????-??-??) ;; *) return 1;; esac
+            case "$4" in ''|*[!0-9]*) return 1;; esac
+            echo "$4";;
+        *) echo "$5";;
+    esac
 }
 err_lock() {
     typeset dir=$1 boot=$2 owner_boot= owner_pid= extra=

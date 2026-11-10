@@ -9,7 +9,7 @@ reset_results() {
     case "$(cat "$TX/state" 2>/dev/null)" in
         applying|removing|recovering|recovery-required) return 0;;
     esac
-    rm -f "$TX"/result.* "$TX/failure" "$TX/recovery-mode"
+    rm -f "$TX"/result.* "$TX/failure" "$TX/recovery-mode" "$TX/stock-recovered"
 }
 feature_name() {
     case "$1" in
@@ -153,6 +153,11 @@ write_summary() {
     {
         echo '# Gen5W KR 적용 결과'
         echo
+        if [ "$state" = committed ] && [ -f "$TX/stock-recovered" ]; then
+            echo '## 순정 복원 완료'
+            echo '이전 패키지를 재설치하지 않고 제거 훅 및 시스템 읽기 전용 상태를 검증했습니다. 재부팅 후 차량 동작을 확인하세요.'
+            echo
+        fi
         case "$state" in recovery-required|applying|removing|recovering)
             echo '## 설치 중단 · 복구 필요'
             echo '추가 설치를 반복하거나 복구 표식을 삭제하지 마세요. 설치 직전 상태 복구가 필요합니다.'
@@ -162,7 +167,7 @@ write_summary() {
             echo '복구 백업이 없거나 손상되면 실행이 거부됩니다. 원본과 진단을 보존하세요.'
             echo;;
         esac
-        if [ -f "$TX/recovery-mode" ]; then echo '**핫스팟 복구 경로로 진행했습니다. 전체 설치 완료가 아닙니다.**'; echo; fi
+        if [ -f "$TX/recovery-mode" ] && [ ! -f "$TX/stock-recovered" ]; then echo '**핫스팟 복구 경로로 진행했습니다. 전체 설치 완료가 아닙니다.**'; echo; fi
         if [ -n "$advice" ]; then echo "**받을 버전 안내:** $advice"; echo; fi
         if [ "$VARIANT" = dongle ]; then echo '- 동글형(USB Wi-Fi)'; else echo '- 기본형(내장 Wi-Fi)'; fi
         echo '- 순정 주의 안내 버튼 활성화 즉시 자동 전환 (지원 조건에 한함)'
@@ -258,7 +263,7 @@ write_summary() {
         echo '<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         echo '<title>Gen5W KR 적용 결과</title><style>body{font:16px/1.6 sans-serif;max-width:960px;margin:32px auto;padding:0 16px;color:#17212b}table{border-collapse:collapse;width:100%}th,td{padding:12px;border:1px solid #ccd4dc;text-align:left}.applied,.wired-only{background:#e4f7eb}.failed,.recovery-required{background:#ffe5e5}.failed-restored,.restored,.skipped{background:#fff2cd}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#145ac4}</style>'
         echo '<h1>Gen5W KR 적용 결과</h1><p>설정·파일 적용 결과이며 실제 연결 성공과는 구분합니다.</p>'
-        [ ! -f "$TX/recovery-mode" ] || echo '<p><strong>핫스팟 복구 경로입니다. 전체 설치 완료가 아닙니다.</strong></p>'
+        [ ! -f "$TX/recovery-mode" ] || [ -f "$TX/stock-recovered" ] || echo '<p><strong>핫스팟 복구 경로입니다. 전체 설치 완료가 아닙니다.</strong></p>'
         if [ -n "$advice" ]; then
             echo '<p style="background:#fff2cd;padding:12px"><strong>받을 버전 안내:</strong> '
             echo "$advice" | html_escape

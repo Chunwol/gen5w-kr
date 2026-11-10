@@ -220,6 +220,9 @@ restore_prior() {
     hook "$id" postinstall
 }
 rollback_transaction() {
+    [ ! -e "$TX/stock-recovery-mode" ] && [ ! -L "$TX/stock-recovery-mode" ] || {
+        report 'REFUSED snapshot rollback after stock recovery; use GEN5W-ACTION=stock-recover'; return 1;
+    }
     progress '문제가 생겨 이전 상태로 되돌리는 중입니다. USB를 빼지 마세요.'
     if [ "$Q_ACTIVE" != 1 ]; then
         if q_version >/dev/null 2>&1; then q_begin || return 1
@@ -509,6 +512,11 @@ begin() {
 }
 begin_steps() {
     local state= id
+    if [ -e "$TX/stock-recovery-mode" ] || [ -L "$TX/stock-recovery-mode" ]; then
+        [ ! -L "$TX/stock-recovery-mode" ] || return 1
+        case "$(cat "$TX/state" 2>/dev/null)" in committed|rolled-back) ;;
+            *) report 'REFUSED interrupted stock recovery; use GEN5W-ACTION=stock-recover'; return 1;; esac
+    fi
     # Older fixture/standalone trees have no manifest; shipped bundles always do.
     if [ -f RECOVERY.md5 ]; then
         . ./recovery-lib.sh
@@ -542,6 +550,7 @@ begin_steps() {
     }
     rm -f "$NOREBOOT" 2>/dev/null || true
     set_state capturing || return 1
+    rm -f "$TX/stock-recovery-mode" || return 1
     rm -rf "$TX/prior" || return 1
     rm -f "$TX"/attempt.*
     mkdir "$TX/prior" || return 1
@@ -579,6 +588,13 @@ step_name() {
     esac
 }
 install_transaction() {
+    if [ -e "$TX/stock-recovered-boot" ] || [ -L "$TX/stock-recovered-boot" ]; then
+        [ -f "$TX/stock-recovered-boot" ] && [ ! -L "$TX/stock-recovered-boot" ] || return 1
+        local completed_boot= current_boot=
+        IFS= read -r completed_boot < "$TX/stock-recovered-boot" || return 1
+        IFS= read -r current_boot < /proc/sys/kernel/random/boot_id || return 1
+        [ "$completed_boot" != "$current_boot" ] || { report 'REFUSED full reboot required after stock recovery before installation'; return 1; }
+    fi
     local id info rc wireless_ready removed_prior step=0 steps=0
     # Never replace the prior snapshot or its failure while recovery is pending.
     if [ -e "$TX/state" ]; then
