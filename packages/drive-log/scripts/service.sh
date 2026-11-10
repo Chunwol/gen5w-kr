@@ -1,4 +1,7 @@
 #!/system/bin/sh
+HOLD_SCRIPT=${0%/*}/install-hold.sh
+. "$HOLD_SCRIPT"
+install_hold && exit 0
 # Independent, fail-closed reader for the dedicated numeric-only app log tag.
 SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.

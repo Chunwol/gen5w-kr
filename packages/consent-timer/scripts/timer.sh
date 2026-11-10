@@ -1,4 +1,7 @@
 #!/system/bin/sh
+HOLD_SCRIPT=${0%/*}/install-hold.sh
+. "$HOLD_SCRIPT"
+install_hold && exit 0
 # Closes the stock start-up warning as soon as its confirm button becomes
 # active (instead of the stock 10 seconds), without changing SystemUI.
 # SystemUI enables the screen and button in enableScreen(), which ends by

@@ -1,13 +1,13 @@
 # Installation service quiescence using supported NEMESIS controls
 
 Date: 2026-11-10
-Status: Proposed; official-update direction selected by the user, detailed spec awaiting review.
+Status: User approved inline execution through pre-vehicle-test preparation on 2026-11-10; implementation and verification in progress.
 
 ## 검토용 요약
 
 현재 복구부터 끝낸 뒤 공식 NEMESIS 업데이트를 별도 단계로 진행하고, 지원되는 서비스 정지 API로 우리 서비스만 멈추는 방향이다. 구버전 관리자를 강제로 조작하거나 순정 서비스를 일괄 종료하지 않는다. 종료·재시작 억제·잔여 프로세스 확인 중 하나라도 입증되지 않으면 파일 교체 전에 중단한다.
 
-핫스팟 순정 no-op 수정은 구현·시험한 별도 변경이며, 서비스 제어 기능은 아직 구현하지 않았다. 이 문서는 상세 구현 계획을 작성하기 전 검토할 설계안이다. NEMESIS 파일은 PC에만 준비했고 USB 업데이트나 차량 업데이트를 실행하지 않았다.
+핫스팟 순정 no-op 수정은 구현·시험한 별도 변경이다. 서비스 제어는 상세 계획에 따라 구현·검증 중이다. NEMESIS 업데이트는 차량 복구·앱 설치와 별도 단계로 유지한다. 차량 실행은 하지 않았다.
 
 ## Intent and verified failure
 
@@ -60,7 +60,16 @@ Behavior tests must exercise our real entry points with controlled NEMESIS/proce
 
 No service-quiescence product code or platform update is implemented/applied by this spec. The official 1.16.7 files are staged only on the PC with pinned upstream blob verification. The current vehicle still needs recovery; its USB has not been changed during this fix.
 
-Review this spec before writing the detailed implementation plan and selecting execution. The bounded hotspot fix can be reviewed and committed independently, but does not establish that a new hotspot patch will remount read-only successfully on the vehicle.
+The user explicitly requested continuing inline without another approval pause. The implementation plan is `../plans/2026-11-10-service-quiescence.md`. The bounded hotspot fix does not establish that a new hotspot patch will remount read-only successfully on the vehicle.
+
+### Implementation rulings
+
+- No direct descendant signals: old Linux cannot atomically signal a PID with a start-time identity. Surviving descendants cause refusal and remain recorded across retries and same-boot runners; cold reboot is the safe cleanup route.
+- New shell services defer startup under root-owned current-boot installation intent and reboot suppression, even if the transaction worker exits, before spawning dependencies. Stale prior-boot intent never suppresses the recovery collector. Old active generations may require rollback/removal and cold reboot first.
+- Persist same-boot uncertainty before the first stop, clear only after complete successful proof. Any stop interruption/early failure requires cold reboot, including rollback retries. Owned session scans catch late and already-reparented children without treating normal work in known foreign sessions as owned.
+- Normal remove is not added to the new platform prerequisite; existing removal/recovery compatibility stays separate. Install/update and supported-platform rollback use quiescence.
+- Legacy rollback exemption is restricted to explicit known legacy versions; unknown/failed version queries refuse. A versionless 1.15 runtime needs a separately verified recovery route, not an inferred exemption.
+- Private persistence errors export a fixed boundary enum. Numeric official remount errno triples are classified only when all three reviewed values agree. This does not establish the actual vehicle errno.
 
 ## Primary references
 

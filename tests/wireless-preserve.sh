@@ -3,11 +3,15 @@
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
-mkdir -p "$W/work/packages" "$W/data/nemesis/apps" "$W/system"
+mkdir -p "$W/work/packages" "$W/data/nemesis/apps" "$W/system" "$W/data/nemesis/gen5w-kr-integrated"
+mkdir -p "$W/data/nemesis/gen5w-kr-integrated/lock"
+echo "$$" > "$W/data/nemesis/gen5w-kr-integrated/lock/pid"
 cp "$ROOT/tools/integrated/"*.sh "$W/work/"
 cat > "$W/nemesis" <<'SH'
 #!/bin/sh
 case "$1" in
+    version) echo 1.16.7;;
+    service) [ "$2" = list ] || exit 1;;
     pkg-info) name=${2##*/}; printf 'id=%s\n' "${name%.zip}";;
     install) name=${2##*/}; id=${name%.zip}; mkdir -p "$IT_DATA/nemesis/apps/$id"; printf 'id=%s\n' "$id" > "$IT_DATA/nemesis/apps/$id/NEMESIS.data";;
     *) exit 1;;

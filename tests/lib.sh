@@ -21,7 +21,7 @@ stubs() {
     printf '#!/bin/sh\necho "$2" > "%s/props/$1"\n' "$W" > "$W/bin/setprop"
     printf '#!/bin/sh\necho "am $*" >> %s/calls\n' "$W" > "$W/bin/am"
     printf '#!/bin/sh\nmd5sum "$1" 2>/dev/null || exit 1\n' > "$W/bin/md5"
-    printf '#!/bin/sh\necho "nemesis $*" >> %s/calls\nexit ${NEMFAIL:-0}\n' "$W" > "$W/nemesis"
+    printf '#!/bin/sh\ncase "$1" in version) echo 1.16.3; exit 0;; esac\necho "nemesis $*" >> %s/calls\nexit ${NEMFAIL:-0}\n' "$W" > "$W/nemesis"
     chmod +x "$W/bin/"* "$W/nemesis"; : > "$W/calls"
 }
 done_tests() {

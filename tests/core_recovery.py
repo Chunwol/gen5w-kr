@@ -28,11 +28,13 @@ public class OwnerRecoveryTest {
     static final Observation observation = new Observation();
     static class Context {
         final CountDownLatch release = new CountDownLatch(1);
+        final CountDownLatch entered = new CountDownLatch(1);
         volatile boolean stalled = true;
         int calls;
         Context getContentResolver() { return this; }
         Cursor query(Object u, String[] columns, Object a, Object b, Object c) {
             calls++;
+            entered.countDown();
             if (stalled) try { release.await(); } catch (InterruptedException e) { throw new RuntimeException(e); }
             return new Cursor();
         }
@@ -55,6 +57,7 @@ public class OwnerRecoveryTest {
             Future<Integer> first = caller.submit(new Callable<Integer>() {
                 public Integer call() { return read(context); }
             });
+            check(context.entered.await(3, TimeUnit.SECONDS), "test provider did not start");
             int result;
             try { result = first.get(700, TimeUnit.MILLISECONDS); }
             catch (TimeoutException e) { throw new AssertionError("provider stall blocks ownership clients", e); }

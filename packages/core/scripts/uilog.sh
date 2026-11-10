@@ -1,4 +1,7 @@
 #!/system/bin/sh
+HOLD_SCRIPT=${0%/*}/install-hold.sh
+. "$HOLD_SCRIPT"
+install_hold && exit 0
 # Collects bounded, privacy-filtered copies of every gen5w package log for the in-car screen.
 # Runs as root next to the HUD service, separate from the wireless supervisor. The screen
 # only reads the two files written here. Every size is capped, and a failure only skips

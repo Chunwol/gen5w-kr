@@ -1,4 +1,7 @@
 #!/system/bin/sh
+HOLD_SCRIPT=${0%/*}/install-hold.sh
+. "$HOLD_SCRIPT"
+install_hold && exit 0
 # Root background service for USB Wi-Fi dongle kernel module loading.
 # Runs as uid=root under NEMESIS service manager so insmod has CAP_SYS_MODULE
 # even when system_server (uid 1000) requests wifi_load_driver().

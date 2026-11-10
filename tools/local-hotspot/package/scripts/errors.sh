@@ -88,38 +88,48 @@ err_event() {
     err_prepare 2>/dev/null || { print -r -- 'ERR persistence=unavailable' >&2; return 0; }
     # Nonblocking lock: concurrent logging must never delay real cleanup.
     err_lock "$dir" "$boot" || { print -r -- 'ERR persistence=busy' >&2; return 0; }
-    (
+    if (
         umask 077
         for n in 0 1 2 3; do
-            [ ! -L "$dir/errors.$n" ] || exit 1
-            [ ! -e "$dir/errors.$n" ] || [ -f "$dir/errors.$n" ] || exit 1
+            [ ! -L "$dir/errors.$n" ] || exit 20
+            [ ! -e "$dir/errors.$n" ] || [ -f "$dir/errors.$n" ] || exit 20
         done
-        [ ! -L "$dir/first.$module.$slot" ] || exit 1
-        [ ! -e "$dir/first.$module.$slot" ] || [ -f "$dir/first.$module.$slot" ] || exit 1
+        [ ! -L "$dir/first.$module.$slot" ] || exit 20
+        [ ! -e "$dir/first.$module.$slot" ] || [ -f "$dir/first.$module.$slot" ] || exit 20
         if [ -f "$dir/errors.0" ]; then
-            size=$(err_size "$dir/errors.0") || exit 1
+            size=$(err_size "$dir/errors.0") || exit 21
             if [ "$size" -ge 61440 ]; then
-                rm -f "$dir/errors.3" || exit 1
+                rm -f "$dir/errors.3" || exit 22
                 for n in 2 1 0; do
-                    [ ! -f "$dir/errors.$n" ] || mv "$dir/errors.$n" "$dir/errors.$((n+1))" || exit 1
+                    [ ! -f "$dir/errors.$n" ] || mv "$dir/errors.$n" "$dir/errors.$((n+1))" || exit 22
                 done
             fi
         fi
-        print -r -- "$line" >> "$dir/errors.0" || exit 1
+        print -r -- "$line" >> "$dir/errors.0" || exit 23
         if [ "$result" = failed ]; then
             [ ! -f "$dir/first.$module.$slot" ] || IFS= read -r old < "$dir/first.$module.$slot" || :
             case "$old" in "ERR attempt=$attempt "*) ;;
-                *) print -r -- "$line" > "$dir/first.$module.$slot" || exit 1;;
+                *) print -r -- "$line" > "$dir/first.$module.$slot" || exit 24;;
             esac
         fi
-    ) || print -r -- 'ERR persistence=failed' >&2
+    ); then :
+    else
+        case "$?" in
+            20) print -r -- 'ERR persistence=failed stage=unsafe-path' >&2;;
+            21) print -r -- 'ERR persistence=failed stage=size' >&2;;
+            22) print -r -- 'ERR persistence=failed stage=rotate' >&2;;
+            23) print -r -- 'ERR persistence=failed stage=append' >&2;;
+            24) print -r -- 'ERR persistence=failed stage=first-write' >&2;;
+            *) print -r -- 'ERR persistence=failed stage=unknown' >&2;;
+        esac
+    fi
     err_unlock "$dir" "$boot"
     return 0
 }
 err_classify_stream() {
     # Fixed-sized reads bound memory even for a megabyte-long unterminated line.
     # Only known error categories survive; unreviewed raw text is redacted.
-    typeset chunk carry= reason=0
+    typeset chunk carry= reason=0 numeric
     while :; do
         chunk=
         IFS= read -r -n 1024 chunk || [ -n "$chunk" ] || break
@@ -136,6 +146,19 @@ err_classify_stream() {
             *'LinkageError'*|*'NoSuchMethodError'*|*'UnsatisfiedLinkError'*) reason=18;;
             *'BindException'*|*'Address already in use'*) reason=19;;
             *'SecurityException'*) reason=10;;
+        esac
+        # Official NEMESIS logs numeric errno triples rather than strerror.
+        # Only three identical reviewed Linux errno values are conclusive.
+        # Mixed failures remain unknown and cannot authorize the busy exception.
+        case "$chunk" in *' remount ro) errno='*|*' remount rw) errno='*)
+            numeric=${chunk##* errno=}; set -- $numeric; numeric=${1:-}
+            case "$numeric" in
+                1/1/1|13/13/13) reason=10;;
+                16/16/16) [ "$reason" = 10 ] || reason=11;;
+                2/2/2) [ "$reason" != 0 ] || reason=12;;
+                28/28/28) reason=13;; 30/30/30) reason=14;;
+                5/5/5) reason=15;; 110/110/110) reason=16;;
+            esac;;
         esac
         if [ "${#chunk}" -gt 64 ]; then carry=${chunk:$((${#chunk}-64))};else carry=$chunk;fi
     done

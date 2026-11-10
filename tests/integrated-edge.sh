@@ -15,14 +15,17 @@ setup() {
 #!/usr/bin/env python3
 import sys,os,zipfile,shutil
 root=os.environ['IT_DATA']+'/nemesis/apps'; args=sys.argv[1:]
-if args[0]=='pkg-info':
+if args[0]=='version':
+    if os.environ.get('IT_NO_VERSION'): sys.exit(1)
+    print('1.16.7')
+elif args[0]=='service' and args[1]=='list': pass
+elif args[0]=='pkg-info':
     with zipfile.ZipFile(args[-1]) as z:
         print('id='+z.read('NEMESIS.data').decode().split('id=')[1].splitlines()[0])
 elif args[0]=='install':
     with zipfile.ZipFile(args[-1]) as z:
         id=z.read('NEMESIS.data').decode().split('id=')[1].splitlines()[0]
         path=root+'/'+id; shutil.rmtree(path,ignore_errors=True); os.makedirs(path); z.extractall(path)
-elif args[0]=='version' and os.environ.get('IT_NEM116'): print('1.16.3')
 elif args[0]=='uninstall':
     # IT_NEM116: NEMESIS 1.16 runs preuninstall itself and keeps the package if it fails.
     force='--force' in args; pid=[a for a in args[1:] if not a.startswith('-')][0]
@@ -105,8 +108,8 @@ run install
 IT_NEM116=1 IT_PREUN_REFUSE=gen5w.kr.bridge run remove
 check 'NEMESIS 1.16: refusing installed hook, bundle check removes it' eval 'test "$(state)" = committed && ! reg gen5w.kr.bridge'
 check 'NEMESIS 1.16: forced removal is reported' grep -q 'FORCED gen5w.kr.bridge' "$W/data/nemesis/gen5w-kr-integrated/report"
-check 'NEMESIS 1.16: ISSUE.md records the NEMESIS version' grep -qx -- '- NEMESIS 버전: 1.16.3' "$W/usb/GEN5W-REPORT/ISSUE.md"
-run status
+check 'NEMESIS 1.16: ISSUE.md records the NEMESIS version' grep -qx -- '- NEMESIS 버전: 1.16.7' "$W/usb/GEN5W-REPORT/ISSUE.md"
+IT_NO_VERSION=1 run status
 check 'NEMESIS without a version command is reported as unknown' grep -q -- '- NEMESIS 버전: 확인 불가(1.15 이하일 수 있음)' "$W/usb/GEN5W-REPORT/ISSUE.md"
 run install
 check 'NEMESIS 1.15: no force needed' eval 'IT_PREUN_REFUSE=gen5w.kr.bridge run remove && ! grep -q "FORCED" "$W/out"'

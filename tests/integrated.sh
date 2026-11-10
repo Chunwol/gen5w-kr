@@ -9,7 +9,9 @@ cat > "$W/bin/nemesis" <<'PY'
 import sys,os,zipfile,shutil,subprocess
 root=os.environ['IT_DATA']+'/nemesis/apps'; args=sys.argv[1:]
 with open(os.environ['IT_DATA']+'/calls','a') as f: f.write(' '.join(args)+'\n')
-if args[0]=='pkg-info':
+if args[0]=='version': print('1.16.7')
+elif args[0]=='service' and args[1]=='list': pass
+elif args[0]=='pkg-info':
  with zipfile.ZipFile(args[-1]) as z:
   print(z.read('NEMESIS.data').decode().split('id=')[1].splitlines()[0].join(['id=','']))
 elif args[0]=='install':

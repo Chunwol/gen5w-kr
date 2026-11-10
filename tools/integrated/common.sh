@@ -51,6 +51,7 @@ export GEN5W_FORCE_DONGLE
 keeps_systemui() { [ "$VARIANT" = safe ] || [ "$VARIANT" = safe-wireless ]; }
 REVERSE='gen5w.kr.localhotspot gen5w.kr.drivelog gen5w.kr.bluelink gen5w.kr.timer gen5w.kr.core gen5w.kr.bridge gen5w.kr.audio gen5w.kr.wireless gen5w.kr.dongle wireless.carplay.aa'
 . ./report.sh
+. ./services.sh
 digest() { local v; v=$(err_run integrated verify digest md5 "$1") || return 1; set -- $v; echo "$1"; }
 report() {
     echo "$1"; echo "$1" >> "$TX/report"
@@ -67,6 +68,7 @@ meta() {
     return 1
 }
 gate() {
+    q_barrier || return 1
     local tree=$1 name=$2 path helper ident=hook
     [ -f "$tree/NEMESIS.data" ] || { err_event integrated gate metadata failed 1 missing;return 1; }
     ident=$(meta "$tree/NEMESIS.data" id) || ident=hook
@@ -135,6 +137,7 @@ sweep() {
     report "CLEARED $id: leftovers of an earlier installation"
 }
 safe_remove() {
+    q_barrier || return 1
     local id=$1
     if [ ! -f "$APPS/$id/NEMESIS.data" ]; then
         if orphaned_wireless_backup "$id"; then
@@ -218,6 +221,11 @@ restore_prior() {
 }
 rollback_transaction() {
     progress '문제가 생겨 이전 상태로 되돌리는 중입니다. USB를 빼지 마세요.'
+    if [ "$Q_ACTIVE" != 1 ]; then
+        if q_version >/dev/null 2>&1; then q_begin || return 1
+        elif q_legacy_version; then report 'WARNING legacy recovery: service restart suppression cannot be verified; update NEMESIS separately after recovery'
+        else report 'REFUSED unknown NEMESIS runtime; preserve recovery data and verify the platform'; return 1; fi
+    fi
     local id rc=0 prc
     [ -f "$TX/prior/complete" ] || { report 'REFUSED incomplete snapshot; no rollback mutation'; return 1; }
     # Restore the mode before re-registering services from the snapshot.
@@ -572,6 +580,18 @@ step_name() {
 }
 install_transaction() {
     local id info rc wireless_ready removed_prior step=0 steps=0
+    # Never replace the prior snapshot or its failure while recovery is pending.
+    if [ -e "$TX/state" ]; then
+        case "$(cat "$TX/state" 2>/dev/null)" in
+            recovery-required)
+                report 'REFUSED unresolved system recovery required'
+                progress '복구가 필요합니다. 관리 화면의 이전 상태로 복구 또는 USB rollback을 사용하세요. 설치를 반복하지 마세요.'
+                return 1;;
+            committed|rolled-back|capturing|applying|removing|recovering) ;;
+            *) report 'REFUSED unknown transaction state; preserve recovery data'; return 1;;
+        esac
+    fi
+    q_begin || return 1
     reset_results
     progress '설치를 시작합니다. 끝나고 재부팅될 때까지 USB를 빼거나 시동을 끄지 마세요.'
     # Safe editions install only onto the exact state a same-build pre-install
@@ -609,6 +629,7 @@ install_transaction() {
            report "FAILED wireless preflight rc=$rc"
            rollback_transaction; return 1;;
     esac
+    Q_MUTATING=1
     set_state applying || return 1
     # Match mode: every wireless edition keeps services.odex stock. The bridge
     # starts the AP through the stock Wi-Fi service with the CarPlay name and key,

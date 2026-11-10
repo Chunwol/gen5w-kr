@@ -145,7 +145,7 @@ rm -f "$BG/armed" "$BG/recovered" "$BG/recovery-required"
 write_pair "$SYS/etc/gen5w-kr-backup/bridge/gpmoriginal" "$SYS/app/HKMC_GPM.odex"
 
 mkdir -p "$W/integrated" "$W/integrated-data" "$W/integrated-system"
-cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$ROOT/tools/integrated/errors.sh" "$W/integrated/"
+cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$ROOT/tools/integrated/errors.sh" "$ROOT/tools/integrated/services.sh" "$W/integrated/"
 check 'bootguard arm creates an atomic armed marker' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" mksh -c "cd '$W/integrated' && . ./common.sh && bootguard_arm"
 rm -rf "$W/integrated-data/nemesis/gen5wkr.bootguard"
 check 'bootguard arm failure is fail-closed' env IT_DATA="$W/integrated-data" IT_SYSTEM="$W/integrated-system" IT_BOOTGUARD_FAIL=1 mksh -c "cd '$W/integrated' && . ./common.sh && ! bootguard_arm"

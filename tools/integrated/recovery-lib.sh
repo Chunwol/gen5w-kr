@@ -104,7 +104,7 @@ r_check() {
     r_safe "$RB/current" && r_manifest "$RB/current" || { r_fail runner-unavailable; return 1; }
     r_snapshot || { r_fail snapshot-invalid; return 1; }
     [ -x "${IT_NEM:-/system/xbin/nemesis}" ] && [ -x "${IT_SHELL:-/system/bin/sh}" ] && [ -x "$RB/current/zipstore" ] || { r_fail runner-unavailable; return 1; }
-    for required in common.sh recovery.sh recovery-lib.sh rollback.sh report.sh errors.sh; do
+    for required in common.sh recovery.sh recovery-lib.sh rollback.sh report.sh errors.sh services.sh; do
         [ -f "$RB/current/$required" ] &&
             grep -qxF "$(r_hash "$RB/current/$required")  $required" "$RB/current/RECOVERY.md5" || { r_fail runner-unavailable; return 1; }
     done
@@ -152,7 +152,7 @@ r_run() {
     # Also refuse corrupted common/hooks before sourcing them on direct runs.
     r_manifest "$RB/current" || return 1
     local required
-    for required in common.sh errors.sh report.sh; do
+    for required in common.sh errors.sh report.sh services.sh; do
         [ -f "$RB/current/$required" ] &&
             grep -qxF "$(r_hash "$RB/current/$required")  $required" "$RB/current/RECOVERY.md5" || return 1
     done

@@ -10,7 +10,7 @@ case "$token" in ''|*[!0-9]*) exit 1;; esac
 rv_safe "$RD" || exit 1
 valid=yes
 rv_safe "$bundle" && rv_manifest "$bundle" || valid=no
-for required in recovery.sh recovery-lib.sh recovery-verify.sh common.sh errors.sh report.sh history.sh; do
+for required in recovery.sh recovery-lib.sh recovery-verify.sh common.sh errors.sh report.sh history.sh services.sh; do
     [ "$valid" = yes ] || break
     [ -f "$bundle/$required" ] &&
         grep -qxF "$(rv_hash "$bundle/$required")  $required" "$bundle/RECOVERY.md5" || valid=no
@@ -33,6 +33,16 @@ fi
 . "$bundle/errors.sh"
 . "$bundle/history.sh"
 trap '' HUP
+# Identify this independent root launcher so its bounded report-writer sibling
+# survives collector quiescence along with the transaction worker.
+IFS= read -r launch_stat < /proc/self/stat || exit 1
+launch_pid=${launch_stat%% *}; launch_rest=${launch_stat##*) }; launch_n=0
+for launch_field in $launch_rest; do
+    launch_n=$((launch_n+1))
+    [ "$launch_n" != 20 ] || { GEN5W_RECOVERY_ROOT=$launch_pid:$launch_field; break; }
+done
+[ -n "${GEN5W_RECOVERY_ROOT:-}" ] || exit 1
+export GEN5W_RECOVERY_ROOT
 if "${IT_SHELL:-/system/bin/sh}" "$bundle/recovery.sh" run "$token" 2>&1 | report_stream "$RD/gen5wkr.recovery-worker.log" single; then
     statuses=("${PIPESTATUS[@]}")
 else statuses=("${PIPESTATUS[@]}"); fi

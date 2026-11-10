@@ -1,4 +1,7 @@
 #!/system/bin/sh
+HOLD_SCRIPT=${0%/*}/install-hold.sh
+. "$HOLD_SCRIPT"
+install_hold && exit 0
 # Root NEMESIS supervisor, system-uid Java daemon; no transport-content logging.
 SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.

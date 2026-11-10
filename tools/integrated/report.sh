@@ -287,8 +287,10 @@ write_summary() {
     return 0
 }
 transaction_exit() {
-    local status=$1
+    local status=$1 resume_failed=0
+    q_resume || { echo 'Service resume failed: cold reboot required before retry'; status=1; resume_failed=1; }
     write_summary "$status" || echo 'USB 결과 저장 실패: Manager 로그를 확인하세요.'
     rm -f "$TX/lock/pid"; rmdir "$TX/lock" 2>/dev/null
+    [ "$resume_failed" != 1 ] || exit 1
     return "$status"
 }

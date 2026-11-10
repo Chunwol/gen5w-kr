@@ -1,4 +1,7 @@
 #!/system/bin/sh
+HOLD_SCRIPT=${0%/*}/install-hold.sh
+. "$HOLD_SCRIPT"
+install_hold && exit 0
 # Runs as system (the Bluelink apps' own uid). After boot, keeps the reminder
 # time far in the future; the stock service can restore an older time from a
 # driver profile, so it is checked again every 15 seconds (cheap grep only).
