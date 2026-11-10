@@ -16,7 +16,7 @@ BACKUP=$SYS/etc/gen5w-kr-backup/local-hotspot
 LOCK=$DATA/nemesis/gen5wkr.localhotspot.lock
 ACTION=${1:-check}
 case "$ACTION" in check|install|remove|status) ;; *) exit 2;; esac
-if [ -z "${HOTSPOT_TEST_PATCH:-}" ]; then chmod 0755 "$PATCH"; fi
+if [ -z "${HOTSPOT_TEST_PATCH:-}" ] && [ ! -x "$PATCH" ]; then chmod 0755 "$PATCH"; fi
 safe_paths() {
     for p in "$SYS" "$SYS/app" "$SYS/etc" "$SYS/etc/gen5w-kr-backup" "$BACKUP" "$DATA" "$DATA/nemesis"; do
         [ ! -L "$p" ] || return 1
@@ -159,6 +159,13 @@ finish() {
 trap finish EXIT
 trap 'exit 1' HUP INT TERM
 check_target
+# Removing an already-original target is a verified no-op. In particular, do
+# not turn a stock /system writable just to discover there is nothing to undo.
+# Retain durable backups and interrupted output; no system cleanup is needed.
+if [ "$ACTION" = remove ] && "$PATCH" original "$TARGET"; then
+    echo 'OK: already stock; no system writes needed'
+    exit 0
+fi
 system_readwrite
 mounted=yes
 mkdir -p "$BACKUP"

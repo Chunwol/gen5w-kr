@@ -17,6 +17,7 @@ esac
 EOF
 cat > "$fixture/nemesis" <<'EOF'
 #!/bin/sh
+echo "$*" >> "$CASE_DIR/mount-calls"
 [ "$2" = ro ] || exit 0
 n=$(cat "$CASE_DIR/count" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$CASE_DIR/count"
 case "$MODE" in
@@ -40,10 +41,25 @@ target="$fixture/system/app/HKMC_WifiSettings.odex"
 control=tools/local-hotspot/package/scripts/control.sh
 reset_case() {
  echo original > "$target"
- rm -f "$fixture/count"
+ rm -f "$fixture/count" "$fixture/mount-calls"
  echo "/dev/block/system $fixture/system ext4 rw,relatime 0 0" > "$fixture/mounts"
 }
 run() { mksh "$control" "$1" > "$fixture/output" 2>&1; }
+reset_case; export MODE=unknown
+run remove || { cat "$fixture/output"; echo 'FAIL already-stock removal must not remount'; exit 1; }
+test ! -e "$fixture/mount-calls"
+test ! -e "$fixture/system/etc/gen5w-kr-backup/local-hotspot"
+test "$(cat "$target")" = original
+backup="$fixture/system/etc/gen5w-kr-backup/local-hotspot"
+mkdir -p "$backup"
+cp "$control" "$backup/recover.sh"
+cp "$fixture/patch" "$backup/hotspot-patch"
+printf '#!/bin/sh\ncase "$2" in */hotspot-patch) exit 1;; esac\nexec /bin/chmod "$@"\n' > "$fixture/bin/chmod"
+/bin/chmod 755 "$backup/hotspot-patch" "$fixture/bin/chmod"
+env -u HOTSPOT_TEST_PATCH mksh "$backup/recover.sh" remove > "$fixture/output" 2>&1 ||
+ { cat "$fixture/output"; echo 'FAIL executable durable helper must not be chmodded on stock removal'; exit 1; }
+test ! -e "$fixture/mount-calls"
+rm "$fixture/bin/chmod"
 reset_case; export MODE=busy
 run install || { cat "$fixture/output"; echo 'FAIL verified busy install rejected'; exit 1; }
 test "$(cat "$target")" = patched
@@ -53,7 +69,11 @@ grep -q 'reason=busy\|Device or resource busy' "$fixture/output"
 grep -q 'ext4 rw,relatime' "$fixture/output"
 run remove
 test "$(cat "$target")" = original
+rm -f "$fixture/mount-calls"
+export MODE=unknown
 run remove # Already-stock cleanup must not trap integrated rollback in failure.
+test ! -e "$fixture/mount-calls"
+test "$(cat "$fixture/system/etc/gen5w-kr-backup/local-hotspot/original.odex")" = original
 reset_case; export MODE=retry
 run install
 test "$(cat "$target")" = patched

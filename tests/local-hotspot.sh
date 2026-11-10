@@ -40,9 +40,10 @@ mv "$backup.saved" "$backup"
 run remove
 printf evidence > "$target.localhotspot.tmp"
 run remove
-test ! -e "$target.localhotspot.tmp"
-test "$(cat "${backup%/*}"/interrupted.*)" = evidence
+# Already-stock removal performs no /system writes, even to archive evidence.
+test "$(cat "$target.localhotspot.tmp")" = evidence
 cmp "$target" "$GEN5W_HOTSPOT_STOCK_DIR/HKMC_WifiSettings.odex"
+rm "$target.localhotspot.tmp"
 mkdir "$fixture/data/nemesis/gen5wkr.localhotspot.lock"
 if run install; then echo 'FAIL: concurrent operation accepted'; exit 1; fi
 run remove
