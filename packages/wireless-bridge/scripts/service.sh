@@ -226,7 +226,7 @@ while [ ! -f "$STOPPING" ]; do
                 broker_lines=0
                 if [ -f "$broker_log" ]; then
                     while IFS= read -r _l || [ -n "$_l" ]; do broker_lines=$((broker_lines + 1)); done < "$broker_log"
-                    [ "$broker_lines" -le 400 ] || mv -f "$broker_log" "$broker_log.1" 2>/dev/null || :
+                    [ "$broker_lines" -le 400 ] || mv "$broker_log" "$broker_log.1" 2>/dev/null || :
                 fi
                 echo "--- $(date '+%m-%d %H:%M:%S' 2>/dev/null) broker start $broker_count supervisor=$$" >> "$broker_log" 2>/dev/null
                 "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>> "$broker_log" &

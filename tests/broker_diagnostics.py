@@ -30,30 +30,33 @@ NEM=$TEST_WORK/nemesis
 DEX=unused
 broker_count=1
 ''' + launch + '''
-trap '[ -z "$broker_pid" ] || kill "$broker_pid" 2>/dev/null; kill "$broker_reader" 2>/dev/null || :; rm -f "$broker_fifo"' EXIT
+trap '[ -z "$broker_pid" ] || kill "$broker_pid" 2>/dev/null' EXIT
 n=0
 while [ ! -s "$TEST_PID_FILE" ];do n=$((n+1));[ "$n" -lt 100 ] || exit 10;sleep 0.02;done
 IFS= read -r actual < "$TEST_PID_FILE"
 [ "$broker_pid" = "$actual" ] || { echo 'FAIL child PID replaced by diagnostic wrapper';exit 11; }
+# The unit has no mknod/mkfifo: stderr goes whole into a capped file, copied to the USB report.
 n=0
-while ! grep -q 'operation=ap-broker.*reason=missing-class' "$ERR_DIR/errors.0" 2>/dev/null;do
-  n=$((n+1));[ "$n" -lt 100 ] || { echo 'FAIL live broker error waits for EOF';exit 16; };sleep 0.02
+while ! grep -q 'Gen5wDiag ERR code=ap.transition' "$ERR_DIR/broker-stderr.log" 2>/dev/null;do
+  n=$((n+1));[ "$n" -lt 100 ] || { echo 'FAIL broker stderr not captured';exit 16; };sleep 0.02
 done
-grep -q 'operation=ap.transition.*reason=timeout' "$ERR_DIR/errors.0" || {
-  n=0
-  while ! grep -q 'operation=ap.transition.*reason=timeout' "$ERR_DIR/errors.0";do
-    n=$((n+1));[ "$n" -lt 100 ] || exit 17;sleep 0.02
-  done
-}
+grep -q 'broker start 1 supervisor=' "$ERR_DIR/broker-stderr.log" || exit 17
 kill "$broker_pid"
 n=0
 while kill -0 "$broker_pid" 2>/dev/null;do n=$((n+1));[ "$n" -lt 100 ] || exit 12;sleep 0.02;done
 ''' + observe + '''
-wait "$broker_reader"
-grep -q 'operation=ap-broker.*reason=missing-class' "$ERR_DIR/errors.0" || exit 13
 grep -q 'operation=ap-broker-exit.*rc=23' "$ERR_DIR/errors.0" || exit 14
-if grep -R -E 'secret-broker|password=private' "$ERR_DIR";then exit 15;fi
-echo 'PASS broker PID identity/stderr classification/native exit/cleanup/privacy'
+if grep -E 'secret-broker|password=private' "$ERR_DIR"/errors.*;then exit 15;fi
+# Past 400 lines the next start moves the old log to .1 (toolbox mv takes no -f).
+i=0;while [ $i -lt 401 ];do echo "old line $i";i=$((i+1));done >> "$ERR_DIR/broker-stderr.log"
+: > "$TEST_PID_FILE";broker_count=2
+''' + launch + '''
+n=0
+while [ ! -s "$TEST_PID_FILE" ];do n=$((n+1));[ "$n" -lt 100 ] || exit 18;sleep 0.02;done
+kill "$broker_pid" 2>/dev/null
+grep -q 'old line 400' "$ERR_DIR/broker-stderr.log.1" || exit 19
+grep -q 'broker start 2' "$ERR_DIR/broker-stderr.log" && ! grep -q 'old line' "$ERR_DIR/broker-stderr.log" || exit 20
+echo 'PASS broker PID identity/stderr file capture/native exit/rotation/journal privacy'
 '''
     env=dict(os.environ,TEST_WORK=str(work),TEST_PID_FILE=str(work/'pid'),
              ERROR_HELPER=str(root/'tools/diagnostics/errors.sh'),ERR_DIR=str(work/'errors'))

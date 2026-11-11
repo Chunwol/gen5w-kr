@@ -48,7 +48,8 @@ grep -q 'SEND_CONNECTION_PHONEPROJECTION' packages/wireless-bridge/src/kr/gen5w/
 grep -q 'getWLDeviceInfo' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getWLDAutoConnection' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
 grep -q 'getCPConnectedBTAddress' packages/wireless-bridge/src/kr/gen5w/wireless/PhoneProjectionAccess.java
-grep -q 'StockProjectionSession.safeDiagnosticToken(value)' "$bridge"
+# Relay step labels are logged unfiltered by the user's request (14b0be4); identifiers
+# are still kept out by the logging check above.
 grep -Fq 'com.hkmc.software.connectivity.carplay_wireless' packages/wireless-enable/files/permissions/com.hkmc.software.connectivity.carplay_wireless.xml
 grep -Fq 'com.hkmc.software.connectivity.androidauto_wireless' packages/wireless-enable/files/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml
 grep -q 'WirelessBridge.java' tools/build-dex.sh

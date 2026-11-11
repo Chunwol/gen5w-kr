@@ -18,9 +18,19 @@ DIR=$DATA/nemesis/gen5wkr.logs
 MIN_FREE_KB=153600
 until [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; do sleep 5; done
 # Free space on /data in KiB, from toolbox df ("/data  991.9M  104.8M  887.1M  4096").
+# Drops the df header line.
+df_rows() {
+    typeset l
+    while IFS= read -r l; do
+        case "$l" in
+            Filesystem*) ;;
+            *) print -r -- "$l";;
+        esac
+    done
+}
 free_kb() {
     typeset line fs size used free unit n
-    line=$("$DF" "$DATA" 2>/dev/null | while IFS= read -r l; do case "$l" in Filesystem*) ;; *) print -r -- "$l";; esac; done)
+    line=$("$DF" "$DATA" 2>/dev/null | df_rows)
     set -- $line
     [ "$#" -ge 4 ] || return 1
     free=$4
