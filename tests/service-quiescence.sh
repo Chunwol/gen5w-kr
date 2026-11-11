@@ -96,6 +96,7 @@ echo "gen5w.kr.core/uilog|restart|running|$session_root" > "$W/inventory"
 QREALROOT="$session_root" run
 orphan_rc=$?
 check 'already-reparented child in owned session cannot pass as baseline stock' test "$orphan_rc" != 0
+check 'refusal names the process left behind' grep -q 'still running after 2s wait:.*:sleep' "$W/out"
 orphan_pid=$(cat "$W/orphan-pid")
 [ "$orphan_rc" != 0 ] || { cat "$W/out"; cat "/proc/$orphan_pid/stat" 2>/dev/null; }
 kill "$session_root" "$orphan_pid" 2>/dev/null || true
@@ -113,6 +114,25 @@ check 'short-lived child left by a stopped service is waited for' test "$short_r
 [ "$short_rc" = 0 ] || cat "$W/out"
 check 'waiting never signals the leftover child' eval '! grep -q "kill" "$W/out"'
 wait "$short_root" 2>/dev/null || true
+echo '00000000-0000-0000-0000-000000000000' > "$W/tx/service-uncertain"
+# Real car: the timer's "logcat -s ConsentScreen" reader outlives its stopped
+# shell until the next matching line. Only such a logcat in our session is stopped.
+printf '#!/usr/bin/python3
+import time
+time.sleep(300)
+' > "$W/logcat"; chmod +x "$W/logcat"
+sed -e "s#os.execl('/bin/sleep','sleep','300')#os.execl(os.environ['QT']+'/logcat','logcat','300')#" -e 's#orphan-#lc-#g' "$W/session-root" > "$W/lc-root"
+QT="$W" /usr/bin/setsid /usr/bin/python3 "$W/lc-root" & lc_root=$!
+for attempt in {1..100}; do [ ! -f "$W/lc-ready" ] || break; sleep 0.01; done
+echo "gen5w.kr.core/uilog|restart|running|$lc_root" > "$W/inventory"
+QREALROOT="$lc_root" IT_Q_DRAIN=10 run
+lc_rc=$?
+lc_pid=$(cat "$W/lc-pid")
+check 'leftover logcat of a stopped service is stopped and the proof passes' test "$lc_rc" = 0
+[ "$lc_rc" = 0 ] || cat "$W/out"
+check 'the leftover logcat is reported' grep -q "STOPPED leftover logcat $lc_pid" "$W/out"
+check 'the leftover logcat is gone' eval '! kill -0 "$lc_pid" 2>/dev/null || grep -q " Z " "/proc/$lc_pid/stat"'
+wait "$lc_root" 2>/dev/null || true
 echo '00000000-0000-0000-0000-000000000000' > "$W/tx/service-uncertain"
 echo "gen5w.kr.core/uilog|restart|running|$session_root" > "$W/inventory"
 QSTOPFAIL=1 run

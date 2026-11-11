@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # Owned report slots and bounded sanitized streams. No recursive deletion.
-REPORT_NAMES='EXEC_LOG.txt EXEC_LOG.txt.1 EXEC_LOG.txt.2 EXEC_LOG.txt.3 STARTUP.txt ENTRY_STATUS.txt RESULT.md RESULT.html ISSUE.md DIAG_EXEC_LOG.txt DIAG_EXEC_LOG.txt.1 DIAG_EXEC_LOG.txt.2 DIAG_EXEC_LOG.txt.3 DIAG_STARTUP.txt'
+REPORT_NAMES='EXEC_LOG.txt EXEC_LOG.txt.1 EXEC_LOG.txt.2 EXEC_LOG.txt.3 STARTUP.txt ENTRY_STATUS.txt RESULT.md RESULT.html ISSUE.md DIAG_EXEC_LOG.txt DIAG_EXEC_LOG.txt.1 DIAG_EXEC_LOG.txt.2 DIAG_EXEC_LOG.txt.3 DIAG_STARTUP.txt PROGRESS.txt'
 report_stream() {
     typeset out=$1 mode=${2:-rotate} line count=0 long=no n chunk buffer= failed=no full=no nl='
 '

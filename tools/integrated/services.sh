@@ -66,34 +66,49 @@ q_keys() {
     local ident rest
     for ident in $1; do rest=${ident#*:*:}; echo "${ident%%:*}:${rest%:*}"; done
 }
-# Waits (at most IT_Q_DRAIN seconds, default 30) until no captured service
-# process and no process in an owned NEMESIS session is alive. Read-only: it
-# never signals. Uses the caller's roots, protected and owned_sessions.
+# A stopped service shell can leave a child behind. "sleep" ends by itself.
+# A logcat reader (e.g. the timer's "logcat -s ConsentScreen | ...") does not:
+# it waits for a matching log line, possibly until the next ignition. Only a
+# logcat in one of OUR NEMESIS sessions is stopped, after re-checking that the
+# PID still has the same start time. Anything else is only waited for, at most
+# IT_Q_DRAIN seconds (default 30); the strict checks after this still refuse
+# whatever remains. Uses the caller's roots, protected and owned_sessions.
+q_leftover_logcat() {
+    local comm= again
+    [ ! -L "/proc/$1/comm" ] && IFS= read -r comm 2>/dev/null < "/proc/$1/comm" || return 1
+    [ "$comm" = logcat ] || return 1
+    again=$(q_identity "$1") || return 1
+    [ "$again" = "$2" ]
+}
 q_owned_drain() {
-    local waited=0 busy old pid current rest value entry sid
-    while [ "$waited" -lt "${IT_Q_DRAIN:-30}" ]; do
-        busy=
+    local waited=0 busy old pid current rest value entry sid left comm
+    while :; do
+        busy= left=
         for old in $roots; do
             pid=${old%%:*}; case "$protected" in *" $pid "*) continue;; esac
             current=$(q_identity "$pid") || continue
             rest=${current#*:*:}; value=${old#*:*:}
-            [ "${rest%:*}" != "${value%:*}" ] || [ "${current##*:}" = Z ] || { busy=1; break; }
+            [ "${rest%:*}" != "${value%:*}" ] || [ "${current##*:}" = Z ] || busy=1
         done
-        if [ -z "$busy" ]; then
-            for entry in /proc/[0-9]*/stat; do
-                pid=${entry#/proc/}; pid=${pid%/stat}
-                sid=$(q_session "$pid") || continue
-                case "$owned_sessions" in *" $sid "*) ;; *) continue;; esac
-                current=$(q_identity "$pid") || continue
-                [ "${current##*:}" != Z ] || continue
-                q_worker_process "$pid" && continue
-                busy=1; break
-            done
-        fi
+        for entry in /proc/[0-9]*/stat; do
+            pid=${entry#/proc/}; pid=${pid%/stat}
+            sid=$(q_session "$pid") || continue
+            case "$owned_sessions" in *" $sid "*) ;; *) continue;; esac
+            current=$(q_identity "$pid") || continue
+            [ "${current##*:}" != Z ] || continue
+            q_worker_process "$pid" && continue
+            if [ "$waited" -ge 2 ] && q_leftover_logcat "$pid" "$current"; then
+                kill -TERM "$pid" 2>/dev/null && report "STOPPED leftover logcat $pid of a stopped service"
+            fi
+            comm=; IFS= read -r comm 2>/dev/null < "/proc/$pid/comm"
+            left="$left $pid:${comm:-?}"
+            busy=1
+        done
         [ -n "$busy" ] || return 0
+        [ "$waited" -lt "${IT_Q_DRAIN:-30}" ] || break
         sleep 1; waited=$((waited + 1))
     done
-    report "NOTE service children still running after ${IT_Q_DRAIN:-30}s wait"
+    report "NOTE service children still running after ${IT_Q_DRAIN:-30}s wait:${left:- (captured service process)}"
     return 0
 }
 q_worker_process() {

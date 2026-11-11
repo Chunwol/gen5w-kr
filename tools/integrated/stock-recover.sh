@@ -22,6 +22,7 @@ for id in $ALL_IDS gen5w.kr.dongle; do
 done
 stock_runtime=$("$NEM" version 2>/dev/null) || stock_runtime=unknown
 stock_modern=no
+progress '순정 복구 준비 중: 기존 기능을 잠시 멈추고 확인합니다(1분 정도). USB를 빼지 마세요.'
 if q_version; then stock_modern=yes; q_begin || exit 1
 else q_legacy_version || { report 'REFUSED stock recovery: unknown NEMESIS runtime'; exit 1; }
      report 'WARNING legacy stock recovery: service restart suppression cannot be verified'
@@ -32,11 +33,15 @@ echo stock-recover > "$TX/stock-recovery-mode" || exit 1
 set_state recovering || exit 1
 Q_MUTATING=1
 # Do not call begin, finish, or rollback_transaction: all can reinstall prior ZIPs.
+rec_step=0; rec_steps=$(count_ids "$REVERSE")
 for id in $REVERSE; do
+    rec_step=$((rec_step + 1))
+    progress "순정 복구 중 ($rec_step/$rec_steps) $(step_name "$id") 제거. USB를 빼지 마세요."
     safe_remove "$id" || { result "$id" recovery-required; report "RECOVERY REQUIRED: stock removal failed $id"; exit 1; }
     [ ! -e "$APPS/$id" ] && [ ! -L "$APPS/$id" ] || exit 1
     result "$id" removed
 done
+progress '순정 복구 중: 순정 파일 확인. USB를 빼지 마세요.'
 for id in $ALL_IDS gen5w.kr.dongle; do
     bundle_remove_hook "$id" || { report "RECOVERY REQUIRED: stock verification failed $id"; exit 1; }
 done

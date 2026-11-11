@@ -246,13 +246,20 @@ rollback_transaction() {
         return 1
     }
     set_state recovering || return 1
+    local rstep=0 rsteps
+    rsteps=$(count_ids "$REVERSE")
     for id in $REVERSE; do
         [ -f "$TX/attempt.$id" ] || continue
+        rstep=$((rstep + 1))
+        progress "되돌리는 중 (1단계 $rstep/$rsteps) $(step_name "$id") 정리. USB를 빼지 마세요."
         safe_remove "$id" || { rc=1; break; }
     done
     if [ "$rc" = 0 ]; then
+        rstep=0; rsteps=$(count_ids "$SNAPSHOT_IDS")
         for id in $SNAPSHOT_IDS; do
             [ -f "$TX/attempt.$id" ] && [ -f "$TX/prior/$id.zip" ] || continue
+            rstep=$((rstep + 1))
+            progress "되돌리는 중 (2단계 $rstep/$rsteps) 이전 $(step_name "$id") 복원. USB를 빼지 마세요."
             [ "$(digest "$TX/prior/$id.zip")" = "$(cat "$TX/prior/$id.md5")" ] || { rc=1; break; }
             if [ "$id" = gen5w.kr.audio ] && [ -f "$WIRELESS_OFF" ]; then
                 result "$id" skipped; report "SKIPPED $id: wired-only after rollback"; continue
@@ -583,7 +590,14 @@ begin_steps() {
     echo 1 > "$TX/prior/complete" && sync
 }
 # On-screen progress, so nobody pulls the USB while a step is still running.
+# On-screen step text, also kept on the USB (GEN5W-REPORT/PROGRESS.txt) so a
+# pulled or stuck USB still shows how far the operation got.
+OP_LABEL=${OP_LABEL:-설치}
+count_ids() { local n=0 x; for x in $1; do n=$((n + 1)); done; echo "$n"; }
 progress() {
+    if [ -d GEN5W-REPORT ] && [ ! -L GEN5W-REPORT ] && [ ! -L GEN5W-REPORT/PROGRESS.txt ]; then
+        echo "$(date '+%H:%M:%S' 2>/dev/null) $1" >> GEN5W-REPORT/PROGRESS.txt 2>/dev/null
+    fi
     [ -x /system/bin/am ] || return 0
     /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W KR: $1"         --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || true
 }
@@ -616,9 +630,10 @@ install_transaction() {
             *) report 'REFUSED unknown transaction state; preserve recovery data'; return 1;;
         esac
     fi
+    progress "$OP_LABEL 준비 중: 기존 기능을 잠시 멈추고 확인합니다(1분 정도). USB를 빼지 마세요."
     q_begin || return 1
     reset_results
-    progress '설치를 시작합니다. 끝나고 재부팅될 때까지 USB를 빼거나 시동을 끄지 마세요.'
+    progress "$OP_LABEL를 시작합니다. 끝나고 재부팅될 때까지 USB를 빼거나 시동을 끄지 마세요."
     # Safe editions install only onto the exact state a same-build pre-install
     # check (gen5w-kr-check) recorded and approved. Runs before any change.
     if keeps_systemui; then
@@ -692,7 +707,10 @@ install_transaction() {
             report "RESTORED $id: switched to standard built-in Wi-Fi mode"
         fi
     fi
+    steps=$(count_ids "$IDS")
     for id in $IDS; do
+        step=$((step + 1))
+        progress "$OP_LABEL 중 ($step/$steps) $(step_name "$id"). USB를 빼지 마세요."
         # The early close is a service only. Safe editions keep the stock 10 seconds.
         if keeps_systemui && [ "$id" = gen5w.kr.timer ]; then
             : > "$TX/attempt.$id"; sync
@@ -766,8 +784,6 @@ install_transaction() {
             [ ! -L "$WIRELESS_OFF" ] && rm -f "$WIRELESS_OFF" || { rollback_transaction; return 1; }
         fi
         : > "$TX/attempt.$id"; sync
-        step=$((step + 1)); steps=0; for info in $IDS; do steps=$((steps + 1)); done
-        progress "설치 중 ($step/$steps) $(step_name "$id"). USB를 빼지 마세요."
         safe_remove "$id" || {
             result "$id" failed; rollback_transaction; return 1;
         }
