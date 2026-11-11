@@ -64,6 +64,18 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         if (active()) apply(session.cancel(session.generation(), reason));
     }
 
+    boolean carPlayOwned() { return session.carPlayOwned(); }
+
+    /** The phone's Bluetooth side is gone (ACL or the stock candidate). A Wi-Fi CarPlay
+     * session that DiPO already runs is kept; it ends through handoverDisconnected. */
+    void bluetoothLost() {
+        if (session.carPlayOwned()) {
+            events.relayEvent("relay", "bluetooth-lost-wifi-session-kept");
+            return;
+        }
+        candidateLost();
+    }
+
     void candidateLost() {
         cancel(BtRelaySession.CancelReason.PHONE_LOST);
         attempts = 0;
@@ -107,11 +119,22 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         apply(session.iap2Connected(generation, component, now()));
     }}); }
     public void disconnected(final long generation, final int component) { post(new Runnable() { public void run() {
+        if (session.generation() == generation && session.carPlayOwned()) {
+            events.relayEvent("relay", "bluetooth-lost-wifi-session-kept component=" + component);
+            return;
+        }
         apply(session.cancel(generation, BtRelaySession.CancelReason.BLUETOOTH_LOST));
     }}); }
     public void failed(final long generation, final V039BtRelayAdapter.Failure failure) {
         post(new Runnable() { public void run() {
             long owner = generation == 0 ? session.generation() : generation;
+            // BTCM and the SPP data path serve only the Bluetooth side. The iAP2 service
+            // also carries component 5, so losing it still ends the session.
+            if (owner == session.generation() && session.carPlayOwned() &&
+                    (failure == V039BtRelayAdapter.Failure.BTCM_UNAVAILABLE || failure == V039BtRelayAdapter.Failure.TRANSPORT)) {
+                events.relayEvent("relay", "bluetooth-failure-wifi-session-kept " + failure.name().toLowerCase());
+                return;
+            }
             BtRelaySession.FailureReason reason = failure == V039BtRelayAdapter.Failure.SPP_CONNECT
                     ? BtRelaySession.FailureReason.SPP_ERROR
                     : failure == V039BtRelayAdapter.Failure.IAP2_START || failure == V039BtRelayAdapter.Failure.IAP2_UNAVAILABLE

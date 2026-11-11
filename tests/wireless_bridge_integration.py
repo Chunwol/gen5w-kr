@@ -29,6 +29,7 @@ final class V039RelayCoordinator {
  int starts,cancels,losses; long owner; boolean running;
  V039RelayCoordinator(Context c,Handler h,Events e){} void open(){} void tick(){}
  void start(String a){starts++;owner++;} long generation(){return owner;} void candidateLost(){owner++;losses++;running=false;} void handoverRequested(){}
+ boolean owned; int kept; boolean carPlayOwned(){return owned;} void bluetoothLost(){if(owned){kept++;return;}candidateLost();}
  void handoverConnected(){} void handoverDisconnected(){} void apObservedReady(){}
  void credentialsReady(){} void projectionActive(){} void close(){}
  void cancel(BtRelaySession.CancelReason r){cancels++;} boolean active(){return running;} static boolean adapterOk=true; boolean adapterReady(){return adapterOk;}
@@ -183,6 +184,18 @@ public class WirelessBridgeIntegrationTest {
       }finally{c.bridge.shutdown();}
     }
 
+    static void runningWifiSessionSurvivesBluetoothSideLoss()throws Exception{
+      TestContext c=new TestContext();try{
+       c.bridge.enableRelay();c.bridge.session.candidate("phone",0);
+       java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);maintain.invoke(c.bridge);
+       c.bridge.relay.running=true;c.bridge.relay.owned=true;int losses=c.bridge.relay.losses;
+       c.bridge.session.lost("phone",1);c.bridge.session.candidate("other",2);maintain.invoke(c.bridge);
+       check(c.bridge.relay.losses==losses&&c.bridge.relay.running&&c.bridge.relay.kept==1,"stock candidate change keeps a Wi-Fi session DiPO runs");
+       c.bridge.relay.owned=false;c.bridge.session.lost("other",3);c.bridge.session.candidate("phone",4);maintain.invoke(c.bridge);
+       check(c.bridge.relay.losses==losses+1&&!c.bridge.relay.running,"without a Wi-Fi session the old rule applies");
+      }finally{c.bridge.shutdown();}
+    }
+
     static void stockOffSettingBlocksAndStopsRelay()throws Exception{
       java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);
       for(int mode=0;mode<2;mode++){
@@ -226,7 +239,7 @@ public class WirelessBridgeIntegrationTest {
         check("".equals(c.receiverPermissions.get("connected")),"system Bluetooth broadcasts stay open");
       }finally{c.bridge.shutdown();}
     }
-    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();System.out.println("PASS production WirelessBridge ownership integration");}
+    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:

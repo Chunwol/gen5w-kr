@@ -246,7 +246,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         BluetoothCandidateScan.disconnected(linked, falseConnectionSince, address, session, now());
         sdpRefresh.reset(address);
         appleCarPlay.remove(address);
-        if (relayCandidate) relay.candidateLost();
+        if (relayCandidate) relay.bluetoothLost();
     }
 
     void requestFreshSdp(BluetoothDevice device) {
@@ -306,7 +306,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     private void maintainRelay() {
         if (!relayEnabled || shuttingDown) return;
         if (relayCandidateGeneration != session.generation()) {
-            relay.candidateLost();
+            relay.bluetoothLost();
             relayCandidateGeneration = session.generation();
         }
         String address = session.candidate();
@@ -367,7 +367,8 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                     if (cable) { relay.cancel(BtRelaySession.CancelReason.WIRED); return; }
                     refreshWired();
                     if (cable) return;
-                    if (StockProjectionSession.foreignOwner(state)) {
+                    // Once DiPO runs our wireless session, a state naming no (or an old) phone is ours.
+                    if (StockProjectionSession.foreignOwner(state) && !relay.carPlayOwned()) {
                         relay.cancel(BtRelaySession.CancelReason.FOREIGN_OWNER);
                         return;
                     }

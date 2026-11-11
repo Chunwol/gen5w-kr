@@ -34,9 +34,44 @@ public final class BtRelaySessionTest {
         commands(session.credentialsReady(generation, 600), BtRelaySession.CommandType.START_AP);
         check(session.phase() == BtRelaySession.Phase.CARPLAY_HANDOVER, "AP startup is not projection activation");
         session.apReady(generation, 700);
-        check(session.phase() == BtRelaySession.Phase.CARPLAY_HANDOVER, "AP readiness alone is not activation");
+        check(session.phase() == BtRelaySession.Phase.ACTIVE, "AP ready with component 5 connected is a running session");
         session.projectionActivated(generation, 800);
-        check(session.phase() == BtRelaySession.Phase.ACTIVE, "projection activation completes relay");
+        check(session.phase() == BtRelaySession.Phase.ACTIVE, "a later PhoneProjection activation changes nothing");
+    }
+
+    private static void eitherSignalActivatesAndBluetoothSideIsNotNeededAfterHandover() {
+        // Component 5 after AP ready.
+        BtRelaySession session = new BtRelaySession();
+        long generation = session.start(0).generation;
+        session.credentialsReady(generation, 1);
+        session.sppConnected(generation, 2);
+        check(!session.carPlayOwned(), "Bluetooth-only stages are not a Wi-Fi session");
+        session.iap2Connected(generation, 4, 3);
+        check(!session.carPlayOwned(), "component 4 alone is not a Wi-Fi session");
+        session.apReady(generation, 4);
+        check(session.phase() == BtRelaySession.Phase.CARPLAY_HANDOVER, "AP ready without component 5 is not activation");
+        session.handoverRequested(generation, 5);
+        check(session.carPlayOwned(), "DiPO's handover request means DiPO runs the wireless session");
+        session.iap2Connected(generation, 5, 6);
+        check(session.phase() == BtRelaySession.Phase.ACTIVE, "component 5 after AP ready activates");
+        check(session.tick(generation, 6 + BtRelaySession.ACTIVATION_TIMEOUT_MS + 1).commands.isEmpty(),
+                "a running session has no activation timeout");
+        check(session.carPlayOwned(), "an active session is owned");
+        // PhoneProjection activation still works before AP ready is observed.
+        BtRelaySession other = new BtRelaySession();
+        long g = other.start(0).generation;
+        other.credentialsReady(g, 1);
+        other.sppConnected(g, 2);
+        other.iap2Connected(g, 4, 3);
+        other.handoverRequested(g, 4);
+        other.iap2Connected(g, 5, 5);
+        check(other.phase() == BtRelaySession.Phase.CARPLAY_HANDOVER, "component 5 before AP ready waits for the AP");
+        other.apReady(g, 6);
+        check(other.phase() == BtRelaySession.Phase.ACTIVE, "AP ready after component 5 activates");
+        commands(other.cancel(g, BtRelaySession.CancelReason.PHONE_LOST),
+                BtRelaySession.CommandType.STOP_AP, BtRelaySession.CommandType.STOP_IAP2,
+                BtRelaySession.CommandType.STOP_IAP2, BtRelaySession.CommandType.DISCONNECT_SPP);
+        check(!other.carPlayOwned(), "a stopping session is not owned");
     }
 
     private static void credentialsStartApWithoutWaitingForComponentFive() {
@@ -183,7 +218,7 @@ public final class BtRelaySessionTest {
         session.sppConnected(generation, 100001);
         session.iap2Connected(generation, 4, 100002);
         session.handoverRequested(generation, 100003);
-        session.iap2Connected(generation, 5, 100004);
+        // Component 5 never connects: the AP is up but no CarPlay data flows.
         session.credentialsReady(generation, 100005);
         session.apReady(generation, 100006);
         BtRelaySession.Update activationTimeout = session.tick(generation, 100006 + BtRelaySession.ACTIVATION_TIMEOUT_MS);
@@ -236,7 +271,6 @@ public final class BtRelaySessionTest {
         session.sppConnected(generation, 100001);
         session.iap2Connected(generation, 4, 100002);
         session.handoverRequested(generation, 100003);
-        session.iap2Connected(generation, 5, 100004);
         session.credentialsReady(generation, 100005);
         session.apReady(generation, 100006);
         commands(session.apReady(generation, 101000), new BtRelaySession.CommandType[0]);
@@ -283,6 +317,7 @@ public final class BtRelaySessionTest {
         cancellationInvalidatesOldCallbacksAndCleansUpInReverseOrder();
         apAndActivationHaveIndependentTimeouts();
         handoverTimeoutHasItsOwnReason();
+        eitherSignalActivatesAndBluetoothSideIsNotNeededAfterHandover();
         runtimeFailureUsesTheSameOrderedCleanup();
         duplicateReadyEventsDoNotExtendDeadlines();
         System.out.println("PASS Bluetooth relay session");

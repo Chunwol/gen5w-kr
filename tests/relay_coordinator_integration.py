@@ -13,7 +13,7 @@ stubs['kr/gen5w/wireless/BtRelayPipe.java'] = 'package kr.gen5w.wireless; class 
 stubs['kr/gen5w/wireless/V039BtRelayAdapter.java'] = '''package kr.gen5w.wireless;
 class V039BtRelayAdapter {
  interface Listener {void ready();void sppConnected(long g);void iap2Connected(long g,int c);void disconnected(long g,int c);void failed(long g,Failure f);}
- enum Failure { SPP_CONNECT,IAP2_START,IAP2_UNAVAILABLE,OTHER }
+ enum Failure { SPP_CONNECT,IAP2_START,IAP2_UNAVAILABLE,BTCM_UNAVAILABLE,TRANSPORT,OTHER }
  static int connects; static long generation; static boolean reject=true;
  V039BtRelayAdapter(android.content.Context c,Listener l,BtRelayPipe.Diagnostics d){}
  boolean open(){return true;} boolean connect(long g,String a){connects++;generation=g;return !reject;}
@@ -53,7 +53,29 @@ public class RelayCoordinatorIntegrationTest {
  static void shutdownCleansAp()throws Exception{V039RelayCoordinator c=fresh();V039BtRelayAdapter.reject=false;c.start("phone");c.credentialsReady();c.sppConnected(V039BtRelayAdapter.generation);
  java.lang.reflect.Field f=c.getClass().getDeclaredField("apCalls");f.setAccessible(true);java.util.concurrent.ExecutorService executor=(java.util.concurrent.ExecutorService)f.get(c);
  int before=kr.gen5w.hotspot.ApBrokerClient.stopped;c.close();check(executor.awaitTermination(2,java.util.concurrent.TimeUnit.SECONDS),"AP worker terminates");check(kr.gen5w.hotspot.ApBrokerClient.stopped==before+1,"shutdown drains owned AP stop with valid guard");}
- public static void main(String[]args)throws Exception{retriesBounded();cleanupOwnsGate();shutdownCleansAp();System.out.println("PASS production relay coordinator retry integration");}
+ static BtRelaySession.Phase phase(V039RelayCoordinator c)throws Exception{java.lang.reflect.Field f=c.getClass().getDeclaredField("session");f.setAccessible(true);return ((BtRelaySession)f.get(c)).phase();}
+ static void waitPhase(V039RelayCoordinator c,BtRelaySession.Phase p)throws Exception{for(int i=0;i<200&&phase(c)!=p;i++)Thread.sleep(10);check(phase(c)==p,"phase "+p+" got "+phase(c));}
+ static void wifiSessionOutlivesBluetooth()throws Exception{V039RelayCoordinator c=fresh();try{
+ kr.gen5w.hotspot.ApBrokerClient.stopping=null;
+ V039BtRelayAdapter.reject=false;c.start("phone");long g=V039BtRelayAdapter.generation;
+ c.credentialsReady();c.sppConnected(g);c.iap2Connected(g,4);c.handoverRequested();c.handoverConnected();
+ waitPhase(c,BtRelaySession.Phase.ACTIVE);
+ int before=kr.gen5w.hotspot.ApBrokerClient.stopped;
+ c.disconnected(g,4);c.bluetoothLost();c.failed(0,V039BtRelayAdapter.Failure.BTCM_UNAVAILABLE);c.failed(g,V039BtRelayAdapter.Failure.TRANSPORT);c.tick();
+ check(phase(c)==BtRelaySession.Phase.ACTIVE&&kr.gen5w.hotspot.ApBrokerClient.stopped==before,"Bluetooth loss keeps the running Wi-Fi session and its AP");
+ c.failed(g,V039BtRelayAdapter.Failure.IAP2_UNAVAILABLE);waitPhase(c,BtRelaySession.Phase.FAILED);
+ check(kr.gen5w.hotspot.ApBrokerClient.stopped==before+1,"losing the iAP2 service (component 5) still stops the AP");
+ android.os.SystemClock.time=50000;c.start("phone");g=V039BtRelayAdapter.generation;
+ c.credentialsReady();c.sppConnected(g);c.iap2Connected(g,4);c.handoverRequested();c.handoverConnected();
+ waitPhase(c,BtRelaySession.Phase.ACTIVE);before=kr.gen5w.hotspot.ApBrokerClient.stopped;
+ c.handoverDisconnected();waitPhase(c,BtRelaySession.Phase.CANCELLED);
+ check(kr.gen5w.hotspot.ApBrokerClient.stopped==before+1,"DiPO's session end stops the AP");
+ // Before DiPO runs a session, Bluetooth loss still ends the attempt.
+ android.os.SystemClock.time=100000;c.start("phone");long g2=V039BtRelayAdapter.generation;check(g2!=g,"new attempt");
+ c.credentialsReady();c.sppConnected(g2);c.iap2Connected(g2,4);
+ c.disconnected(g2,4);waitPhase(c,BtRelaySession.Phase.CANCELLED);
+ }finally{c.close();}}
+ public static void main(String[]args)throws Exception{retriesBounded();cleanupOwnsGate();shutdownCleansAp();wifiSessionOutlivesBluetooth();System.out.println("PASS production relay coordinator retry integration");}
 }'''
 with tempfile.TemporaryDirectory(prefix='gen5w-relay-coordinator-') as tmp:
     base = Path(tmp)

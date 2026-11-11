@@ -108,6 +108,7 @@ public final class BtRelaySession {
             component5Connected = true;
             if (!apRequested) deadline = now + HANDOVER_TIMEOUT_MS;
             requestApIfReady(now, commands);
+            activateIfCarPlayRuns();
         }
         return update(commands);
     }
@@ -141,6 +142,7 @@ public final class BtRelaySession {
                 phase == Phase.CARPLAY_HANDOVER) && apRequested && !apReady) {
             apReady = true;
             deadline = now + ACTIVATION_TIMEOUT_MS;
+            activateIfCarPlayRuns();
         }
         return update(commands);
     }
@@ -195,7 +197,32 @@ public final class BtRelaySession {
         return completed;
     }
 
+    /**
+     * True once DiPO runs a wireless CarPlay session for this attempt (it asked for
+     * component 5). From then on the session lives on Wi-Fi: losing the Bluetooth side
+     * (ACL, SPP, component 4) does not end it, and a PhoneProjection state that does
+     * not name our phone is this session, not another owner. It still ends on DiPO's
+     * handover-disconnected, a cable, Bluetooth off, power-on, shutdown, or a timeout.
+     */
+    public synchronized boolean carPlayOwned() {
+        return phase == Phase.ACTIVE || (phase == Phase.CARPLAY_HANDOVER && component5Requested);
+    }
+
     public synchronized Phase phase() { return phase; }
+
+    /**
+     * Component 5 is connected only when DiPO's wireless CarPlay session is passing
+     * iAP2 data over our AP, so AP ready + component 5 is a running session. The
+     * PhoneProjection "connected" state is a second way in (projectionActivated): it is
+     * not proven that PhoneProjection reports it when the stock bootstrap was skipped,
+     * and waiting for it alone would stop a working session at ACTIVATION_TIMEOUT.
+     */
+    private void activateIfCarPlayRuns() {
+        if (phase == Phase.CARPLAY_HANDOVER && apReady && component5Connected) {
+            phase = Phase.ACTIVE;
+            deadline = 0;
+        }
+    }
     public synchronized long generation() { return generation; }
 
     private void requestApIfReady(long now, List<Command> commands) {
