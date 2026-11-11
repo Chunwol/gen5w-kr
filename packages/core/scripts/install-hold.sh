@@ -11,3 +11,10 @@ install_hold() {
     # system-UID services must not depend on permission to signal that worker.
     echo 'DEFERRED installation in progress'
 }
+# For mode=restart services. Exiting while held makes the supervisor relaunch
+# the launcher in a loop, so the installer sees a new PID and refuses to go on.
+# Wait with the same PID instead; the installer stops it like a running service.
+install_hold_wait() {
+    install_hold || return 0
+    while install_hold >/dev/null; do sleep 2; done
+}
