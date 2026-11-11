@@ -9,6 +9,9 @@ public final class StockProjectionSession {
     public static final int WIFI_AP_STATE_ENABLED = 13;
 
     private static final long INSPECTION_TIMEOUT_MS = 5000L;
+    /** Waits before re-reading the OEM service after a failed read. Retries happen
+     * only while nothing has been sent to the OEM yet, so the single-request rule holds. */
+    public static final long[] READ_RETRY_DELAYS_MS = {5000L, 15000L, 30000L};
 
     public enum Phase {
         IDLE, INSPECTING, BOOTSTRAP_REQUESTED, WAITING_PROFILE, CONNECT_REQUESTED,
@@ -37,6 +40,14 @@ public final class StockProjectionSession {
     /** True only for a successful read that shows another owner active; failed reads never cancel a relay. */
     public static boolean foreignOwner(Observation observation) {
         return observation != null && observation.result == Result.INVOKED && observation.otherActive;
+    }
+
+    /** True when a successful read shows the user turned wireless or auto-connect off for
+     * this phone in the stock settings. No path may connect it on the user's behalf. */
+    public static boolean userDisabled(Observation observation) {
+        return observation != null && observation.result == Result.INVOKED &&
+                (observation.profileState == ProfileState.DISABLED ||
+                 observation.profileState == ProfileState.AUTO_CONNECT_DISABLED);
     }
 
     public static final class Observation {
@@ -117,6 +128,7 @@ public final class StockProjectionSession {
     private long wifiDeadline;
     private long requestDeadline;
     private long nextPoll;
+    private int readRetries;
 
     public StockProjectionSession(Port port) {
         if (port == null) throw new IllegalArgumentException("port");
@@ -129,9 +141,17 @@ public final class StockProjectionSession {
         generation++;
         candidate = address;
         resetAttempt();
+        readRetries = 0;
         phase = Phase.IDLE;
         nextPoll = now;
         port.event("candidate", "ready");
+        // Apple: do not start wireless when the cable is unplugged (the driver may be
+        // leaving). A phone that links while wired therefore waits for its next
+        // Bluetooth connection, the same as a phone that was linked before the cable.
+        if (wired) {
+            phase = Phase.CANCELLED;
+            port.event("cancel", "wired");
+        }
     }
 
     public synchronized void lost(String address, long now) {
@@ -139,6 +159,7 @@ public final class StockProjectionSession {
         generation++;
         candidate = null;
         resetAttempt();
+        readRetries = 0;
         phase = Phase.CANCELLED;
         nextPoll = now;
         port.event("cancel", "acl-lost");
@@ -188,7 +209,7 @@ public final class StockProjectionSession {
         }
         if (inspectionPending && now >= inspectionDeadline) {
             inspectionPending = false;
-            fail("timeout");
+            readFailed("timeout", now);
             return;
         }
         if (phase == Phase.BOOTSTRAP_REQUESTED || phase == Phase.WAITING_PROFILE) {
@@ -240,8 +261,8 @@ public final class StockProjectionSession {
             return;
         }
         if (observation == null || observation.result != Result.INVOKED || !observation.serviceAvailable) {
-            fail("unavailable");
             port.event("service", resultName(observation == null ? Result.INVOCATION : observation.result));
+            readFailed("unavailable", now);
             return;
         }
         credentials = observation.credentials;
@@ -403,6 +424,24 @@ public final class StockProjectionSession {
     }
     private void fail(String result) { phase = Phase.FAILED; port.event("result", result); }
 
+    /** A failed OEM read before anything was sent to the OEM (for example the service
+     * is not registered yet just after boot) is retried a few times with growing waits.
+     * The new generation makes a late answer from the failed read stale. */
+    private void readFailed(String result, long now) {
+        if (bootstrapIssued || connectIssued || observedConnecting ||
+                readRetries >= READ_RETRY_DELAYS_MS.length) {
+            fail(result);
+            return;
+        }
+        long delay = READ_RETRY_DELAYS_MS[readRetries++];
+        generation++;
+        resetAttempt();
+        phase = Phase.IDLE;
+        nextPoll = now + delay;
+        port.event("result", result);
+        port.event("progress", "retry-scheduled");
+    }
+
     public synchronized boolean current(long value) { return candidate != null && generation == value; }
     public synchronized boolean requestAllowed(long value, String address) {
         return current(value) && address != null && address.equals(candidate) && requestPending &&
@@ -454,7 +493,7 @@ public final class StockProjectionSession {
                 "profile-mismatch".equals(value) || "profile-disabled".equals(value) ||
                 "auto-connect-disabled".equals(value) || "cancelled".equals(value) ||
                 "wifi-credentials-unavailable".equals(value) || "oem-requested".equals(value) ||
-                "oem-action-sent".equals(value)) return value;
+                "oem-action-sent".equals(value) || "retry-scheduled".equals(value)) return value;
         return "other";
     }
 

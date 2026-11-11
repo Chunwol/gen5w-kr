@@ -488,12 +488,15 @@ public final class MainActivity extends Activity {
             String why = "runner-unavailable".equals(r.reason()) ? "복구 USB 준비가 필요합니다."
                     : "snapshot-invalid".equals(r.reason()) ? "복구 백업이 없거나 검증되지 않았습니다."
                     : "busy".equals(r.reason()) ? "다른 작업이 진행 중입니다. 중단된 작업이라면 재부팅 후 상태를 다시 확인하세요."
+                    : r.needsStockRecovery() ? "순정 복구가 끝나지 않았습니다. 이전 상태로 되돌리기는 쓸 수 없습니다."
                     : "rollback-failed".equals(r.reason()) || "interrupted".equals(r.reason()) ? "복구가 실패했거나 중단되었습니다. 원본과 진단을 보존하고 오류 상세를 확인하세요."
                     : "ready".equals(r.reason()) ? "실행 전에 백업과 복구 도구를 다시 검사합니다." : "원인 기록을 읽을 수 없습니다.";
             note(page,why);
         }
         final boolean ready = r.canRequest(model.canControl(SystemClock.elapsedRealtime()/1000)) && !recoveryPending();
-        if (!ready && "required".equals(r.state()) && !"busy".equals(r.reason()))
+        if ("required".equals(r.state()) && r.needsStockRecovery())
+            note(page,"순정 복구 USB(GEN5W-ACTION=stock-recover)를 다시 꽂아 순정 복구를 끝내세요. 복구 표식을 지우지 마세요.");
+        else if (!ready && "required".equals(r.state()) && !"busy".equals(r.reason()))
             note(page,"앱에서 복구할 수 없으면 새 복구 USB에서 recovery-prepare 후 rollback을 실행하세요. 복구 표식을 지우지 마세요.");
         if (!confirmRecovery) {
             buttonRow(page,"이전 상태로 복구","주차 후 실행하세요. 공장 초기화가 아닙니다.","복구...",ready,3,new View.OnClickListener(){
@@ -539,7 +542,9 @@ public final class MainActivity extends Activity {
                 && !removed.startsWith(removeToken + ":");
         if (askedNow || result.equals("working")) {
             box(page, "제거하는 중입니다", I18n.t("끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. {0}", parts.length > 2 && result.equals("working") ? I18n.t("지금: {0}", failedId) : ""), WARN);
-        } else if (result.equals("done") && removeToken != null && removed.startsWith(removeToken + ":")) {
+        } else if (result.equals("done") && ((removeToken != null && removed.startsWith(removeToken + ":"))
+                || model.bridgeVersion().length() == 0)) {
+            // The removal cold-boots the car, which forgets the token; an absent bridge still shows the last step.
             box(page, "거의 끝났습니다", "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다.", OK);
         } else {
             if (result.equals("failed") && removeToken != null && removed.startsWith(removeToken + ":")) {
@@ -551,7 +556,7 @@ public final class MainActivity extends Activity {
                             public void onClick(View v) { if (canRequest()) confirmRemove = true; render(); }
                         });
             } else {
-                box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다.", WARN);
+                box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다. 다 지우면 차가 한 번 재부팅됩니다.", WARN);
                 buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", canRequest(), 1, new View.OnClickListener() {
                     public void onClick(View v) {
                         if (!canRequest()) { render(); return; }

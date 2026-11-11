@@ -73,7 +73,8 @@ print('PASS killed background writer recovered while supervisor remains alive')
 
 with tempfile.TemporaryDirectory(prefix='gen5w-concurrent-') as folder:
     work = Path(folder)
-    for name in ('errors.sh', 'history.sh', 'NEMESIS.sh'):
+    # NEMESIS.sh reads the version policy from services.sh before anything else.
+    for name in ('errors.sh', 'history.sh', 'services.sh', 'NEMESIS.sh'):
         shutil.copy(root/'tools/integrated'/name, work/name)
     (work/'bin').mkdir()
     getprop = work/'bin/getprop'

@@ -121,8 +121,8 @@ public final class I18n {
             "Removes wireless, audio, notices, Bluelink and drive log, and restores the car settings. The app (CarPlay HUD) is removed last in NEMESIS Manager.");
         add("제거...", "Remove...");
         add("정말 제거할까요?", "Remove for real?");
-        add("제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다.",
-            "Do not switch off the car or pull the USB while removing. If a step fails, it stops there and nothing is force-removed.");
+        add("제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다. 다 지우면 차가 한 번 재부팅됩니다.",
+            "Do not switch off the car or pull the USB while removing. If a step fails, it stops there and nothing is force-removed. When everything is removed, the car restarts once.");
         add("제거 시작", "Start removal");
         add("되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "This cannot be undone. To use it again you must reinstall with the install kit.");
         add("취소", "Cancel");
@@ -162,7 +162,9 @@ public final class I18n {
         add("다른 작업이 진행 중입니다. 중단된 작업이라면 재부팅 후 상태를 다시 확인하세요.", "Another operation is running. If it was interrupted, reboot and check the status again.");
         add("실행 전에 백업과 복구 도구를 다시 검사합니다.", "Backups and recovery tools are checked again before execution.");
         add("원인 기록을 읽을 수 없습니다.", "The cause record cannot be read.");
-        add("앱에서 복구할 수 없으면 새 복구 USB에서 recovery-prepare 후 rollback을 실행하세요. 복구 표식을 지우지 마세요.", "If app recovery is unavailable, run recovery-prepare then rollback using the new recovery USB. Do not delete recovery markers.");
+        add("순정 복구가 끝나지 않았습니다. 이전 상태로 되돌리기는 쓸 수 없습니다.", "Stock recovery did not finish. Rolling back to the previous state is not available.");
+        add("순정 복구 USB(GEN5W-ACTION=stock-recover)를 다시 꽂아 순정 복구를 끝내세요. 복구 표식을 지우지 마세요.", "Insert the stock recovery USB (GEN5W-ACTION=stock-recover) again to finish stock recovery. Do not delete recovery markers.");
+        add("앱에서 복구할 수 없으면 새 복구 USB에서 recovery-prepare 후 rollback을 실행하세요. 복구 표식을 지우지 마세요.","If app recovery is unavailable, run recovery-prepare then rollback using the new recovery USB. Do not delete recovery markers.");
         add("이전 상태로 복구", "Restore previous state");
         add("주차 후 실행하세요. 공장 초기화가 아닙니다.", "Park before running. This is not a factory reset.");
         add("복구...", "Recover..."); add("복구 시작", "Start recovery");

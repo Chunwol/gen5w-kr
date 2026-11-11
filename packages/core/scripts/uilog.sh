@@ -39,6 +39,7 @@ PM=${UILOG_TEST_PM:-pm}
 SAVED=$NEMDIR/gen5wkr.ui-saved   # "<number> <result>" of the last diagnosis save
 NEM=${UILOG_TEST_NEM:-/system/xbin/nemesis}
 SH=${UILOG_TEST_SH:-/system/bin/sh}
+AM=${UILOG_TEST_AM:-/system/bin/am}
 APPS=$NEMDIR/apps
 REMOVED=$NEMDIR/gen5wkr.ui-removed    # "<number> <result> [package]" of the last in-car removal
 MAX_SOURCE_BYTES=131072   # a package log above this is not read at all
@@ -572,6 +573,39 @@ hook_path() {
     done < "$1"
     return 1
 }
+# Stop one package's own services (and the bridge's Android app) before its restore
+# hook runs: NEMESIS stops them only after the hook. Core is never removed here,
+# so this worker (a child of core's collector) is never stopped by it.
+stop_services() {
+    typeset tree=$1 id=$2 section= line name mark value
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        case "$line" in
+            '['*']') section=$line;;
+            name=*) case "$section" in '[service.'*']')
+                name=${line#name=}
+                case "$name" in ''|*/*|*..*|*[!a-zA-Z0-9_.-]*) return 1;; esac
+                "$NEM" service stop "$id/$name" >/dev/null 2>&1 || return 1
+                mark=$NEMDIR/pids/$id+$name.stopped
+                [ ! -L "$NEMDIR/pids" ] && [ ! -L "$mark" ] && [ -f "$mark" ] || return 1
+                IFS= read -r value < "$mark" || return 1
+                [ "$value" = 1 ] || return 1;;
+            esac;;
+        esac
+    done < "$tree/NEMESIS.data"
+    if [ "$id" = gen5w.kr.bridge ] && [ -x "$AM" ]; then
+        "$AM" force-stop kr.gen5w.wirelesshost >/dev/null 2>&1 || return 1
+    fi
+}
+# Same cold boot as the USB removal: the bridge removal puts stock system app
+# files (APK/ODEX) back, and the USB kit always cold-boots after that.
+cold_reboot() {
+    sync
+    if [ -n "${UILOG_TEST_REBOOT:-}" ]; then "$UILOG_TEST_REBOOT"; return; fi
+    [ -x /system/bin/d_audio ] && /system/bin/d_audio -c reboot force_normal >/dev/null 2>&1 && return 0
+    /system/bin/reboot force_normal >/dev/null 2>&1
+    /system/bin/reboot >/dev/null 2>&1
+}
 run_hook() {
     typeset tree=$1 helper path
     [ -d "$tree" ] && [ ! -L "$tree" ] && [ -f "$tree/NEMESIS.data" ] || return 1
@@ -610,10 +644,15 @@ do_remove() {
     [ ! -L "$lock" ] && ( set -C; : > "$lock" ) 2>/dev/null || return 0
     set_removed "$n" working
     if [ ! -x "$NEM" ]; then set_removed "$n" failed nemesis; rm -f "$lock"; return 0; fi
+    typeset removed_any=no
     for short in $REMOVE_IDS; do
         id=gen5w.kr.$short
         [ -d "$APPS/$id" ] || continue
         set_removed "$n" working "$id"
+        if [ ! -L "$APPS/$id" ] && [ -f "$APPS/$id/NEMESIS.data" ] && [ ! -L "$APPS/$id/NEMESIS.data" ]; then
+            stop_services "$APPS/$id" "$id" || { set_removed "$n" failed "$id"; rm -f "$lock"; return 0; }
+        fi
+        removed_any=yes
         if ! run_hook "$APPS/$id"; then set_removed "$n" failed "$id"; rm -f "$lock"; return 0; fi
         if ! "$NEM" uninstall "$id" >/dev/null 2>&1; then set_removed "$n" failed "$id"; rm -f "$lock"; return 0; fi
         [ ! -e "$APPS/$id" ] || set_removed "$n" failed "$id"
@@ -625,6 +664,8 @@ do_remove() {
     done
     set_removed "$n" done
     rm -f "$lock"
+    rm -f "$tx/lock/pid"; rmdir "$tx/lock" 2>/dev/null
+    [ "$removed_any" = no ] || cold_reboot
 }
 handle_remove() {
     typeset n=$1 last _r
@@ -689,7 +730,7 @@ recovery_status() {
             case "$line" in
                 recovery_request=*) token=${line#*=}; case "$token" in ''|*[!0-9]*) token=0;; esac; [ "${#token}" -le 10 ] || token=0;;
                 recovery_result=working|recovery_result=restored|recovery_result=failed|recovery_result=interrupted) result=${line#*=};;
-                recovery_reason=rollback-failed|recovery_reason=interrupted|recovery_reason=snapshot-invalid|recovery_reason=unsafe-path|recovery_reason=runner-unavailable)
+                recovery_reason=rollback-failed|recovery_reason=interrupted|recovery_reason=snapshot-invalid|recovery_reason=unsafe-path|recovery_reason=runner-unavailable|recovery_reason=stock-recovery-required)
                     [ "$state" = required ] && reason=${line#*=};;
             esac
         done < "$NEMDIR/gen5wkr.recovery-result"
@@ -697,6 +738,11 @@ recovery_status() {
     if [ "$result" = working ]; then
         if recovery_lock_live; then state=working; available=no
         else result=interrupted; reason=interrupted; fi
+    fi
+    # An interrupted stock recovery is finished only by the stock recovery USB;
+    # the snapshot rollback refuses it, so do not offer the button.
+    if [ "$state" = required ] && { [ -e "$tx/stock-recovery-mode" ] || [ -L "$tx/stock-recovery-mode" ]; }; then
+        available=no; reason=stock-recovery-required
     fi
     if [ "$state" = none ]; then token=0; result=none; reason=unknown; fi
     # Never print raw failure messages: they can contain paths or identifiers.

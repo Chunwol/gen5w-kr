@@ -49,10 +49,15 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     boolean relayEnabled;
     long relayCandidateGeneration = -1;
 
+    final StockApGuard apGuard;
+
     WirelessBridge(Context context) {
         this.context = context;
         this.main = new Handler(Looper.getMainLooper());
         this.relay = new V039RelayCoordinator(context, main, this);
+        java.io.File files = null;
+        try { files = context.getFilesDir(); } catch (RuntimeException ignored) {}
+        this.apGuard = new StockApGuard(files, StockApGuard.readBootId());
     }
 
     void run() {
@@ -68,9 +73,11 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         registerAction("android.hardware.usb.action.USB_STATE");
         registerAction("android.net.wifi.WIFI_AP_STATE_CHANGED");
         registerAction("com.hkmc.intent.action.SYSTEM_POWERON");
-        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_REQUESTED");
-        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_CONNECTED");
-        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED");
+        // Only the patched stock DiPO (android.uid.system) sends these. The system
+        // user passes every permission check; ordinary apps lack SHUTDOWN.
+        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_REQUESTED", RELAY_SENDER_PERMISSION);
+        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_CONNECTED", RELAY_SENDER_PERMISSION);
+        registerAction("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED", RELAY_SENDER_PERMISSION);
         IntentFilter stop = new IntentFilter("kr.gen5w.wireless.STOP_BRIDGE");
         stop.addAction(Intent.ACTION_SHUTDOWN);
         try {
@@ -92,9 +99,13 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         maintainRelay();
     }
 
-    void registerAction(String action) {
+    static final String RELAY_SENDER_PERMISSION = "android.permission.SHUTDOWN";
+
+    void registerAction(String action) { registerAction(action, null); }
+
+    void registerAction(String action, String senderPermission) {
         try {
-            context.registerReceiver(events, new IntentFilter(action), null, main);
+            context.registerReceiver(events, new IntentFilter(action), senderPermission, main);
             eventsRegistered = true;
         } catch (RuntimeException e) {
             // One protected/unsupported action must not restart the whole bridge.
@@ -109,6 +120,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
             scan();
             session.environment(cable, false, now());
             session.tick(now());
+            apGuard.observe(session.phase(), now());
             relay.tick();
             maintainRelay();
             main.postDelayed(this, 1000L);
@@ -318,10 +330,18 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         relayInspectPending = true;
         try {
             oemCalls.execute(new Runnable() { public void run() {
-                final StockProjectionSession.Observation state = PhoneProjectionAccess.inspect(
-                        new PhoneProjectionAccess.ServiceProvider() {
-                            public Object get(String name) { return context.getSystemService(name); }
-                        }, context, address);
+                StockProjectionSession.Observation read = null;
+                try {
+                    read = PhoneProjectionAccess.inspect(
+                            new PhoneProjectionAccess.ServiceProvider() {
+                                public Object get(String name) { return context.getSystemService(name); }
+                            }, context, address);
+                } catch (Throwable e) {
+                    // Any failure still reaches the main thread below, which clears the
+                    // pending flag; a null read never starts or cancels a relay.
+                    log("path=relay event=inspect result=error");
+                }
+                final StockProjectionSession.Observation state = read;
                 main.post(new Runnable() { public void run() {
                     relayInspectPending = false;
                     if (shuttingDown || !session.current(candidateGeneration) ||
@@ -331,6 +351,12 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                     if (cable) return;
                     if (StockProjectionSession.foreignOwner(state)) {
                         relay.cancel(BtRelaySession.CancelReason.FOREIGN_OWNER);
+                        return;
+                    }
+                    // The stock settings say this phone must not connect wirelessly
+                    // (or not automatically): never start, and stop a running attempt.
+                    if (StockProjectionSession.userDisabled(state)) {
+                        if (relay.active()) relay.cancel(BtRelaySession.CancelReason.REQUESTED);
                         return;
                     }
                     if (state != null && state.active && state.profileType == PhoneProjectionAccess.TYPE_CARPLAY)
@@ -476,6 +502,8 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     }
 
     private void sendOemAction(String action, String packageName, String extra, String value) {
+        // Either action can lead the OEM stack to start the AP; record it first.
+        apGuard.begin();
         Intent intent = new Intent(action);
         intent.setPackage(packageName);
         intent.putExtra(extra, value);
@@ -584,6 +612,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         if ("wifi-interface-unknown".equals(result)) return 43;
         if ("wifi-interface-missing".equals(result)) return 44;
         if ("wifi-interface-present".equals(result)) return 45;
+        if ("retry-scheduled".equals(result)) return 46;
         return 0;
     }
 

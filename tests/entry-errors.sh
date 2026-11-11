@@ -5,7 +5,7 @@ root=$PWD
 work=$(mktemp -d /tmp/gen5w-entry-errors.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/usb" "$work/bin"
-cp tools/integrated/{NEMESIS.sh,errors.sh,history.sh} "$work/usb/"
+cp tools/integrated/{NEMESIS.sh,errors.sh,history.sh,services.sh} "$work/usb/"
 echo abcdef01 > "$work/usb/BUILD-REVISION"
 cat > "$work/bin/getprop" <<'EOF'
 #!/bin/sh

@@ -22,4 +22,6 @@ OEM wireless projection interface diagnostics use session event `1`, Wi-Fi categ
 | 44 | `wifi-interface-missing` | Configured interface has no actual network device |
 | 45 | `wifi-interface-present` | Configured interface exists as a network device |
 
+Progress category `a=5` with `b=46` (`retry-scheduled`) means a stock service read failed or timed out before anything was sent to the OEM, and the bridge will read again after 5, 15, then 30 seconds. After the third retry the attempt ends as failed until Bluetooth reconnects.
+
 The OEM may create the interface during AP startup, so `missing` does not block bootstrap. `present` does not establish AP readiness or projection success.

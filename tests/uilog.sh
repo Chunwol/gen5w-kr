@@ -79,7 +79,19 @@ echo 99999999 > "$W/data/nemesis/gen5w-kr-integrated/lock/pid"
 printf 'recovery_request=123\nrecovery_result=working\nrecovery_reason=ready\n' > "$W/data/nemesis/gen5wkr.recovery-result"
 run
 check 'dead recovery worker is interrupted not permanently working' test "$(status recovery_result)" = interrupted
-rm -rf "$W/data/nemesis/gen5w-kr-integrated" "$W/request"
+rm -rf "$W/data/nemesis/gen5w-kr-integrated/lock" "$W/data/nemesis/gen5wkr.recovery-result"
+mkdir -p "$W/data/nemesis/gen5wkr.recovery/current" "$W/data/nemesis/gen5w-kr-integrated/prior"
+: > "$W/data/nemesis/gen5wkr.recovery/current/recovery.sh"
+: > "$W/data/nemesis/gen5w-kr-integrated/prior/complete"; : > "$W/data/nemesis/gen5w-kr-integrated/prior/RECOVERY.md5"
+run
+check 'interrupted install with runner and snapshot offers in-app recovery' test "$(status recovery_available)" = yes
+echo stock-recover > "$W/data/nemesis/gen5w-kr-integrated/stock-recovery-mode"
+run
+check 'interrupted stock recovery does not offer snapshot rollback' eval '[ "$(status recovery_available)" = no ] && [ "$(status recovery_reason)" = stock-recovery-required ]'
+printf 'recovery_request=124\nrecovery_result=failed\nrecovery_reason=stock-recovery-required\n' > "$W/data/nemesis/gen5wkr.recovery-result"
+run
+check 'stock recovery reason from the worker is shown' test "$(status recovery_reason)" = stock-recovery-required
+rm -rf "$W/data/nemesis/gen5w-kr-integrated" "$W/data/nemesis/gen5wkr.recovery" "$W/data/nemesis/gen5wkr.recovery-result" "$W/request"
 reset
 mklog gen5w.kr.bridge bridge.log <<'EOF'
 WAIT bridge: wireless is not in match mode (ap-match is not 'match')
@@ -297,22 +309,31 @@ check 'a prepared link at the temp name is not written through' eval '[ "$(cat "
 rm -rf "$W/usb/gen5w-kr-diag" "$W/victim2"
 
 # In-car removal: each package's own hook first, then NEMESIS; the first failure stops; core stays.
-mkpkg() { # id [hookrc]
+mkpkg() { # id [hookrc] [service]
     mkdir -p "$W/data/nemesis/apps/$1/scripts"
     printf '[nemesis]\nid=%s\npreuninstall=scripts/preun.sh\n' "$1" > "$W/data/nemesis/apps/$1/NEMESIS.data"
+    [ -z "${3:-}" ] || printf '[service.0]\nname=%s\nkind=sh\n' "$3" >> "$W/data/nemesis/apps/$1/NEMESIS.data"
     printf '#!/system/bin/sh\necho "hook %s" >> "%s/rmcalls"\nexit %s\n' "$1" "$W" "${2:-0}" > "$W/data/nemesis/apps/$1/scripts/preun.sh"
 }
 cat > "$W/nemesis" <<FAKE
 #!/bin/sh
 echo "\$*" >> "$W/rmcalls"
+if [ "\$1 \$2" = "service stop" ]; then
+    [ "\$3" != "\$(cat "$W/failstop" 2>/dev/null)" ] || exit 4
+    mkdir -p "$W/data/nemesis/pids"; echo 1 > "$W/data/nemesis/pids/\$(echo "\$3" | tr / +).stopped"; exit 0
+fi
 [ "\$1" = uninstall ] || exit 0
 [ -n "$W/failuninstall" ] && [ "\$2" = "\$(cat "$W/failuninstall" 2>/dev/null)" ] && exit 5
 rm -rf "$W/data/nemesis/apps/\$2"
 FAKE
 chmod +x "$W/nemesis"
-rmrun() { UILOG_TEST_NEM=$W/nemesis UILOG_TEST_SH=/bin/sh runs; }
-reset; rm -f "$W/rmcalls" "$W/failuninstall"
-for id in localhotspot drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done
+printf '#!/bin/sh\necho "am $*" >> "%s/rmcalls"\n' "$W" > "$W/am"
+printf '#!/bin/sh\necho reboot >> "%s/rmcalls"\n' "$W" > "$W/reboot"
+chmod +x "$W/am" "$W/reboot"
+rmrun() { UILOG_TEST_NEM=$W/nemesis UILOG_TEST_SH=/bin/sh UILOG_TEST_AM=$W/am UILOG_TEST_REBOOT=$W/reboot runs; }
+reset; rm -f "$W/rmcalls" "$W/failuninstall" "$W/failstop"
+for id in localhotspot drivelog bluelink timer audio wireless core; do mkpkg gen5w.kr.$id; done
+mkpkg gen5w.kr.bridge 0 bridge
 touch "$N/gen5wkr.wireless-disabled" "$N/gen5wkr.ui-timer-off"
 printf 'remove=555\n' > "$W/request"; rmrun
 check 'every package except core is uninstalled' eval '[ ! -d "$N/apps/gen5w.kr.bridge" ] && [ ! -d "$N/apps/gen5w.kr.drivelog" ] && [ ! -d "$N/apps/gen5w.kr.wireless" ]'
@@ -323,8 +344,26 @@ check 'the hook runs before the uninstall of the same package' eval 'h=$(grep -n
 check 'order follows the USB removal order (bridge before audio before wireless)' eval 'b=$(grep -n "^uninstall gen5w.kr.bridge" "$W/rmcalls" | cut -d: -f1); a=$(grep -n "^uninstall gen5w.kr.audio" "$W/rmcalls" | cut -d: -f1); w=$(grep -n "^uninstall gen5w.kr.wireless" "$W/rmcalls" | cut -d: -f1); [ "$b" -lt "$a" ] && [ "$a" -lt "$w" ]'
 check 'markers of removed packages are cleared' eval '[ ! -e "$N/gen5wkr.wireless-disabled" ] && [ ! -e "$N/gen5wkr.ui-timer-off" ]'
 check 'status reports the removal as done' test "$(status removed)" = 555:done
+line_of() { grep -n -x -- "$1" "$W/rmcalls" | head -1 | cut -d: -f1; }
+check 'a package service is stopped before its restore hook' eval 's=$(line_of "service stop gen5w.kr.bridge/bridge"); h=$(line_of "hook gen5w.kr.bridge"); [ -n "$s" ] && [ -n "$h" ] && [ "$s" -lt "$h" ]'
+check 'the bridge app is force-stopped before its restore hook' eval 'a=$(line_of "am force-stop kr.gen5w.wirelesshost"); h=$(line_of "hook gen5w.kr.bridge"); [ -n "$a" ] && [ -n "$h" ] && [ "$a" -lt "$h" ]'
+check 'core services are never stopped by the removal' eval '! grep -q "service stop gen5w.kr.core" "$W/rmcalls"'
+check 'a completed removal cold-boots once, after the last uninstall' eval '[ "$(grep -c -x reboot "$W/rmcalls")" = 1 ] && [ "$(tail -n 1 "$W/rmcalls")" = reboot ]'
+check 'a completed removal releases the transaction lock' test ! -e "$N/gen5w-kr-integrated/lock"
 rm -f "$W/rmcalls"; rmrun
 check 'the same removal number does not run again' test ! -e "$W/rmcalls"
+# A service that cannot be stopped stops the removal before that package's hook.
+reset; rm -f "$W/rmcalls"; echo gen5w.kr.bridge/bridge > "$W/failstop"
+for id in drivelog bluelink timer audio wireless core; do mkpkg gen5w.kr.$id; done
+mkpkg gen5w.kr.bridge 0 bridge
+printf 'remove=562\n' > "$W/request"; rmrun
+check 'a service that does not stop stops the removal at that package' eval '[ "$(status removed)" = 562:failed:gen5w.kr.bridge ] && [ -d "$N/apps/gen5w.kr.bridge" ] && ! grep -qx "hook gen5w.kr.bridge" "$W/rmcalls"'
+check 'a stopped removal does not reboot' eval '! grep -qx reboot "$W/rmcalls"'
+rm -f "$W/failstop"
+# Nothing installed: nothing changed, so no reboot.
+reset; rm -f "$W/rmcalls"; rm -rf "$N/apps"/gen5w.kr.*; mkpkg gen5w.kr.core
+printf 'remove=563\n' > "$W/request"; rmrun
+check 'a removal with nothing to remove does not reboot' eval '[ "$(status removed)" = 563:done ] && ! grep -qx reboot "$W/rmcalls" 2>/dev/null'
 # A failing hook stops the whole removal before anything is uninstalled for that package.
 reset; rm -f "$W/rmcalls" "$W/failuninstall"
 for id in drivelog bluelink timer bridge audio wireless core; do mkpkg gen5w.kr.$id; done

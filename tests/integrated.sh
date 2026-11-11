@@ -315,8 +315,12 @@ check 'legacy declared restore hook called' test -f "$W/data/legacy-restored"
 check 'legacy registration removed' test ! -d "$W/data/nemesis/apps/wireless.carplay.aa"
 check 'legacy rollback restored package' run rollback
 check 'legacy prior registration restored' test -f "$W/data/nemesis/apps/wireless.carplay.aa/NEMESIS.data"
+calls_before=$(wc -l < "$W/data/calls")
 check 'remove all modules' run remove
 check 'no module trees after remove' test "$(find "$W/data/nemesis/apps" -name NEMESIS.data | wc -l)" = 0
+# Owned services are stopped and proven stopped before the first restore hook runs.
+check 'remove inventories owned services before the first package changes' eval 'tail -n +"$((calls_before + 1))" "$W/data/calls" > "$W/rmcalls"; l=$(grep -n "^service list" "$W/rmcalls" | head -1 | cut -d: -f1); u=$(grep -n "^uninstall " "$W/rmcalls" | head -1 | cut -d: -f1); [ -n "$l" ] && [ -n "$u" ] && [ "$l" -lt "$u" ]'
+check 'remove releases the install hold when done' test ! -e "$W/data/nemesis/gen5wkr.install-hold"
 # A reset removes registrations; the bundle's declared recovery hook restores owned system state.
 mkdir -p "$W/sys/etc/gen5w-kr-backup/wireless"
 echo 'preuninstall=scripts/preun.sh' >> "$W/usb/checks/gen5w.kr.wireless/NEMESIS.data"

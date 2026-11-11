@@ -46,9 +46,11 @@ STOPPING=$DATA/nemesis/gen5wkr.bridge.stopping
 APG=$DATA/nemesis/gen5wkr.apguard
 APG_COUNT=$DATA/nemesis/gen5wkr.apguard.count
 APG_OFF=$DATA/nemesis/gen5wkr.apguard.off
+# Stock-path records written by the host app itself (StockApGuard).
+HOST_APG=${BRIDGE_TEST_HOST_FILES:-$DATA/data/kr.gen5w.wirelesshost/files}
 apguard_reset() {
-    for _p in "$APG" "$APG_COUNT" "$APG_OFF"; do [ ! -L "$_p" ] || return 1; done
-    rm -f "$APG_COUNT" "$APG_OFF" || return 1
+    for _p in "$APG" "$APG_COUNT" "$APG_OFF" "$HOST_APG/ap-attempt" "$HOST_APG/ap-ok"; do [ ! -L "$_p" ] || return 1; done
+    rm -f "$APG_COUNT" "$APG_OFF" "$HOST_APG/ap-attempt" "$HOST_APG/ap-ok" || return 1
     [ ! -d "$APG" ] || rm -rf "$APG" || return 1
     [ ! -e "$APG" ] && [ ! -e "$APG_COUNT" ] && [ ! -e "$APG_OFF" ]
 }

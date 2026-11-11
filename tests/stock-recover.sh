@@ -134,13 +134,22 @@ ln -s "$W/foreign-cache" "$W/data/nemesis/gen5wkr.recovery/previous"
 python3 - "$W/usb" <<'PY'
 import hashlib,pathlib,sys
 root=pathlib.Path(sys.argv[1])
-entries=[p for p in sorted(root.rglob('*')) if p.is_file() and p.name not in ('RECOVERY.md5','RECOVERY.receipt') and not p.parts[len(root.parts):][0]=='GEN5W-REPORT']
+entries=[p for p in sorted(root.rglob('*')) if p.is_file() and p.name not in ('RECOVERY.md5','RECOVERY.receipt','GEN5W-ACTION') and not p.parts[len(root.parts):][0]=='GEN5W-REPORT']
 manifest=''.join(hashlib.md5(p.read_bytes()).hexdigest()+'  '+p.relative_to(root).as_posix()+'\n' for p in entries)
 (root/'RECOVERY.md5').write_text(manifest)
 (root/'RECOVERY.receipt').write_text(hashlib.md5(manifest.encode()).hexdigest()+'\n')
 PY
 echo recovery-required > "$TX/state"
 check 'verified USB stock restore is independent of unused linked runner cache' recover
+export IT_NEM_VERSION=1.16.8
+check 'future numeric runtime supports explicit stock recovery' recover
+export IT_NEM_VERSION=unknown
+echo I_ACCEPT_UNKNOWN_NEMESIS_VERSION > "$W/usb/GEN5W-ALLOW-UNKNOWN-NEMESIS"
+echo recovery-required > "$TX/state"
+echo install > "$W/usb/GEN5W-ACTION"
+check 'acknowledged unknown runtime routes pending installation through stock recovery' eval 'run && grep -q "action=stock-recover" "$W/usb/GEN5W-REPORT/STARTUP.txt" && grep -q "STOCK RECOVERY COMPLETE" "$W/usb/GEN5W-REPORT/EXEC_LOG.txt"'
+rm "$W/usb/GEN5W-ALLOW-UNKNOWN-NEMESIS"
+unset IT_NEM_VERSION
 check 'USB stock restore never touches unused runner cache or its link target' eval 'test -L "$W/data/nemesis/gen5wkr.recovery/previous" && grep -qx preserve-cache-evidence "$W/foreign-cache/sentinel"'
 # Mutating the USB hook after manifest creation must still refuse before restore.
 echo '# corruption' >> "$W/usb/history.sh"

@@ -81,12 +81,43 @@ q_worker_process() {
     done
     return 1
 }
-q_version() {
-    local v
-    v=$("$NEM" version 2>/dev/null) || return 1
-    case "$v" in 1.16.4|1.16.5|1.16.6|1.16.7) return 0;; esac
-    q_fail 'NEMESIS 1.16.4-1.16.7 required; recover first, then update NEMESIS separately'
+# Return 0: at least the threshold, 1: known older, 2: unreadable.
+# Bounded decimal fields prevent shell arithmetic overflow and octal parsing.
+q_at_least() {
+    local v=$1 patch=$2 major minor part
+    case "$v" in ''|*[!0-9.]*|.*|*.|*..*) return 2;; esac
+    major=${v%%.*}; [ "$major" != "$v" ] || return 2
+    v=${v#*.}; minor=${v%%.*}
+    if [ "$minor" = "$v" ]; then v=0; else v=${v#*.}; fi
+    for part in "$major" "$minor" "$v"; do
+        case "$part" in ''|*[!0-9]*|0?*) return 2;; esac
+        [ "${#part}" -le 6 ] || return 2
+    done
+    [ "$major" -gt 1 ] && return 0
+    [ "$major" -eq 1 ] || return 1
+    [ "$minor" -gt 16 ] && return 0
+    [ "$minor" -eq 16 ] || return 1
+    [ "$v" -ge "$patch" ]
 }
+q_unknown_version() {
+    report 'WARNING NEMESIS version unreadable; compatibility is not verified'
+    local file=GEN5W-ALLOW-UNKNOWN-NEMESIS line extra
+    [ -f "$file" ] && [ ! -L "$file" ] || {
+        q_fail 'confirm unknown-version risk using GEN5W-ALLOW-UNKNOWN-NEMESIS; see installation guide'; return 1;
+    }
+    { IFS= read -r line && ! IFS= read -r extra && [ -z "$extra" ]; } < "$file" || return 1
+    [ "$line" = I_ACCEPT_UNKNOWN_NEMESIS_VERSION ] || return 1
+    report 'WARNING proceeding with explicit unknown-version acknowledgement; all other checks remain required'
+}
+q_version_gate() {
+    local v rc=2
+    if v=$("$NEM" version 2>/dev/null); then q_at_least "$v" "$1"; rc=$?; fi
+    case "$rc" in 0) return 0;; 2) q_unknown_version; return $?;; esac
+    q_fail "NEMESIS 1.16.$1 or newer required; recover first, then update NEMESIS separately"
+}
+q_install_version() { q_version_gate 7; }
+# Recovery/removal retain the earlier service contract, not the install floor.
+q_version() { q_version_gate 4; }
 q_legacy_version() {
     local v
     v=$("$NEM" version 2>/dev/null) || return 1

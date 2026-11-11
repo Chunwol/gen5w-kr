@@ -5,9 +5,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 stubs = {
-'android/content/Context.java': 'package android.content; public abstract class Context { public static final String USB_SERVICE="usb"; public abstract Object getSystemService(String n); public Object registerReceiver(BroadcastReceiver r,IntentFilter f,String p,android.os.Handler h){return null;} public void unregisterReceiver(BroadcastReceiver r){} public void sendBroadcast(Intent i){} }',
+'android/content/Context.java': 'package android.content; public abstract class Context { public static final String USB_SERVICE="usb"; public abstract Object getSystemService(String n); public java.util.Map<String,String> receiverPermissions=new java.util.HashMap<String,String>(); public Object registerReceiver(BroadcastReceiver r,IntentFilter f,String p,android.os.Handler h){if(f!=null&&f.action!=null)receiverPermissions.put(f.action,p==null?"":p);return null;} public void unregisterReceiver(BroadcastReceiver r){} public void sendBroadcast(Intent i){} public java.io.File getFilesDir(){return null;} }',
 'android/content/BroadcastReceiver.java': 'package android.content; public abstract class BroadcastReceiver { public abstract void onReceive(Context c,Intent i); }',
-'android/content/IntentFilter.java': 'package android.content; public class IntentFilter { public IntentFilter(String a){} public void addAction(String a){} }',
+'android/content/IntentFilter.java': 'package android.content; public class IntentFilter { public String action; public IntentFilter(String a){action=a;} public void addAction(String a){} }',
 'android/content/Intent.java': 'package android.content; public class Intent { public static final String ACTION_SHUTDOWN="shutdown"; public String action,pkg; public java.util.Map<String,String> extras=new java.util.HashMap<String,String>(); public Intent(String a){action=a;} public String getAction(){return action;} public Intent setPackage(String p){pkg=p;return this;} public Intent putExtra(String k,String v){extras.put(k,v);return this;} public int getIntExtra(String k,int d){return d;} public Object getParcelableExtra(String k){return null;} }',
 'android/app/Service.java': 'package android.app; public abstract class Service extends android.content.Context { public void stopSelf(){} }',
 'android/os/Handler.java': 'package android.os; public class Handler { public Handler(Looper l){} public void post(Runnable r){r.run();} public void postDelayed(Runnable r,long t){} public void removeCallbacks(Runnable r){} }',
@@ -53,7 +53,7 @@ public class WirelessBridgeIntegrationTest {
         public boolean getWLDOnOff(){return true;} public boolean getWLDAutoConnection(){return true;}
     }
     public static class Manager {
-        TestContext context; int reads,calls; boolean saved,foreignAfterInspection,unavailableAfterInspection,idle;
+        TestContext context; int reads,calls; boolean saved,foreignAfterInspection,unavailableAfterInspection,idle,off,noAuto; volatile boolean crash;
         volatile CountDownLatch inspectionEntered,inspectionRelease;
         public Object getWLDeviceInfo(String a,String b,int c){return saved?new Info():null;}
         public String getCPConnectedBTAddress(){outside(); return idle||reads==0?"":"other";}
@@ -69,8 +69,8 @@ public class WirelessBridgeIntegrationTest {
                 bridge.oemCalls.shutdownNow();f.set(bridge,new TrackedPool());
             }catch(Exception e){throw new AssertionError(e);}
         }
-        public Object getSystemService(String n){if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");return "phoneprojection".equals(n)?manager:null;}
-        public PhoneProjectionAccess.Profile find(String a){return manager.saved?new PhoneProjectionAccess.Profile(a,1,true,true):null;}
+        public Object getSystemService(String n){if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");if(manager.crash&&"phoneprojection".equals(n))throw new ExceptionInInitializerError();return "phoneprojection".equals(n)?manager:null;}
+        public PhoneProjectionAccess.Profile find(String a){return manager.saved?new PhoneProjectionAccess.Profile(a,1,!manager.off,!manager.noAuto):null;}
         public void sendBroadcast(android.content.Intent i){check(!Thread.holdsLock(bridge.session),"broadcast outside monitor"); broadcasts++; check("com.daudio.app.phoneprojection".equals(i.pkg)&&i.extras.size()==1,"scoped single extra action"); if(foreignAfterBroadcast)manager.foreignAfterInspection=true; if(unavailableAfterBroadcast)manager.unavailableAfterInspection=true;}
     }
     static void settle(TestContext c) throws Exception {
@@ -169,7 +169,51 @@ public class WirelessBridgeIntegrationTest {
        check(c.bridge.relay.losses==losses+1&&!c.bridge.relay.running,"scan replacement cancels old relay even without ACL disconnect broadcast");
       }finally{c.bridge.shutdown();}
     }
-    public static void main(String[] args)throws Exception{ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();System.out.println("PASS production WirelessBridge ownership integration");}
+
+    static void stockOffSettingBlocksAndStopsRelay()throws Exception{
+      java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);
+      for(int mode=0;mode<2;mode++){
+       TestContext c=new TestContext();try{
+        c.manager.saved=true;c.manager.idle=true;if(mode==0)c.manager.off=true;else c.manager.noAuto=true;
+        c.bridge.enableRelay();c.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+        c.bridge.session.candidate("phone",0);c.bridge.session.tick(0);settle(c);
+        check(c.bridge.session.phase()==StockProjectionSession.Phase.BLOCKED,"stock path stops for the user setting "+mode);
+        maintain.invoke(c.bridge);settle(c);maintain.invoke(c.bridge);settle(c);
+        check(c.bridge.relay.starts==0,"stock off setting blocks relay start "+mode);
+        c.bridge.relay.running=true;int cancels=c.bridge.relay.cancels;
+        maintain.invoke(c.bridge);settle(c);
+        check(c.bridge.relay.cancels==cancels+1,"stock off setting stops a running relay "+mode);
+       }finally{c.bridge.shutdown();}
+      }
+      TestContext on=new TestContext();try{
+        on.manager.saved=true;on.manager.idle=true;on.bridge.enableRelay();on.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+        on.bridge.session.candidate("phone",0);on.bridge.session.tick(0);
+        on.bridge.session.inspected(on.bridge.session.generation(),new StockProjectionSession.Observation(StockProjectionSession.Result.INVOKED,true,1,StockProjectionSession.ProfileState.UNKNOWN,false,false,true,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
+        settle(on);maintain.invoke(on.bridge);settle(on);
+        check(on.bridge.relay.starts==1,"enabled profile still admits the relay");
+      }finally{on.bridge.shutdown();}
+    }
+    static void failedRelayReadNeverSticks()throws Exception{
+      java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);
+      TestContext c=new TestContext();try{
+        c.manager.saved=true;c.manager.idle=true;c.bridge.enableRelay();c.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+        c.bridge.session.candidate("phone",0);c.bridge.session.tick(0);
+        c.bridge.session.inspected(c.bridge.session.generation(),new StockProjectionSession.Observation(StockProjectionSession.Result.INVOKED,true,1,StockProjectionSession.ProfileState.UNKNOWN,false,false,true,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
+        settle(c);c.manager.crash=true;maintain.invoke(c.bridge);settle(c);
+        check(!c.bridge.relayInspectPending&&c.bridge.relay.starts==0,"an Error in the relay read clears the pending flag");
+        c.manager.crash=false;maintain.invoke(c.bridge);settle(c);
+        check(c.bridge.relay.starts==1,"the next read can start the relay");
+      }finally{c.bridge.shutdown();}
+    }
+    static void relayNoticesRequireSystemSender()throws Exception{
+      TestContext c=new TestContext();try{
+        c.bridge.run();
+        for(String a:new String[]{"REQUESTED","CONNECTED","DISCONNECTED"})
+          check("android.permission.SHUTDOWN".equals(c.receiverPermissions.get("kr.gen5w.wireless.RELAY_HANDOVER_"+a)),"relay notice "+a+" requires a system sender");
+        check("".equals(c.receiverPermissions.get("connected")),"system Bluetooth broadcasts stay open");
+      }finally{c.bridge.shutdown();}
+    }
+    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:
@@ -178,6 +222,6 @@ with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:
         p=base/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text,encoding='utf-8')
     test=base/'kr/gen5w/wireless/WirelessBridgeIntegrationTest.java';test.write_text(harness,encoding='utf-8')
     prod=root/'packages/wireless-bridge/src/kr/gen5w/wireless'
-    sources=[str(p) for p in base.rglob('*.java')]+[str(prod/name) for name in ['WirelessBridge.java','StockProjectionSession.java','PhoneProjectionAccess.java','ProjectionWifiAccess.java','BluetoothCandidateScan.java','BtRelaySession.java','SdpRefresh.java']]
+    sources=[str(p) for p in base.rglob('*.java')]+[str(prod/name) for name in ['WirelessBridge.java','StockProjectionSession.java','PhoneProjectionAccess.java','ProjectionWifiAccess.java','BluetoothCandidateScan.java','BtRelaySession.java','SdpRefresh.java','StockApGuard.java']]
     subprocess.run(['javac','--release','8','-d',tmp]+sources,check=True)
     subprocess.run(['java','-cp',tmp,'kr.gen5w.wireless.WirelessBridgeIntegrationTest'],check=True)

@@ -538,7 +538,94 @@ public final class StockProjectionSessionTest {
         check(!StockProjectionSession.foreignOwner(null), "missing read does not cancel an active relay");
     }
 
+    /** A failed read before any OEM action is retried three times, then fails. */
+    static void failedReadBeforeOemActionRetriesThenFails() {
+        Attempt a = new Attempt();
+        a.session.candidate("phone", 0);
+        a.session.tick(0);
+        long now = 0;
+        for (int i = 0; i < StockProjectionSession.READ_RETRY_DELAYS_MS.length; i++) {
+            long stale = a.port.generation;
+            a.session.inspected(stale, new StockProjectionSession.Observation(
+                    StockProjectionSession.Result.SERVICE_UNAVAILABLE, false, 0,
+                    StockProjectionSession.ProfileState.UNKNOWN, false, false, false,
+                    StockProjectionSession.WifiCredentialState.UNKNOWN, 0), now);
+            check(a.session.phase() == StockProjectionSession.Phase.IDLE &&
+                    "retry-scheduled".equals(a.port.lastEvent), "failed read schedules retry " + i);
+            int before = a.port.inspections;
+            a.session.tick(now + StockProjectionSession.READ_RETRY_DELAYS_MS[i] - 1);
+            check(a.port.inspections == before, "retry waits its delay " + i);
+            now += StockProjectionSession.READ_RETRY_DELAYS_MS[i];
+            a.session.tick(now);
+            check(a.port.inspections == before + 1 && a.port.generation != stale, "retry reads again in a new generation " + i);
+        }
+        // A late answer from the first, abandoned read is stale.
+        a.session.inspected(1, null, now);
+        check(a.session.phase() == StockProjectionSession.Phase.INSPECTING, "stale answer ignored");
+        // The fourth failure (here a timeout) ends the attempt.
+        a.session.tick(now + 5000);
+        check(a.session.phase() == StockProjectionSession.Phase.FAILED &&
+                "timeout".equals(a.port.lastEvent) && a.port.requests == 0, "retries are limited");
+        // A new Bluetooth connection starts with fresh retries.
+        a.session.lost("phone", now + 6000);
+        a.session.candidate("phone", now + 6000);
+        a.session.tick(now + 6000);
+        a.session.inspected(a.port.generation, null, now + 6000);
+        check(a.session.phase() == StockProjectionSession.Phase.IDLE, "retry budget resets on reconnect");
+    }
+
+    /** After the OEM was asked to bootstrap, a failed read does not retry (one request per connection). */
+    static void failedReadAfterOemActionDoesNotRetry() {
+        Attempt a = new Attempt();
+        a.missingProfile();
+        a.finishBootstrap();
+        a.session.tick(1 + StockProjectionSession.POLL_INTERVAL_MS + 1);
+        a.session.inspected(a.port.generation, null, 1 + StockProjectionSession.POLL_INTERVAL_MS + 2);
+        check(a.session.phase() == StockProjectionSession.Phase.FAILED && a.port.bootstraps == 1,
+                "failure after OEM bootstrap stays final");
+    }
+
+    static void userDisabledIsRecognisedOnlyFromAValidObservation() {
+        for (StockProjectionSession.ProfileState s : StockProjectionSession.ProfileState.values()) {
+            StockProjectionSession.Observation ok = new StockProjectionSession.Observation(
+                    StockProjectionSession.Result.INVOKED, true, 1, s, false, false, false,
+                    StockProjectionSession.WifiCredentialState.UNKNOWN, 0);
+            boolean expected = s == StockProjectionSession.ProfileState.DISABLED ||
+                    s == StockProjectionSession.ProfileState.AUTO_CONNECT_DISABLED;
+            check(StockProjectionSession.userDisabled(ok) == expected, "user setting " + s);
+        }
+        check(!StockProjectionSession.userDisabled(null), "missing read is not a user setting");
+        check(!StockProjectionSession.userDisabled(new StockProjectionSession.Observation(
+                StockProjectionSession.Result.INVOCATION, true, 1, StockProjectionSession.ProfileState.DISABLED,
+                false, false, false, StockProjectionSession.WifiCredentialState.UNKNOWN, 0)),
+                "failed read is not a user setting");
+    }
+
+    /** Unplugging never starts wireless for the same Bluetooth link, whichever came first. */
+    static void unplugNeverStartsWirelessInEitherOrder() {
+        for (boolean cableFirst : new boolean[]{false, true}) {
+            FakePort port = new FakePort();
+            StockProjectionSession s = new StockProjectionSession(port);
+            long now = 0;
+            if (cableFirst) { s.environment(true, false, now); s.candidate("phone", ++now); }
+            else { s.candidate("phone", now); s.environment(true, false, ++now); }
+            for (int i = 0; i < 5; i++) { now += 1000; s.environment(true, false, now); s.tick(now); }
+            for (int i = 0; i < 120; i++) { now += 1000; s.environment(false, false, now); s.tick(now); }
+            check(port.inspections == 0 && port.requests == 0 &&
+                    s.phase() == StockProjectionSession.Phase.CANCELLED,
+                    "unplug starts nothing, cableFirst=" + cableFirst);
+            s.lost("phone", now);
+            s.candidate("phone", ++now);
+            s.tick(now);
+            check(port.inspections == 1, "next Bluetooth connection starts wireless, cableFirst=" + cableFirst);
+        }
+    }
+
     public static void main(String[] args) {
+        unplugNeverStartsWirelessInEitherOrder();
+        failedReadBeforeOemActionRetriesThenFails();
+        failedReadAfterOemActionDoesNotRetry();
+        userDisabledIsRecognisedOnlyFromAValidObservation();
         foreignOwnerIsRecognisedOnlyFromAValidObservation();
         delayedBootstrapCannotPollOrOverlap();
         connectAdmissionIsConsumedOnce();

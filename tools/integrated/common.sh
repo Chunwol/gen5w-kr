@@ -588,6 +588,7 @@ step_name() {
     esac
 }
 install_transaction() {
+    q_install_version || return 1
     if [ -e "$TX/stock-recovered-boot" ] || [ -L "$TX/stock-recovered-boot" ]; then
         [ -f "$TX/stock-recovered-boot" ] && [ ! -L "$TX/stock-recovered-boot" ] || return 1
         local completed_boot= current_boot=

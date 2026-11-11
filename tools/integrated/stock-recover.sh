@@ -21,11 +21,11 @@ for id in $ALL_IDS gen5w.kr.dongle; do
     bundle_has "$id" || { report "REFUSED stock recovery: missing verified hook $id"; exit 1; }
 done
 stock_runtime=$("$NEM" version 2>/dev/null) || stock_runtime=unknown
-case "$stock_runtime" in
-    1.16.4|1.16.5|1.16.6|1.16.7) q_begin || exit 1;;
-    *) q_legacy_version || { report 'REFUSED stock recovery: unknown NEMESIS runtime'; exit 1; }
-       report 'WARNING legacy stock recovery: service restart suppression cannot be verified';;
-esac
+stock_modern=no
+if q_version; then stock_modern=yes; q_begin || exit 1
+else q_legacy_version || { report 'REFUSED stock recovery: unknown NEMESIS runtime'; exit 1; }
+     report 'WARNING legacy stock recovery: service restart suppression cannot be verified'
+fi
 trap 'rc=$?; if [ "$rc" != 0 ]; then [ -L "$NOREBOOT" ] || : > "$NOREBOOT"; set_state recovery-required; fi; transaction_exit "$rc"' EXIT
 : > "$NOREBOOT" || exit 1
 echo stock-recover > "$TX/stock-recovery-mode" || exit 1
@@ -66,13 +66,13 @@ echo "$stock_boot" > "$TX/stock-recovered-boot" || exit 1
 rm -f "$NOREBOOT" || exit 1
 set_state committed || exit 1
 q_resume || exit 1
-case "$stock_runtime" in 1.16.4|1.16.5|1.16.6|1.16.7) ;;
+case "$stock_modern" in yes) ;;
     *)
         [ ! -L GEN5W-ACTION ] && echo status > GEN5W-ACTION || exit 1
         report 'NEXT: official NEMESIS update required after full reboot; installation refused on legacy runtime';;
 esac
-case "$stock_runtime:${GEN5W_RECOVERY_NEXT:-}" in
-    1.16.[4567]:install|1.16.[4567]:update)
+case "$stock_modern:${GEN5W_RECOVERY_NEXT:-}" in
+    yes:install|yes:update)
         [ ! -L GEN5W-ACTION ] && echo "$GEN5W_RECOVERY_NEXT" > GEN5W-ACTION || exit 1
         report 'NEXT: recovery completed; full reboot and supported NEMESIS required before installation';;
 esac

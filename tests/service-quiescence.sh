@@ -37,7 +37,7 @@ check 'supported empty inventory permits preparation' run
 QV=1.16.3 run
 check 'legacy version refuses new install' test $? != 0
 QV=1.17.0 run
-check 'unknown future version refuses unverified semantics' test $? != 0
+check 'numeric future version permits preparation with safety checks' test $? = 0
 echo 'stock.telephony/main|restart|running|12' > "$W/inventory"
 check 'foreign services are not stopped' eval 'run && test ! -s "$W/stops"'
 echo 'gen5w.kr.core/uilog|restart|running|0' > "$W/inventory"

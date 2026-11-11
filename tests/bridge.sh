@@ -369,8 +369,26 @@ rm -f "$APG.off"; echo 0 > "$APG.count"
 ln -s "$W/elsewhere" "$APG/attempt"
 check 'symlinked attempt keeps the unit wired-only' eval 'run service && test "$(launches)" = "$before"'
 rm -f "$APG/attempt"
+# Stock path: the host app's own record (StockApGuard) counts the same way.
+HF=$W/data/data/kr.gen5w.wirelesshost/files; mkdir -p "$HF"
+echo boot-old > "$HF/ap-attempt"
+check 'stock-path restart during AP start counted' eval 'run service && test "$(cat "$APG.count")" = 1 && test ! -e "$HF/ap-attempt"'
+echo boot-old > "$HF/ap-attempt"; echo boot-old > "$APG/attempt"
+check 'one boot counts once even with both records' eval 'run service && test "$(cat "$APG.count")" = 2 && test ! -e "$HF/ap-attempt" && test ! -e "$APG/attempt"'
+echo boot-now > "$HF/ap-attempt"
+check 'stock-path attempt from this boot is not counted' eval 'run service && test "$(cat "$APG.count")" = 2 && test -f "$HF/ap-attempt"'
+rm -f "$HF/ap-attempt"; echo ok > "$HF/ap-ok"
+check 'stock-path success resets the count' eval 'run service && test "$(cat "$APG.count")" = 0 && test ! -e "$HF/ap-ok"'
+echo 2 > "$APG.count"; echo boot-old > "$HF/ap-attempt"
+before=$(launches)
+check 'third stock-path restart turns wireless off' eval 'run service && test "$(cat "$APG.count")" = 3 && test -f "$APG.off" && test "$(launches)" = "$before"'
+rm -f "$APG.off"; echo 0 > "$APG.count"
+ln -s "$W/elsewhere" "$HF/ap-attempt"
+check 'symlinked stock-path record keeps the unit wired-only' eval 'run service && test "$(launches)" = "$before"'
+rm -f "$HF/ap-attempt"
+echo boot-old > "$HF/ap-attempt"; echo ok > "$HF/ap-ok"
 echo 2 > "$APG.count"; touch "$APG.off"
-check 'reinstall clears the guard' eval 'run post && test ! -e "$APG" && test ! -e "$APG.count" && test ! -e "$APG.off"'
+check 'reinstall clears the guard' eval 'run post && test ! -e "$APG" && test ! -e "$APG.count" && test ! -e "$APG.off" && test ! -e "$HF/ap-attempt" && test ! -e "$HF/ap-ok"'
 unset BRIDGE_TEST_BOOT_ID
 rm -f "$W/data/nemesis/gen5wkr.ap-match"
 before=$(launches)

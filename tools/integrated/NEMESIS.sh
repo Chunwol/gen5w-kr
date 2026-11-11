@@ -2,6 +2,10 @@
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 . ./errors.sh
 . ./history.sh
+# Entry policy runs before common.sh creates a transaction/report context.
+report() { echo "$*"; }
+. ./services.sh
+NEM=${IT_NEM:-/system/xbin/nemesis}
 action=install
 if [ -f GEN5W-ACTION ]; then
     IFS= read -r action < GEN5W-ACTION || [ -n "$action" ] || exit 1
@@ -12,15 +16,14 @@ case "$action" in install|update|rollback|remove|stock-recover|status|wired-only
 requested_action=$action
 entry_install_supported=no
 case "$action" in install|update)
-    case "$("${IT_NEM:-/system/xbin/nemesis}" version 2>/dev/null)" in
-        1.16.4|1.16.5|1.16.6|1.16.7)
+    if q_install_version >/dev/null 2>&1; then
             entry_install_supported=yes
             case "$(cat "${IT_DATA:-/data}/nemesis/gen5w-kr-integrated/state" 2>/dev/null)" in
                 recovery-required|recovering|applying|removing)
                     GEN5W_RECOVERY_NEXT=$action; export GEN5W_RECOVERY_NEXT
                     action=stock-recover;;
-            esac;;
-    esac;;
+            esac
+    fi;;
 esac
 case "$action" in check|diag|status) ERR_PERSIST=no; export ERR_PERSIST;; esac
 # Only fixed phase names and exit codes; never copy subprocess output or secrets.

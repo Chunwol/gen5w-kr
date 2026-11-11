@@ -48,6 +48,10 @@ p=pathlib.Path(sys.argv[1]); (p/'RECOVERY.md5').write_text(''.join(hashlib.md5(f
 PY
 run check > "$W/out" 2>&1
 check 'valid empty prior transaction can recover' test $? = 0
+echo stock-recover > "$W/data/nemesis/gen5w-kr-integrated/stock-recovery-mode"
+run check > "$W/out" 2>&1; stock_rc=$?
+check 'interrupted stock recovery refuses snapshot rollback before running' eval '[ "$stock_rc" != 0 ] && grep -qx stock-recovery-required "$W/out"'
+rm "$W/data/nemesis/gen5w-kr-integrated/stock-recovery-mode"
 boot=$(cat /proc/sys/kernel/random/boot_id)
 mkdir "$W/data/nemesis/gen5w-kr-integrated/acquire-guard.$boot"
 run run 711 > "$W/out" 2>&1

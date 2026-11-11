@@ -8,7 +8,9 @@ public final class RecoveryStatusTest {
     public static void main(String[] args) throws Exception {
         check(!RecoveryStatus.parse(null).canRequest(true));
         RecoveryStatus r = RecoveryStatus.parse(Arrays.asList("recovery_state=required", "recovery_available=yes", "recovery_reason=ready"));
-        check(r.canRequest(true)); check(!r.canRequest(false));
+        check(r.canRequest(true)); check(!r.canRequest(false)); check(!r.needsStockRecovery());
+        RecoveryStatus stock = RecoveryStatus.parse(Arrays.asList("recovery_state=required", "recovery_available=yes", "recovery_reason=stock-recovery-required"));
+        check(stock.needsStockRecovery()); check(!stock.canRequest(true));
         check("unknown".equals(RecoveryStatus.parse(Arrays.asList("recovery_state=restored")).displayState(false)));
         check(!RecoveryStatus.parse(Arrays.asList("recovery_state=working", "recovery_available=yes")).canRequest(true));
         check(!RecoveryStatus.parse(Arrays.asList("recovery_state=required", "recovery_state=none", "recovery_available=yes")).canRequest(true));

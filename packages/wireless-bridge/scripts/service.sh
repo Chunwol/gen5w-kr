@@ -60,12 +60,20 @@ apguard_boot() {
     fi
     chmod 700 "$APG" || return 1
     _apg_boot=${BRIDGE_TEST_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)}
+    # The stock path's record lives in the host's own files (StockApGuard); the
+    # relay broker's in $APG (AndroidWifiAp). Either one left from an earlier
+    # boot means a restart during an AP start; one boot counts once.
+    for _p in "$HOST_APG/ap-attempt" "$HOST_APG/ap-ok"; do [ ! -L "$_p" ] || return 1; done
     _n=$(cat "$APG_COUNT" 2>/dev/null)
     case "$_n" in ''|*[!0-9]*) _n=0;; esac
-    if [ -f "$APG/ok" ]; then _n=0; rm -f "$APG/ok"; fi
-    if [ -f "$APG/attempt" ] && [ -n "$_apg_boot" ] && [ "$(cat "$APG/attempt" 2>/dev/null)" != "$_apg_boot" ]; then
-        _n=$((_n + 1)); rm -f "$APG/attempt"
-    fi
+    if [ -f "$APG/ok" ] || [ -f "$HOST_APG/ap-ok" ]; then _n=0; rm -f "$APG/ok" "$HOST_APG/ap-ok"; fi
+    _apg_hit=no
+    for _a in "$APG/attempt" "$HOST_APG/ap-attempt"; do
+        if [ -f "$_a" ] && [ -n "$_apg_boot" ] && [ "$(cat "$_a" 2>/dev/null)" != "$_apg_boot" ]; then
+            _apg_hit=yes; rm -f "$_a"
+        fi
+    done
+    [ "$_apg_hit" = no ] || _n=$((_n + 1))
     echo "$_n" > "$APG_COUNT" || return 1
     [ "$_n" -lt "$APG_MAX" ] || echo off > "$APG_OFF" || return 1
     return 0
