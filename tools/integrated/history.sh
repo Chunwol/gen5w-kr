@@ -114,3 +114,11 @@ report_attempt_begin() {
     export ERR_ATTEMPT ERR_SLOT ERR_REVISION
     err_event integrated entry "$action" starting 0 none
 }
+
+# Korean on-screen text for the entry's automatic reboot (NEMESIS.sh is ASCII-only).
+auto_reboot_text() {
+    case "$1" in
+        unfinished) echo 'Gen5W 작업이 끝나지 않아 재부팅합니다. 재부팅 후 USB를 다시 꽂으면 순정 복구를 진행합니다.';;
+        *) echo 'Gen5W 작업을 시작하지 못해 재부팅합니다. 바뀐 것은 없습니다. 재부팅 후 USB를 다시 꽂으면 다시 시도합니다.';;
+    esac
+}

@@ -128,10 +128,10 @@ auto_reboot_after_failure() {
             *) [ -L GEN5W-ACTION ] || echo stock-recover > GEN5W-ACTION;;
         esac
         say "AUTO REBOOT ($why): change unfinished; after reboot, insert this USB again to restore stock automatically"
-        value='Gen5W 작업이 끝나지 않아 재부팅합니다. 재부팅 후 USB를 다시 꽂으면 순정 복구를 진행합니다.'
+        value=$(auto_reboot_text unfinished)
     else
         say "AUTO REBOOT ($why): nothing was changed; rebooting to release stopped services. Insert this USB again to retry"
-        value='Gen5W 작업을 시작하지 못해 재부팅합니다. 바뀐 것은 없습니다. 재부팅 후 USB를 다시 꽂으면 다시 시도합니다.'
+        value=$(auto_reboot_text unchanged)
     fi
     echo "auto_reboot=$why" >> "GEN5W-REPORT/$start"
     [ ! -x /system/bin/am ] || /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "$value" --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || :
