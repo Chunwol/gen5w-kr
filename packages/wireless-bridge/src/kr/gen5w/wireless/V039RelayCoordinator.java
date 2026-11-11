@@ -124,10 +124,16 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         events.relayEvent("transport", value.name().toLowerCase());
     }
 
+    private long reportedGeneration = -1;
+
     private void apply(BtRelaySession.Update update) {
         if (closed) return;
-        if (update.failure != null) events.relayEvent("relay", "failed-" + update.failure.name().toLowerCase());
-        if (update.cancellation != null) events.relayEvent("relay", "cancelled-" + update.cancellation.name().toLowerCase());
+        // An update keeps its failure until the next attempt; report it once per attempt.
+        if ((update.failure != null || update.cancellation != null) && update.generation != reportedGeneration) {
+            reportedGeneration = update.generation;
+            if (update.failure != null) events.relayEvent("relay", "failed-" + update.failure.name().toLowerCase());
+            if (update.cancellation != null) events.relayEvent("relay", "cancelled-" + update.cancellation.name().toLowerCase());
+        }
         List<BtRelaySession.Command> commands = update.commands;
         if (update.phase == BtRelaySession.Phase.STOPPING && !commands.isEmpty()) cleanupOutstanding = commands.size();
         for (BtRelaySession.Command command : commands) execute(update.generation, command);

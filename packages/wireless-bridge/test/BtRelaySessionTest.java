@@ -246,7 +246,33 @@ public final class BtRelaySessionTest {
                 "duplicate AP ready does not extend activation deadline");
     }
 
+    private static void iap2TimeoutStillAppliesAfterApStarts() {
+        // Car log: the phone never answered iAP2 detect, but the AP had started, so the
+        // attempt waited the 60 s activation timeout instead of the 15 s iAP2 one.
+        BtRelaySession session = new BtRelaySession();
+        long generation = session.start(0).generation;
+        session.credentialsReady(generation, 1);
+        commands(session.sppConnected(generation, 2), BtRelaySession.CommandType.START_AP,
+                BtRelaySession.CommandType.START_IAP2);
+        session.apReady(generation, 3);
+        commands(session.tick(generation, 1 + BtRelaySession.IAP2_TIMEOUT_MS));
+        BtRelaySession.Update timeout = session.tick(generation, 2 + BtRelaySession.IAP2_TIMEOUT_MS);
+        check(timeout.failure == BtRelaySession.FailureReason.IAP2_TIMEOUT, "iAP2 link has its own deadline with the AP up");
+        commands(timeout, BtRelaySession.CommandType.STOP_AP, BtRelaySession.CommandType.STOP_IAP2,
+                BtRelaySession.CommandType.DISCONNECT_SPP);
+
+        session.cleanupCompleted(generation);
+        generation = session.start(1000).generation;
+        session.credentialsReady(generation, 1001);
+        session.sppConnected(generation, 1002);
+        session.apReady(generation, 1003);
+        session.iap2Connected(generation, 4, 1004);
+        check(session.tick(generation, 1002 + BtRelaySession.IAP2_TIMEOUT_MS).failure == null,
+                "a connected iAP2 link clears the iAP2 deadline");
+    }
+
     public static void main(String[] args) {
+        iap2TimeoutStillAppliesAfterApStarts();
         firstConnectionStartsApBeforeCarPlayChannelExists();
         lateCredentialsStartApWhileBluetoothAuthenticationRuns();
         earlyApIsCleanedUpAndStaleCredentialsCannotRestartIt();

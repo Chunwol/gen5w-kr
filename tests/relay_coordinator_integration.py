@@ -28,9 +28,11 @@ stubs['kr/gen5w/hotspot/ApBrokerClient.java'] = '''package kr.gen5w.hotspot; pub
 harness = '''package kr.gen5w.wireless;
 public class RelayCoordinatorIntegrationTest {
  static void check(boolean b,String m){if(!b)throw new AssertionError(m);}
- static V039RelayCoordinator fresh(){V039BtRelayAdapter.connects=0;V039BtRelayAdapter.reject=true;android.os.SystemClock.time=0;V039RelayCoordinator c=new V039RelayCoordinator(null,new android.os.Handler(null),new V039RelayCoordinator.Events(){public void relayEvent(String n,String r){}});c.ready();return c;}
+ static int failures;
+ static V039RelayCoordinator fresh(){failures=0;V039BtRelayAdapter.connects=0;V039BtRelayAdapter.reject=true;android.os.SystemClock.time=0;V039RelayCoordinator c=new V039RelayCoordinator(null,new android.os.Handler(null),new V039RelayCoordinator.Events(){public void relayEvent(String n,String r){if(r.startsWith("failed-"))failures++;}});c.ready();return c;}
  static void retriesBounded(){V039RelayCoordinator c=fresh();try{
  c.start("phone");check(V039BtRelayAdapter.connects==1,"initial attempt");
+ c.tick();c.tick();check(failures==1,"one failure is reported once, not on every later update");
  android.os.SystemClock.time=4999;c.start("phone");check(V039BtRelayAdapter.connects==1,"five second backoff");
  android.os.SystemClock.time=5000;c.start("phone");check(V039BtRelayAdapter.connects==2,"same-phone transient failure retries after cleanup");
  android.os.SystemClock.time=14999;c.start("phone");check(V039BtRelayAdapter.connects==2,"ten second backoff");
@@ -43,6 +45,7 @@ public class RelayCoordinatorIntegrationTest {
  c.credentialsReady();c.sppConnected(g);
  kr.gen5w.hotspot.ApBrokerClient.stopping=new java.util.concurrent.CountDownLatch(1);kr.gen5w.hotspot.ApBrokerClient.release=new java.util.concurrent.CountDownLatch(1);
  c.failed(g,V039BtRelayAdapter.Failure.OTHER);check(kr.gen5w.hotspot.ApBrokerClient.stopping.await(2,java.util.concurrent.TimeUnit.SECONDS),"AP cleanup started");
+ c.tick();c.tick();c.tick();check(failures==1,"failure reported once while cleanup is still running");
  android.os.SystemClock.time=99999;c.start("phone");check(V039BtRelayAdapter.connects==1,"no retry during cleanup");
  c.candidateLost();c.start("other");check(V039BtRelayAdapter.connects==1,"no second owner during cleanup");
  kr.gen5w.hotspot.ApBrokerClient.release.countDown();

@@ -62,6 +62,8 @@ public final class BtRelaySession {
     private boolean component5Requested;
     private boolean component5Connected;
     private boolean credentialsReady;
+    /** Bluetooth iAP2 link deadline; kept apart because starting the AP moves {@code deadline}. */
+    private long iap2Deadline;
     private boolean apRequested;
     private boolean apReady;
     private FailureReason failure;
@@ -87,6 +89,7 @@ public final class BtRelaySession {
             phase = Phase.IAP2_BLUETOOTH;
             component4Requested = true;
             deadline = now + IAP2_TIMEOUT_MS;
+            iap2Deadline = deadline;
             requestApIfReady(now, commands);
             commands.add(command(CommandType.START_IAP2, 4));
         }
@@ -98,6 +101,7 @@ public final class BtRelaySession {
         if (!current(callbackGeneration)) return update(commands);
         if (component == 4 && phase == Phase.IAP2_BLUETOOTH && component4Requested) {
             phase = Phase.CARPLAY_HANDOVER;
+            iap2Deadline = 0;
             if (!apRequested) deadline = now + HANDOVER_TIMEOUT_MS;
         } else if (component == 5 && phase == Phase.CARPLAY_HANDOVER && component5Requested &&
                 !component5Connected) {
@@ -152,8 +156,10 @@ public final class BtRelaySession {
 
     public synchronized Update tick(long callbackGeneration, long now) {
         List<Command> commands = new ArrayList<Command>();
-        if (!current(callbackGeneration) || !waiting() || now < deadline) return update(commands);
-        failure = timeoutReason();
+        if (!current(callbackGeneration) || !waiting()) return update(commands);
+        boolean iap2Late = phase == Phase.IAP2_BLUETOOTH && iap2Deadline != 0 && now >= iap2Deadline;
+        if (!iap2Late && now < deadline) return update(commands);
+        failure = iap2Late ? FailureReason.IAP2_TIMEOUT : timeoutReason();
         phase = Phase.STOPPING;
         cleanup(commands);
         return update(commands);
@@ -220,6 +226,7 @@ public final class BtRelaySession {
         apRequested = false;
         apReady = false;
         deadline = 0;
+        iap2Deadline = 0;
     }
 
     private FailureReason timeoutReason() {
