@@ -129,6 +129,8 @@ assert not (root/'gen5w.kr.consent.zip').exists(), 'local notice-disabling packa
 assert not (root/'gen5w-kr-skip-consent.zip').exists(), 'local edition in distribution'
 for variant,count in [('standard',8),('dongle',9)]:
     with zipfile.ZipFile(root/('gen5w-kr-'+variant+'.zip')) as z:
+        assert all('checks/gen5w.kr.dongle/scripts/' + name in z.namelist()
+                   for name in ('common.sh', 'preun.sh', 'errors.sh')), 'incomplete dongle recovery dependencies'
         assert len([n for n in z.namelist() if n.startswith('packages/') and n.endswith('.zip')])==count
         assert z.read('GEN5W-VARIANT').decode().strip()==variant
         meta = z.read('NEMESIS.data')

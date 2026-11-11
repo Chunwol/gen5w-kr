@@ -130,7 +130,7 @@ def build(dist, output, variant='standard'):
         stage = output / 'checks/gen5w.kr.dongle'
         source = HERE.parents[1] / 'tools/usb-wifi/package'
         (stage / 'scripts').mkdir(parents=True)
-        for rel in ['NEMESIS.data', 'scripts/common.sh', 'scripts/preun.sh']:
+        for rel in ['NEMESIS.data', 'scripts/common.sh', 'scripts/preun.sh', 'scripts/errors.sh']:
             shutil.copyfile(source / rel, stage / rel)
             (stage / rel).chmod(0o755 if rel.endswith('.sh') else 0o644)
         sums = [hashlib.md5(p.read_bytes()).hexdigest() + '  ' + p.relative_to(stage).as_posix()

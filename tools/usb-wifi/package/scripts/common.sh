@@ -290,8 +290,19 @@ clear_stale_runtime() {
     local listing sum rel extra
     [ ! -e "$BACKUP_DURABLE" ] && [ ! -L "$BACKUP_DURABLE" ] || return 1
     aux_safe_dirs || return 1
-    listing=$(aux_payload_manifest) || return 1
+    if ! listing=$(aux_payload_manifest); then
+        # Builtin bundles deliberately carry no dongle binaries. Without a
+        # journal we may proceed only if every possible auxiliary target is
+        # absent, and the primary module is absent or recognised stock. Never
+        # delete or claim an unexplained file merely because payload is absent.
+        for rel in wifi/dongle/gen5w-average.ko wifi/dongle/ccm.ko wifi/dongle/ctr.ko wifi/dongle/seqiv.ko wifi/dongle/mac80211.ko wifi/dongle/ath.ko wifi/dongle/ath9k_hw.ko wifi/dongle/ath9k_common.ko wifi/dongle/ath9k_htc.ko etc/firmware/htc_9271.fw etc/firmware/htc_7010.fw bin/gen5w-dongle-load; do
+            [ ! -e "$SYS/$rel" ] && [ ! -L "$SYS/$rel" ] || return 1
+        done
+        if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then verify_stock_hash "$TARGET" || return 1; fi
+        listing=
+    fi
     while IFS='|' read -r sum rel extra; do
+        [ -n "$rel" ] || continue
         [ ! -L "$SYS/$rel" ] || return 1
         [ ! -e "$SYS/$rel" ] || [ "$(digest "$SYS/$rel")" != "$sum" ] || return 1
     done <<EOF2

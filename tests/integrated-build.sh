@@ -31,6 +31,18 @@ check 'standard includes the service-only timer' test -f "$W/standard/packages/g
 check 'standard includes the Bluelink reminder service' test -f "$W/standard/packages/gen5w.kr.bluelink.zip"
 check 'standard includes the standalone USB drive logger' test -f "$W/standard/packages/gen5w.kr.drivelog.zip"
 check 'backend is explicitly builtin' grep -qx builtin "$W/standard/GEN5W-BACKEND"
+mkdir -p "$W/stock-system" "$W/stock-data/nemesis" "$W/stock-bin"
+printf '#!/bin/sh\nexit 0\n' > "$W/stock-bin/getprop"
+printf '#!/bin/sh\nexit 0\n' > "$W/stock-bin/setprop"
+chmod +x "$W/stock-bin/"*
+stock_dongle_gate() {
+    (cd "$W/standard/checks/gen5w.kr.dongle" && DONGLE_TEST_SYS="$W/stock-system" DONGLE_TEST_DATA="$W/stock-data" PATH="$W/stock-bin:$PATH" mksh scripts/preun.sh > "$W/stock-gate.out" 2>&1)
+}
+check 'generated builtin bundle executes real dongle removal gate without dongle payload' stock_dongle_gate
+mkdir -p "$W/stock-system/wifi/dongle"
+echo preserve-unowned > "$W/stock-system/wifi/dongle/ath9k_htc.ko"
+check 'payload-free recovery refuses an unexplained live dongle file' eval '! stock_dongle_gate'
+check 'refused recovery leaves unexplained dongle file untouched' grep -qx preserve-unowned "$W/stock-system/wifi/dongle/ath9k_htc.ko"
 python3 - "$W/dist" <<'PY'
 import pathlib,sys,zipfile
 p=pathlib.Path(sys.argv[1])/'gen5w.kr.dongle.zip'
