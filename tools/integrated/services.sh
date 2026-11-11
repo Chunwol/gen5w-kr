@@ -158,7 +158,7 @@ q_inventory() {
     local line name mode status pid extra id seen=' ' count=0
     Q_LIST=$("$NEM" service list 2>/dev/null) || { q_fail 'service inventory unavailable'; return 1; }
     [ "${#Q_LIST}" -le 32768 ] || return 1
-    Q_NAMES=; Q_ROOTS=
+    Q_NAMES=; Q_ROOTS=; Q_INSTANCES=
     while IFS='|' read -r name mode status pid extra; do
         [ -n "$name" ] || continue
         id=${name%%/*}
@@ -182,19 +182,23 @@ q_inventory() {
 $Q_LIST
 EOF
     # A missing registry entry must not make a registered package look idle.
-    local file section svc
+    local file section svc kind
     for id in gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink gen5w.kr.drivelog gen5w.kr.dongle gen5w.kr.localhotspot wireless.carplay.aa; do
         file=$APPS/$id/NEMESIS.data
         [ ! -L "$APPS/$id" ] && [ ! -L "$file" ] || return 1
         [ -f "$file" ] || continue
-        section=
+        section=; svc=; kind=
         while IFS= read -r line || [ -n "$line" ]; do
             line=${line%$'\r'}
             case "$line" in
-                '['*']') section=$line;;
+                '['*']') section=$line; svc=; kind=;;
                 name=*) case "$section" in '[service.'*']')
                     svc=${line#name=}
-                    case "$seen" in *" $id/$svc "*) ;; *) return 1;; esac;; esac;;
+                    case "$seen" in *" $id/$svc "*) ;; *) return 1;; esac
+                    [ "$kind" != instance ] || Q_INSTANCES="$Q_INSTANCES $id/$svc ";; esac;;
+                kind=*) case "$section" in '[service.'*']')
+                    kind=${line#kind=}
+                    [ "$kind" != instance ] || [ -z "$svc" ] || Q_INSTANCES="$Q_INSTANCES $id/$svc ";; esac;;
             esac
         done < "$file"
     done
@@ -246,9 +250,32 @@ q_barrier() {
     Q_FAILED=1
     q_fail 'stop proof incomplete; packages must not change'
 }
+# NEMESIS runs an instance service as a short "am start" shell and lists it as
+# running only while that shell lives (it is killed after 8 s). Package install
+# starts it, so it can end in the middle of a capture. Let it finish first; a
+# launcher still alive afterwards is stopped like any other service.
+q_instance_settle() {
+    local pass line name rest status
+    for pass in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        # The launcher can exit between the list and its /proc read: retry.
+        q_inventory || { sleep 1; continue; }
+        [ -n "$Q_INSTANCES" ] || return 0
+        status=idle
+        while IFS='|' read -r name rest; do
+            case "$Q_INSTANCES" in *" $name "*)
+                case "$rest" in *'|running|'*) status=busy;; esac;; esac
+        done <<EOF
+$Q_LIST
+EOF
+        [ "$status" = busy ] || return 0
+        sleep 1
+    done
+    return 0
+}
 q_barrier_impl() {
     [ "$Q_ACTIVE" = 1 ] || return 0
     local name mark value before after entry current pid old roots protected self line rest p depth changed pass worker root_pid= root_start= arg valid argc=0 baseline_roots baseline_keys key unexpected=0 sid all_sessions=' ' owned_sessions=' '
+    q_instance_settle
     q_inventory_guard || { q_fail 'invalid inventory'; return 1; }
     before=$Q_CHECK_EPOCH
     baseline_roots=$(q_keys "$Q_ROOTS")

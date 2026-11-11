@@ -26,6 +26,8 @@ case "$MODE" in
  denied) echo 'remount: Permission denied' >&2;;
  huge) python3 -c 'import sys;sys.stderr.write("Permission denied password=hotspot-private " + "x"*262144)' ;;
  unknown) :;;
+ logbusy) mkdir -p "$CASE_DIR/data/nemesis"; echo "2026-11-11 20:24:17 mount(/dev/block/system -> /system remount ro) errno=16/16/16" >> "$CASE_DIR/data/nemesis/nemesis.log";;
+ logmixed) mkdir -p "$CASE_DIR/data/nemesis"; echo "2026-11-11 20:24:17 mount(/dev/block/system -> /system remount ro) errno=16/16/22" >> "$CASE_DIR/data/nemesis/nemesis.log";;
  corrupt) if [ "$n" -le 3 ]; then echo corrupted > "$CASE_DIR/system/app/HKMC_WifiSettings.odex"; fi; echo 'remount: Device or resource busy' >&2;;
 esac
 exit 1
@@ -92,4 +94,18 @@ reset_case; export MODE=busy
 echo '/dev/block/system /different ext4 rw 0 0' > "$fixture/mounts"
 if run install; then echo 'FAIL busy with unknown mount accepted'; exit 1; fi
 test "$(cat "$target")" = original
+# Real NEMESIS: empty client output, errno only in the daemon log.
+reset_case; mkdir -p "$fixture/data/nemesis"
+echo "2026-11-10 22:04:56 mount(/dev/block/system -> /system remount ro) errno=5/5/5" > "$fixture/data/nemesis/nemesis.log"
+export MODE=logbusy
+run install || { cat "$fixture/output"; echo 'FAIL logged EBUSY install rejected'; exit 1; }
+test "$(cat "$target")" = patched
+grep -q 'WARN:.*read-only' "$fixture/output"
+run remove
+for MODE in logmixed unknown; do
+ export MODE; reset_case
+ if run install; then echo "FAIL unproven $MODE accepted"; exit 1; fi
+ test "$(cat "$target")" = original
+done
+rm -f "$fixture/data/nemesis/nemesis.log"
 echo 'PASS hotspot remount retry/busy/permission/unknown/corruption/rollback'

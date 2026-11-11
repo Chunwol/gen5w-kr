@@ -10,7 +10,13 @@ cat > "$W/nemesis" <<'EOF'
 #!/bin/sh
 case "$1:$2" in
  version:) echo "${QV:-1.16.7}";;
- service:list) [ -z "$QEPOCH" ] || echo "$QEPOCH" > "$QT/data/nemesis/svcmgr.pid"; cat "$QT/inventory";;
+ service:list) [ -z "$QEPOCH" ] || echo "$QEPOCH" > "$QT/data/nemesis/svcmgr.pid"
+  if [ -n "$QFLIP" ]; then
+   n=$(cat "$QT/listcount" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$QT/listcount"
+   # Instance launcher ("am start" shell) ends after the first QFLIP listings.
+   [ "$n" -le "$QFLIP" ] || { [ -z "$QFLIPPID" ] || kill "$QFLIPPID" 2>/dev/null; sed -i 's/|running|[0-9]*/|stopped|0/' "$QT/inventory"; }
+  fi
+  cat "$QT/inventory";;
  service:stop)
   echo "$3" >> "$QT/stops"
   [ "$QSTOPFAIL" != 1 ] || exit 1
@@ -176,6 +182,26 @@ QT="$W" mksh "$W/resume-runner" > "$W/out" 2>&1
 check 'unknown transaction state never resumes services' test ! -s "$W/starts"
 check 'unknown generation retains startup hold' test -f "$W/data/nemesis/gen5wkr.install-hold"
 rm "$W/tx/state"
+# NEMESIS lists an instance service as running only while its short "am start"
+# shell lives; package install starts it, so it can end during a capture.
+mkdir -p "$W/apps/gen5w.kr.core"
+printf '[service.0]
+name=core
+kind=instance
+path=kr.gen5w.core/.CoreService
+mode=background
+' > "$W/apps/gen5w.kr.core/NEMESIS.data"
+rm -f "$W/tx/service-uncertain" "$W/tx/service-tracked" "$W/listcount" "$W/data/nemesis/gen5wkr.install-hold"
+: > "$W/stops"
+/usr/bin/setsid /bin/sleep 60 & launcher=$!
+echo "gen5w.kr.core/core|background|running|$launcher" > "$W/inventory"
+QFLIP=2 QFLIPPID=$launcher run
+rc=$?; [ "$rc" = 0 ] || cat "$W/out"
+check 'instance launcher ending during capture is waited for, not refused' test "$rc" = 0
+check 'settled instance launcher needs no forced stop proof failure' eval '! grep -q "launcher changed" "$W/out"'
+kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null || true
+rm -f "$W/listcount" "$W/apps/gen5w.kr.core/NEMESIS.data" "$W/data/nemesis/gen5wkr.install-hold"
+: > "$W/inventory"
 # Legacy prerequisite failure is exercised through the actual install entrypoint.
 mkdir -p "$W/usb" "$W/sys"
 cp tools/integrated/*.sh "$W/usb/"

@@ -14,6 +14,7 @@ TARGET=$SYS/app/HKMC_WifiSettings.odex
 APK=$SYS/app/HKMC_WifiSettings.apk
 BACKUP=$SYS/etc/gen5w-kr-backup/local-hotspot
 LOCK=$DATA/nemesis/gen5wkr.localhotspot.lock
+NEMLOG=$DATA/nemesis/nemesis.log
 ACTION=${1:-check}
 case "$ACTION" in check|install|remove|status) ;; *) exit 2;; esac
 if [ -z "${HOTSPOT_TEST_PATCH:-}" ] && [ ! -x "$PATCH" ]; then chmod 0755 "$PATCH"; fi
@@ -97,12 +98,28 @@ system_mount_state() {
     fi
     [ "$mount_count" = 1 ] || mount_state=unknown
 }
+# The NEMESIS client prints nothing for a failed remount; its daemon logs the
+# errno triple to nemesis.log instead. Count remount-ro errno lines and how many
+# of them are 16/16/16 (EBUSY). Prints "<all> <busy>".
+nem_ro_counts() {
+    typeset all=0 busy=0 line
+    if [ -f "$NEMLOG" ] && [ ! -L "$NEMLOG" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in *' remount ro) errno='*)
+                all=$((all + 1))
+                case "$line" in *' remount ro) errno=16/16/16'|*' remount ro) errno=16/16/16'?) busy=$((busy + 1));; esac;;
+            esac
+        done < "$NEMLOG"
+    fi
+    echo "$all $busy"
+}
 system_readonly() {
     ro_attempt=0 ro_busy=yes
     sync
     while [ "$ro_attempt" -lt 3 ]; do
         ro_attempt=$((ro_attempt + 1))
         ro_reason=unknown ro_rc=0
+        set -- $(nem_ro_counts); ro_all0=$1 ro_busy0=$2
         if command -v err_classify_stream >/dev/null 2>&1; then
             if "$NEM" remount ro 2>&1 | err_classify_stream; then
                 ro_statuses=("${PIPESTATUS[@]}")
@@ -115,6 +132,13 @@ system_readonly() {
                 13) ro_reason=no-space;; 14) ro_reason=read-only;; 15) ro_reason=io;; 16) ro_reason=timeout;;
             esac
             [ "$ro_rc" != 0 ] || return 0
+            if [ "$ro_reason" = unknown ]; then
+                # Only new log lines from this attempt count, and all must be EBUSY.
+                set -- $(nem_ro_counts)
+                if [ "$1" -gt "$ro_all0" ] && [ $(($1 - ro_all0)) = $(($2 - ro_busy0)) ]; then
+                    ro_reason=busy
+                fi
+            fi
             err_event hotspot mount ro failed "$ro_rc" "$ro_reason"
         else
             # Older durable recovery may lack the helper. Never capture raw
