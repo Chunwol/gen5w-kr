@@ -57,6 +57,32 @@ QNOMARK=1 run
 check 'stop API success without durable stop proof refuses' test $? != 0
 new_boot
 check 'stopped registered service is held by supported API' run
+# Repeated barriers without an install in between use the short re-check.
+cp "$W/runner" "$W/fast-runner"
+printf 'q_barrier || exit 1
+q_barrier || exit 1
+q_invalidate
+q_barrier || exit 1
+' >> "$W/fast-runner"
+new_boot; : > "$W/stops"
+QT="$W" mksh "$W/fast-runner" > "$W/out" 2>&1
+fast_rc=$?
+check 'repeated barrier passes' test "$fast_rc" = 0
+check 'repeated barrier without install uses the short re-check' test "$(grep -c 'unchanged since the last full proof' "$W/out")" = 2
+check 'after an install the full proof runs again' test "$(grep -c '^QUIESCENT: owned services stopped' "$W/out")" = 2
+echo 'gen5w.kr.core/uilog|restart|stopped|0' > "$W/inventory"
+cp "$W/runner" "$W/fast-runner2"
+sleep 30 & again_pid=$!
+printf 'q_barrier || exit 1
+echo "gen5w.kr.core/uilog|restart|running|%s" > "%s/inventory"
+q_barrier
+' "$again_pid" "$W" >> "$W/fast-runner2"
+new_boot
+QT="$W" mksh "$W/fast-runner2" > "$W/out" 2>&1
+kill "$again_pid" 2>/dev/null; wait "$again_pid" 2>/dev/null || true
+check 'a service running again is never passed by the short re-check' eval 'test "$(grep -c "unchanged since the last full proof" "$W/out")" = 1 && tail -n 3 "$W/out" | grep -q "^REFUSED"'
+echo 'gen5w.kr.core/uilog|restart|stopped|0' > "$W/inventory"
+new_boot
 sleep 30 & epoch_pid=$!
 QEPOCH="$epoch_pid" run
 check 'supervisor restart between identity and inventory refuses' test $? != 0

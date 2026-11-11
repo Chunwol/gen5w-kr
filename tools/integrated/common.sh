@@ -223,6 +223,7 @@ restore_prior() {
     gate "$TX/prior/$id" preinstall; rc=$?
     unset GEN5W_REINSTALL
     [ "$rc" = 0 ] || [ "$rc" = 77 ] || return 1
+    q_invalidate
     err_run integrated rollback install "$NEM" install "$TX/prior/$id.zip" || return 1
     [ -f "$APPS/$id/NEMESIS.data" ] || return 1
     hook "$id" postinstall
@@ -278,6 +279,7 @@ rollback_transaction() {
                 continue
             fi
             [ "$prc" = 0 ] || { rc=1; break; }
+            q_invalidate
             err_run integrated rollback "$id" "$NEM" install "$TX/prior/$id.zip" || { rc=1; break; }
             hook "$id" postinstall || { rc=1; break; }
             report "RESTORED $id"
@@ -787,6 +789,7 @@ install_transaction() {
         safe_remove "$id" || {
             result "$id" failed; rollback_transaction; return 1;
         }
+        q_invalidate
         err_run integrated install "$id" "$NEM" install "$(pwd)/packages/$id.zip"
         rc=$?
         if [ "$rc" != 0 ] || [ ! -f "$APPS/$id/NEMESIS.data" ]; then

@@ -77,7 +77,7 @@ q_leftover_logcat() {
     local comm= again
     [ ! -L "/proc/$1/comm" ] && IFS= read -r comm 2>/dev/null < "/proc/$1/comm" || return 1
     [ "$comm" = logcat ] || return 1
-    again=$(q_identity "$1") || return 1
+    { q_identity_v "$1" && again=$QI; } || return 1
     [ "$again" = "$2" ]
 }
 q_owned_drain() {
@@ -86,15 +86,15 @@ q_owned_drain() {
         busy= left=
         for old in $roots; do
             pid=${old%%:*}; case "$protected" in *" $pid "*) continue;; esac
-            current=$(q_identity "$pid") || continue
+            { q_identity_v "$pid" && current=$QI; } || continue
             rest=${current#*:*:}; value=${old#*:*:}
             [ "${rest%:*}" != "${value%:*}" ] || [ "${current##*:}" = Z ] || busy=1
         done
         for entry in /proc/[0-9]*/stat; do
             pid=${entry#/proc/}; pid=${pid%/stat}
-            sid=$(q_session "$pid") || continue
+            { q_session_v "$pid" && sid=$QS; } || continue
             case "$owned_sessions" in *" $sid "*) ;; *) continue;; esac
-            current=$(q_identity "$pid") || continue
+            { q_identity_v "$pid" && current=$QI; } || continue
             [ "${current##*:}" != Z ] || continue
             q_worker_process "$pid" && continue
             if [ "$waited" -ge 2 ] && q_leftover_logcat "$pid" "$current"; then
@@ -116,10 +116,10 @@ q_worker_process() {
     for hop in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
         [ "$candidate" != "$self" ] || return 0
         if [ -n "$root_pid" ] && [ "$candidate" = "$root_pid" ]; then
-            ident=$(q_identity "$candidate") || return 1
+            { q_identity_v "$candidate" && ident=$QI; } || return 1
             rest=${ident#*:*:}; [ "${rest%:*}" = "$root_start" ] && return 0
         fi
-        ident=$(q_identity "$candidate") || return 1
+        { q_identity_v "$candidate" && ident=$QI; } || return 1
         rest=${ident#*:}; parent=${rest%%:*}
         [ "$parent" != 0 ] && [ "$parent" != "$candidate" ] || return 1
         candidate=$parent
@@ -174,7 +174,12 @@ q_owned() {
     return 1
 }
 # Result is pid:parent:starttime:state; comm can contain spaces and parentheses.
-q_identity() {
+# /proc readers set QI / QS instead of printing: a "$(...)" call forks a
+# subshell, and the stop proof reads every process several times (that fork
+# cost was most of the ~25 s per proof on the unit). q_identity/q_session keep
+# the printing form for the remaining one-off callers.
+q_identity_v() {
+    QI=
     local line rest n=0 parent= start= state= token
     case "$1" in ''|*[!0-9]*) return 1;; esac
     IFS= read -r line 2>/dev/null < "/proc/$1/stat" || return 1
@@ -185,20 +190,23 @@ q_identity() {
         case "$n" in 1) state=$token;; 2) parent=$token;; 20) start=$token; break;; esac
     done
     case "$parent:$start" in *[!0-9:]*|:*|*:) return 1;; esac
-    echo "$1:$parent:$start:$state"
+    QI="$1:$parent:$start:$state"
 }
-q_session() {
+q_identity() { q_identity_v "$1" || return 1; echo "$QI"; }
+q_session_v() {
+    QS=
     local line rest token n=0
     IFS= read -r line 2>/dev/null < "/proc/$1/stat" || return 1
     rest=${line##*) }
     for token in $rest; do
         n=$((n+1)); [ "$n" != 4 ] || {
             case "$token" in ''|*[!0-9]*) return 1;; esac
-            echo "$token"; return 0;
+            QS=$token; return 0;
         }
     done
     return 1
 }
+q_session() { q_session_v "$1" || return 1; echo "$QS"; }
 q_inventory() {
     local line name mode status pid extra id seen=' ' count=0
     Q_LIST=$("$NEM" service list 2>/dev/null) || { q_fail 'service inventory unavailable'; return 1; }
@@ -220,7 +228,7 @@ q_inventory() {
         [ "$status:$pid" != running:0 ] || return 1
         Q_NAMES="$Q_NAMES $name"
         if [ "$pid" != 0 ]; then
-            line=$(q_identity "$pid") || return 1
+            { q_identity_v "$pid" && line=$QI; } || return 1
             Q_ROOTS="$Q_ROOTS $line"
         fi
     done <<EOF
@@ -275,7 +283,7 @@ q_epoch() {
     local pid extra ident rest
     [ ! -L "$DATA/nemesis/svcmgr.pid" ] || return 1
     read -r pid extra < "$DATA/nemesis/svcmgr.pid" 2>/dev/null || return 1
-    ident=$(q_identity "$pid") || return 1
+    { q_identity_v "$pid" && ident=$QI; } || return 1
     rest=${ident#*:*:}
     echo "$pid:${rest%:*}"
 }
@@ -290,8 +298,36 @@ q_inventory_guard() {
     [ -z "$Q_EPOCH" ] || [ "$first" = "$Q_EPOCH" ] || { q_fail 'supervisor changed since previous barrier; cold reboot required'; return 1; }
     Q_EPOCH=$first; Q_CHECK_EPOCH=$first
 }
+# A full stop proof takes about 25 s on the unit and was repeated 4-5 times per
+# package (41 times in one update). Between proofs only a NEMESIS install or a
+# service start can bring our services back, and both clear Q_PROVEN. Without
+# either, a short re-check is enough: same supervisor, every owned service
+# still listed as stopped with its stop mark, and none of our apps running.
+# Any doubt falls back to the full proof.
+q_barrier_fast() {
+    [ "$Q_ACTIVE" = 1 ] && [ "${Q_PROVEN:-0}" = 1 ] && [ "${Q_FAILED:-0}" = 0 ] && [ -n "$Q_EPOCH" ] || return 1
+    local now name mark value
+    now=$(q_epoch) || return 1
+    [ "$now" = "$Q_EPOCH" ] || return 1
+    q_inventory 2>/dev/null || return 1
+    [ -z "$Q_ROOTS" ] || return 1
+    [ "$(q_epoch)" = "$Q_EPOCH" ] || return 1
+    for name in $Q_NAMES; do
+        mark=$DATA/nemesis/pids/${name//\//+}.stopped
+        [ ! -L "$DATA/nemesis/pids" ] && [ ! -L "$mark" ] && [ -f "$mark" ] || return 1
+        value=; IFS= read -r value < "$mark" || return 1
+        [ "$value" = 1 ] || return 1
+    done
+    q_probe_apps || return 1
+    [ -z "$Q_APP_RUNNING" ] || return 1
+    report 'QUIESCENT: unchanged since the last full proof (no install or service start)'
+}
+# Called before anything that can start our services again.
+q_invalidate() { Q_PROVEN=0; }
 q_barrier() {
-    if q_check_uncertain && q_barrier_impl; then Q_FAILED=0; return 0; fi
+    if q_barrier_fast; then return 0; fi
+    if q_check_uncertain && q_barrier_impl; then Q_FAILED=0; Q_PROVEN=1; return 0; fi
+    Q_PROVEN=0
     Q_FAILED=1
     q_fail 'stop proof incomplete; packages must not change'
 }
@@ -334,7 +370,7 @@ q_barrier_impl() {
     IFS= read -r self < /proc/self/stat || return 1
     self=${self%% *}; protected=" $self "
     for old in $Q_ROOTS; do
-        pid=${old%%:*}; sid=$(q_session "$pid") || return 1
+        pid=${old%%:*}; { q_session_v "$pid" && sid=$QS; } || return 1
         if [ "$pid" != "$self" ]; then
             [ "$sid" = "$pid" ] || { q_fail 'launcher session ownership unknown'; return 1; }
             owned_sessions="$owned_sessions$sid "
@@ -343,8 +379,8 @@ q_barrier_impl() {
     Q_TREE=
     for entry in /proc/[0-9]*/stat; do
         pid=${entry#/proc/}; pid=${pid%/stat}
-        line=$(q_identity "$pid") || { [ ! -e "/proc/$pid/stat" ] && continue; q_fail 'process identity unreadable'; return 1; }
-        sid=$(q_session "$pid") || { [ ! -e "/proc/$pid/stat" ] && continue; return 1; }
+        { q_identity_v "$pid" && line=$QI; } || { [ ! -e "/proc/$pid/stat" ] && continue; q_fail 'process identity unreadable'; return 1; }
+        { q_session_v "$pid" && sid=$QS; } || { [ ! -e "/proc/$pid/stat" ] && continue; return 1; }
         case "$all_sessions" in *" $sid "*) ;; *) all_sessions="$all_sessions$sid ";; esac
         Q_TREE="$Q_TREE $line"
         [ "${#Q_TREE}" -le 131072 ] || return 1
@@ -353,7 +389,7 @@ q_barrier_impl() {
         root_pid=${GEN5W_RECOVERY_ROOT%%:*}; root_start=${GEN5W_RECOVERY_ROOT#*:}
         worker=$self; valid=0
         for pass in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
-            line=$(q_identity "$worker") || return 1
+            { q_identity_v "$worker" && line=$QI; } || return 1
             if [ "$worker" = "$root_pid" ]; then
                 rest=${line#*:*:}; [ "${rest%:*}" = "$root_start" ] || return 1
                 # R43 -n reads a raw chunk and consumes later NUL-delimited
@@ -417,7 +453,7 @@ q_barrier_impl() {
     # children; otherwise they could fork after the last process scan.
     for old in $roots; do
         pid=${old%%:*}; case "$protected" in *" $pid "*) continue;; esac
-        current=$(q_identity "$pid") || { [ ! -e "/proc/$pid/stat" ] && continue; q_uncertain; return 1; }
+        { q_identity_v "$pid" && current=$QI; } || { [ ! -e "/proc/$pid/stat" ] && continue; q_uncertain; return 1; }
         rest=${current#*:*:}; value=${old#*:*:}
         [ "${rest%:*}" != "${value%:*}" ] || [ "${current##*:}" = Z ] || { q_fail 'owned child remains; reboot before retry'; return 1; }
     done
@@ -428,13 +464,13 @@ q_barrier_impl() {
     # Unexplained new identities are retained, not signalled or silently ignored.
     for entry in /proc/[0-9]*/stat; do
         pid=${entry#/proc/}; pid=${pid%/stat}
-        current=$(q_identity "$pid") || {
+        { q_identity_v "$pid" && current=$QI; } || {
             [ ! -e "/proc/$pid/stat" ] && continue
             q_uncertain; q_fail 'post-stop process unreadable; cold reboot required'; return 1;
         }
         [ "${current##*:}" != Z ] || continue
         rest=${current#*:*:}; key=${current%%:*}:${rest%:*}
-        sid=$(q_session "$pid") || { [ ! -e "/proc/$pid/stat" ] && continue; q_uncertain; return 1; }
+        { q_session_v "$pid" && sid=$QS; } || { [ ! -e "/proc/$pid/stat" ] && continue; q_uncertain; return 1; }
         # NEMESIS launches owned services with setsid(). A child retains that
         # session even after reparenting. Existing foreign sessions may keep
         # doing stock work; an owned or newly unexplained session cannot pass.
@@ -491,7 +527,7 @@ EOF
     [ ! -L "$DATA/nemesis/gen5wkr.install-hold" ] || return 1
     IFS= read -r extra < /proc/sys/kernel/random/boot_id || return 1
     IFS= read -r owner < "$TX/lock/pid" || return 1
-    ident=$(q_identity "$owner") || return 1
+    { q_identity_v "$owner" && ident=$QI; } || return 1
     rest=${ident#*:*:}
     { echo "$extra"; echo "$owner:${rest%:*}"; } > "$DATA/nemesis/gen5wkr.install-hold" && chmod 644 "$DATA/nemesis/gen5wkr.install-hold" || return 1
     Q_ACTIVE=1
@@ -513,6 +549,7 @@ q_resume() {
     while IFS= read -r name; do
         q_owned "${name%%/*}" || return 1
         case "${name#*/}" in ''|*/*|*..*|*[!a-zA-Z0-9_.-]*) return 1;; esac
+        q_invalidate
         "$NEM" service start "$name" >/dev/null 2>&1 || { q_fail 'could not resume prior service; cold reboot required'; return 1; }
     done < "$TX/service-prior"
 }
