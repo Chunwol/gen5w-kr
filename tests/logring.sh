@@ -13,7 +13,7 @@ run() {
         LOGRING_TEST_DF="$W/df" IT_DATA="$W/data" timeout 3 mksh packages/core/scripts/logring.sh > "$W/out" 2>&1
 }
 rm -f "$W/args"; run
-check 'records with logcat rotation capped at 4 x 1 MiB' grep -q -- '-f '"$W"'/data/nemesis/gen5wkr.logs/logcat.txt -r 1024 -n 3' "$W/args"
+check 'records with logcat rotation capped at 5 x 2 MiB' grep -q -- '-f '"$W"'/data/nemesis/gen5wkr.logs/logcat.txt -r 2048 -n 4' "$W/args"
 check 'main and system buffers are kept' grep -q -- '-b main -b system' "$W/args"
 check 'log folder is root-only' test "$(stat -c %a "$W/data/nemesis/gen5wkr.logs")" = 700
 # The script must exec logcat: same PID as the launcher, so a stop leaves no child.

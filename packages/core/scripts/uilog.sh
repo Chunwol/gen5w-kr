@@ -373,10 +373,12 @@ trim_pkg_logs() {
         done
     done
 }
-# Saved Android log of the logring service, oldest file first, wireless lines only.
-deep_saved_logcat() {
-    typeset f
-    for f in "$NEMDIR/gen5wkr.logs/logcat.txt.3" "$NEMDIR/gen5wkr.logs/logcat.txt.2" "$NEMDIR/gen5wkr.logs/logcat.txt.1" "$NEMDIR/gen5wkr.logs/logcat.txt"; do
+# Saved Android log of the logring service (up to 10 MiB), oldest file first.
+# Copied whole and unfiltered.
+saved_logcat() {
+    typeset f d="$NEMDIR/gen5wkr.logs"
+    [ -d "$d" ] && [ ! -L "$d" ] || return 0
+    for f in "$d/logcat.txt.4" "$d/logcat.txt.3" "$d/logcat.txt.2" "$d/logcat.txt.1" "$d/logcat.txt"; do
         [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
     done
 }
@@ -440,8 +442,7 @@ collect_deep() {
         ls -ln "$BRIDGE/app" 2>/dev/null | deep_tail "bridge app folder" 30
         print -r -- "-- logcat"
         err_run core collect logcat-main "$LOGCAT" -d -v time | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|[Bb]lue[Ll]ink|[Tt]elematics|[Ss]ubscri|WifiManager|[Ww]ifi[Aa]p|[Tt]oast|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
-        print -r -- "-- saved Android log (logring, up to 4 MiB on /data)"
-        deep_saved_logcat | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|WifiManager|[Ww]ifi[Aa]p|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)' | deep_tail "saved logcat: wireless, wifi, crashes" 3000
+        print -r -- "-- saved Android log (logring): copied whole to logcat-<n>.txt next to this file"
         print -r -- '-- collection status and first failures'
         err_export
     } 2>/dev/null >> "$out"
@@ -482,6 +483,11 @@ do_save() {
         # stick that was prepared by someone else. Every path we write is checked right before use.
         if [ ! -L "$dest" ] && mkdir -p "$dest" 2>/dev/null && [ ! -L "$dest" ]             && [ ! -e "$dest/diag-$n.txt.tmp" ] && [ ! -L "$dest/diag-$n.txt" ]             && ( set -C; cat "$tmp" > "$dest/diag-$n.txt.tmp" ) 2>/dev/null             && [ ! -L "$dest/diag-$n.txt.tmp" ] && mv "$dest/diag-$n.txt.tmp" "$dest/diag-$n.txt" 2>/dev/null; then
             result=usb
+            # Full saved Android log next to it. Never fails the save above.
+            if [ ! -e "$dest/logcat-$n.txt" ] && [ ! -L "$dest/logcat-$n.txt" ]; then
+                ( set -C; saved_logcat > "$dest/logcat-$n.txt" ) 2>/dev/null
+                [ -L "$dest/logcat-$n.txt" ] || [ -s "$dest/logcat-$n.txt" ] || rm -f "$dest/logcat-$n.txt" 2>/dev/null
+            fi
         else
             [ -L "$dest/diag-$n.txt.tmp" ] || rm -f "$dest/diag-$n.txt.tmp" 2>/dev/null
             result=fail

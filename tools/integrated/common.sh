@@ -16,7 +16,7 @@ AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 # Present with the match marker: still declare the stock hotspot feature (menu).
 AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
 OWN_LOGS=$DATA/nemesis/gen5wkr.logs
-# The HUD package's saved Android log (root-only, at most 4 MiB). Removal and
+# The HUD package's saved Android log (root-only, at most 10 MiB). Removal and
 # stock recovery delete it; a failure is reported but never blocks recovery.
 clear_own_logs() {
     [ -e "$OWN_LOGS" ] || [ -L "$OWN_LOGS" ] || return 0

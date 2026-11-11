@@ -89,17 +89,26 @@ check 'kernel permission failure is distinct from no kernel messages' grep -q 'o
 check 'acquisition stderr secrets are not exported' eval '! grep -q secret-diag "$W/usb/GEN5W-REPORT/DIAG-3.txt"'
 echo 0 > "$W/props/sys.boot_completed"
 check 'refuses before boot completes' eval '! run && test ! -e "$W/usb/GEN5W-REPORT/DIAG-4.txt"'
-# Saved Android log on /data (logring) is exported oldest first, filtered.
+# Saved Android log on /data (logring) is copied whole and unfiltered, oldest first.
 mkdir -p "$W/data/nemesis/gen5wkr.logs"
-echo '11-11 21:00:01.000 I/WifiStateMachine( 1): older-ap-start' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.1"
-{ echo '11-11 21:05:00.000 I/WifiStateMachine( 1): newer-ap-start'; echo '11-11 21:05:01.000 I/WifiService( 1): SSID=secret-ssid-name'; echo '11-11 21:05:02.000 I/Unrelated( 1): noise-line'; } > "$W/data/nemesis/gen5wkr.logs/logcat.txt"
+echo 'older-ap-start' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.4"
+echo 'middle-line' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.1"
+printf 'newer-ap-start
+SSID=home-ap aa:bb:cc:dd:ee:ff
+Unrelated noise-line
+' > "$W/data/nemesis/gen5wkr.logs/logcat.txt"
 echo 1 > "$W/props/sys.boot_completed"
 rm -f "$W/bin/dmesg"
 run
-L=$W/usb/GEN5W-REPORT/DIAG-4.txt
-o=$(grep -n older-ap-start "$L" | head -1 | cut -d: -f1); w=$(grep -n newer-ap-start "$L" | head -1 | cut -d: -f1)
-check 'saved /data log is exported oldest first' eval 'test -n "$o" && test -n "$w" && test "$o" -lt "$w"'
-check 'saved log is not dumped raw in the marker section' test "$(grep -c older-ap-start "$L")" = 1
-check 'saved /data log export drops private and unrelated lines' eval '! grep -q secret-ssid-name "$L" && ! grep -q noise-line "$L"'
+check 'saved Android log copied whole to its own file' eval 'printf "older-ap-start
+middle-line
+newer-ap-start
+SSID=home-ap aa:bb:cc:dd:ee:ff
+Unrelated noise-line
+" | cmp -s - "$W/usb/GEN5W-REPORT/LOGCAT-4.txt"'
+check 'diagnosis points to the saved log file' grep -q 'LOGCAT-4.txt' "$W/usb/GEN5W-REPORT/DIAG-4.txt"
+check 'saved log is not dumped into the diagnosis text' eval '! grep -q older-ap-start "$W/usb/GEN5W-REPORT/DIAG-4.txt"'
 rm -rf "$W/data/nemesis/gen5wkr.logs"
+run
+check 'no saved log: no empty log file' test ! -e "$W/usb/GEN5W-REPORT/LOGCAT-5.txt"
 done_tests diag

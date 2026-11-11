@@ -123,10 +123,8 @@ if {
     err_run diag collect logcat-main logcat -d -v time | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat system (filtered)'
     err_run diag collect logcat-system logcat -d -v time -b system | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
-    section 'saved Android log on /data (logring, filtered, oldest first)'
-    for f in "$DATA/nemesis/gen5wkr.logs/logcat.txt.3" "$DATA/nemesis/gen5wkr.logs/logcat.txt.2" "$DATA/nemesis/gen5wkr.logs/logcat.txt.1" "$DATA/nemesis/gen5wkr.logs/logcat.txt"; do
-        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
-    done | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
+    section 'saved Android log on /data (logring)'
+    echo "copied whole to GEN5W-REPORT/LOGCAT-$n.txt"
     section 'logcat buffer range (first and last line)'
     logcat -d -v time 2>/dev/null | clean | {
         IFS= read -r line; print -r -- "$line"
@@ -147,6 +145,17 @@ fi
 if [ ! -s "$OUT" ]; then
     echo 'FAILED diagnosis export; USB may be unwritable'
     exit 1
+fi
+# Saved Android log (logring, up to 10 MiB): copied whole and unfiltered, oldest
+# first, so nothing needed for a diagnosis is lost. A failure here never fails
+# the diagnosis above.
+LOGDIR=$DATA/nemesis/gen5wkr.logs
+LOUT=GEN5W-REPORT/LOGCAT-$n.txt
+if [ -d "$LOGDIR" ] && [ ! -L "$LOGDIR" ] && [ ! -e "$LOUT" ] && [ ! -L "$LOUT" ]; then
+    for f in "$LOGDIR/logcat.txt.4" "$LOGDIR/logcat.txt.3" "$LOGDIR/logcat.txt.2" "$LOGDIR/logcat.txt.1" "$LOGDIR/logcat.txt"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
+    done > "$LOUT" 2>/dev/null
+    if [ -s "$LOUT" ]; then echo "SAVED $LOUT"; else rm -f "$LOUT"; echo 'NOTE no saved Android log to copy'; fi
 fi
 sync
 echo "SAVED GEN5W-REPORT/DIAG-$n.txt"

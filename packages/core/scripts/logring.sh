@@ -4,8 +4,8 @@ HOLD_SCRIPT=${0%/*}/install-hold.sh
 install_hold_wait
 # Keeps the recent Android log (main + system buffers) on /data so a wireless
 # failure can be read later from a USB diagnosis. Bounded: logcat itself rotates
-# 4 files of 1 MiB. The script becomes logcat (exec), so a NEMESIS stop ends it
-# with no child left behind. Exports always pass the privacy filter; this
+# 5 files of 2 MiB (10 MiB). The script becomes logcat (exec), so a NEMESIS stop ends it
+# with no child left behind. Exports copy it whole, unfiltered; this
 # directory is root-only and is deleted when the HUD package is removed.
 DATA=${LOGRING_TEST_DATA:-/data}
 LOGCAT=${LOGRING_TEST_LOGCAT:-/system/bin/logcat}
@@ -43,4 +43,4 @@ for f in "$DIR"/logcat.txt "$DIR"/logcat.txt.*; do
     [ ! -L "$f" ] || { echo 'logring: linked log file refused'; exec sleep 2147483647; }
 done
 echo "logring: recording free=${kb}K"
-exec "$LOGCAT" -b main -b system -v time -f "$DIR/logcat.txt" -r 1024 -n 3 '*:D'
+exec "$LOGCAT" -b main -b system -v time -f "$DIR/logcat.txt" -r 2048 -n 4 '*:D'

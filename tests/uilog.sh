@@ -272,6 +272,11 @@ check 'facts show the nemesis folder mode' grep -q -- '-- /data/nemesis' "$UI/fa
 check 'facts stay under the line cap' test "$(grep -c '' "$UI/facts")" -le 60
 reset; mkdir -p "$W/usb"; echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"
 printf 'E/AndroidRuntime( 1): FATAL EXCEPTION in kr.gen5w.wirelesshost\n' > "$W/logcat.out"
+mkdir -p "$W/data/nemesis/gen5wkr.logs"
+echo 'older-ring-line' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.4"
+printf 'newer-ring-line
+SSID=home-ap aa:bb:cc:dd:ee:ff
+' > "$W/data/nemesis/gen5wkr.logs/logcat.txt"
 sed -i "s# $W/usb # $W/usb #" "$W/mounts"
 printf 'save=12345
 ' > "$W/request"; runw
@@ -283,6 +288,10 @@ check 'deep section never lands in the screen files' eval '! grep -q "FATAL EXCE
 check 'deep temp files are cleaned up' eval '[ ! -e "$UI/deep-save.tmp" ] && [ ! -e "$UI/deep-in.tmp" ]'
 check 'a local copy is kept' test -f "$UI/diag-latest.txt"
 check 'status reports the save' test "$(status saved)" = 12345:usb
+check 'saved Android log is copied whole, oldest first, unfiltered' eval 'printf "older-ring-line
+newer-ring-line
+SSID=home-ap aa:bb:cc:dd:ee:ff
+" | cmp -s - "$W/usb/gen5w-kr-diag/logcat-12345.txt"'
 rm -f "$W/usb/gen5w-kr-diag/diag-12345.txt"; runs
 check 'the same save number is not run twice' test ! -e "$W/usb/gen5w-kr-diag/diag-12345.txt"
 printf 'save=12346
