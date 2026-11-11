@@ -92,5 +92,59 @@ cat "GEN5W-REPORT/$log" 2>/dev/null
 echo "exit=$status" >> "GEN5W-REPORT/$start"
 echo "operation_exit=$operation_status" >> "GEN5W-REPORT/$start"
 echo "report_exit=${statuses[1]}" >> "GEN5W-REPORT/$start"
+# A failed change never just stops. If it left our services held or the
+# change unfinished, the only way on is a cold reboot (the installer itself
+# refuses to go further in this boot). Do that reboot now instead of leaving
+# the unit half-stopped, and leave the USB ready for the next step:
+#  - nothing changed: the same action runs again when the USB is inserted;
+#  - change unfinished (recovery-required): the next run restores stock.
+# At most 2 automatic reboots in a row for one build, so a repeating failure
+# cannot loop; then it stops and says so. Never reboots for check/diag/status.
+say() { echo "$*"; [ -L "GEN5W-REPORT/$log" ] || echo "$*" >> "GEN5W-REPORT/$log"; }
+auto_reboot_after_failure() {
+    typeset tx=${IT_DATA:-/data}/nemesis/gen5w-kr-integrated base=${IT_DATA:-/data}/nemesis
+    typeset boot= held= state= uncertain= why= rev= count=0 last= counter
+    counter=$tx/auto-reboot
+    IFS= read -r boot < /proc/sys/kernel/random/boot_id || return 0
+    [ -f "$base/gen5wkr.install-hold" ] && [ ! -L "$base/gen5wkr.install-hold" ] &&
+        IFS= read -r held < "$base/gen5wkr.install-hold" && [ "$held" = "$boot" ] && why=services-held
+    [ -f "$tx/service-uncertain" ] && [ ! -L "$tx/service-uncertain" ] &&
+        IFS= read -r uncertain < "$tx/service-uncertain" && [ "$uncertain" = "$boot" ] && why=${why:-stop-proof-uncertain}
+    state=$(cat "$tx/state" 2>/dev/null)
+    case "$state" in recovery-required|recovering|applying|removing) why=recovery-required;; esac
+    [ -n "$why" ] || return 0
+    [ -f BUILD-REVISION ] && IFS= read -r rev < BUILD-REVISION
+    if [ -f "$counter" ] && [ ! -L "$counter" ]; then IFS=' ' read -r last count < "$counter"; fi
+    case "$count" in ''|*[!0-9]*) count=0;; esac
+    [ "$last" = "$rev" ] || count=0
+    if [ "$count" -ge 2 ]; then
+        say "AUTO REBOOT STOPPED: failed again after $count automatic reboots ($why); no further automatic reboot"
+        say 'NEXT: turn the car off and on once, then send GEN5W-REPORT for analysis'
+        return 0
+    fi
+    [ -L "$counter" ] || echo "$rev $((count + 1))" > "$counter"
+    if [ "$why" = recovery-required ]; then
+        case "$requested_action" in install|update|stock-recover) ;;
+            *) [ -L GEN5W-ACTION ] || echo stock-recover > GEN5W-ACTION;;
+        esac
+        say "AUTO REBOOT ($why): change unfinished; after reboot, insert this USB again to restore stock automatically"
+        value='Gen5W 작업이 끝나지 않아 재부팅합니다. 재부팅 후 USB를 다시 꽂으면 순정 복구를 진행합니다.'
+    else
+        say "AUTO REBOOT ($why): nothing was changed; rebooting to release stopped services. Insert this USB again to retry"
+        value='Gen5W 작업을 시작하지 못해 재부팅합니다. 바뀐 것은 없습니다. 재부팅 후 USB를 다시 꽂으면 다시 시도합니다.'
+    fi
+    echo "auto_reboot=$why" >> "GEN5W-REPORT/$start"
+    [ ! -x /system/bin/am ] || /system/bin/am broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "$value" --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || :
+    sync
+    [ "${IT_NO_REBOOT:-0}" != 1 ] || { echo 'auto_reboot=suppressed-by-test' >> "GEN5W-REPORT/$start"; return 0; }
+    sleep 5
+    if [ -x /system/bin/d_audio ]; then /system/bin/d_audio -c reboot force_normal; else /system/bin/reboot force_normal || /system/bin/reboot; fi
+}
+case "$action:$status" in
+    install:0|update:0|remove:0|rollback:0|stock-recover:0|wired-only:0)
+        rm -f "${IT_DATA:-/data}/nemesis/gen5w-kr-integrated/auto-reboot" 2>/dev/null;;
+    install:*|update:*|remove:*|rollback:*|stock-recover:*|wired-only:*)
+        auto_reboot_after_failure;;
+esac
 sync
 exit "$status"

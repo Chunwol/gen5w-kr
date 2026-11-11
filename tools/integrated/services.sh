@@ -66,6 +66,36 @@ q_keys() {
     local ident rest
     for ident in $1; do rest=${ident#*:*:}; echo "${ident%%:*}:${rest%:*}"; done
 }
+# Waits (at most IT_Q_DRAIN seconds, default 30) until no captured service
+# process and no process in an owned NEMESIS session is alive. Read-only: it
+# never signals. Uses the caller's roots, protected and owned_sessions.
+q_owned_drain() {
+    local waited=0 busy old pid current rest value entry sid
+    while [ "$waited" -lt "${IT_Q_DRAIN:-30}" ]; do
+        busy=
+        for old in $roots; do
+            pid=${old%%:*}; case "$protected" in *" $pid "*) continue;; esac
+            current=$(q_identity "$pid") || continue
+            rest=${current#*:*:}; value=${old#*:*:}
+            [ "${rest%:*}" != "${value%:*}" ] || [ "${current##*:}" = Z ] || { busy=1; break; }
+        done
+        if [ -z "$busy" ]; then
+            for entry in /proc/[0-9]*/stat; do
+                pid=${entry#/proc/}; pid=${pid%/stat}
+                sid=$(q_session "$pid") || continue
+                case "$owned_sessions" in *" $sid "*) ;; *) continue;; esac
+                current=$(q_identity "$pid") || continue
+                [ "${current##*:}" != Z ] || continue
+                q_worker_process "$pid" && continue
+                busy=1; break
+            done
+        fi
+        [ -n "$busy" ] || return 0
+        sleep 1; waited=$((waited + 1))
+    done
+    report "NOTE service children still running after ${IT_Q_DRAIN:-30}s wait"
+    return 0
+}
 q_worker_process() {
     local candidate=$1 hop ident parent rest
     for hop in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
@@ -132,7 +162,7 @@ q_owned() {
 q_identity() {
     local line rest n=0 parent= start= state= token
     case "$1" in ''|*[!0-9]*) return 1;; esac
-    IFS= read -r line < "/proc/$1/stat" 2>/dev/null || return 1
+    IFS= read -r line 2>/dev/null < "/proc/$1/stat" || return 1
     rest=${line##*) }
     [ "$rest" != "$line" ] || return 1
     for token in $rest; do
@@ -144,7 +174,7 @@ q_identity() {
 }
 q_session() {
     local line rest token n=0
-    IFS= read -r line < "/proc/$1/stat" 2>/dev/null || return 1
+    IFS= read -r line 2>/dev/null < "/proc/$1/stat" || return 1
     rest=${line##*) }
     for token in $rest; do
         n=$((n+1)); [ "$n" != 4 ] || {
@@ -364,6 +394,10 @@ q_barrier_impl() {
     # Parent stop does not guarantee child stop. Do not guess ownership or send
     # signals from a non-atomic /proc inspection. Refuse if descendants survive.
     sleep 1
+    # A stopped service shell can leave a short-lived child behind (an orphaned
+    # "sleep 15" between polls). It ends by itself: wait for it, without
+    # signalling anything. The strict checks below still refuse what remains.
+    q_owned_drain
     # Known launchers/children must already be gone before looking for late
     # children; otherwise they could fork after the last process scan.
     for old in $roots; do

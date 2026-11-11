@@ -2,6 +2,8 @@
 cd "$(dirname "$0")/.." || exit 1
 . tests/lib.sh
 W=$(mktemp -d)
+# Persistent leftovers are refused after this wait; keep the suite fast.
+export IT_Q_DRAIN=2
 mkdir -p "$W/data/nemesis/pids" "$W/proc" "$W/apps" "$W/tx"
 echo "$$" > "$W/data/nemesis/svcmgr.pid"
 mkdir -p "$W/tx/lock"
@@ -99,6 +101,20 @@ orphan_pid=$(cat "$W/orphan-pid")
 kill "$session_root" "$orphan_pid" 2>/dev/null || true
 wait "$session_root" 2>/dev/null || true
 echo '00000000-0000-0000-0000-000000000000' > "$W/tx/service-uncertain"
+# Real car (v0.3.64 -> v0.3.65 update): a stopped service shell leaves an
+# orphaned "sleep" in its session for a few seconds. Waited for, not refused.
+sed -e "s#'sleep','300'#'sleep','3'#" -e 's#orphan-#short-#g' "$W/session-root" > "$W/short-root"
+QT="$W" /usr/bin/setsid /usr/bin/python3 "$W/short-root" & short_root=$!
+for attempt in {1..100}; do [ ! -f "$W/short-ready" ] || break; sleep 0.01; done
+echo "gen5w.kr.core/uilog|restart|running|$short_root" > "$W/inventory"
+QREALROOT="$short_root" IT_Q_DRAIN=10 run
+short_rc=$?
+check 'short-lived child left by a stopped service is waited for' test "$short_rc" = 0
+[ "$short_rc" = 0 ] || cat "$W/out"
+check 'waiting never signals the leftover child' eval '! grep -q "kill" "$W/out"'
+wait "$short_root" 2>/dev/null || true
+echo '00000000-0000-0000-0000-000000000000' > "$W/tx/service-uncertain"
+echo "gen5w.kr.core/uilog|restart|running|$session_root" > "$W/inventory"
 QSTOPFAIL=1 run
 check 'stop failure refuses preparation' test $? != 0
 new_boot
