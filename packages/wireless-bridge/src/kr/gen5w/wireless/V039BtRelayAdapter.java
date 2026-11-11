@@ -41,7 +41,6 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     private final Context context;
     private final Listener listener;
     private final Object lock = new Object();
-    private boolean btcmConnected;
     private HfDeviceBTCMManager btcm;
     private IIap2Service iap2;
     private BtRelayPipe pipe;
@@ -67,12 +66,12 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             }
             HfDeviceBTCMManager manager = HfDeviceBTCMManager.getLocalBTCMService(context, btcmService);
             synchronized (lock) { if (manager != null) btcm = manager; }
-            // Register only from onBTCMServiceConnected, as stock DiPO does. A
-            // registration made before the manager was bound was silently dropped on
-            // the car: no SPP status or phone data ever reached us, so the phone's
+            // A registration made before the manager was bound was silently dropped
+            // on the car: no SPP status or phone data ever reached us, so the phone's
             // iAP2 replies never got to the iAP2 server (link WaitDetectTimeout).
-            // The connected callback may also run before btcm is set here.
-            registerBtcmIfReady();
+            // Register now (works if the manager is already bound) and register again
+            // on onBTCMServiceConnected, as stock DiPO does; see registerBtcm.
+            registerBtcm(false);
             signalReadyIfComplete();
             return bound;
         } catch (RuntimeException e) {
@@ -179,19 +178,18 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         }
         try { if (bound) context.unbindService(iap2Connection); } catch (RuntimeException ignored) { }
         synchronized (lock) {
-            btcm = null; iap2 = null; address = null; generation = 0; bound = false; registered = false; btcmConnected = false;
+            btcm = null; iap2 = null; address = null; generation = 0; bound = false; registered = false;
         }
     }
 
     private final HfDeviceBTCMManager.BTCMServiceListener btcmService =
             new HfDeviceBTCMManager.BTCMServiceListener() {
         public void onBTCMServiceConnected() {
-            synchronized (lock) { btcmConnected = true; }
             android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=service-connected");
-            registerBtcmIfReady(); signalReadyIfComplete();
+            registerBtcm(true); signalReadyIfComplete();
         }
         public void onBTCMServiceDisconnected() {
-            long owner; synchronized (lock) { owner = generation; btcm = null; registered = false; btcmConnected = false; }
+            long owner; synchronized (lock) { owner = generation; btcm = null; registered = false; }
             if (owner != 0) fail(owner, Failure.BTCM_UNAVAILABLE);
         }
     };
@@ -278,13 +276,20 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         }
     };
 
-    private void registerBtcmIfReady() {
+    /** renew: the manager has just connected. Drop any earlier registration first
+     * (it may have been ignored, or may be live) so exactly one stays: a duplicate
+     * would hand every phone packet to iAP2 twice. Unregistering a listener the
+     * manager does not hold is a no-op. */
+    void registerBtcm(boolean renew) {
         HfDeviceBTCMManager manager;
-        synchronized (lock) { if (btcm == null || !btcmConnected || registered) return; manager = btcm; }
+        synchronized (lock) { if (btcm == null || (registered && !renew)) return; manager = btcm; }
         try {
+            if (renew) {
+                try { manager.unregisterHfDeviceStatusListener(btcmListener); } catch (RuntimeException ignored) { }
+            }
             manager.registerHfDeviceStatusListener(btcmListener);
             synchronized (lock) { registered = true; }
-            android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=listener-registered");
+            android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=" + (renew ? "listener-renewed" : "listener-registered"));
         } catch (RuntimeException e) { listener.failed(0, Failure.BTCM_UNAVAILABLE); }
     }
 

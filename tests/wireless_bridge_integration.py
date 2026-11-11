@@ -31,7 +31,7 @@ final class V039RelayCoordinator {
  void start(String a){starts++;owner++;} long generation(){return owner;} void candidateLost(){owner++;losses++;running=false;} void handoverRequested(){}
  void handoverConnected(){} void handoverDisconnected(){} void apObservedReady(){}
  void credentialsReady(){} void projectionActive(){} void close(){}
- void cancel(BtRelaySession.CancelReason r){cancels++;} boolean active(){return running;}
+ void cancel(BtRelaySession.CancelReason r){cancels++;} boolean active(){return running;} static boolean adapterOk=true; boolean adapterReady(){return adapterOk;}
 }''',
 }
 harness = r"""
@@ -113,6 +113,19 @@ public class WirelessBridgeIntegrationTest {
             check(android.util.Log.lines.contains("path=stock event=wifi result="+tokens[i]),"stable interface diagnostic "+i);
             check(DriveLog.codes.contains("10:"+(43+i)),"stable numeric interface diagnostic "+i);
             for(String line:android.util.Log.lines)if(names[i].length()>0)check(!line.contains(names[i]),"interface name never logged");
+        }
+    }
+    static void relayReadySkipsStockBootstrap() throws Exception {
+        boolean[][] cases={{true,true},{false,true},{true,false}}; // adapter ready, Apple CarPlay
+        for(boolean[] k:cases){
+            V039RelayCoordinator.adapterOk=k[0]; android.util.Log.lines.clear();
+            TestContext c=new TestContext();try{c.bridge.enableRelay();c.bridge.appleCarPlay.put("phone",Boolean.valueOf(k[1]));
+                c.bridge.session.candidate("phone",10);c.bridge.session.tick(10);settle(c);
+                boolean skip=k[0]&&k[1];
+                check(skip==android.util.Log.lines.contains("path=stock event=bootstrap result=skipped-relay-ready"),"skip only with ready adapter and Apple phone");
+                check(skip?c.manager.calls==0&&c.broadcasts==0&&c.bridge.session.phase()==StockProjectionSession.Phase.FAILED
+                          :c.manager.calls==1,"skipped bootstrap sends nothing; otherwise stock path runs");
+            }finally{c.bridge.shutdown();V039RelayCoordinator.adapterOk=true;}
         }
     }
     static void missingProfileFallsBackOnlyForFreshAppleSdp() throws Exception {
@@ -213,7 +226,7 @@ public class WirelessBridgeIntegrationTest {
         check("".equals(c.receiverPermissions.get("connected")),"system Bluetooth broadcasts stay open");
       }finally{c.bridge.shutdown();}
     }
-    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();System.out.println("PASS production WirelessBridge ownership integration");}
+    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:

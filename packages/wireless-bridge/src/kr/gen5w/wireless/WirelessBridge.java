@@ -364,7 +364,12 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                     // An idle, successful OEM read is required for every attempt, including retries.
                     if (!relay.active() && relayEligible(address) && state != null &&
                             state.result == StockProjectionSession.Result.INVOKED && state.serviceAvailable &&
-                            !state.active && !state.connecting && !state.otherActive) relay.start(address);
+                            !state.active && !state.connecting && !state.otherActive) {
+                        relay.start(address);
+                        // Event, not the next 1 s tick: the AP starts as soon as SPP is up.
+                        if (relay.active() && inspectWifiCredentials() == ProjectionWifiAccess.CredentialStatus.PRESENT)
+                            relay.credentialsReady();
+                    }
                 }});
             }});
         } catch (RuntimeException e) { relayInspectPending = false; }
@@ -420,7 +425,10 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         // With the V039 relay ready, the stock profile path never completes on this
         // car (it timed out every time). Skip it so the relay starts as soon as the
         // CarPlay phone is ready, instead of after the 60 s stock timeout.
-        if (relayEnabled) {
+        // Only when the relay can take over right away: adapter ready and the phone
+        // known as a CarPlay iPhone. Otherwise keep the stock path (and its timeout)
+        // so a phone is never left with neither path running.
+        if (relayEnabled && relay.adapterReady() && Boolean.TRUE.equals(appleCarPlay.get(address))) {
             log("path=stock event=bootstrap result=skipped-relay-ready");
             main.post(new Runnable() {
                 public void run() {

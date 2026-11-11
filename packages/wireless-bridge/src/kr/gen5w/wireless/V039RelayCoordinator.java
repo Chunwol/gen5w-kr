@@ -88,6 +88,7 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
     }
 
     long generation() { return session.generation(); }
+    boolean adapterReady() { return ready; }
 
     public void ready() {
         post(new Runnable() { public void run() {
@@ -98,9 +99,11 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
     }
 
     public void sppConnected(final long generation) { post(new Runnable() { public void run() {
+        events.relayEvent("step", "spp-connected");
         apply(session.sppConnected(generation, now()));
     }}); }
     public void iap2Connected(final long generation, final int component) { post(new Runnable() { public void run() {
+        events.relayEvent("step", "iap2-connected-" + component);
         apply(session.iap2Connected(generation, component, now()));
     }}); }
     public void disconnected(final long generation, final int component) { post(new Runnable() { public void run() {
@@ -133,6 +136,8 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
     }
 
     private void execute(final long generation, BtRelaySession.Command command) {
+        events.relayEvent("step", command.type.name().toLowerCase() + (command.component != 0 ? "-" + command.component : "")
+                + " phase=" + session.phase().name().toLowerCase());
         switch (command.type) {
             case CONNECT_SPP:
                 if (!adapter.connect(generation, candidate)) apply(session.fail(generation, BtRelaySession.FailureReason.SPP_ERROR));
