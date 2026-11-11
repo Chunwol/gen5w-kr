@@ -48,6 +48,8 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     private long generation;
     private boolean bound;
     private boolean registered;
+    /** Address whose last attempt waited for the stock SPP link without getting it. */
+    private String waitedFor;
 
     public V039BtRelayAdapter(Context context, Listener listener, BtRelayPipe.Diagnostics diagnostics) {
         if (context == null || listener == null || diagnostics == null) throw new IllegalArgumentException("relay");
@@ -94,11 +96,20 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         }
         boolean result;
         boolean alreadyConnected = false;
+        boolean request = false;
         try {
             alreadyConnected = manager.IbtcmIsSppConnectedDevice(candidateAddress);
-            result = alreadyConnected || manager.IbtcmSppConnect(candidateAddress);
-            android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=" + (alreadyConnected ? "already-connected" : result ? "requested" : "rejected")
-                    + " device=" + candidateAddress);
+            // The stock BTCM opens SPP itself when the phone connects (car log: about
+            // 0.7 s after ACL). The relay now starts at once, so on the first attempt
+            // wait for that link (onBTCMSppStatusChanged) instead of starting a second
+            // connect; ask BTCM to connect only if a previous wait got nothing.
+            synchronized (lock) {
+                request = !alreadyConnected && candidateAddress.equals(waitedFor);
+                waitedFor = alreadyConnected ? null : candidateAddress;
+            }
+            result = alreadyConnected || !request || manager.IbtcmSppConnect(candidateAddress);
+            android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=" + (alreadyConnected ? "already-connected"
+                    : !request ? "waiting-stock-spp" : result ? "requested" : "rejected") + " device=" + candidateAddress);
         } catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.spp.connect",e,ownerGeneration);result = false; }
         if (!result) fail(ownerGeneration, Failure.SPP_CONNECT);
         else if (alreadyConnected && pipe.attach(ownerGeneration)) listener.sppConnected(ownerGeneration);
@@ -213,9 +224,13 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
                 if (!matches(device)) return;
                 owner = generation;
             }
+            android.util.Log.i("Gen5wWireless", "path=relay event=spp-status result=" + status + " owner=" + owner);
             if (status == SPP_CONNECTED) {
+                synchronized (lock) { waitedFor = null; }
                 if (pipe.attach(owner)) listener.sppConnected(owner);
             } else if (owner != 0 && pipe.isActive()) {
+                // Only 2 (connected) is seen in the car log. Before the link is attached
+                // other values change nothing; once attached, anything else is a loss.
                 pipe.phoneDisconnected(owner);
                 listener.disconnected(owner, 4);
                 clear(owner);
@@ -299,7 +314,8 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     };
 
     /**
-     * Links our listener to the BTCM service. Verified in the V039 com.broadcom.bt.jar
+     * Links our listener to the BTCM service. Read in com.broadcom.bt.jar of the May 2025
+     * V039 system image (the car runs a September 2026 build, not available here)
      * (HfDeviceBTCMListenerManager): register() keeps app listeners in one local list
      * (a listener already in it is not added twice) and links the process to the
      * service through one "transmit" listener. That link is created on the first
@@ -318,7 +334,9 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         boolean up;
         try { up = manager.getRemoteService() != null; }
         catch (RuntimeException e) { up = false; }
-        catch (LinkageError e) { up = false; }
+        // Read from the May 2025 V039 image; the car runs a later build. If this
+        // method is missing there, register as before rather than never.
+        catch (LinkageError e) { up = true; }
         if (!up) {
             android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=waiting-service");
             return;

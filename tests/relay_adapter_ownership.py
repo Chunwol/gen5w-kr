@@ -43,11 +43,18 @@ public class RelayAdapterOwnershipTest {
  com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager.BTCMServiceListener svc=(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager.BTCMServiceListener)sf.get(a);
  m.up=false;m.serverHas=null;svc.onBTCMServiceDisconnected();check(!m.delivers(),"restart drops the link");
  m.up=true;svc.onBTCMServiceConnected();check(m.delivers()&&m.list.size()==1,"reconnected service is linked again");
- check(a.connect(1,"phone"),"initial SPP request");check(!a.connect(2,"other"),"single local owner before cleanup");
+ java.lang.reflect.Field lf=a.getClass().getDeclaredField("btcmListener");lf.setAccessible(true);
+ com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener spp=(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener)lf.get(a);
+ // First attempt: the stock BTCM opens SPP itself (car log: 0.77 s after ACL), so do not start a second connect.
+ check(a.connect(1,"phone"),"initial SPP wait");check(m.connects==0,"first attempt waits for the stock SPP link");
+ check(android.util.Log.lines.contains("path=relay event=spp-connect result=waiting-stock-spp device=phone"),"wait is logged");
+ check(!a.connect(2,"other"),"single local owner before cleanup");
+ spp.onBTCMSppStatusChanged(new android.bluetooth.BluetoothDevice(),1);check(connectedCallbacks==0&&m.connects==0,"a non-connected status before attach changes nothing");
  a.disconnect();check(a.connect(3,"phone"),"SPP timeout cleanup releases adapter owner for retry");
- check(m.connects==2,"retry reaches reviewed OEM SPP boundary");
+ check(m.connects==1,"retry after a wait that got nothing asks BTCM to connect");
+ check(android.util.Log.lines.contains("path=relay event=spp-connect result=requested device=phone"),"request is logged");
  check(android.util.Log.lines.contains("path=relay event=cleanup result=local-owner-released-oem-spp-retained"),"explicit physical SPP limitation diagnostic");
- a.disconnect();m.connected=true;check(a.connect(5,"phone"),"reviewed OEM query permits retained SPP reuse");check(m.connects==2&&connectedCallbacks==1,"retained link attaches fresh pipe without duplicate OEM connect");
+ a.disconnect();m.connected=true;check(a.connect(5,"phone"),"reviewed OEM query permits retained SPP reuse");check(m.connects==1&&connectedCallbacks==1,"retained link attaches fresh pipe without duplicate OEM connect");
  a.stop(4);a.disconnect();check(a.connect(6,"phone"),"reuse after component stop");check(connectedCallbacks==2,"component stop releases pipe before clearing adapter owner");
  set(a,"iap2",new com.tcc.iap2.IIap2Service(){public boolean Iap2SvcTransportReadDone(byte[] b,int n)throws android.os.RemoteException{throw new android.os.RemoteException();}});
  java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();java.io.PrintStream original=System.err;

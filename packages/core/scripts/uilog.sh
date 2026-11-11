@@ -447,6 +447,8 @@ collect_deep() {
         print -r -- "-- saved Android log (logring): copied whole to logcat-<n>.txt next to this file"
         print -r -- "-- saved log files on /data (sizes show how far back the ring reaches)"
         ls -l "$NEMDIR/gen5wkr.logs" 2>&1
+        print -r -- "-- logcat writers (more than one per ring file means interleaved rotation)"
+        ps 2>/dev/null | grep -a logcat
         print -r -- "-- AP broker stderr (whole)"
         for f in "$NEMDIR/gen5wkr.errors/broker-stderr.log.1" "$NEMDIR/gen5wkr.errors/broker-stderr.log"; do
             [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null

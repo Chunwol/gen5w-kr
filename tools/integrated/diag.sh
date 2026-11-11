@@ -129,6 +129,8 @@ if {
     done
     section 'saved log files on /data (sizes show how far back the ring reaches)'
     ls -l "$DATA/nemesis/gen5wkr.logs" 2>&1
+    section 'logcat writers (more than one per ring file means interleaved rotation)'
+    ps 2>/dev/null | grep logcat
     section 'saved Android log on /data (logring)'
     echo "copied whole to GEN5W-REPORT/LOGCAT-$n.txt"
     section 'logcat buffer range (first and last line)'
