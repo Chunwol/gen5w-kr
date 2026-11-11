@@ -4,7 +4,6 @@ import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 import android.util.Log;
 import java.io.IOException;
-import java.net.SocketTimeoutException;
 
 /** Requests AP setup without transferring the saved Wi-Fi credentials. */
 public final class ApBrokerClient {
@@ -35,10 +34,12 @@ public final class ApBrokerClient {
                     if (response != 'O') throw new IOException("AP setup unavailable");
                     guard.check();
                     return;
-                } catch (SocketTimeoutException ignored) { }
+                } catch (IOException timeout) {
+                    if (!ApBrokerPolicy.readTimedOut(timeout)) throw timeout;
+                }
             }
         } catch (Exception e) {
-            Log.i("Gen5wWireless", "AP broker failure stage=" + stage + " type=" + e.getClass().getName());
+            Log.i("Gen5wWireless", "AP broker failure stage=" + stage + " type=" + e.getClass().getName() + " message=" + e.getMessage());
             throw e;
         } finally { try { socket.close(); } catch (IOException ignored) { } }
     }
