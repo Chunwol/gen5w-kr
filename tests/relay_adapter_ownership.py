@@ -25,13 +25,24 @@ public class RelayAdapterOwnershipTest {
  static void check(boolean b,String m){if(!b)throw new AssertionError(m);}
  static void set(Object o,String n,Object v)throws Exception{java.lang.reflect.Field f=o.getClass().getDeclaredField(n);f.setAccessible(true);f.set(o,v);}
  static int connectedCallbacks;
- static class Manager extends com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager {int connects,live,registers;boolean connected;public void registerHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){live++;registers++;}public void unregisterHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){if(live>0)live--;}public boolean IbtcmSppConnect(String a){connects++;return true;}public boolean IbtcmIsSppConnectedDevice(String a){return connected;}}
+ static class Manager extends com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager {int connects,registers;boolean connected,up=true;java.util.List<Object> list=new java.util.ArrayList<Object>();Object transmit,serverHas;public com.broadcom.bt.hfdevice.hfbtcm.IHfDeviceBTCMService getRemoteService(){return up?new com.broadcom.bt.hfdevice.hfbtcm.IHfDeviceBTCMService(){}:null;}public void registerHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){registers++;if(transmit==null){transmit=new Object();if(up)serverHas=transmit;}if(!list.contains(l))list.add(l);}public void unregisterHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){list.remove(l);if(list.isEmpty()&&transmit!=null){if(up&&serverHas==transmit)serverHas=null;transmit=null;}}boolean delivers(){return !list.isEmpty()&&transmit!=null&&serverHas==transmit;}public boolean IbtcmSppConnect(String a){connects++;return true;}public boolean IbtcmIsSppConnectedDevice(String a){return connected;}}
  public static void main(String[]args)throws Exception{
  V039BtRelayAdapter a=new V039BtRelayAdapter(new android.content.Context(){public Object getSystemService(String n){return null;}},new V039BtRelayAdapter.Listener(){public void ready(){}public void sppConnected(long g){connectedCallbacks++;}public void iap2Connected(long g,int c){}public void disconnected(long g,int c){}public void failed(long g,V039BtRelayAdapter.Failure f){}},new BtRelayPipe.Diagnostics(){public void event(BtRelayPipe.Event e,int c){}});
  Manager m=new Manager();set(a,"btcm",m);set(a,"iap2",new com.tcc.iap2.IIap2Service());
- a.registerBtcm(false);a.registerBtcm(false);check(m.live==1&&m.registers==1,"early registration happens once");
- a.registerBtcm(true);check(m.live==1&&m.registers==2,"service-connected re-registers without a duplicate listener");
+ // The car: registering before the service is bound leaves an unlinked transmit that no later register fixes.
+ Manager bug=new Manager();bug.up=false;com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener probe=new com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener(){};
+ bug.registerHfDeviceStatusListener(probe);bug.up=true;bug.registerHfDeviceStatusListener(probe);check(!bug.delivers(),"model reproduces the V039 library: early register never links");
+ m.up=false;a.registerBtcm(false);check(m.registers==0&&!m.delivers(),"no registration while the service is unbound");
+ check(android.util.Log.lines.contains("path=relay event=btcm result=waiting-service"),"waiting is logged");
+ check(!a.connect(9,"phone")&&m.connects==0,"no SPP attempt without a linked listener");
+ m.up=true;a.registerBtcm(true);check(m.delivers()&&m.list.size()==1,"service-connected links the listener once");
  check(android.util.Log.lines.contains("path=relay event=btcm result=listener-renewed"),"renewal is logged");
+ a.registerBtcm(false);check(m.list.size()==1&&m.registers==1,"no duplicate registration");
+ // Service restart: the server loses the link; our manager reference must survive and relink.
+ java.lang.reflect.Field sf=a.getClass().getDeclaredField("btcmService");sf.setAccessible(true);
+ com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager.BTCMServiceListener svc=(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager.BTCMServiceListener)sf.get(a);
+ m.up=false;m.serverHas=null;svc.onBTCMServiceDisconnected();check(!m.delivers(),"restart drops the link");
+ m.up=true;svc.onBTCMServiceConnected();check(m.delivers()&&m.list.size()==1,"reconnected service is linked again");
  check(a.connect(1,"phone"),"initial SPP request");check(!a.connect(2,"other"),"single local owner before cleanup");
  a.disconnect();check(a.connect(3,"phone"),"SPP timeout cleanup releases adapter owner for retry");
  check(m.connects==2,"retry reaches reviewed OEM SPP boundary");

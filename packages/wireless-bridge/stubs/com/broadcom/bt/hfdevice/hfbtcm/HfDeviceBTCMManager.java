@@ -13,6 +13,8 @@ public class HfDeviceBTCMManager {
     public static HfDeviceBTCMManager getLocalBTCMService(Context context, BTCMServiceListener listener) {
         throw new RuntimeException("stub");
     }
+    /** The bound BTCM service, or null before onBTCMServiceConnected / after a disconnect. */
+    public IHfDeviceBTCMService getRemoteService() { return null; }
     public void registerHfDeviceStatusListener(HfDeviceStatusListener listener) { }
     public void unregisterHfDeviceStatusListener(HfDeviceStatusListener listener) { }
     public BluetoothDevice IbtcmGetHfpConnectedDevice() { return null; }

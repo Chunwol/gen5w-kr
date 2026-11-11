@@ -66,11 +66,8 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             }
             HfDeviceBTCMManager manager = HfDeviceBTCMManager.getLocalBTCMService(context, btcmService);
             synchronized (lock) { if (manager != null) btcm = manager; }
-            // A registration made before the manager was bound was silently dropped
-            // on the car: no SPP status or phone data ever reached us, so the phone's
-            // iAP2 replies never got to the iAP2 server (link WaitDetectTimeout).
-            // Register now (works if the manager is already bound) and register again
-            // on onBTCMServiceConnected, as stock DiPO does; see registerBtcm.
+            // Registers now only if the service is already bound; otherwise
+            // onBTCMServiceConnected does it. See registerBtcm.
             registerBtcm(false);
             signalReadyIfComplete();
             return bound;
@@ -85,9 +82,10 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         HfDeviceBTCMManager manager;
         if (ownerGeneration <= 0 || candidateAddress == null || candidateAddress.length() == 0) return false;
         synchronized (lock) {
-            if (generation != 0 || btcm == null || iap2 == null) {
+            // Without a linked listener no phone data would reach iAP2; refuse instead.
+            if (generation != 0 || btcm == null || iap2 == null || !registered) {
                 android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=refused busy=" + (generation != 0)
-                        + " btcm=" + (btcm != null) + " iap2=" + (iap2 != null));
+                        + " btcm=" + (btcm != null) + " iap2=" + (iap2 != null) + " listener=" + registered);
                 return false;
             }
             generation = ownerGeneration;
@@ -200,7 +198,10 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             registerBtcm(true); signalReadyIfComplete();
         }
         public void onBTCMServiceDisconnected() {
-            long owner; synchronized (lock) { owner = generation; btcm = null; registered = false; }
+            // Keep btcm: it is the process-wide manager and rebinds by itself, then
+            // calls onBTCMServiceConnected again, where the listener is linked anew.
+            android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=service-disconnected");
+            long owner; synchronized (lock) { owner = generation; registered = false; }
             if (owner != 0) fail(owner, Failure.BTCM_UNAVAILABLE);
         }
     };
@@ -297,13 +298,31 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         }
     };
 
-    /** renew: the manager has just connected. Drop any earlier registration first
-     * (it may have been ignored, or may be live) so exactly one stays: a duplicate
-     * would hand every phone packet to iAP2 twice. Unregistering a listener the
-     * manager does not hold is a no-op. */
+    /**
+     * Links our listener to the BTCM service. Verified in the V039 com.broadcom.bt.jar
+     * (HfDeviceBTCMListenerManager): register() keeps app listeners in one local list
+     * (a listener already in it is not added twice) and links the process to the
+     * service through one "transmit" listener. That link is created on the first
+     * register() call; if the service is not bound yet the link object is still
+     * created but never sent to the service, and no later register() retries it.
+     * This is what the car did: we registered before the service was bound, so no
+     * phone data ever reached us (iAP2 WaitDetectTimeout while the phone answered).
+     * So: never register while getRemoteService() is null, and on every
+     * service-connected (it also follows a service restart) unregister first.
+     * unregister() of the last listener drops the old link (and clears it), so the
+     * following register() links again to the live service.
+     */
     void registerBtcm(boolean renew) {
         HfDeviceBTCMManager manager;
         synchronized (lock) { if (btcm == null || (registered && !renew)) return; manager = btcm; }
+        boolean up;
+        try { up = manager.getRemoteService() != null; }
+        catch (RuntimeException e) { up = false; }
+        catch (LinkageError e) { up = false; }
+        if (!up) {
+            android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=waiting-service");
+            return;
+        }
         try {
             if (renew) {
                 try { manager.unregisterHfDeviceStatusListener(btcmListener); } catch (RuntimeException ignored) { }

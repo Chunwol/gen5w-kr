@@ -179,10 +179,13 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                 relay.candidateLost();
                 log("path=stock event=reset reason=system-power-on");
             } else if ("kr.gen5w.wireless.RELAY_HANDOVER_REQUESTED".equals(action)) {
+                log("path=relay event=dipo-handover result=requested");
                 relay.handoverRequested();
             } else if ("kr.gen5w.wireless.RELAY_HANDOVER_CONNECTED".equals(action)) {
+                log("path=relay event=dipo-handover result=connected");
                 relay.handoverConnected();
             } else if ("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED".equals(action)) {
+                log("path=relay event=dipo-handover result=disconnected");
                 relay.handoverDisconnected();
             }
             refreshWired();
