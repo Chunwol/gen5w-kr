@@ -2,7 +2,7 @@ package kr.gen5w.wireless;
 
 /** Owns one generation-checked OEM projection bootstrap and connection attempt. */
 public final class StockProjectionSession {
-    public static final long PROFILE_BOOTSTRAP_TIMEOUT_MS = 60000L;
+    public static final long PROFILE_BOOTSTRAP_TIMEOUT_MS = 10000L;
     public static final long WIFI_TIMEOUT_MS = 30000L;
     public static final long REQUEST_TIMEOUT_MS = 20000L;
     public static final long POLL_INTERVAL_MS = 1000L;
