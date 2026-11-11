@@ -85,7 +85,11 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         HfDeviceBTCMManager manager;
         if (ownerGeneration <= 0 || candidateAddress == null || candidateAddress.length() == 0) return false;
         synchronized (lock) {
-            if (generation != 0 || btcm == null || iap2 == null) return false;
+            if (generation != 0 || btcm == null || iap2 == null) {
+                android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=refused busy=" + (generation != 0)
+                        + " btcm=" + (btcm != null) + " iap2=" + (iap2 != null));
+                return false;
+            }
             generation = ownerGeneration;
             address = candidateAddress;
             manager = btcm;
@@ -95,6 +99,8 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         try {
             alreadyConnected = manager.IbtcmIsSppConnectedDevice(candidateAddress);
             result = alreadyConnected || manager.IbtcmSppConnect(candidateAddress);
+            android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=" + (alreadyConnected ? "already-connected" : result ? "requested" : "rejected")
+                    + " device=" + candidateAddress);
         } catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.spp.connect",e,ownerGeneration);result = false; }
         if (!result) fail(ownerGeneration, Failure.SPP_CONNECT);
         else if (alreadyConnected && pipe.attach(ownerGeneration)) listener.sppConnected(ownerGeneration);
@@ -105,7 +111,11 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         String serial;
         synchronized (lock) {
             if (generation != ownerGeneration || address == null || iap2 == null ||
-                    (component != COMPONENT_BT_TRANSPORT && component != 5)) return false;
+                    (component != COMPONENT_BT_TRANSPORT && component != 5)) {
+                android.util.Log.i("Gen5wWireless", "path=relay event=iap2-start result=refused component=" + component
+                        + " stale=" + (generation != ownerGeneration) + " iap2=" + (iap2 != null));
+                return false;
+            }
             serial = address;
         }
         try {
@@ -113,6 +123,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             intent.putExtra(COMPONENT_EXTRA, component);
             intent.putExtra("serial", serial);
             if (context.startService(intent) == null) {
+                android.util.Log.i("Gen5wWireless", "path=relay event=iap2-start result=service-missing component=" + component);
                 fail(ownerGeneration, Failure.IAP2_START);
                 return false;
             }
@@ -248,10 +259,12 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     private final IIap2Listener iap2Listener = new IIap2Listener.Stub() {
         public void connected(int component, String serial) {
             long owner; synchronized (lock) { owner = generation; }
+            android.util.Log.i("Gen5wWireless", "path=relay event=iap2-callback result=connected component=" + component + " serial=" + serial + " owner=" + owner);
             if (owner != 0 && component == COMPONENT_BT_TRANSPORT) listener.iap2Connected(owner, component);
         }
         public void disconnected(int component) {
             long owner; synchronized (lock) { owner = generation; }
+            android.util.Log.i("Gen5wWireless", "path=relay event=iap2-callback result=disconnected component=" + component + " owner=" + owner);
             if (owner != 0 && component == COMPONENT_BT_TRANSPORT) {
                 if (pipe.isActive()) pipe.iap2Disconnected(owner);
                 listener.disconnected(owner, component);
@@ -259,7 +272,12 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             }
         }
         public void notify(int what, int a1, int a2, Iap2NotiMsg msg) {
-            if (what != NOTI_BT_TRANSPORT_DATA || msg == null) return;
+            if (what != NOTI_BT_TRANSPORT_DATA) {
+                // Link status from iAP2 (for example 51 = detect timeout); data packets are counted elsewhere.
+                android.util.Log.i("Gen5wWireless", "path=relay event=iap2-notify result=type-" + what + " a1=" + a1 + " a2=" + a2);
+                return;
+            }
+            if (msg == null) return;
             long owner; synchronized (lock) { owner = generation; }
             try {
                 Iap2NotiMsg.Iap2ObjGroup group = msg.getItemGroup();
@@ -272,7 +290,10 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
                         listener.failed(owner, Failure.TRANSPORT); return;
                     }
                 }
-            } catch (RuntimeException e) { listener.failed(owner, Failure.TRANSPORT); }
+            } catch (RuntimeException e) {
+                kr.gen5w.diag.SafeDiagnostic.failure("bt.iap.notify",e,owner);
+                listener.failed(owner, Failure.TRANSPORT);
+            }
         }
     };
 

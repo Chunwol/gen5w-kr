@@ -308,11 +308,26 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         }
         String address = session.candidate();
         if (address == null) return;
-        if (relayEligible(address) || relay.active()) inspectRelayProjection(address);
+        boolean eligible = relayEligible(address);
+        String why = eligible ? "eligible" : relayBlockReason(address);
+        if (!why.equals(lastRelayGate)) { lastRelayGate = why; log("path=relay event=gate result=" + why); }
+        if (eligible || relay.active()) inspectRelayProjection(address);
         if (!relay.active()) return;
         ProjectionWifiAccess.CredentialStatus credentials = inspectWifiCredentials();
         if (credentials == ProjectionWifiAccess.CredentialStatus.PRESENT) relay.credentialsReady();
         if (apProgress == ProjectionWifiAccess.ApProgress.READY) relay.apObservedReady();
+    }
+
+    private String lastRelayGate = "";
+
+    /** Why the relay may not start yet; logged only when it changes. */
+    private String relayBlockReason(String address) {
+        if (cable) return "wired";
+        if (!address.equals(session.candidate())) return "candidate-changed";
+        int type = session.observedProfileType();
+        if (type != PhoneProjectionAccess.TYPE_CARPLAY && !(type == 0 && Boolean.TRUE.equals(appleCarPlay.get(address))))
+            return "not-carplay profile=" + type + " apple=" + appleCarPlay.get(address);
+        return "stock-phase-" + session.phase().name().toLowerCase();
     }
 
     private boolean relayEligible(String address) {
@@ -339,7 +354,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                 } catch (Throwable e) {
                     // Any failure still reaches the main thread below, which clears the
                     // pending flag; a null read never starts or cancels a relay.
-                    log("path=relay event=inspect result=error");
+                    log("path=relay event=inspect result=error type=" + e.getClass().getName() + " message=" + e.getMessage());
                 }
                 final StockProjectionSession.Observation state = read;
                 main.post(new Runnable() { public void run() {

@@ -66,6 +66,12 @@ public final class BtRelayPipeTest {
         check(f.iap2.received.size() == 1 && f.iap2.components.get(0) == 4,
                 "the selected owner is forwarded to component 4");
         check(f.pipe.activeGeneration() == 10, "rejected contender does not replace the owner");
+        check(!f.pipe.phoneToIap2(11, new byte[] {1}, 1) &&
+                f.diagnostics.events.contains(BtRelayPipe.Event.PHONE_DROPPED_NOT_OWNER), "stale phone packet drop is logged");
+        check(!f.pipe.phoneToIap2(10, new byte[0], 0) &&
+                f.diagnostics.events.contains(BtRelayPipe.Event.PHONE_DROPPED_INVALID), "empty phone packet drop is logged");
+        check(!f.pipe.iap2ToPhone(11, new byte[] {1}, 1) &&
+                f.diagnostics.events.contains(BtRelayPipe.Event.IAP2_DROPPED_NOT_OWNER), "stale iAP2 packet drop is logged");
     }
 
     private static void bothDirectionsPreserveCallOrderAndFrameBytes() {

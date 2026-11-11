@@ -9,7 +9,9 @@ public final class BtRelayPipe {
     public enum Event {
         STARTED, PHONE_TO_IAP2, IAP2_TO_PHONE, PHONE_DISCONNECTED,
         IAP2_DISCONNECTED, IAP2_WRITE_FAILED, SPP_WRITE_FAILED,
-        CLEANUP_FAILED, STOPPED, OWNER_REJECTED
+        CLEANUP_FAILED, STOPPED, OWNER_REJECTED,
+        /** A packet was dropped: empty/invalid, or this attempt no longer owns the pipe. */
+        PHONE_DROPPED_INVALID, PHONE_DROPPED_NOT_OWNER, IAP2_DROPPED_INVALID, IAP2_DROPPED_NOT_OWNER
     }
 
     public interface SppEndpoint {
@@ -58,9 +60,11 @@ public final class BtRelayPipe {
     }
 
     public boolean phoneToIap2(long generation, byte[] payload, int length) {
-        if (!valid(payload, length)) return false;
+        if (!valid(payload, length)) { event(Event.PHONE_DROPPED_INVALID); return false; }
         byte[] frame = Arrays.copyOf(payload, length);
-        synchronized (this) { if (!owns(generation)) return false; }
+        boolean owned;
+        synchronized (this) { owned = owns(generation); }
+        if (!owned) { event(Event.PHONE_DROPPED_NOT_OWNER); return false; }
         boolean written;
         try {
             synchronized (iap2Writes) { written = iap2.readDone(COMPONENT_BLUETOOTH_CARPLAY, frame, frame.length); }
@@ -76,9 +80,11 @@ public final class BtRelayPipe {
     }
 
     public boolean iap2ToPhone(long generation, byte[] payload, int length) {
-        if (!valid(payload, length)) return false;
+        if (!valid(payload, length)) { event(Event.IAP2_DROPPED_INVALID); return false; }
         byte[] frame = Arrays.copyOf(payload, length);
-        synchronized (this) { if (!owns(generation)) return false; }
+        boolean owned;
+        synchronized (this) { owned = owns(generation); }
+        if (!owned) { event(Event.IAP2_DROPPED_NOT_OWNER); return false; }
         boolean written;
         try {
             synchronized (sppWrites) { written = spp.write(frame, frame.length); }

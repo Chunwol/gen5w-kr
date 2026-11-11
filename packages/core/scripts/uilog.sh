@@ -426,7 +426,9 @@ collect_deep() {
         for f in wlan0 ap0 p2p0 bt-pan; do ifconfig "$f" 2>&1; done | deep_tail "ifconfig per interface" 40
         err_run core collect netcfg netcfg | deep_tail "netcfg" 20
         ls -ln /data/misc/wifi /data/misc/wifi/sockets /data/misc/dhcp 2>/dev/null | deep_tail "wifi data folders (names only, no contents)" 40
-        err_run core collect kernel dmesg | grep -a -i -E 'bcmdhd|dhd|wlan|wifi|wl_|hostapd|p2p|sdio|firmware|nvram|killed process|out of memory' | deep_tail "kernel messages about wifi" 100
+        # Whole and unfiltered: the kernel log is not saved anywhere else (Wi-Fi/BT driver, USB, OOM).
+        print -r -- "-- kernel log (dmesg, whole)"
+        err_run core collect kernel dmesg
         print -r -- "-- storage and mounts (why the USB drive log may refuse to write)"
         cat "$MOUNTS" 2>/dev/null | grep -a -E 'usb|media_rw|fuse|vold|sdcard|storage' | deep_tail "mount table (usb, fuse, storage)" 30
         ls -ln /mnt /mnt/media_rw /storage /dev/block/vold 2>&1 | deep_tail "storage folders" 40
@@ -443,6 +445,12 @@ collect_deep() {
         print -r -- "-- logcat"
         err_run core collect logcat-main "$LOGCAT" -d -v time | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|[Bb]lue[Ll]ink|[Tt]elematics|[Ss]ubscri|WifiManager|[Ww]ifi[Aa]p|[Tt]oast|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
         print -r -- "-- saved Android log (logring): copied whole to logcat-<n>.txt next to this file"
+        print -r -- "-- saved log files on /data (sizes show how far back the ring reaches)"
+        ls -l "$NEMDIR/gen5wkr.logs" 2>&1
+        print -r -- "-- AP broker stderr (whole)"
+        for f in "$NEMDIR/gen5wkr.errors/broker-stderr.log.1" "$NEMDIR/gen5wkr.errors/broker-stderr.log"; do
+            [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
+        done
         print -r -- '-- collection status and first failures'
         err_export
     } 2>/dev/null >> "$out"

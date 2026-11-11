@@ -117,16 +117,18 @@ if {
         section "nemesis log ${f#$LOGS/} (last 80 lines)"
         last_lines 80 "$f" | clean
     done
-    section 'kernel log: wifi/usb'
-    err_run diag collect kernel dmesg | grep -i -E 'wlan|dhd|wifi|sdio|bcm|usb|hostapd|firmware' | clean
+    section 'kernel log (dmesg, whole)'
+    err_run diag collect kernel dmesg
     section 'logcat main (filtered)'
     err_run diag collect logcat-main logcat -d -v time | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat system (filtered)'
     err_run diag collect logcat-system logcat -d -v time -b system | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
-    section 'AP broker stderr (bridge, newest 120 lines)'
+    section 'AP broker stderr (whole)'
     for f in "$ERR_DIR/broker-stderr.log.1" "$ERR_DIR/broker-stderr.log"; do
-        [ -f "$f" ] && [ ! -L "$f" ] && last_lines 120 "$f"
+        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f"
     done
+    section 'saved log files on /data (sizes show how far back the ring reaches)'
+    ls -l "$DATA/nemesis/gen5wkr.logs" 2>&1
     section 'saved Android log on /data (logring)'
     echo "copied whole to GEN5W-REPORT/LOGCAT-$n.txt"
     section 'logcat buffer range (first and last line)'
