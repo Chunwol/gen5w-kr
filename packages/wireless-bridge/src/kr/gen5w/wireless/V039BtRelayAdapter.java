@@ -41,6 +41,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     private final Context context;
     private final Listener listener;
     private final Object lock = new Object();
+    private boolean btcmConnected;
     private HfDeviceBTCMManager btcm;
     private IIap2Service iap2;
     private BtRelayPipe pipe;
@@ -66,6 +67,11 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             }
             HfDeviceBTCMManager manager = HfDeviceBTCMManager.getLocalBTCMService(context, btcmService);
             synchronized (lock) { if (manager != null) btcm = manager; }
+            // Register only from onBTCMServiceConnected, as stock DiPO does. A
+            // registration made before the manager was bound was silently dropped on
+            // the car: no SPP status or phone data ever reached us, so the phone's
+            // iAP2 replies never got to the iAP2 server (link WaitDetectTimeout).
+            // The connected callback may also run before btcm is set here.
             registerBtcmIfReady();
             signalReadyIfComplete();
             return bound;
@@ -173,15 +179,19 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         }
         try { if (bound) context.unbindService(iap2Connection); } catch (RuntimeException ignored) { }
         synchronized (lock) {
-            btcm = null; iap2 = null; address = null; generation = 0; bound = false; registered = false;
+            btcm = null; iap2 = null; address = null; generation = 0; bound = false; registered = false; btcmConnected = false;
         }
     }
 
     private final HfDeviceBTCMManager.BTCMServiceListener btcmService =
             new HfDeviceBTCMManager.BTCMServiceListener() {
-        public void onBTCMServiceConnected() { registerBtcmIfReady(); signalReadyIfComplete(); }
+        public void onBTCMServiceConnected() {
+            synchronized (lock) { btcmConnected = true; }
+            android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=service-connected");
+            registerBtcmIfReady(); signalReadyIfComplete();
+        }
         public void onBTCMServiceDisconnected() {
-            long owner; synchronized (lock) { owner = generation; btcm = null; registered = false; }
+            long owner; synchronized (lock) { owner = generation; btcm = null; registered = false; btcmConnected = false; }
             if (owner != 0) fail(owner, Failure.BTCM_UNAVAILABLE);
         }
     };
@@ -204,7 +214,14 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
 
         @Override public void onBTCMSppInPutStreamChanged(BluetoothDevice device, byte[] buffer, int length) {
             long owner;
-            synchronized (lock) { if (!matches(device)) return; owner = generation; }
+            synchronized (lock) {
+                if (!matches(device)) {
+                    android.util.Log.i("Gen5wWireless", "path=relay event=spp-in result=ignored device="
+                            + (device == null ? "null" : device.getAddress()) + " expected=" + address + " generation=" + generation);
+                    return;
+                }
+                owner = generation;
+            }
             if (!pipe.phoneToIap2(owner, buffer, length)) listener.failed(owner, Failure.TRANSPORT);
         }
     };
@@ -263,10 +280,11 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
 
     private void registerBtcmIfReady() {
         HfDeviceBTCMManager manager;
-        synchronized (lock) { if (btcm == null || registered) return; manager = btcm; }
+        synchronized (lock) { if (btcm == null || !btcmConnected || registered) return; manager = btcm; }
         try {
             manager.registerHfDeviceStatusListener(btcmListener);
             synchronized (lock) { registered = true; }
+            android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=listener-registered");
         } catch (RuntimeException e) { listener.failed(0, Failure.BTCM_UNAVAILABLE); }
     }
 
