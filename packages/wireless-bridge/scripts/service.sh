@@ -218,12 +218,18 @@ while [ ! -f "$STOPPING" ]; do
             # wrapper/pipeline around the daemon would orphan it on shutdown.
             ERR_DIR=${ERR_DIR:-$DATA/nemesis/gen5wkr.errors}
             broker_fifo= broker_reader=
-            if err_prepare && [ ! -e "$ERR_DIR/broker-stderr.$$.$broker_count" ] && [ ! -L "$ERR_DIR/broker-stderr.$$.$broker_count" ] &&
-                    mknod "$ERR_DIR/broker-stderr.$$.$broker_count" p; then
-                broker_fifo=$ERR_DIR/broker-stderr.$$.$broker_count
-                (err_stderr bridge runtime ap-broker < "$broker_fifo"; rm -f "$broker_fifo") &
-                broker_reader=$!
-                "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2> "$broker_fifo" &
+            # The unit has no mknod/mkfifo, so the broker's stderr goes straight
+            # into a capped file (older lines move to .1 past 400 lines). No
+            # wrapper or pipe: broker_pid stays the real NEMESIS child.
+            broker_log=$ERR_DIR/broker-stderr.log
+            if err_prepare && [ ! -L "$broker_log" ] && [ ! -L "$broker_log.1" ] && { [ ! -e "$broker_log" ] || [ -f "$broker_log" ]; }; then
+                broker_lines=0
+                if [ -f "$broker_log" ]; then
+                    while IFS= read -r _l || [ -n "$_l" ]; do broker_lines=$((broker_lines + 1)); done < "$broker_log"
+                    [ "$broker_lines" -le 400 ] || mv -f "$broker_log" "$broker_log.1" 2>/dev/null || :
+                fi
+                echo "--- $(date '+%m-%d %H:%M:%S' 2>/dev/null) broker start $broker_count supervisor=$$" >> "$broker_log" 2>/dev/null
+                "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>> "$broker_log" &
             else
                 err_event bridge runtime ap-broker-diagnostics failed 1 storage-unavailable
                 "$NEM" root 1000 -c "CLASSPATH=$DEX:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $$" >/dev/null 2>&1 &

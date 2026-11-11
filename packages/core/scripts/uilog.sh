@@ -494,6 +494,10 @@ do_save() {
         fi
     fi
     rm -f "$tmp" "$UI_DIR/deep-save.tmp" "$UI_DIR/deep-in.tmp"
+    # FAT keeps written data in memory. Without this, "saved" appears while the
+    # data is not yet on the stick, and pulling it leaves an unreadable file
+    # (seen on the car: size recorded, first cluster invalid, logcat file 0 B).
+    sync
     set_saved "$n" "$result"
 }
 set_saved() {

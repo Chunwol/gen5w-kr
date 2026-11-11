@@ -123,6 +123,10 @@ if {
     err_run diag collect logcat-main logcat -d -v time | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat system (filtered)'
     err_run diag collect logcat-system logcat -d -v time -b system | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
+    section 'AP broker stderr (bridge, newest 120 lines)'
+    for f in "$ERR_DIR/broker-stderr.log.1" "$ERR_DIR/broker-stderr.log"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && last_lines 120 "$f"
+    done
     section 'saved Android log on /data (logring)'
     echo "copied whole to GEN5W-REPORT/LOGCAT-$n.txt"
     section 'logcat buffer range (first and last line)'
