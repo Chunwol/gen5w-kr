@@ -42,6 +42,17 @@ last_lines() {
     done < "$file"
 }
 clean() { grep -v -E "$PRIV"; }
+# Whole logs go to their own files: the report rotates past 60 KB (DIAG-n.txt.1..3,
+# oldest part dropped), so a large kernel log there would push out its first sections.
+KOUT=GEN5W-REPORT/KERNEL-$n.txt
+BOUT=GEN5W-REPORT/BROKER-$n.txt
+whole_to() { typeset out=$1; shift; [ ! -e "$out" ] && [ ! -L "$out" ] || return 0; "$@" > "$out"; }
+broker_logs() {
+    for f in "$ERR_DIR/broker-stderr.log.1" "$ERR_DIR/broker-stderr.log"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f"
+    done
+    return 0
+}
 section() { echo; echo "== $1"; }
 if {
     echo "# Gen5W KR diagnosis $n"
@@ -117,16 +128,24 @@ if {
         section "nemesis log ${f#$LOGS/} (last 80 lines)"
         last_lines 80 "$f" | clean
     done
-    section 'kernel log (dmesg, whole)'
-    err_run diag collect kernel dmesg
+    section 'local hotspot switch (WifiSettings ODEX: patched = works without Bluelink, after one restart)'
+    _hp=$APPS/gen5w.kr.localhotspot/bin/hotspot-patch
+    [ -f "$_hp" ] || _hp=${IT_SYSTEM:-/system}/etc/gen5w-kr-backup/local-hotspot/hotspot-patch
+    _ho=${IT_SYSTEM:-/system}/app/HKMC_WifiSettings.odex
+    if [ ! -f "$_hp" ]; then echo 'module not installed'
+    elif "$_hp" patched "$_ho"; then echo patched
+    elif "$_hp" original "$_ho"; then echo original
+    else echo "unknown (rc=$?)"; fi
+    section 'kernel log (dmesg)'
+    err_run diag collect kernel whole_to "$KOUT" dmesg
+    if [ -s "$KOUT" ]; then echo "copied whole to $KOUT"; else rm -f "$KOUT"; echo 'no kernel log'; fi
     section 'logcat main (filtered)'
     err_run diag collect logcat-main logcat -d -v time | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat system (filtered)'
     err_run diag collect logcat-system logcat -d -v time -b system | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
-    section 'AP broker stderr (whole)'
-    for f in "$ERR_DIR/broker-stderr.log.1" "$ERR_DIR/broker-stderr.log"; do
-        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f"
-    done
+    section 'AP broker stderr'
+    whole_to "$BOUT" broker_logs
+    if [ -s "$BOUT" ]; then echo "copied whole to $BOUT"; else rm -f "$BOUT"; echo 'empty'; fi
     section 'saved log files on /data (sizes show how far back the ring reaches)'
     ls -l "$DATA/nemesis/gen5wkr.logs" 2>&1
     section 'logcat writers (more than one per ring file means interleaved rotation)'

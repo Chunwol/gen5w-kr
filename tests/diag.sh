@@ -100,7 +100,10 @@ SSID=home-ap aa:bb:cc:dd:ee:ff
 Unrelated noise-line
 ' > "$W/data/nemesis/gen5wkr.logs/logcat.txt"
 echo 1 > "$W/props/sys.boot_completed"
-rm -f "$W/bin/dmesg"
+# A kernel log larger than the report's 60 KB rotation size.
+printf '#!/bin/sh
+i=0; while [ $i -lt 2500 ]; do echo "<6>[ $i.000000] kernel line padding padding padding padding"; i=$((i+1)); done
+' > "$W/bin/dmesg"
 run
 check 'saved Android log copied whole to its own file' eval 'printf "older-ap-start
 middle-line
@@ -112,6 +115,8 @@ check 'wireless log copied to its own file, oldest first' eval 'printf "old-wire
 new-wireless
 " | cmp -s - "$W/usb/GEN5W-REPORT/WIRELESS-4.txt"'
 check 'diagnosis points to the saved log file' grep -q 'LOGCAT-4.txt' "$W/usb/GEN5W-REPORT/DIAG-4.txt"
+check 'kernel log is saved whole in its own file' eval 'grep -q "copied whole to GEN5W-REPORT/KERNEL-4.txt" "$W/usb/GEN5W-REPORT/DIAG-4.txt" && test -s "$W/usb/GEN5W-REPORT/KERNEL-4.txt"'
+check 'a large kernel log keeps the report start' eval 'grep -qx 0123abcd "$W/usb/GEN5W-REPORT/DIAG-4.txt" && test ! -e "$W/usb/GEN5W-REPORT/DIAG-4.txt.1"'
 check 'saved log is not dumped into the diagnosis text' eval '! grep -q older-ap-start "$W/usb/GEN5W-REPORT/DIAG-4.txt"'
 rm -rf "$W/data/nemesis/gen5wkr.logs"
 run
