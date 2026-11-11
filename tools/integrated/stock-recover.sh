@@ -12,7 +12,9 @@ for path in "$NOREBOOT" "$WIRELESS_OFF" "$AP_MATCH" "$AP_FEATURE" "$TX/stock-rec
 done
 if [ -f RECOVERY.md5 ]; then
     . ./recovery-lib.sh
-    r_prepare || { report "REFUSED stock recovery bundle: $recovery_reason"; exit 1; }
+    # This USB operation never executes the on-unit app runner. Validate the
+    # USB itself, but do not rotate or repair an unrelated cached runner first.
+    r_safe "$RD" && r_manifest . || { report 'REFUSED stock recovery bundle: USB verification failed'; exit 1; }
 fi
 # Verify every recovery tree before changing any target, even if currently absent.
 for id in $ALL_IDS gen5w.kr.dongle; do

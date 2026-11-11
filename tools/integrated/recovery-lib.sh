@@ -110,6 +110,20 @@ r_check() {
     done
     recovery_reason=ready
 }
+r_quarantine_cache() {
+    local path=$1 label boot destination
+    case "$path" in "$RB/staging") label=staging;; "$RB/previous") label=previous;; *) return 1;; esac
+    r_safe "$RB" || return 1
+    [ -e "$path" ] || [ -L "$path" ] || return 0
+    IFS= read -r boot < /proc/sys/kernel/random/boot_id || return 1
+    case "$boot" in ''|*[!0-9a-f-]*) return 1;; esac
+    [ "${#boot}" = 36 ] || return 1
+    destination=$RB/quarantine-$label-$boot-$$
+    [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 1
+    # Rename only this exact child of a verified root-private cache. No walking,
+    # executing, chmod or deletion of the old contents or a symlink's target.
+    mv "$path" "$destination"
+}
 r_prepare() {
     local sum rel extra parent
     r_safe "$RD" && r_manifest . || { r_fail bundle-invalid; return 1; }
@@ -118,22 +132,24 @@ r_prepare() {
     fi
     [ ! -L "$RB" ] || return 1
     mkdir -p "$RB" && chmod 700 "$RB" && r_safe "$RB" || return 1
-    if [ -f "$RB/current/RECOVERY.md5" ] && [ "$(r_hash "$RB/current/RECOVERY.md5")" = "$(r_hash RECOVERY.md5)" ] && r_manifest "$RB/current"; then return 0; fi
+    if r_safe "$RB/current" && [ -f "$RB/current/RECOVERY.md5" ] && [ "$(r_hash "$RB/current/RECOVERY.md5")" = "$(r_hash RECOVERY.md5)" ] && r_manifest "$RB/current"; then return 0; fi
     if [ -e "$RB/staging" ] || [ -L "$RB/staging" ]; then
-        r_safe "$RB/staging" && r_no_links "$RB/staging" || { r_fail unsafe-path; return 1; }
-        rm -rf "$RB/staging" || return 1
+        r_quarantine_cache "$RB/staging" || { r_fail staging-quarantine-failed; return 1; }
     fi
-    mkdir "$RB/staging" || { r_fail staging-exists; return 1; }
+    (umask 077; mkdir "$RB/staging") || { r_fail staging-exists; return 1; }
     while IFS=' ' read -r sum rel extra; do
         parent=${rel%/*}; [ "$parent" != "$rel" ] || parent=.
         mkdir -p "$RB/staging/$parent" && cp "./$rel" "$RB/staging/$rel" || return 1
     done < RECOVERY.md5
     cp RECOVERY.md5 "$RB/staging/RECOVERY.md5" && cp RECOVERY.receipt "$RB/staging/RECOVERY.receipt" && r_manifest "$RB/staging" || return 1
     if [ -e "$RB/previous" ] || [ -L "$RB/previous" ]; then
-        r_safe "$RB/previous" && r_manifest "$RB/previous" && r_no_links "$RB/previous" || { r_fail unsafe-path; return 1; }
-        rm -rf "$RB/previous" || return 1
+        r_quarantine_cache "$RB/previous" || { r_fail previous-quarantine-failed; return 1; }
     fi
-    if [ -e "$RB/current" ]; then mv "$RB/current" "$RB/previous" || return 1; fi
+    if [ -e "$RB/current" ] || [ -L "$RB/current" ]; then
+        [ ! -e "$RB/previous" ] && [ ! -L "$RB/previous" ] || return 1
+        mv "$RB/current" "$RB/previous" || return 1
+    fi
+    [ ! -e "$RB/current" ] && [ ! -L "$RB/current" ] || return 1
     mv "$RB/staging" "$RB/current" && sync
 }
 r_record() {

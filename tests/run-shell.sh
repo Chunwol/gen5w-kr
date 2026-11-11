@@ -11,6 +11,7 @@ bash tests/local-hotspot.sh || rc=1
 bash tests/local-hotspot-remount.sh || rc=1
 bash tests/usb-rollback-finalize.sh || rc=1
 bash tests/stock-recover.sh || rc=1
+bash tests/recovery-cache.sh || rc=1
 mksh tests/error-journal.sh || rc=1
 bash tests/error-boundaries.sh || rc=1
 bash tests/report-history.sh || rc=1
