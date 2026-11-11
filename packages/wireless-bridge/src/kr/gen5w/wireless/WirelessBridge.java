@@ -542,14 +542,16 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     }
 
     public void event(String name, String result) {
-        log("path=stock event=" + safe(name) + " result=" + safe(result));
+        log("path=stock event=" + name + " result=" + result);
         int nameCode = eventCode(name);
         int resultCode = resultCode(result);
         if (nameCode != 0 && resultCode != 0) DriveLog.bridge(1, nameCode, resultCode, 0, 0, 0, 0);
     }
 
     public void relayEvent(String name, String result) {
-        log("path=relay event=" + safe(name) + " result=" + safe(result));
+        // Logged unfiltered: a filter turned every relay step into "other" and
+        // hid where the Bluetooth/iAP2 handshake stopped on the car.
+        log("path=relay event=" + name + " result=" + result);
     }
 
     private static int eventCode(String name) {
@@ -635,10 +637,6 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         if (value == null) return false;
         for (String token : value.split(",")) if ("carplay_connect".equals(token.trim())) return true;
         return false;
-    }
-    static String safe(String value) {
-        if (eventCode(value) != 0 || resultCode(value) != 0) return value;
-        return StockProjectionSession.safeDiagnosticToken(value);
     }
     static void log(String message) { Log.i(TAG, message); }
 }

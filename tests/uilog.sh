@@ -274,6 +274,8 @@ reset; mkdir -p "$W/usb"; echo "tmpfs $W/usb vfat rw 0 0" > "$W/mounts"
 printf 'E/AndroidRuntime( 1): FATAL EXCEPTION in kr.gen5w.wirelesshost\n' > "$W/logcat.out"
 mkdir -p "$W/data/nemesis/gen5wkr.logs"
 echo 'older-ring-line' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.4"
+echo 'older-wireless' > "$W/data/nemesis/gen5wkr.logs/wireless.txt.1"
+echo 'newer-wireless' > "$W/data/nemesis/gen5wkr.logs/wireless.txt"
 printf 'newer-ring-line
 SSID=home-ap aa:bb:cc:dd:ee:ff
 ' > "$W/data/nemesis/gen5wkr.logs/logcat.txt"
@@ -292,6 +294,9 @@ check 'saved Android log is copied whole, oldest first, unfiltered' eval 'printf
 newer-ring-line
 SSID=home-ap aa:bb:cc:dd:ee:ff
 " | cmp -s - "$W/usb/gen5w-kr-diag/logcat-12345.txt"'
+check 'wireless log is copied to its own file, oldest first' eval 'printf "older-wireless
+newer-wireless
+" | cmp -s - "$W/usb/gen5w-kr-diag/wireless-12345.txt"'
 rm -f "$W/usb/gen5w-kr-diag/diag-12345.txt"; runs
 check 'the same save number is not run twice' test ! -e "$W/usb/gen5w-kr-diag/diag-12345.txt"
 printf 'save=12346

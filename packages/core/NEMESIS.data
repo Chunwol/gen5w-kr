@@ -39,3 +39,10 @@ kind=sh
 path=scripts/logring.sh
 uid=root
 mode=restart
+
+[service.4]
+name=wirelog
+kind=sh
+path=scripts/wirelog.sh
+uid=root
+mode=restart

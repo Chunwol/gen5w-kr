@@ -373,12 +373,12 @@ trim_pkg_logs() {
         done
     done
 }
-# Saved Android log of the logring service (up to 10 MiB), oldest file first.
-# Copied whole and unfiltered.
+# Saved Android log of logring/wirelog (50 MiB in all), oldest file first.
+# Copied whole and unfiltered. $1: file name (default logcat.txt).
 saved_logcat() {
-    typeset f d="$NEMDIR/gen5wkr.logs"
+    typeset f d="$NEMDIR/gen5wkr.logs" b=${1:-logcat.txt}
     [ -d "$d" ] && [ ! -L "$d" ] || return 0
-    for f in "$d/logcat.txt.4" "$d/logcat.txt.3" "$d/logcat.txt.2" "$d/logcat.txt.1" "$d/logcat.txt"; do
+    for f in "$d/$b.4" "$d/$b.3" "$d/$b.2" "$d/$b.1" "$d/$b"; do
         [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
     done
 }
@@ -487,6 +487,10 @@ do_save() {
             if [ ! -e "$dest/logcat-$n.txt" ] && [ ! -L "$dest/logcat-$n.txt" ]; then
                 ( set -C; saved_logcat > "$dest/logcat-$n.txt" ) 2>/dev/null
                 [ -L "$dest/logcat-$n.txt" ] || [ -s "$dest/logcat-$n.txt" ] || rm -f "$dest/logcat-$n.txt" 2>/dev/null
+            fi
+            if [ ! -e "$dest/wireless-$n.txt" ] && [ ! -L "$dest/wireless-$n.txt" ]; then
+                ( set -C; saved_logcat wireless.txt > "$dest/wireless-$n.txt" ) 2>/dev/null
+                [ -L "$dest/wireless-$n.txt" ] || [ -s "$dest/wireless-$n.txt" ] || rm -f "$dest/wireless-$n.txt" 2>/dev/null
             fi
         else
             [ -L "$dest/diag-$n.txt.tmp" ] || rm -f "$dest/diag-$n.txt.tmp" 2>/dev/null

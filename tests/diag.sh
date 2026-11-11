@@ -93,6 +93,8 @@ check 'refuses before boot completes' eval '! run && test ! -e "$W/usb/GEN5W-REP
 mkdir -p "$W/data/nemesis/gen5wkr.logs"
 echo 'older-ap-start' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.4"
 echo 'middle-line' > "$W/data/nemesis/gen5wkr.logs/logcat.txt.1"
+echo 'old-wireless' > "$W/data/nemesis/gen5wkr.logs/wireless.txt.1"
+echo 'new-wireless' > "$W/data/nemesis/gen5wkr.logs/wireless.txt"
 printf 'newer-ap-start
 SSID=home-ap aa:bb:cc:dd:ee:ff
 Unrelated noise-line
@@ -106,9 +108,12 @@ newer-ap-start
 SSID=home-ap aa:bb:cc:dd:ee:ff
 Unrelated noise-line
 " | cmp -s - "$W/usb/GEN5W-REPORT/LOGCAT-4.txt"'
+check 'wireless log copied to its own file, oldest first' eval 'printf "old-wireless
+new-wireless
+" | cmp -s - "$W/usb/GEN5W-REPORT/WIRELESS-4.txt"'
 check 'diagnosis points to the saved log file' grep -q 'LOGCAT-4.txt' "$W/usb/GEN5W-REPORT/DIAG-4.txt"
 check 'saved log is not dumped into the diagnosis text' eval '! grep -q older-ap-start "$W/usb/GEN5W-REPORT/DIAG-4.txt"'
 rm -rf "$W/data/nemesis/gen5wkr.logs"
 run
-check 'no saved log: no empty log file' test ! -e "$W/usb/GEN5W-REPORT/LOGCAT-5.txt"
+check 'no saved log: no empty log file' eval 'test ! -e "$W/usb/GEN5W-REPORT/LOGCAT-5.txt" && test ! -e "$W/usb/GEN5W-REPORT/WIRELESS-5.txt"'
 done_tests diag

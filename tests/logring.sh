@@ -13,7 +13,7 @@ run() {
         LOGRING_TEST_DF="$W/df" IT_DATA="$W/data" timeout 3 mksh packages/core/scripts/logring.sh > "$W/out" 2>&1
 }
 rm -f "$W/args"; run
-check 'records with logcat rotation capped at 5 x 2 MiB' grep -q -- '-f '"$W"'/data/nemesis/gen5wkr.logs/logcat.txt -r 2048 -n 4' "$W/args"
+check 'records with logcat rotation capped at 4 x 10 MiB' grep -q -- '-f '"$W"'/data/nemesis/gen5wkr.logs/logcat.txt -r 10240 -n 3 \*:D' "$W/args"
 check 'main and system buffers are kept' grep -q -- '-b main -b system' "$W/args"
 check 'log folder is root-only' test "$(stat -c %a "$W/data/nemesis/gen5wkr.logs")" = 700
 # The script must exec logcat: same PID as the launcher, so a stop leaves no child.
@@ -25,5 +25,12 @@ rm -rf "$W/data/nemesis/gen5wkr.logs"; ln -s /tmp "$W/data/nemesis/gen5wkr.logs"
 rm -f "$W/args"; run
 check 'linked log folder refused' test ! -e "$W/args"
 rm -f "$W/data/nemesis/gen5wkr.logs"
+# Wireless-only ring: own file, 2 x 1 MiB, wireless tags only, everything else silent.
+rm -f "$W/args"
+LR_OUT="$W/args" LOGRING_TEST_DATA="$W/data" LOGRING_TEST_LOGCAT="$W/logcat" LOGRING_TEST_GETPROP="$W/getprop"     LOGRING_TEST_DF="$W/df" IT_DATA="$W/data" timeout 3 mksh packages/core/scripts/wirelog.sh > "$W/out" 2>&1
+check 'wireless ring writes its own file capped at 2 x 5 MiB' grep -q -- '-f '"$W"'/data/nemesis/gen5wkr.logs/wireless.txt -r 5120 -n 1 ' "$W/args"
+check 'wireless ring keeps bridge and Wi-Fi tags' eval 'grep -q "Gen5wWireless:V" "$W/args" && grep -q "gen5w-wireless:V" "$W/args" && grep -q "hostapd:V" "$W/args" && grep -q "JNIHelp:V" "$W/args"'
+check 'wireless ring silences everything else' grep -q -- ' \*:S$' "$W/args"
+check 'wireless ring is a core service' grep -q '^path=scripts/wirelog.sh' packages/core/NEMESIS.data
 rm -rf "$W"
 done_tests logring

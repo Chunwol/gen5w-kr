@@ -150,7 +150,7 @@ if [ ! -s "$OUT" ]; then
     echo 'FAILED diagnosis export; USB may be unwritable'
     exit 1
 fi
-# Saved Android log (logring, up to 10 MiB): copied whole and unfiltered, oldest
+# Saved Android log (logring + wirelog, up to 50 MiB): copied whole and unfiltered, oldest
 # first, so nothing needed for a diagnosis is lost. A failure here never fails
 # the diagnosis above.
 LOGDIR=$DATA/nemesis/gen5wkr.logs
@@ -160,6 +160,13 @@ if [ -d "$LOGDIR" ] && [ ! -L "$LOGDIR" ] && [ ! -e "$LOUT" ] && [ ! -L "$LOUT" 
         [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
     done > "$LOUT" 2>/dev/null
     if [ -s "$LOUT" ]; then echo "SAVED $LOUT"; else rm -f "$LOUT"; echo 'NOTE no saved Android log to copy'; fi
+fi
+WOUT=GEN5W-REPORT/WIRELESS-$n.txt
+if [ -d "$LOGDIR" ] && [ ! -L "$LOGDIR" ] && [ ! -e "$WOUT" ] && [ ! -L "$WOUT" ]; then
+    for f in "$LOGDIR/wireless.txt.1" "$LOGDIR/wireless.txt"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
+    done > "$WOUT" 2>/dev/null
+    if [ -s "$WOUT" ]; then echo "SAVED $WOUT"; else rm -f "$WOUT"; fi
 fi
 sync
 echo "SAVED GEN5W-REPORT/DIAG-$n.txt"
