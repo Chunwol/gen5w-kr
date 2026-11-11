@@ -19,4 +19,5 @@ for id in $REVERSE; do
 done
 [ ! -L "$WIRELESS_OFF" ] && rm -f "$WIRELESS_OFF" || { rollback_transaction; exit 1; }
 [ ! -L "$AP_MATCH" ] && [ ! -L "$AP_FEATURE" ] && rm -f "$AP_MATCH" "$AP_FEATURE" || { rollback_transaction; exit 1; }
+clear_own_logs
 finish remove

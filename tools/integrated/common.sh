@@ -15,6 +15,14 @@ BOOTGUARD=$DATA/nemesis/gen5wkr.bootguard
 AP_MATCH=$DATA/nemesis/gen5wkr.ap-match
 # Present with the match marker: still declare the stock hotspot feature (menu).
 AP_FEATURE=$DATA/nemesis/gen5wkr.ap-hotspot-feature
+OWN_LOGS=$DATA/nemesis/gen5wkr.logs
+# The HUD package's saved Android log (root-only, at most 4 MiB). Removal and
+# stock recovery delete it; a failure is reported but never blocks recovery.
+clear_own_logs() {
+    [ -e "$OWN_LOGS" ] || [ -L "$OWN_LOGS" ] || return 0
+    if [ ! -L "$OWN_LOGS" ] && [ -d "$OWN_LOGS" ] && rm -rf "$OWN_LOGS"; then return 0; fi
+    report 'WARNING saved HUD log folder could not be removed'
+}
 IDS='gen5w.kr.wireless gen5w.kr.audio gen5w.kr.bridge gen5w.kr.core gen5w.kr.timer gen5w.kr.bluelink gen5w.kr.drivelog'
 ALL_IDS=$IDS
 SNAPSHOT_IDS="wireless.carplay.aa gen5w.kr.dongle gen5w.kr.localhotspot $IDS"

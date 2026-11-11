@@ -344,6 +344,42 @@ deep_logs() {
         done
     done
 }
+# NEMESIS appends service output to logs/<package>/<service>.log with no size limit.
+# Keep each of ours under PKG_LOG_MAX: rewrite in place (same file, so the
+# NEMESIS O_APPEND writer goes on) with only the newest PKG_LOG_KEEP lines.
+PKG_LOG_MAX=${UILOG_TEST_PKG_LOG_MAX:-1048576}
+PKG_LOG_KEEP=2000
+trim_pkg_logs() {
+    typeset d file size tmp total skip line
+    for d in "$LOGS"/gen5w.kr.*; do
+        [ -d "$d" ] && [ ! -L "$d" ] || continue
+        tmp=$d/.gen5w-trim.tmp
+        for file in "$d"/*.log; do
+            [ -f "$file" ] && [ ! -L "$file" ] || continue
+            size=$(file_size "$file") || continue
+            [ "$size" -gt "$PKG_LOG_MAX" ] || continue
+            [ ! -L "$tmp" ] || return 0
+            total=0
+            while IFS= read -r line || [ -n "$line" ]; do total=$((total + 1)); done < "$file"
+            skip=$((total - PKG_LOG_KEEP))
+            {
+                print -r -- "gen5w: trimmed from $size bytes; newest $PKG_LOG_KEEP lines kept"
+                while IFS= read -r line || [ -n "$line" ]; do
+                    if [ "$skip" -gt 0 ]; then skip=$((skip - 1)); continue; fi
+                    print -r -- "$line"
+                done < "$file"
+            } > "$tmp" 2>/dev/null && cat "$tmp" > "$file" 2>/dev/null
+            rm -f "$tmp"
+        done
+    done
+}
+# Saved Android log of the logring service, oldest file first, wireless lines only.
+deep_saved_logcat() {
+    typeset f
+    for f in "$NEMDIR/gen5wkr.logs/logcat.txt.3" "$NEMDIR/gen5wkr.logs/logcat.txt.2" "$NEMDIR/gen5wkr.logs/logcat.txt.1" "$NEMDIR/gen5wkr.logs/logcat.txt"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
+    done
+}
 deep_markers() {
     typeset f size
     for f in "$NEMDIR"/gen5wkr.*; do
@@ -404,6 +440,8 @@ collect_deep() {
         ls -ln "$BRIDGE/app" 2>/dev/null | deep_tail "bridge app folder" 30
         print -r -- "-- logcat"
         err_run core collect logcat-main "$LOGCAT" -d -v time | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|[Bb]lue[Ll]ink|[Tt]elematics|[Ss]ubscri|WifiManager|[Ww]ifi[Aa]p|[Tt]oast|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)|StrictMode' | deep_tail "logcat: wireless, wifi, crashes" 450
+        print -r -- "-- saved Android log (logring, up to 4 MiB on /data)"
+        deep_saved_logcat | grep -a -v -E '\[TEST\]|ModeManagerService|BluetoothPhoneUtils|AudioPolicy|isDiPOActivated|onBTCMBusyStatusChanged|connectProfile is null|mDeletingStatus = 10|getTopPackageName' | grep -a -E 'FATAL|Gen5w|gen5w|wirelesshost|BridgeHost|hostapd|wpa_supplicant|WifiStateMachine|WifiService|SoftAp|[Tt]ether|[Cc]ar[Pp]lay|iAP2|Iap2|DiPO|PhoneProjection|BTCM|Bluetooth|HFP|A2DP|bt_|btif|WirelessPhoneProjection|[Hh]ot[Ss]pot|WifiManager|[Ww]ifi[Aa]p|ActivityManager.*(died|crash|ANR|Killing|Start proc.*gen5w)' | deep_tail "saved logcat: wireless, wifi, crashes" 3000
         print -r -- '-- collection status and first failures'
         err_export
     } 2>/dev/null >> "$out"
@@ -662,6 +700,8 @@ do_remove() {
     for _m in wireless-disabled ap-match ap-hotspot-feature ui-wireless-off ui-timer-off ui-bluelink-off; do
         [ -L "$NEMDIR/gen5wkr.$_m" ] || rm -f "$NEMDIR/gen5wkr.$_m"
     done
+    # Saved Android log of the logring service (stopped with the package above).
+    [ -L "$NEMDIR/gen5wkr.logs" ] || rm -rf "$NEMDIR/gen5wkr.logs"
     set_removed "$n" done
     rm -f "$lock"
     rm -f "$tx/lock/pid"; rmdir "$tx/lock" 2>/dev/null
@@ -794,6 +834,7 @@ trap 'exit 0' HUP INT TERM
 clear_stale_removal
 while :; do
     apply_requests
+    trim_pkg_logs
     round
     apply_requests   # the first pass may come before the folder exists (needed by a save)
     [ -z "$UILOG_TEST_ONCE" ] || exit 0

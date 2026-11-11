@@ -450,4 +450,15 @@ for _save_wait in $(seq 1 100); do
 done
 check 'deep logcat acquisition failure is not confused with empty output' grep -q 'operation=logcat-main.*rc=13.*reason=permission' "$UI/diag-latest.txt"
 check 'diagnostic acquisition error never exports secret stderr' eval '! grep -q secret-collector "$UI/diag-latest.txt"'
+# NEMESIS service logs of our packages are kept under the size cap, in place.
+reset
+mkdir -p "$LOGS/gen5w.kr.bridge" "$LOGS/manager"
+for i in $(seq 1 3000); do echo "bridge line $i"; done > "$LOGS/gen5w.kr.bridge/bridge.log"
+for i in $(seq 1 3000); do echo "foreign line $i"; done > "$LOGS/manager/press.log"
+inode=$(stat -c %i "$LOGS/gen5w.kr.bridge/bridge.log")
+UILOG_TEST_PKG_LOG_MAX=1000 run
+check 'oversized package log keeps only the newest lines' eval 'test "$(wc -l < "$LOGS/gen5w.kr.bridge/bridge.log")" = 2001 && tail -1 "$LOGS/gen5w.kr.bridge/bridge.log" | grep -qx "bridge line 3000" && head -1 "$LOGS/gen5w.kr.bridge/bridge.log" | grep -q trimmed'
+check 'trim rewrites the same file (NEMESIS writer keeps appending)' test "$(stat -c %i "$LOGS/gen5w.kr.bridge/bridge.log")" = "$inode"
+check 'logs of other packages are never trimmed' test "$(wc -l < "$LOGS/manager/press.log")" = 3000
+check 'no trim scratch file is left' test ! -e "$LOGS/gen5w.kr.bridge/.gen5w-trim.tmp"
 done_tests uilog

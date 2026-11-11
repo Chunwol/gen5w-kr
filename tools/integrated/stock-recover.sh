@@ -60,6 +60,7 @@ bootguard_reconcile_previous rolled-back && bootguard_arm remove && bootguard_re
     report 'RECOVERY REQUIRED: stock boot guard finalization failed'; exit 1;
 }
 rm -f "$WIRELESS_OFF" "$AP_MATCH" "$AP_FEATURE" || exit 1
+clear_own_logs
 echo verified > "$TX/stock-recovered" || exit 1
 IFS= read -r stock_boot < /proc/sys/kernel/random/boot_id || exit 1
 echo "$stock_boot" > "$TX/stock-recovered-boot" || exit 1

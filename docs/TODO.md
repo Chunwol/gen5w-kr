@@ -8,3 +8,11 @@
 - 시스템 파일을 바꾸지 않는 방법만 쓴다. 후보는 NEMESIS의 기존 알림 경로, 또는 이미 설치돼 있는 앱이다. 서비스 정지 확인 중에는 우리 앱이 멈춰 있으므로, 이 점을 고려해야 한다.
 - 알림을 띄우다 실패해도 설치·복구는 계속 진행한다.
 - USB의 `GEN5W-REPORT/PROGRESS.txt`에도 현재 단계를 남겨서, 중간에 뽑아도 어디까지 됐는지 보이게 한다.
+
+## 차 화면 "USB에 저장"이 USB에 남지 않음
+
+2026-11-11 실차에서 이 버튼을 눌렀지만, F USB에 `gen5w-kr-diag`가 생기지 않았다. NEMESIS 기록상 F는 늘 `/storage/usb0`였고, 같은 시각 `NEMESIS-logs`도 바뀌지 않았다. 그래서 그때 USB가 마운트되지 않았을 가능성이 크다. 다음에 화면에 뜬 결과 문구를 확인한다. 앱 버튼은 수집이 끝날 때까지 수십 초가 걸리고 USB에는 마지막에 쓰므로, 진행 중이라는 표시가 필요하다.
+
+## drive-log가 이 차 USB를 인정하지 못함
+
+`drive-log.log`에 "USB not verified reason=fuse-without-media-rw"가 반복된다. 이 차는 `/storage/usb0`(fuse) 아래에 실제 vfat가 `/mnt/media_rw/usb0`로 붙는다. `dl_mount_info`가 이 짝을 찾지 못하는 이유를 확인해야 한다.

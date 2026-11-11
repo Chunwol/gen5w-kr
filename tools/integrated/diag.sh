@@ -77,6 +77,8 @@ if {
     section 'bridge runtime state (installer and supervisor markers)'
     for f in "$DATA"/nemesis/gen5wkr.*; do
         [ -e "$f" ] || [ -L "$f" ] || continue
+        # The saved Android log has its own filtered section below.
+        [ "${f##*/}" != gen5wkr.logs ] || continue
         if [ -f "$f" ] && [ ! -L "$f" ]; then
             ls -l "$f" 2>/dev/null | clean
             v=; IFS= read -r v < "$f"; echo "  first line: $v" | clean
@@ -121,6 +123,10 @@ if {
     err_run diag collect logcat-main logcat -d -v time | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat system (filtered)'
     err_run diag collect logcat-system logcat -d -v time -b system | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
+    section 'saved Android log on /data (logring, filtered, oldest first)'
+    for f in "$DATA/nemesis/gen5wkr.logs/logcat.txt.3" "$DATA/nemesis/gen5wkr.logs/logcat.txt.2" "$DATA/nemesis/gen5wkr.logs/logcat.txt.1" "$DATA/nemesis/gen5wkr.logs/logcat.txt"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && cat "$f" 2>/dev/null
+    done | grep -E "$KEYS" | grep -v -E "$NOISE" | clean
     section 'logcat buffer range (first and last line)'
     logcat -d -v time 2>/dev/null | clean | {
         IFS= read -r line; print -r -- "$line"

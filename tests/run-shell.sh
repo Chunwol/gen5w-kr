@@ -7,6 +7,7 @@ rc=0
 bash tests/nemesis-minimum.sh || rc=1
 bash tests/service-quiescence.sh || rc=1
 bash tests/service-install-hold.sh || rc=1
+bash tests/logring.sh || rc=1
 bash tests/error-persistence.sh || rc=1
 bash tests/local-hotspot.sh || rc=1
 bash tests/local-hotspot-remount.sh || rc=1
