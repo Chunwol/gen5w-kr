@@ -11,4 +11,4 @@ name=drive-log
 kind=sh
 path=scripts/service.sh
 mode=background
-uid=system
+uid=root

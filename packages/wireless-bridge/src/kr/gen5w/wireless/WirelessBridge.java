@@ -417,6 +417,19 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     }
 
     public void bootstrap(final long generation, final String address) {
+        // With the V039 relay ready, the stock profile path never completes on this
+        // car (it timed out every time). Skip it so the relay starts as soon as the
+        // CarPlay phone is ready, instead of after the 60 s stock timeout.
+        if (relayEnabled) {
+            log("path=stock event=bootstrap result=skipped-relay-ready");
+            main.post(new Runnable() {
+                public void run() {
+                    session.bootstrapped(generation, StockProjectionSession.BootstrapResult.METHOD_UNAVAILABLE, now());
+                    maintainRelay(); // start now, not on the next 1 s tick
+                }
+            });
+            return;
+        }
         try {
             oemCalls.execute(new Runnable() {
                 public void run() {
