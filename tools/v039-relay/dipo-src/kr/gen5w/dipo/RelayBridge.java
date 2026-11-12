@@ -250,12 +250,26 @@ public final class RelayBridge {
         }
     }
 
+    /**
+     * A wireless session is the handover: DiPO's own onSessionStarted then turns
+     * Bluetooth off (onDisableBluetooth), so the phone's Bluetooth side ends seconds
+     * later, possibly before any CarPlay-channel iAP2 data (car, 2026-11-12 19:01:59).
+     * The host must already own the Wi-Fi session by then and start component 5.
+     */
     public static void sessionStarted(CarPlayService owner, int transport) {
+        boolean requestNow = false;
+        long token;
         synchronized (LOCK) {
             if (!present || owner != carPlay) return;
             wireless = transport == 1;
             wired = !wireless;
             if (wired) { requested = false; connected = false; clearPending(); }
+            else if (!usb && !requested) { requested = true; requestNow = true; }
+            token = generation;
+        }
+        if (requestNow) {
+            log("path=dipo event=session result=wireless-handover");
+            notifySession(owner, token, HANDOVER_REQUESTED);
         }
     }
 

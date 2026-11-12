@@ -145,9 +145,20 @@ public class DipoRelayRuntimeTest {
    check(!RelayBridge.dropListenerNotify(81)&&!RelayBridge.dropListenerNotify(5),"other notifications pass");
    RelayBridge.connected(5,null);RelayBridge.disconnected(5);
    check(!RelayBridge.dropListenerNotify(0),"after the channel ends identification passes again");
+  }else if(args[0].equals("wireless-start")){
+   // Car 2026-11-12 19:01:59: DiPO started the Wi-Fi session, then its onDisableBluetooth
+   // dropped the phone's Bluetooth 2.8 s later, before any CarPlay-channel iAP2 data.
+   RelayBridge.bind(p);RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,1);
+   check(owner.requests==1,"a wireless DiPO session must hand over at once");
+   RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==1,"handover is requested once");
+   check(p.reads==0,"data waits for component 5");
+   RelayBridge.connected(5,null);check(p.reads==1&&owner.connections==1,"component 5 is accepted after a session-start handover");
+  }else if(args[0].equals("wireless-start-usb")){
+   RelayBridge.connected(1,"usb");RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,1);
+   check(owner.requests==0,"a USB phone never hands over");
   }else if(args[0].equals("finalized")){
    RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,1);RelayBridge.sessionFinalized(owner);
-   RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==0,"finalized session must not revive");
+   RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==1,"finalized session must not revive");
   }
   System.out.println("PASS actual DiPO relay "+args[0]);
  }
@@ -165,7 +176,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dipo-runtime-') as folder:
                 str(ROOT/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')]
     subprocess.run(['javac', '-encoding', 'UTF-8', '-Xlint:-options', '--release', '8', '-d', str(work), *sources], check=True)
     failed = []
-    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized','listener-bt','listener-usb','listener-cp5','ignore-disconnect','ignore-during-handover','wired-disconnect','drop-notify'):
+    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized','listener-bt','listener-usb','listener-cp5','ignore-disconnect','ignore-during-handover','wired-disconnect','drop-notify','wireless-start','wireless-start-usb'):
         result = subprocess.run(['java','-cp',str(work),'DipoRelayRuntimeTest',case], timeout=10)
         if result.returncode:
             failed.append(case)
