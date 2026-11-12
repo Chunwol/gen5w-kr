@@ -304,7 +304,9 @@ public final class CoreService extends Service {
         if (stopping) return;
         refreshOwnership();
         recordHudHealth();
+        expireAaRoute();
         flushAaClear();
+        retryAaOutput();
         session.retryOutput();
         io.postDelayed(this, 1000);
     }};
@@ -631,14 +633,70 @@ public final class CoreService extends Service {
             public void run() {
                 if (!refreshOwnership()) return;
                 if (session != null && session.hasActiveGuidance()) return;
-                try {
-                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    cluster.updateLaneInfo(frame != null ? frame : LaneFrame.clear());
-                    writeDebugLog("AA_LANE: updated " + (frame != null ? frame.length : 0) + " bytes");
-                } catch (Throwable e) { outputError(e); }
+                byte[] next = frame != null ? frame : LaneFrame.clear();
+                aaRoute.updateLanes(next, now());
+                writeAaLanes(next);
             }
         });
     }
+
+    /** io thread. A failed lane write stays pending in aaRoute and is retried with the turn. */
+    private void writeAaLanes(byte[] frame) {
+        if (frame == null) return;
+        try {
+            if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+            cluster.updateLaneInfo(frame);
+            aaRoute.laneSent();
+            writeDebugLog("AA_LANE: updated " + frame.length + " bytes");
+        } catch (Throwable e) { outputError(e); }
+    }
+
+    /** io thread. Writes the cached AA turn; it stays pending until a write succeeds. */
+    private void writeAaRoute() {
+        if (!aaRoute.routePending()) return;
+        int icon = aaRoute.icon(), secondIcon = aaRoute.secondIcon();
+        long dist = aaRoute.distance();
+        String road = aaRoute.road();
+        try {
+            if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+            cluster.updateTBTInfo(
+                    icon,
+                    secondIcon,
+                    0f,
+                    TurnFrame.tbtDistanceValue(dist),
+                    TurnFrame.tbtDistanceError(dist),
+                    0,
+                    TurnFrame.tbtDistanceScale(dist),
+                    0,
+                    0);
+            if (!mediaOsdActive) {
+                cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
+                cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
+            }
+            aaRoute.routeSent();
+            writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
+                    + " 2nd=0x" + Integer.toHexString(secondIcon)
+                    + " dist=" + dist + "m");
+        } catch (Throwable e) { outputError(e); }
+    }
+
+    /** io thread, once a second. CarPlay has its own retry; it also owns the display when active. */
+    private void retryAaOutput() {
+        if (session != null && session.hasActiveGuidance()) return;
+        if (aaRoute.routePending()) writeAaRoute();
+        if (aaRoute.lanePending()) writeAaLanes(aaRoute.lanes());
+    }
+
+    /** io thread. A turn with no update for AaRouteCache.EXPIRE_MS is cleared as if it had ended. */
+    private void expireAaRoute() {
+        if (!aaRoute.expired(now())) return;
+        Log.i(TAG, "AA guidance expired without an end signal");
+        aaClearPending |= isAaGuidanceActive();
+        resetAaState();
+        flushAaClear();
+    }
+
+    private long now() { return android.os.SystemClock.elapsedRealtime(); }
 
     private void flushAaClear() {
         if (!aaClearPending || !refreshOwnership()) return;
@@ -671,29 +729,10 @@ public final class CoreService extends Service {
                 }
                 if (!refreshOwnership()) return;
                 if (session != null && session.hasActiveGuidance()) return;
-                try {
-                    if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    aaClearPending = false;
-                    aaRoute.update(icon, secondIcon, dist, road);
-                    session.setOutputAllowed(false);
-                    cluster.updateTBTInfo(
-                            icon,
-                            secondIcon,
-                            0f,
-                            TurnFrame.tbtDistanceValue(dist),
-                            TurnFrame.tbtDistanceError(dist),
-                            0,
-                            TurnFrame.tbtDistanceScale(dist),
-                            0,
-                            0);
-                    if (!mediaOsdActive) {
-                        cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
-                        cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
-                    }
-                    writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
-                            + " 2nd=0x" + Integer.toHexString(secondIcon)
-                            + " dist=" + dist + "m");
-                } catch (Throwable e) { outputError(e); }
+                if (!aaRoute.update(icon, secondIcon, dist, road, now())) return;
+                aaClearPending = false;
+                session.setOutputAllowed(false);
+                writeAaRoute();
             }
         });
     }

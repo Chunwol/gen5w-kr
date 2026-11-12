@@ -25,7 +25,9 @@ def method(signature):
 methods = '\n'.join(method(sig) for sig in [
     'private boolean isAaGuidanceActive()', 'private void resetAaState()',
     'private static NavigationCluster.CrossroadName crossroadName(',
-    'private void flushAaClear()', 'private void renderAaTbt('])
+    'private void flushAaClear()', 'private void renderAaTbt(', 'private void renderAaLane(',
+    'private void writeAaLanes(', 'private void writeAaRoute()', 'private void retryAaOutput()',
+    'private void expireAaRoute()'])
 # The production route cache, nested so the harness stays a single file.
 cache = (root/'app/src/kr/gen5w/hud/AaRouteCache.java').read_text(encoding='utf-8')
 cache = cache[cache.index('public final class AaRouteCache'):].replace('public final class', 'static final class', 1)
@@ -35,13 +37,25 @@ public class CoreLifecycleTest {
     static class Handler { void post(Runnable r) { r.run(); } }
     static class NavigationCluster {
         static class CrossroadName { String name; }
-        int clears;
+        // Static: production code replaces a failed binding with a new instance.
+        static int clears, turns, laneWrites, failTbt, failLanes, lastIcon; static long lastDist;
+        static void reset() { clears=turns=laneWrites=failTbt=failLanes=lastIcon=0; lastDist=0; }
         NavigationCluster(Object ctx) {}
         void updateTPCrossroadName(CrossroadName name) {}
-        void updateTBTInfo(int i,int j,float a,float b,int c,int d,int e,int f,int g) { if(i==0) clears++; }
+        void updateTBTInfo(int i,int j,float a,float b,int c,int d,int e,int f,int g) {
+            if (failTbt > 0) { failTbt--; throw new IllegalStateException("cluster binder died"); }
+            if(i==0) clears++; else { turns++; lastIcon=i; lastDist=(long)b; }
+        }
         void updateTPTurnListNew(byte[] frame) {}
-        void updateLaneInfo(byte[] frame) {}
+        void updateLaneInfo(byte[] frame) {
+            if (failLanes > 0) { failLanes--; throw new IllegalStateException("cluster binder died"); }
+            if (frame != null) laneWrites++;
+        }
     }
+    static class Log { static void i(String tag, String line) {} }
+    static final String TAG = "test";
+    long clock;
+    long now() { return clock; }
     static class LaneFrame { static byte[] clear() { return null; } }
     static class TurnFrame {
         static byte[] clear() { return null; }
@@ -60,14 +74,17 @@ public class CoreLifecycleTest {
     Handler io = new Handler(); Session session = new Session();
     AaRouteCache aaRoute = new AaRouteCache();
     { aaRoute.setOutputAllowed(true); }
+    { NavigationCluster.reset(); }
     NavigationCluster cluster = new NavigationCluster(null);
+    NavigationCluster shared = cluster;
     boolean allowed=true, aaClearPending, mediaOsdActive;
     int currentIcon1, currentIcon2;
     long currentDist=-1; String currentRoadName;
     boolean refreshOwnership() { return allowed; }
     Object getApplicationContext() { return null; }
     void writeDebugLog(String s) {}
-    void outputError(Throwable e) { throw new AssertionError(e); }
+    int outputErrors; boolean expectErrors;
+    void outputError(Throwable e) { if (!expectErrors) throw new AssertionError(e); outputErrors++; cluster = null; }
     static void check(boolean condition, String message) { if(!condition) throw new AssertionError(message); }
     public static void main(String[] args) {
         CoreLifecycleTest c=new CoreLifecycleTest();
@@ -84,7 +101,32 @@ public class CoreLifecycleTest {
         c.renderAaTbt(65,0,1000,"old"); c.allowed=false; c.renderAaTbt(0,0,-1,null);
         c.allowed=true; c.renderAaTbt(66,0,2000,"new"); c.flushAaClear();
         check(c.cluster.clears==1 && c.aaRoute.icon()==66 && !c.aaClearPending, "new route replaces pending clear");
-        System.out.println("PASS Core lifecycle: stock ownership, deferred AA clear, CarPlay preservation");
+        // A failed AA turn write is retried once a second until it succeeds.
+        CoreLifecycleTest r=new CoreLifecycleTest(); r.expectErrors=true;
+        r.shared.failTbt=1; r.renderAaTbt(66,0,700,"road");
+        check(r.outputErrors==1 && r.shared.turns==0 && r.aaRoute.routePending(), "failed AA turn stays pending");
+        r.retryAaOutput();
+        check(r.shared.turns==1 && r.shared.lastIcon==66 && r.shared.lastDist==700 && !r.aaRoute.routePending(), "AA turn resent after failure");
+        r.retryAaOutput(); check(r.shared.turns==1, "sent AA turn is not resent");
+        r.shared.failLanes=1; r.renderAaLane(new byte[]{1});
+        check(r.shared.laneWrites==0 && r.aaRoute.lanePending(), "failed AA lane stays pending");
+        r.retryAaOutput(); check(r.shared.laneWrites==1 && !r.aaRoute.lanePending(), "AA lane resent after failure");
+        r.shared.failTbt=1; r.renderAaTbt(67,0,500,"road"); r.session.active=true; r.retryAaOutput();
+        check(r.shared.turns==1, "AA retry yields to active CarPlay");
+        r.session.active=false; r.allowed=false; r.renderAaTbt(68,0,400,"road");
+        check(r.shared.turns==1, "no AA write while stock owns display");
+
+        // A turn with no update for EXPIRE_MS is cleared as if it had ended.
+        CoreLifecycleTest x=new CoreLifecycleTest(); x.clock=1000;
+        x.renderAaTbt(65,0,900,"road");
+        x.clock=1000+AaRouteCache.EXPIRE_MS-1; x.expireAaRoute();
+        check(x.isAaGuidanceActive() && x.shared.clears==0, "fresh AA turn kept");
+        x.clock=1000+AaRouteCache.EXPIRE_MS; x.expireAaRoute();
+        check(!x.isAaGuidanceActive() && x.shared.clears==1 && !x.aaClearPending, "stale AA turn cleared from HUD");
+        x.expireAaRoute(); check(x.shared.clears==1, "expiry clears once");
+        x.renderAaTbt(65,0,900,"road"); x.session.active=true; x.clock+=AaRouteCache.EXPIRE_MS; x.expireAaRoute();
+        check(x.shared.clears==1 && x.session.retries==1, "expiry under CarPlay keeps CarPlay");
+        System.out.println("PASS Core lifecycle: stock ownership, deferred AA clear, CarPlay preservation, AA retry and expiry");
     }
 '''
 with tempfile.TemporaryDirectory(prefix='gen5w-core-lifecycle-') as tmp:

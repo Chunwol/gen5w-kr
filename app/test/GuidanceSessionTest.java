@@ -12,13 +12,14 @@ public final class GuidanceSessionTest {
         public boolean destination(String n) { dest = n; destWrites++; return true; }
         long remain = Long.MIN_VALUE; int remainWrites;
         public boolean remaining(long m) { remain = m; remainWrites++; return true; }
-        public boolean tbt(int icon, int secondIcon, long m) { return true; }
+        boolean rejectTbt, rejectTurns; int tbtWrites, tbtIcon;
+        public boolean tbt(int icon, int secondIcon, long m) { if (rejectTbt) return false; tbtWrites++; tbtIcon = icon; return true; }
         byte[] turns, lanes;
         int laneWrites;
         boolean rejectLane;
         public boolean lanes(byte[] frame) { laneWrites++; if (rejectLane) return false; lanes = frame.clone(); return true; }
         int writes;
-        public boolean turns(byte[] frame) { turns = frame.clone(); writes++; return true; }
+        public boolean turns(byte[] frame) { if (rejectTurns) return false; turns = frame.clone(); writes++; return true; }
     }
     static void check(String name, boolean ok) {
         if (!ok) throw new AssertionError(name);
@@ -202,6 +203,20 @@ public final class GuidanceSessionTest {
         session.message(GuidanceParser.LANES, Arrays.asList(n(0,1),n(1,3),laneGroup));
         session.message(GuidanceParser.LANES, Arrays.asList(n(0,1),n(1,3),n(1,4)));
         check("malformed lane message clears stale frame", sink.lanes[1] == 0);
+        {
+            // CoreService retries every second with no route input (outputRetry -> retryOutput).
+            Sink cs = new Sink(); GuidanceSession cp = new GuidanceSession(cs);
+            cs.rejectTbt = true; cs.rejectTurns = true;
+            cp.maneuver(m(3, 1)); cp.status(s(1, "지도 A", 3));
+            check("failed CarPlay turn not claimed", cs.tbtWrites == 0 && cs.writes == 0 && cp.hasActiveGuidance());
+            cs.rejectTbt = false; cs.rejectTurns = false;
+            cp.retryOutput();
+            check("failed CarPlay turn resent by retry", cs.tbtWrites == 1 && cs.tbtIcon > 0 && cs.writes == 1);
+            cp.retryOutput();
+            check("sent CarPlay turn not repeated", cs.tbtWrites == 1 && cs.writes == 1);
+            cp.invalidateOutput(); cp.retryOutput();
+            check("lost cluster binding resends CarPlay turn", cs.tbtWrites == 2 && cs.writes == 2);
+        }
         NotificationEpoch epoch = new NotificationEpoch();
         check("no notifications accepted before connection", epoch.ticket() == -1);
         long first = epoch.open();

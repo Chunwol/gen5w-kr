@@ -172,6 +172,8 @@ public class HudHealthTest {
     java.io.File getFilesDir() { return folder; }
     void refreshOwnership() {}
     void flushAaClear() {}
+    void expireAaRoute() {}
+    void retryAaOutput() {}
     public static void main(String[] args) throws Exception {
         HudHealthTest service=new HudHealthTest();
         service.folder=new java.io.File(args[0]);

@@ -51,6 +51,8 @@ V039 `HKMC_GPM.odex`에서 `onNextTurn`, `onNextTurnDistance`, `setTurnDisplayTy
 
 `gpm-patch-v039`는 V039 원본 해시가 맞을 때 route 기능 제한 분기만 변경합니다. `CoreService`의 선택적 보조 입력은 송신자가 이미 준 아이콘을 그대로 사용합니다. 아이콘이 없으면 `TYPE`, `DRIVING_SIDE`, `JUNCTION_TYPE`, `EXIT_ANGLE`이 모두 순정 조합을 이룰 때만 변환합니다. 도로명으로 TG·IC·방향을 재해석하지 않습니다.
 
+보조 입력의 회전·차선 출력이 실패하면 1초마다 다시 보냅니다(CarPlay 안내 중에는 CarPlay가 우선이라 보내지 않음). 회전 정보가 120초 동안 갱신되지 않으면 종료 신호를 놓친 것으로 보고 계기판의 보조 안내를 지웁니다. 120초는 긴 신호 대기에서도 화살표가 지워지지 않게 정한 값이며, 차선 갱신도 갱신으로 칩니다. 현재 저장소에는 이 보조 입력을 보내는 구성요소가 없습니다.
+
 ## 출력과 검증 경계
 
 출력은 `updateTBTInfo`, `updateTBTSubInfo`(목적지까지 남은 거리), `updateTPTurnListNew`, `updateTPCrossroadName`, `updateLaneInfo`를 사용합니다. 실패한 최신 회전·거리·차선과 지움 요청은 다시 시도합니다. 한 번도 입력받지 않은 세션이 임의 출력을 만들지는 않습니다.

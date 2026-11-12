@@ -40,7 +40,7 @@ public final class OwnershipTest {
         check(out.frame.length==2 && out.icon==0,"resume after CarPlay ended clears old CarPlay data");
         AaRouteCache aa = new AaRouteCache();
         aa.setOutputAllowed(true);
-        aa.update(0x41, 0, 300, "AA");
+        aa.update(0x41, 0, 300, "AA", 0);
         session.setOutputAllowed(aa.allowCarPlay(true));
         count=out.writes();
         session.disconnect(); session.retryOutput();
