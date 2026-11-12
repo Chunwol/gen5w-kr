@@ -128,10 +128,10 @@ public final class RelayBridge {
                     pendingBytes -= frame.length;
                     token = generation;
                 }
+                // The V039 iAP2 server (V200710.1) always returns false from this call,
+                // even after passing the data on; only an exception means it was lost.
                 try {
-                    if (!target.Iap2SvcTransportReadDone(frame, frame.length)) {
-                        abort(token, "cp5.transport.rejected", null); return;
-                    }
+                    target.Iap2SvcTransportReadDone(frame, frame.length);
                 } catch (RemoteException failure) { abort(token, "cp5.transport", failure); return; }
                 catch (RuntimeException failure) { abort(token, "cp5.transport", failure); return; }
             }

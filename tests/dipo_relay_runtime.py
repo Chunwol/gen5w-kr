@@ -26,7 +26,7 @@ public class DipoRelayRuntimeTest {
   public boolean Iap2SvcInit(com.tcc.iap2.IIap2Listener l,com.tcc.iap2.Iap2ListenerInfo i)throws android.os.RemoteException {
    listener=l;init++;if(connectInInit)l.connected(5,null);if(init==1&&failOnce)throw new android.os.RemoteException();return !(init==1&&rejectOnce);
   }
-  public boolean Iap2SvcTransportReadDone(byte[] b,int n){reads++;first=b[0];order+=b[0];if(onRead!=null){Runnable r=onRead;onRead=null;r.run();}return !rejectRead;}
+  public boolean Iap2SvcTransportReadDone(byte[] b,int n)throws android.os.RemoteException{reads++;first=b[0];order+=b[0];if(rejectRead)throw new android.os.RemoteException();if(onRead!=null){Runnable r=onRead;onRead=null;r.run();}return false;}
  }
  public static void main(String[] args){
   Port p=new Port();CarPlayService owner=new CarPlayService();
@@ -59,6 +59,12 @@ public class DipoRelayRuntimeTest {
    check(p.reads==0,"overflow must abort rather than transmit a truncated protocol prefix");
    check(owner.failures==1,"overflow must notify host once");
   }else if(args[0].equals("read-false")){
+   // V039 iAP2 server: Iap2SvcTransportReadDone returns false even when it delivered the data.
+   RelayBridge.bind(p);RelayBridge.sessionCreated(owner);
+   RelayBridge.fromCarPlay(owner,new byte[]{1},1);RelayBridge.connected(5,null);
+   RelayBridge.fromCarPlay(owner,new byte[]{2},1);
+   check(p.reads==2&&owner.failures==0&&owner.connections==1,"a false result from the V039 server is not a failure");
+  }else if(args[0].equals("read-binder-failure")){
    p.rejectRead=true;RelayBridge.bind(p);RelayBridge.sessionCreated(owner);
    RelayBridge.fromCarPlay(owner,new byte[]{1},1);RelayBridge.connected(5,null);
    RelayBridge.fromCarPlay(owner,new byte[]{2},1);
@@ -126,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dipo-runtime-') as folder:
                 str(ROOT/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')]
     subprocess.run(['javac', '-encoding', 'UTF-8', '-Xlint:-options', '--release', '8', '-d', str(work), *sources], check=True)
     failed = []
-    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized'):
+    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized'):
         result = subprocess.run(['java','-cp',str(work),'DipoRelayRuntimeTest',case], timeout=10)
         if result.returncode:
             failed.append(case)

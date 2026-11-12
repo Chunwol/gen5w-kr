@@ -262,6 +262,37 @@ public final class StockProjectionSessionTest {
                 "OEM connecting alone cannot report missing credentials without accepted request");
     }
 
+    private static void relayTakeoverEndsOnlyTheProfileWait() {
+        Attempt early = new Attempt();
+        check(!early.session.relayTakeover("phone-a"), "no takeover before any bootstrap");
+        early.missingProfile();
+        check(!early.session.relayTakeover("phone-a"), "no takeover while the bootstrap call runs");
+        early.finishBootstrap();
+        check(!early.session.relayTakeover("phone-b"), "no takeover for another phone");
+        check(early.session.relayTakeover("phone-a") &&
+                early.session.phase() == StockProjectionSession.Phase.FAILED &&
+                "profile-relay-takeover".equals(early.port.lastEvent), "profile wait ends at once");
+        check(!early.session.relayTakeover("phone-a"), "a finished attempt is not taken over twice");
+
+        Attempt polling = new Attempt();
+        polling.missingProfile();
+        polling.finishBootstrap();
+        polling.now += StockProjectionSession.POLL_INTERVAL_MS;
+        polling.session.tick(polling.now);
+        check(polling.session.phase() == StockProjectionSession.Phase.INSPECTING, "a profile poll is running");
+        check(polling.session.relayTakeover("phone-a"), "takeover during a profile poll");
+        polling.port.inspect(polling.session, polling.now + 1, 1, StockProjectionSession.ProfileState.READY,
+                false, false, false, StockProjectionSession.WifiCredentialState.PRESENT, 11);
+        check(polling.session.phase() == StockProjectionSession.Phase.FAILED && polling.port.requests == 0,
+                "the poll that returns afterwards cannot start the stock connect");
+
+        Attempt requested = new Attempt();
+        requested.startWifiWait(1, StockProjectionSession.WifiCredentialState.PRESENT);
+        check(!requested.session.relayTakeover("phone-a") &&
+                requested.session.phase() != StockProjectionSession.Phase.FAILED,
+                "once the stock connect is requested the relay never takes over");
+    }
+
     private static void lateBootstrapInspectionCannotDispatchConnect() {
         Attempt a = new Attempt();
         a.missingProfile();
@@ -628,6 +659,7 @@ public final class StockProjectionSessionTest {
         userDisabledIsRecognisedOnlyFromAValidObservation();
         foreignOwnerIsRecognisedOnlyFromAValidObservation();
         delayedBootstrapCannotPollOrOverlap();
+        relayTakeoverEndsOnlyTheProfileWait();
         connectAdmissionIsConsumedOnce();
         blockedBinderDoesNotBlockShutdownOrReviveSession();
         cancellationBetweenBootstrapOperationsRejectsContinuation();

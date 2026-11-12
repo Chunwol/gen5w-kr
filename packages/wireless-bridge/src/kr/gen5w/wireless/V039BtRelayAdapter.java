@@ -156,7 +156,10 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         IIap2Service service;
         synchronized (lock) { service = iap2; }
         if (service == null || component != 4 || payload == null || length <= 0 || length > payload.length) return false;
-        try { return service.Iap2SvcTransportReadDone(Arrays.copyOf(payload, length), length); }
+        // The V039 iAP2 server (V200710.1, Iap2Service$2) always returns false here:
+        // it passes the data on whenever its session exists and only logs otherwise.
+        // So the result says nothing; only a binder failure means the data was lost.
+        try { service.Iap2SvcTransportReadDone(Arrays.copyOf(payload, length), length); return true; }
         catch (RemoteException e) { kr.gen5w.diag.SafeDiagnostic.failure("bt.iap.read",e,generation);return false; }
     }
 

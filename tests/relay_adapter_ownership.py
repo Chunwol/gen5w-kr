@@ -16,7 +16,7 @@ stubs.update({
 'android/os/IBinder.java':'package android.os; public interface IBinder {}',
 'android/os/RemoteException.java':'package android.os; public class RemoteException extends Exception {}',
 'com/tcc/iap2/IIap2Listener.java':'package com.tcc.iap2; public interface IIap2Listener {public abstract class Stub implements IIap2Listener {public abstract void connected(int c,String s);public abstract void disconnected(int c);public abstract void notify(int w,int a,int b,Iap2NotiMsg m);}}',
-'com/tcc/iap2/IIap2Service.java':'package com.tcc.iap2; public class IIap2Service {public static class Stub {public static IIap2Service asInterface(android.os.IBinder b){return new IIap2Service();}} public boolean Iap2SvcInit(IIap2Listener l,Iap2ListenerInfo i)throws android.os.RemoteException{return true;} public boolean Iap2SvcTransportReadDone(byte[] b,int n)throws android.os.RemoteException{return true;}}',
+'com/tcc/iap2/IIap2Service.java':'package com.tcc.iap2; public class IIap2Service {public static class Stub {public static IIap2Service asInterface(android.os.IBinder b){return new IIap2Service();}} public boolean Iap2SvcInit(IIap2Listener l,Iap2ListenerInfo i)throws android.os.RemoteException{return true;} public boolean Iap2SvcTransportReadDone(byte[] b,int n)throws android.os.RemoteException{return false;}}',
 'com/tcc/iap2/Iap2ListenerInfo.java':'package com.tcc.iap2; public class Iap2ListenerInfo {public void onSetSupportType(int i){}public void onSetListenerName(String s){}}',
 'com/tcc/iap2/Iap2NotiMsg.java':'package com.tcc.iap2; public class Iap2NotiMsg {public static final int OBJ_BLOB=1;public Iap2ObjGroup getItemGroup(){return null;}public static class Iap2ObjGroup {public int getItemCnt(){return 0;}public Iap2ObjItem getObjItem(int i){return null;}}public static class Iap2ObjItem{public int getItemParamType(){return 0;}public byte[] getItemByteArray(){return null;}}}',
 })
@@ -56,6 +56,16 @@ public class RelayAdapterOwnershipTest {
  check(android.util.Log.lines.contains("path=relay event=cleanup result=local-owner-released-oem-spp-retained"),"explicit physical SPP limitation diagnostic");
  a.disconnect();m.connected=true;check(a.connect(5,"phone"),"reviewed OEM query permits retained SPP reuse");check(m.connects==1&&connectedCallbacks==1,"retained link attaches fresh pipe without duplicate OEM connect");
  a.stop(4);a.disconnect();check(a.connect(6,"phone"),"reuse after component stop");check(connectedCallbacks==2,"component stop releases pipe before clearing adapter owner");
+ // Car 2026-11-12 09:15: phone data reached the adapter, the V039 server returned false (it always
+ // does) and the relay tore the link down. The stub returns false like the real server.
+ final int[] reads={0};final boolean[] lost={false};
+ set(a,"iap2",new com.tcc.iap2.IIap2Service(){public boolean Iap2SvcTransportReadDone(byte[] b,int n){reads[0]++;return false;}});
+ check(a.readDone(4,new byte[]{1},1)&&reads[0]==1,"false from the V039 server still counts as delivered");
+ BtRelayPipe pipe=new BtRelayPipe(new BtRelayPipe.SppEndpoint(){public boolean write(byte[] p,int l){return true;}public void disconnect(){lost[0]=true;}},
+   new BtRelayPipe.Iap2Endpoint(){public boolean readDone(int c,byte[] p,int l){return a.readDone(c,p,l);}public void stop(int c){lost[0]=true;}},
+   new BtRelayPipe.Diagnostics(){public void event(BtRelayPipe.Event e,int c){}});
+ check(pipe.attach(1)&&pipe.phoneToIap2(1,new byte[]{(byte)0xff,0x55,2,0,(byte)0xee,0x10},6)&&pipe.phoneToIap2(1,new byte[]{1},1),"phone data keeps flowing");
+ check(pipe.isActive()&&!lost[0]&&reads[0]==3,"the link stays up");
  set(a,"iap2",new com.tcc.iap2.IIap2Service(){public boolean Iap2SvcTransportReadDone(byte[] b,int n)throws android.os.RemoteException{throw new android.os.RemoteException();}});
  java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();java.io.PrintStream original=System.err;
  boolean sent;try{System.setErr(new java.io.PrintStream(bytes));sent=a.readDone(4,new byte[]{1},1);}finally{System.setErr(original);}

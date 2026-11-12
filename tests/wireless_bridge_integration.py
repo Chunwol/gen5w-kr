@@ -70,7 +70,8 @@ public class WirelessBridgeIntegrationTest {
                 bridge.oemCalls.shutdownNow();f.set(bridge,new TrackedPool());
             }catch(Exception e){throw new AssertionError(e);}
         }
-        public Object getSystemService(String n){if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");if(manager.crash&&"phoneprojection".equals(n))throw new ExceptionInInitializerError();return "phoneprojection".equals(n)?manager:null;}
+        volatile Thread mainThread; final java.util.concurrent.atomic.AtomicInteger wifiOnMain=new java.util.concurrent.atomic.AtomicInteger(),wifiReads=new java.util.concurrent.atomic.AtomicInteger();
+        public Object getSystemService(String n){if("wifi".equals(n)){wifiReads.incrementAndGet();if(Thread.currentThread()==mainThread)wifiOnMain.incrementAndGet();}if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");if(manager.crash&&"phoneprojection".equals(n))throw new ExceptionInInitializerError();return "phoneprojection".equals(n)?manager:null;}
         public PhoneProjectionAccess.Profile find(String a){return manager.saved?new PhoneProjectionAccess.Profile(a,1,!manager.off,!manager.noAuto):null;}
         public void sendBroadcast(android.content.Intent i){check(!Thread.holdsLock(bridge.session),"broadcast outside monitor"); broadcasts++; check("com.daudio.app.phoneprojection".equals(i.pkg)&&i.extras.size()==1,"scoped single extra action"); if(foreignAfterBroadcast)manager.foreignAfterInspection=true; if(unavailableAfterBroadcast)manager.unavailableAfterInspection=true;}
     }
@@ -126,6 +127,26 @@ public class WirelessBridgeIntegrationTest {
                 check(skip==android.util.Log.lines.contains("path=stock event=bootstrap result=skipped-relay-ready"),"skip only with ready adapter and Apple phone");
                 check(skip?c.manager.calls==0&&c.broadcasts==0&&c.bridge.session.phase()==StockProjectionSession.Phase.FAILED
                           :c.manager.calls==1,"skipped bootstrap sends nothing; otherwise stock path runs");
+            }finally{c.bridge.shutdown();V039RelayCoordinator.adapterOk=true;}
+        }
+    }
+    // Car 2026-11-12 09:14:18: the stock bootstrap went out 0.17 s before the SDP answer
+    // named the phone a CarPlay iPhone, so the relay waited the full 60 s stock timeout.
+    static void lateAppleSdpEndsStockProfileWait() throws Exception {
+        for(int k=0;k<3;k++){ // 0: Apple CarPlay, 1: SDP says not CarPlay, 2: adapter not ready
+            V039RelayCoordinator.adapterOk=k!=2; android.util.Log.lines.clear();
+            TestContext c=new TestContext();try{
+                c.manager.idle=true; c.bridge.enableRelay();
+                c.bridge.session.candidate("phone",10);c.bridge.session.tick(10);settle(c);
+                check(c.manager.calls==1&&c.bridge.session.phase()==StockProjectionSession.Phase.WAITING_PROFILE,"stock bootstrap went out first");
+                c.bridge.appleCarPlay.put("phone",Boolean.valueOf(k!=1));
+                java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);
+                maintain.invoke(c.bridge);settle(c);
+                boolean take=k==0;
+                check(take==(c.bridge.session.phase()==StockProjectionSession.Phase.FAILED),"profile wait ends at once only for a ready relay and a CarPlay iPhone");
+                check(take==android.util.Log.lines.contains("path=stock event=result result=profile-relay-takeover"),"takeover is logged");
+                check(!take||c.bridge.relay.starts==1,"relay starts without the 60 s timeout");
+                check(take||c.bridge.relay.starts==0,"otherwise the stock wait continues");
             }finally{c.bridge.shutdown();V039RelayCoordinator.adapterOk=true;}
         }
     }
@@ -196,6 +217,20 @@ public class WirelessBridgeIntegrationTest {
       }finally{c.bridge.shutdown();}
     }
 
+    // Car 2026-11-12: getWifiApConfiguration blocked the main thread 1.5-2 s while the Wi-Fi
+    // driver loaded, which held back the relay's iAP2 step and the phone's data.
+    static void wifiSettingsAreNeverReadOnTheMainThread()throws Exception{
+      TestContext c=new TestContext();try{
+       c.mainThread=Thread.currentThread();
+       c.bridge.enableRelay();c.bridge.session.candidate("phone",0);
+       java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);
+       maintain.invoke(c.bridge);settle(c);c.bridge.relay.running=true;c.wifiReads.set(0);c.wifiOnMain.set(0);
+       for(int i=0;i<3;i++){maintain.invoke(c.bridge);settle(c);}
+       check(c.wifiReads.get()>0,"credentials are still read while the relay runs");
+       check(c.wifiOnMain.get()==0,"getWifiApConfiguration never runs on the main thread");
+      }finally{c.bridge.shutdown();}
+    }
+
     static void stockOffSettingBlocksAndStopsRelay()throws Exception{
       java.lang.reflect.Method maintain=WirelessBridge.class.getDeclaredMethod("maintainRelay");maintain.setAccessible(true);
       for(int mode=0;mode<2;mode++){
@@ -239,7 +274,7 @@ public class WirelessBridgeIntegrationTest {
         check("".equals(c.receiverPermissions.get("connected")),"system Bluetooth broadcasts stay open");
       }finally{c.bridge.shutdown();}
     }
-    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();System.out.println("PASS production WirelessBridge ownership integration");}
+    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();wifiSettingsAreNeverReadOnTheMainThread();lateAppleSdpEndsStockProfileWait();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:

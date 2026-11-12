@@ -424,6 +424,24 @@ public final class StockProjectionSession {
     }
     private void fail(String result) { phase = Phase.FAILED; port.event("result", result); }
 
+    /** The relay takes over a CarPlay iPhone whose SDP answer arrived after the stock
+     * bootstrap went out (car 2026-11-12: 0.17 s later). The stock side then only waits
+     * for a profile that, on V039, comes from the iAP2 Bluetooth session the relay
+     * provides; it timed out at 60 s every time. End that wait now, exactly as the
+     * timeout would, and only while the profile wait is all that runs. */
+    public synchronized boolean relayTakeover(String address) {
+        if (candidate == null || !candidate.equals(address) || wired || foreignProjection || terminal()) return false;
+        if (!bootstrapIssued || bootstrapPending || connectIssued || observedConnecting || requestPending) return false;
+        boolean waitingForBootstrapProfile = phase == Phase.WAITING_PROFILE ||
+                phase == Phase.BOOTSTRAP_REQUESTED ||
+                (phase == Phase.INSPECTING && (inspectionReturnPhase == Phase.WAITING_PROFILE ||
+                        inspectionReturnPhase == Phase.BOOTSTRAP_REQUESTED));
+        if (!waitingForBootstrapProfile) return false;
+        inspectionPending = false; // a read still in flight is ignored when it returns
+        fail("profile-relay-takeover");
+        return true;
+    }
+
     /** A failed OEM read before anything was sent to the OEM (for example the service
      * is not registered yet just after boot) is retried a few times with growing waits.
      * The new generation makes a late answer from the failed read stale. */

@@ -311,13 +311,15 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         }
         String address = session.candidate();
         if (address == null) return;
+        // Same rule as the bootstrap skip, for an SDP answer that came after the bootstrap.
+        if (relay.adapterReady() && Boolean.TRUE.equals(appleCarPlay.get(address)) && !cable)
+            session.relayTakeover(address);
         boolean eligible = relayEligible(address);
         String why = eligible ? "eligible" : relayBlockReason(address);
         if (!why.equals(lastRelayGate)) { lastRelayGate = why; log("path=relay event=gate result=" + why); }
         if (eligible || relay.active()) inspectRelayProjection(address);
         if (!relay.active()) return;
-        ProjectionWifiAccess.CredentialStatus credentials = inspectWifiCredentials();
-        if (credentials == ProjectionWifiAccess.CredentialStatus.PRESENT) relay.credentialsReady();
+        // Credentials are read with the projection state, off this thread (see inspectRelayProjection).
         if (apProgress == ProjectionWifiAccess.ApProgress.READY) relay.apObservedReady();
     }
 
@@ -359,6 +361,10 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                     // pending flag; a null read never starts or cancels a relay.
                     log("path=relay event=inspect result=error type=" + e.getClass().getName() + " message=" + e.getMessage());
                 }
+                // getWifiApConfiguration waits for the Wi-Fi state machine thread, which is
+                // busy for 1.5-2 s while the driver loads or unloads (car 2026-11-12: the
+                // main thread, and the relay with it, stopped exactly that long). Read it here.
+                final ProjectionWifiAccess.CredentialStatus credentials = inspectWifiCredentials();
                 final StockProjectionSession.Observation state = read;
                 main.post(new Runnable() { public void run() {
                     relayInspectPending = false;
@@ -367,6 +373,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                     if (cable) { relay.cancel(BtRelaySession.CancelReason.WIRED); return; }
                     refreshWired();
                     if (cable) return;
+                    if (relay.active() && credentials == ProjectionWifiAccess.CredentialStatus.PRESENT) relay.credentialsReady();
                     // Once DiPO runs our wireless session, a state naming no (or an old) phone is ours.
                     if (StockProjectionSession.foreignOwner(state) && !relay.carPlayOwned()) {
                         relay.cancel(BtRelaySession.CancelReason.FOREIGN_OWNER);
@@ -386,7 +393,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                             !state.active && !state.connecting && !state.otherActive) {
                         relay.start(address);
                         // Event, not the next 1 s tick: the AP starts as soon as SPP is up.
-                        if (relay.active() && inspectWifiCredentials() == ProjectionWifiAccess.CredentialStatus.PRESENT)
+                        if (relay.active() && credentials == ProjectionWifiAccess.CredentialStatus.PRESENT)
                             relay.credentialsReady();
                     }
                 }});
