@@ -28,8 +28,11 @@ done
 for f in $(find packages probe/package probe/usb tools -name '*.sh' -o -name '*.data' -o -name '*.xml'); do
     grep -q $'\r' "$f" && { echo "FAIL CRLF in $f"; rc=1; }
 done
+python3 tools/portable/build.py --host-only || exit 1
+python3 tests/portable_supervision.py || exit 1
 echo "== shell package tests (parallel)"
 bash tests/par.sh bash \
+    tests/portable_ap.sh tests/portable_framework.sh tests/portable_boot.sh tests/portable_package.sh tests/portable_overlay.sh tests/portable_runtime.sh tests/portable_session.sh tests/portable_check.sh \
     tests/integrated.sh#3 tests/integrated.sh#1 tests/integrated-edge.sh tests/bridge.sh tests/gpm-relay.sh tests/timer.sh tests/dongle.sh tests/check.sh \
     tests/drivelog.sh tests/wireless.sh tests/audio.sh tests/bootguard.sh tests/system-reinstall.sh \
     tests/recovery.sh tests/installation-recovery.sh tests/integrated.sh#2 tests/integrated-build.sh tests/bootguard-runtime.sh tests/wireless-preserve.sh \
@@ -39,4 +42,8 @@ bash tests/par.sh bash \
     tests/stock-projection-source.sh tests/standalone.sh tests/request-envelope.sh tests/adb-health.sh || rc=1
 # Python tests that start mksh themselves.
 bash tests/par.sh python3 tests/dongle_runtime.py tests/broker_diagnostics.py tests/diagnostic_concurrency.py || rc=1
+# This fixture intentionally uses the real authored app cmdline. The legacy
+# installer scans real /proc and correctly refuses a running authored app, so
+# this test must not overlap those tests.
+bash tests/portable_ui.sh || rc=1
 exit $rc

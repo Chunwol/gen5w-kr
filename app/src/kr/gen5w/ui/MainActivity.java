@@ -309,7 +309,7 @@ public final class MainActivity extends Activity {
         section(page, "무선");
         final String wireless = effective(0, model.switchWireless());
         String wlock = model.wiredOnly() ? "설치 때 유선 전용으로 설치되어 여기서 켤 수 없습니다"
-                : model.apguardOff() ? "재시작 보호가 걸려 있어 여기서 켤 수 없습니다" : null;
+                : model.apguardOff() ? (model.portable() ? "안전 보호 또는 자동 적용 상태 때문에 여기서 켤 수 없습니다" : "재시작 보호가 걸려 있어 여기서 켤 수 없습니다") : null;
         switchRow(page, "무선 CarPlay / Android Auto", "무선 연결 담당 서비스를 켜고 끕니다. 유선 연결은 그대로 동작합니다.",
                 wlock != null ? wlock : readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", wireless, 0);
         section(page, "안내창");
@@ -549,23 +549,23 @@ public final class MainActivity extends Activity {
         boolean askedNow = removeToken != null && SystemClock.elapsedRealtime() - removeAskedAt < 10 * 60 * 1000
                 && !removed.startsWith(removeToken + ":");
         if (askedNow || result.equals("working")) {
-            box(page, "제거하는 중입니다", I18n.t("끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. {0}", parts.length > 2 && result.equals("working") ? I18n.t("지금: {0}", failedId) : ""), WARN);
-        } else if (result.equals("done") && ((removeToken != null && removed.startsWith(removeToken + ":"))
+            box(page, "제거하는 중입니다", I18n.t((model.portable() ? "끄지 말고 기다려 주세요. 자동 적용을 끄고 적용한 기능을 되돌립니다. {0}" : "끄지 말고 기다려 주세요. 패키지를 하나씩 되돌리며 제거합니다. {0}"), parts.length > 2 && result.equals("working") ? I18n.t("지금: {0}", failedId) : ""), WARN);
+        } else if (result.equals("done") && (model.portableRemovalDone() || (removeToken != null && removed.startsWith(removeToken + ":"))
                 || model.bridgeVersion().length() == 0)) {
             // The removal cold-boots the car, which forgets the token; an absent bridge still shows the last step.
-            box(page, "거의 끝났습니다", "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다.", OK);
+            box(page, "거의 끝났습니다", (model.portable() ? "자동 적용을 끄고 적용한 기능을 되돌렸습니다. 패키지와 앱은 남아 있습니다. 완전히 제거하려면 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요." : "Gen5W KR 패키지를 제거했습니다. 마지막으로 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요. 이 앱 자체라서 화면에서는 지울 수 없습니다."), OK);
         } else {
-            if (result.equals("failed") && removeToken != null && removed.startsWith(removeToken + ":")) {
-                box(page, "제거를 멈췄습니다", I18n.t("{0} 단계에서 멈췄습니다. 이 패키지와 이후 패키지는 그대로 남아 있습니다. 진단을 저장해 두고 다시 시도하거나 USB 제거 키트를 쓰세요.", failedId), RED);
+            if (result.equals("failed") && (model.portable() || (removeToken != null && removed.startsWith(removeToken + ":")))) {
+                box(page, "제거를 멈췄습니다", I18n.t((model.portable() ? "{0} 단계에서 멈췄습니다. 진단을 저장하고 복원 상태를 확인하세요. 복원이 끝나기 전에는 패키지를 지우지 마세요." : "{0} 단계에서 멈췄습니다. 이 패키지와 이후 패키지는 그대로 남아 있습니다. 진단을 저장해 두고 다시 시도하거나 USB 제거 키트를 쓰세요."), failedId), RED);
             }
             if (!confirmRemove) {
-                buttonRow(page, "Gen5W KR 전부 제거", "무선, 오디오, 안내창, 블루링크, 주행 기록을 제거하고 차 설정을 처음 값으로 되돌립니다. 앱(CarPlay HUD)은 마지막에 NEMESIS Manager에서 지웁니다.",
+                buttonRow(page, "Gen5W KR 전부 제거", (model.portable() ? "자동 적용을 끄고 이 패키지가 적용한 기능을 되돌립니다. 패키지와 앱은 마지막에 NEMESIS Manager에서 지웁니다." : "무선, 오디오, 안내창, 블루링크, 주행 기록을 제거하고 차 설정을 처음 값으로 되돌립니다. 앱(CarPlay HUD)은 마지막에 NEMESIS Manager에서 지웁니다."),
                         "제거...", canRequest(), 3, new View.OnClickListener() {
                             public void onClick(View v) { if (canRequest()) confirmRemove = true; render(); }
                         });
             } else {
-                box(page, "정말 제거할까요?", "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다. 다 지우면 차가 한 번 재부팅됩니다.", WARN);
-                buttonRow(page, "제거 시작", "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다.", "제거 시작", canRequest(), 1, new View.OnClickListener() {
+                box(page, "정말 제거할까요?", (model.portable() ? "기능을 되돌리는 동안 차를 끄지 마세요. Android가 다시 시작될 수 있습니다. 실패하면 진단을 저장하고 복원 상태를 확인하세요." : "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다. 다 지우면 차가 한 번 재부팅됩니다."), WARN);
+                buttonRow(page, "제거 시작", (model.portable() ? "자동 적용을 끄고 기능을 되돌립니다. 다시 사용하려면 설치 키트로 설정해야 합니다." : "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다."), "제거 시작", canRequest(), 1, new View.OnClickListener() {
                     public void onClick(View v) {
                         if (!canRequest()) { render(); return; }
                         confirmRemove = false;

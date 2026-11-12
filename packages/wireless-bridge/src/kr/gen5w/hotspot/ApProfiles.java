@@ -113,6 +113,8 @@ public final class ApProfiles {
             }
             liveSsid = null;
             liveKey = null;
+            // A completed, guarded stop is not an unfinished driver start.
+            guard.check(); port.transitionDone(false);
         } finally { port.unlock(); }
     }
     private static void waitState(Port port, Guard guard, int state, long timeout) throws Exception {

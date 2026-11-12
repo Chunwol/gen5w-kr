@@ -23,10 +23,10 @@ wsl)
 esac
 
 python_tests="tests/unit_commands.py tests/source_revision.py tests/mkpkg_import.py tests/iap2_control.py tests/bt_recipe.py tests/dipo_control.py tests/dipo_relay_structure.py tests/dipo_relay_builder.py tests/v039_bt_adapter.py tests/gpm_control.py tests/fastboot_recovery.py tests/recovery_usb.py"
-python_tests="$python_tests tests/hotspot_control.py tests/gpm_guard_builder.py tools/diagnostics/sync.py"
+python_tests="$python_tests tests/portable_candidate.py tests/hotspot_control.py tests/gpm_guard_builder.py tools/diagnostics/sync.py"
 have_jdk=0
 command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && have_jdk=1
-[ "$have_jdk" = 1 ] && python_tests="tests/core_lifecycle.py tests/core_recovery.py tests/dipo_relay_runtime.py tests/gpm_usb_guard_runtime.py $python_tests"
+[ "$have_jdk" = 1 ] && python_tests="tests/portable_host_guard.py tests/portable_adapters.py tests/test_portable_dalvik.py tests/core_lifecycle.py tests/core_recovery.py tests/dipo_relay_runtime.py tests/gpm_usb_guard_runtime.py $python_tests"
 
 ( bash tests/par.sh python3 $python_tests >"$out/py.out" 2>&1; echo $? >"$out/py.rc" ) &
 ( bash tests/java.sh >"$out/jvm.out" 2>&1; echo $? >"$out/jvm.rc" ) &

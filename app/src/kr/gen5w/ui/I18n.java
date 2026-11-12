@@ -181,5 +181,12 @@ public final class I18n {
         add("기능을 켜고 끕니다. 설치된 파일은 지워지지 않습니다.", "Turns features on or off. Installed files are not deleted.");
         add("최근 기록을 보여 줍니다. 종류와 출처로 걸러 볼 수 있습니다.", "Shows the recent log. You can filter by kind and source.");
         add("진단 저장과 제거 같은 관리 작업을 합니다.", "Management tasks such as saving a diagnosis or removing.");
+        add("안전 보호 또는 자동 적용 상태 때문에 여기서 켤 수 없습니다", "Safety protection or automatic activation state prevents enabling wireless here.");
+        add("끄지 말고 기다려 주세요. 자동 적용을 끄고 적용한 기능을 되돌립니다. {0}", "Please wait. Disabling automatic activation and restoring applied features. {0}");
+        add("자동 적용을 끄고 적용한 기능을 되돌렸습니다. 패키지와 앱은 남아 있습니다. 완전히 제거하려면 NEMESIS Manager의 My Packages에서 \"Gen5W KR - CarPlay HUD\"를 눌러 Uninstall 하세요.", "Automatic activation is off and applied features are restored. The package and app remain. To remove them, select Gen5W KR - CarPlay HUD in NEMESIS Manager / My Packages and Uninstall.");
+        add("{0} 단계에서 멈췄습니다. 진단을 저장하고 복원 상태를 확인하세요. 복원이 끝나기 전에는 패키지를 지우지 마세요.", "Stopped at {0}. Save a diagnosis and check restoration status. Keep the package until restoration is complete.");
+        add("자동 적용을 끄고 이 패키지가 적용한 기능을 되돌립니다. 패키지와 앱은 마지막에 NEMESIS Manager에서 지웁니다.", "Disables automatic activation and restores features applied by this package. Remove the package and app in NEMESIS Manager afterwards.");
+        add("기능을 되돌리는 동안 차를 끄지 마세요. Android가 다시 시작될 수 있습니다. 실패하면 진단을 저장하고 복원 상태를 확인하세요.", "Keep the car on while features are restored. Android may restart. If restoration fails, save a diagnosis and check its status.");
+        add("자동 적용을 끄고 기능을 되돌립니다. 다시 사용하려면 설치 키트로 설정해야 합니다.", "Disables automatic activation and restores features. Use the installation kit to configure it again.");
     }
 }

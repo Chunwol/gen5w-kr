@@ -15,6 +15,12 @@ public final class StatusModelTest {
     public static void main(String[] args) {
         List<String> alive = l("ts=1000", "host=alive", "relay=on", "backend=builtin", "version=0.3.46", "apguard=on", "wired=no");
         StatusModel ok = StatusModel.parse(alive, l("bridge|WAIT bridge: wired-only mode is set"), 1010);
+        check("legacy screen keeps legacy lifecycle", !ok.portable() && !ok.portableRemovalDone());
+        check("portable done survives activity token loss", StatusModel.parse(l("portable_enabled=0", "removed=42:done"), null, 1000).portableRemovalDone());
+        check("rearmed install ignores previous done", !StatusModel.parse(l("portable_enabled=1", "removed=42:done"), null, 1000).portableRemovalDone());
+        same("rearmed screen drops old completion", "0:none", StatusModel.parse(l("portable_enabled=1", "removed=42:done"), null, 1000).removedState());
+        check("portable failed is not done", !StatusModel.parse(l("portable_enabled=0", "removed=42:failed"), null, 1000).portableRemovalDone());
+        check("unknown installation is not portable", !StatusModel.parse(l("portable_enabled=unknown"), null, 1000).portable());
         check("readable", ok.readable());
         check("fresh", !ok.stale());
         same("host", "alive", ok.host());

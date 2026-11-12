@@ -1,0 +1,35 @@
+[nemesis]
+version=1.0
+id=gen5w.kr.portable
+name=Gen5W KR - CarPlay HUD
+package-version=0.3.65
+short-desc=차량 내 패치 생성·부팅 자동 적용·독립 복구
+depends=!gen5w.kr.bridge,!gen5w.kr.core,!wireless.projection,!enhanced.projection,!projection.tbt
+types=application,service
+preinstall=package-pre.sh
+postinstall=package-post.sh
+preuninstall=package-preun.sh
+
+[app.0]
+kind=apk
+path=app/wireless-host.apk
+package=kr.gen5w.wirelesshost
+
+[app.1]
+kind=apk
+path=app/gen5w-core.apk
+package=kr.gen5w.core
+
+[service.0]
+name=boot
+kind=sh
+path=service.sh
+uid=root
+mode=background
+
+[service.1]
+name=ui
+kind=sh
+path=ui.sh
+uid=root
+mode=background

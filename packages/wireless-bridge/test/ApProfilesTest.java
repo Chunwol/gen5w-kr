@@ -95,6 +95,12 @@ public final class ApProfilesTest {
         check(f.enables == 0 && f.disables == 0 && !f.locked, "validate before any radio operation");
         f = new Fake();
         check(new ApProfiles().ensure(f, f) && f.doneOk == 1 && f.doneFail == 0, "successful start reports done once");
+        new ApProfiles().stop(f, f);
+        check(f.doneFail == 1 && f.state == 11, "clean stop clears pending restart evidence");
+        final Fake cancelledStop = new Fake(); cancelledStop.cancelled = true;
+        try { new ApProfiles().stop(cancelledStop, cancelledStop); throw new AssertionError("must cancel stop"); }
+        catch (Exception expected) { }
+        check(cancelledStop.doneFail == 0, "cancelled stop cannot clear another generation guard");
         f = new Fake(); f.fail = true;
         try { new ApProfiles().ensure(f, f); } catch (Exception expected) { }
         check(f.doneOk == 0 && f.doneFail == 1, "failed start clears the start guard");

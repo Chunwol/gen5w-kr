@@ -30,9 +30,11 @@ public final class BridgeHostService extends Service {
         }
         try {
             File marker = new File(getFilesDir(), "bridge-ready");
-            FileOutputStream out = new FileOutputStream(marker);
-            try { out.write((Integer.toString(Process.myPid()) + "\n").getBytes("US-ASCII")); }
+            File temporary = new File(getFilesDir(), "bridge-ready.tmp");
+            FileOutputStream out = new FileOutputStream(temporary);
+            try { out.write(HostReadyMarker.current(Process.myPid()).getBytes("US-ASCII")); out.getFD().sync(); }
             finally { out.close(); }
+            if (!temporary.renameTo(marker)) throw new java.io.IOException("host readiness seal failed");
         } catch (Exception e) {
             Log.e("gen5w-wireless", "host readiness marker failure: " + e.getClass().getName());
             stopSelf();

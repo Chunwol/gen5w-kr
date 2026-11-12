@@ -23,7 +23,7 @@ UNIT_DIR = ROOT / 'tests' / 'unit'
 # On-unit scripts: package hooks, package binaries, the USB installer and the probe.
 SCRIPT_GLOBS = [
     'packages/*/scripts/*.sh', 'packages/*/bin/*.sh',
-    'tools/integrated/*.sh',
+    'tools/integrated/*.sh', 'tools/portable/*.sh',
     'tools/usb-wifi/package/scripts/*.sh', 'tools/usb-wifi/package/bin/*',
     'tools/usb-wifi/scripts/*.sh',
     'probe/package/bin/*.sh', 'probe/usb/*/*.sh',
@@ -75,7 +75,7 @@ def load_policy():
     return options, letters, banned
 
 
-SKIP_DIRS = {'.git', 'tests', 'dist', '__pycache__', 'node_modules', 'build', 'analysis_private'}
+SKIP_DIRS = {'.git', '.build', 'tests', 'dist', '__pycache__', 'node_modules', 'build', 'analysis_private'}
 
 
 def shebang_scripts(top, skip):
