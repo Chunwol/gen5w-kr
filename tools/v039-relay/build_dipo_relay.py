@@ -106,6 +106,69 @@ def patch_stock_smali(tree: Path) -> None:
     text = text[:absolute] + replacement + text[absolute + len(match.group(0)):]
     dipo_service.write_text(text, encoding="utf-8", newline="\n")
     patch_reconnect(tree / "com/daudio/app/dipo/service/q.smali")
+    patch_stock_listener(tree / "com/daudio/app/dipo/e/g.smali")
+    patch_wireless_feature(tree / "com/daudio/app/dipo/i/e.smali")
+
+
+def patch_stock_listener(path: Path) -> None:
+    """V039 DiPO's own iAP2 listener (e/g) accepts only component 1.
+
+    The relay's Bluetooth session (4) is passed on as 1, component 5 only turns DiPO's
+    notifications on, the Bluetooth and channel ends are hidden while wireless CarPlay
+    runs, and the channel's identification is dropped (it would restart AirPlay). Same
+    behaviour as the bridge build that ran wireless CarPlay on this car (2026-10-26).
+    """
+    text = path.read_text(encoding="utf-8")
+    if "RelayBridge;->listenerComponent" in text:
+        raise ValueError("stock listener already patched")
+    if ".super Lcom/tcc/iap2/IIap2Listener$Stub;" not in text or \
+            ".field private synthetic mM:Lcom/daudio/app/dipo/e/a;" not in text:
+        raise ValueError("unreviewed V039 DiPO iAP2 listener")
+    start = text.find(".method public final connected(ILjava/lang/String;)V\n")
+    end = text.find(".end method", start)
+    if start < 0 or end < 0:
+        raise ValueError("missing V039 listener connected")
+    method = text[start:end]
+    if method.count("    if-ne p1, v1, :cond_51\n") != 1 or \
+            method.count("    invoke-static {v0, v1}, Lcom/daudio/app/dipo/e/b;->a(Lcom/daudio/app/dipo/e/b;Z)Z\n") != 1 or \
+            "    .registers 6\n" not in method:
+        raise ValueError("unreviewed V039 listener component gate")
+    insert_method_entry(path, ".method public final connected(ILjava/lang/String;)V",
+        "    invoke-static {p1}, Lkr/gen5w/dipo/RelayBridge;->listenerComponent(I)I\n\n"
+        "    move-result p1\n\n    if-gez p1, :gen5w_listener_stock\n\n"
+        "    iget-object v0, p0, Lcom/daudio/app/dipo/e/g;->mM:Lcom/daudio/app/dipo/e/a;\n\n"
+        "    iget-object v0, v0, Lcom/daudio/app/dipo/e/a;->Q:Lcom/daudio/app/dipo/e/b;\n\n"
+        "    const/4 v1, 0x1\n\n"
+        "    invoke-static {v0, v1}, Lcom/daudio/app/dipo/e/b;->a(Lcom/daudio/app/dipo/e/b;Z)Z\n\n"
+        "    return-void\n\n    :gen5w_listener_stock\n")
+    insert_method_entry(path, ".method public final disconnected(I)V",
+        "    invoke-static {p1}, Lkr/gen5w/dipo/RelayBridge;->ignoreListenerDisconnect(I)Z\n\n"
+        "    move-result v0\n\n    if-eqz v0, :gen5w_listener_disconnect_stock\n\n"
+        "    return-void\n\n    :gen5w_listener_disconnect_stock\n")
+    insert_method_entry(path, ".method public final notify(IIILcom/tcc/iap2/Iap2NotiMsg;)V",
+        "    invoke-static {p1}, Lkr/gen5w/dipo/RelayBridge;->dropListenerNotify(I)Z\n\n"
+        "    move-result v0\n\n    if-eqz v0, :gen5w_listener_notify_stock\n\n"
+        "    return-void\n\n    :gen5w_listener_notify_stock\n")
+
+
+def patch_wireless_feature(path: Path) -> None:
+    """Keep DiPO on the stock Korean (no Hyundai wireless CarPlay) paths.
+
+    The kit's carplay_wireless feature file is for the other apps; inside DiPO it would
+    switch on Hyundai's own wireless CarPlay handling, which this unit does not have.
+    """
+    text = path.read_text(encoding="utf-8")
+    signature = ".method public final isSupportWirelessCarPlay()Z\n"
+    start = text.find(signature)
+    if start < 0 or text.find(signature, start + 1) >= 0:
+        raise ValueError("missing unique isSupportWirelessCarPlay")
+    end = text.find(".end method", start)
+    method = text[start:end]
+    if '"com.hkmc.software.connectivity.carplay_wireless"' not in method or \
+            "Lcom/hkmc/Feature;->hasFeature" not in method or "    .registers 3\n" not in method:
+        raise ValueError("unreviewed isSupportWirelessCarPlay")
+    body = signature + "    .registers 3\n\n    const/4 v0, 0x0\n\n    return v0\n"
+    path.write_text(text[:start] + body + text[end:], encoding="utf-8", newline="\n")
 
 
 def patch_reconnect(path: Path) -> None:

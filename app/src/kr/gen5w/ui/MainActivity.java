@@ -108,7 +108,15 @@ public final class MainActivity extends Activity {
         TextView back = label("‹", 44, TEXT, false);
         back.setGravity(Gravity.CENTER);
         back.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { finish(); }
+            public void onClick(View v) {
+                // The car framework checks GET_TASKS against this app when finish() resumes another
+                // activity; if that permission is missing, leave by moving the task back instead.
+                try { finish(); }
+                catch (SecurityException e) {
+                    kr.gen5w.diag.SafeDiagnostic.failure("ui.back", e);
+                    moveTaskToBack(true);
+                }
+            }
         });
         bar.addView(back, new FrameLayout.LayoutParams(dp(68), dp(60), Gravity.LEFT | Gravity.CENTER_VERTICAL));
         TextView title = label("Gen5W KR", 28, TEXT, true);

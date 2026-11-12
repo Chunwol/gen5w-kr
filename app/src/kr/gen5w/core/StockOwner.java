@@ -5,6 +5,8 @@ import android.database.Cursor;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.net.Uri;
+import android.os.Binder;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Process;
 
@@ -13,10 +15,60 @@ public final class StockOwner {
     private static final Uri STATE = Uri.parse("content://com.mnsoft.navi/State_Table");
     private static final Observation observation = new Observation();
 
-    private static int read(final Context context) {
+    interface Source { Cursor query(Uri uri, String[] columns) throws Exception; }
+
+    private static int read(final Source source) {
         return observation.read(new java.util.concurrent.Callable<Integer>() {
-            public Integer call() { return readProvider(context); }
+            public Integer call() { return readProvider(source); }
         });
+    }
+
+    /**
+     * Reads a provider without an app record, as the stock `content` shell command does.
+     * This process was not started by the activity manager, so an ordinary
+     * ContentResolver query is refused ("Unable to find app for caller"). Checked
+     * against the car build's ActivityManagerService (getContentProviderExternal
+     * passes no caller; uid 1000 holds ACCESS_CONTENT_PROVIDERS_EXTERNALLY).
+     */
+    static final class ExternalSource implements Source {
+        private final IBinder token = new Binder();
+        private Object provider;
+        private String authority;
+
+        public synchronized Cursor query(Uri uri, String[] columns) throws Exception {
+            if (provider == null) {
+                authority = uri.getAuthority();
+                Object manager = Class.forName("android.app.ActivityManagerNative").getMethod("getDefault").invoke(null);
+                Object holder = Class.forName("android.app.IActivityManager")
+                        .getMethod("getContentProviderExternal", String.class, int.class, IBinder.class)
+                        .invoke(manager, authority, 0, token);
+                if (holder == null) return null;
+                provider = holder.getClass().getField("provider").get(holder);
+                if (provider == null) { release(); return null; }
+            }
+            try {
+                return (Cursor)Class.forName("android.content.IContentProvider")
+                        .getMethod("query", String.class, Uri.class, String[].class, String.class,
+                                String[].class, String.class, Class.forName("android.os.ICancellationSignal"))
+                        .invoke(provider, "android", uri, columns, null, null, null, null);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                // The navigation process restarted: drop the reference and acquire afresh next time.
+                release();
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception) throw (Exception)cause;
+                throw e;
+            }
+        }
+
+        private void release() {
+            provider = null;
+            try {
+                Object manager = Class.forName("android.app.ActivityManagerNative").getMethod("getDefault").invoke(null);
+                Class.forName("android.app.IActivityManager")
+                        .getMethod("removeContentProviderExternal", String.class, IBinder.class)
+                        .invoke(manager, authority, token);
+            } catch (Exception ignored) { }
+        }
     }
 
     /** One provider worker, one pending observation, and no cached ownership.
@@ -62,11 +114,10 @@ public final class StockOwner {
         }
     }
 
-    private static int readProvider(Context context) {
+    private static int readProvider(Source source) {
         Cursor cursor = null;
         try {
-            cursor = context.getContentResolver().query(STATE,
-                    new String[]{"State_Destination"}, null, null, null);
+            cursor = source.query(STATE, new String[]{"State_Destination"});
             if (cursor == null) return '?';
             final Cursor rows = cursor;
             return StockFlag.decode(new StockFlag.Rows() {
@@ -75,9 +126,23 @@ public final class StockOwner {
                 public boolean isNull() { return rows.isNull(0); }
                 public String text() { return rows.getString(0); }
             });
-        } catch (RuntimeException e) { kr.gen5w.diag.SafeDiagnostic.failure("core.owner.query",e); return '?'; }
+        } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("core.owner.query",e); return '?'; }
         finally {
             if (cursor != null) try { cursor.close(); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    /** Early in boot the package service is not up yet; wait for it instead of crashing. */
+    private static int clientUid(Context context) throws Exception {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                android.content.pm.PackageManager packages = context.getPackageManager();
+                if (packages != null) return packages.getApplicationInfo("kr.gen5w.core", 0).uid;
+            } catch (RuntimeException e) {
+                if (attempt >= 120) throw e;
+            }
+            if (attempt >= 120) throw new IllegalStateException("package service unavailable");
+            Thread.sleep(1000);
         }
     }
 
@@ -87,7 +152,8 @@ public final class StockOwner {
         Class<?> type = Class.forName("android.app.ActivityThread");
         Object thread = type.getMethod("systemMain").invoke(null);
         final Context context = (Context)type.getMethod("getSystemContext").invoke(thread);
-        final int clientUid = context.getPackageManager().getApplicationInfo("kr.gen5w.core", 0).uid;
+        final int clientUid = clientUid(context);
+        final Source source = new ExternalSource();
         final LocalServerSocket server = new LocalServerSocket(StockGuidance.SOCKET);
         new Thread(new Runnable() {
             public void run() {
@@ -98,7 +164,7 @@ public final class StockOwner {
                             client.setSoTimeout(200);
                             if (client.getPeerCredentials().getUid() == clientUid
                                     && client.getInputStream().read() == '?') {
-                                client.getOutputStream().write(read(context));
+                                client.getOutputStream().write(read(source));
                             }
                         } catch (java.io.IOException ignored) { }
                         finally { try { client.close(); } catch (java.io.IOException ignored) { } }

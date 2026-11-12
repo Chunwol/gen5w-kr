@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STUBS = {
  'android/content/Intent.java': '''package android.content; public class Intent {public final String action; public Intent(String a){action=a;} public Intent setPackage(String p){return this;}}''',
  'android/os/RemoteException.java': 'package android.os; public class RemoteException extends Exception {}',
+ 'android/util/Log.java': 'package android.util; public final class Log { public static int i(String t,String m){return 0;} }',
  'com/daudio/app/dipo/telechips/CarPlayService.java': '''package com.daudio.app.dipo.telechips;
  public class CarPlayService {public int requests,failures,inbound,connections;public void sendBroadcast(android.content.Intent i){if(i.action.endsWith("REQUESTED"))requests++;else if(i.action.endsWith("DISCONNECTED"))failures++;else if(i.action.endsWith("CONNECTED"))connections++;}public Object iAPSendMessage(byte[] b,int n){inbound++;return null;}}''',
  'com/tcc/iap2/IIap2Listener.java': '''package com.tcc.iap2; public interface IIap2Listener {void connected(int c,String s);void disconnected(int c);void notify(int w,int a,int b,Iap2NotiMsg m);abstract class Stub implements IIap2Listener {}}''',
@@ -112,6 +113,38 @@ public class DipoRelayRuntimeTest {
    CarPlayService stale=new CarPlayService();RelayBridge.sessionCreated(stale);RelayBridge.sessionCreated(owner);
    try{RelayBridge.class.getMethod("sessionStarted",CarPlayService.class,int.class).invoke(null,stale,0);}catch(Exception e){throw new AssertionError("sessionStarted must carry its owner",e);}
    RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==1,"stale start cannot turn replacement into wired");
+  }else if(args[0].equals("listener-bt")){
+   // V039 DiPO's own listener accepts only component 1; the relay's Bluetooth session (4) must reach it as 1.
+   check(RelayBridge.listenerComponent(4)==1,"Bluetooth CarPlay session must reach DiPO as a phone session");
+   RelayBridge.connected(1,"80:96:98:2C:57:95");RelayBridge.sessionCreated(owner);
+   RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==1,"a mapped Bluetooth session is not USB ownership");
+  }else if(args[0].equals("listener-usb")){
+   check(RelayBridge.listenerComponent(1)==1,"USB stays component 1");
+   RelayBridge.connected(1,"usb");RelayBridge.sessionCreated(owner);
+   RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==0,"real USB still excludes wireless handover");
+  }else if(args[0].equals("listener-cp5")){
+   check(RelayBridge.listenerComponent(5)<0,"component 5 only turns DiPO notifications on");
+   check(RelayBridge.listenerComponent(2)==2&&RelayBridge.listenerComponent(0)==0,"other components stay stock");
+  }else if(args[0].equals("ignore-disconnect")){
+   check(!RelayBridge.ignoreListenerDisconnect(4),"before any wireless session the Bluetooth end is DiPO's");
+   RelayBridge.sessionCreated(owner);check(!RelayBridge.ignoreListenerDisconnect(4),"a created session is not yet wireless");
+   RelayBridge.sessionStarted(owner,1);
+   check(RelayBridge.ignoreListenerDisconnect(4)&&RelayBridge.ignoreListenerDisconnect(5),"wireless CarPlay up: Bluetooth and channel ends are not DiPO's");
+   check(!RelayBridge.ignoreListenerDisconnect(1)&&!RelayBridge.ignoreListenerDisconnect(2),"USB and other ends stay stock");
+   RelayBridge.sessionFinalized(owner);check(!RelayBridge.ignoreListenerDisconnect(4),"after the session ends DiPO cleans up");
+  }else if(args[0].equals("ignore-during-handover")){
+   RelayBridge.sessionCreated(owner);RelayBridge.fromCarPlay(owner,new byte[]{1},1);
+   check(RelayBridge.ignoreListenerDisconnect(4),"handover requested: the server ending component 4 must not stop DiPO");
+  }else if(args[0].equals("wired-disconnect")){
+   RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,0);
+   check(!RelayBridge.ignoreListenerDisconnect(4)&&!RelayBridge.ignoreListenerDisconnect(5),"wired session never hides ends");
+  }else if(args[0].equals("drop-notify")){
+   check(!RelayBridge.dropListenerNotify(0)&&!RelayBridge.dropListenerNotify(24),"Bluetooth identification must reach DiPO (it starts AirPlay)");
+   RelayBridge.bind(p);RelayBridge.sessionCreated(owner);RelayBridge.fromCarPlay(owner,new byte[]{1},1);
+   check(RelayBridge.dropListenerNotify(0)&&RelayBridge.dropListenerNotify(24),"channel identification must not restart DiPO");
+   check(!RelayBridge.dropListenerNotify(81)&&!RelayBridge.dropListenerNotify(5),"other notifications pass");
+   RelayBridge.connected(5,null);RelayBridge.disconnected(5);
+   check(!RelayBridge.dropListenerNotify(0),"after the channel ends identification passes again");
   }else if(args[0].equals("finalized")){
    RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,1);RelayBridge.sessionFinalized(owner);
    RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==0,"finalized session must not revive");
@@ -132,7 +165,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dipo-runtime-') as folder:
                 str(ROOT/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')]
     subprocess.run(['javac', '-encoding', 'UTF-8', '-Xlint:-options', '--release', '8', '-d', str(work), *sources], check=True)
     failed = []
-    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized'):
+    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized','listener-bt','listener-usb','listener-cp5','ignore-disconnect','ignore-during-handover','wired-disconnect','drop-notify'):
         result = subprocess.run(['java','-cp',str(work),'DipoRelayRuntimeTest',case], timeout=10)
         if result.returncode:
             failed.append(case)

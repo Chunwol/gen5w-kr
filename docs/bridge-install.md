@@ -4,7 +4,7 @@
 
 ## 적용 조건
 
-대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. 공개판은 V035/V039의 Wi-FiInformation·RouteGuidance 선언과 DiPO 통화키 보완을 적용합니다. 로컬 V039 시험판은 정확한 원본 해시가 모두 맞을 때만 component 4·5 진입점과 process-local DiPO 중계를 함께 적용합니다. 둘 중 하나만 있는 부분 설치는 거부합니다. V039의 `/system/app/HKMC_GPM.odex` Android Auto HUD 경로는 이 보조 경로와 분리됩니다. 이 파일들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. 지원하지 않는 해시·교차 버전 조합과 변경된 백업은 덮어쓰지 않습니다.
+대상 파일은 설치 전에 전체 해시와 APK 조합을 검사합니다. 공개판은 V035/V039의 Wi-FiInformation·RouteGuidance 선언과 DiPO 통화키 보완을 적용합니다. 로컬 V039 시험판은 정확한 원본 해시가 모두 맞을 때만 component 4·5 진입점과 process-local DiPO 중계를 함께 적용합니다. 둘 중 하나만 있는 부분 설치는 거부합니다. V039 DiPO의 자체 iAP2 수신기(`e/g`)는 component 1(USB)만 받아 CarPlay를 시작하므로, 중계 DiPO는 이 수신기 입구에서 블루투스 세션(4)을 1로 넘기고, 5는 DiPO 알림만 켜며, 무선 CarPlay 중 4·5 종료와 채널 세션(5)의 식별 알림(0·24)은 DiPO에 넘기지 않습니다. DiPO 안에서는 무선 CarPlay 기능 판단(`isSupportWirelessCarPlay`)을 꺼 순정 한국판 경로를 유지합니다. 2026-10-26 이 차에서 무선 CarPlay가 동작한 브리지 빌드와 같은 처리입니다. V039의 `/system/app/HKMC_GPM.odex` Android Auto HUD 경로는 이 보조 경로와 분리됩니다. 이 파일들은 부팅 핵심 파일은 아니지만 시스템 앱 변경이며, 실차 검증과 되돌리기 준비가 필요합니다. 지원하지 않는 해시·교차 버전 조합과 변경된 백업은 덮어쓰지 않습니다.
 
 helper는 `original FILE`, `patched FILE`, `apply IN OUT`, `verify FILE SHA`를 제공합니다. NEMESIS 추출 권한 0644를 고려하여 실행 전 우리 helper만 0755로 바꿉니다. 브리지 DEX와 호스트 APK가 있는지 설치 전에 확인합니다.
 

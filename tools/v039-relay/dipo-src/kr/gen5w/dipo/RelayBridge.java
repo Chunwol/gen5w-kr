@@ -2,6 +2,7 @@ package kr.gen5w.dipo;
 
 import android.content.Intent;
 import android.os.RemoteException;
+import android.util.Log;
 import com.daudio.app.dipo.telechips.CarPlayService;
 import com.tcc.iap2.IIap2Listener;
 import com.tcc.iap2.IIap2Service;
@@ -13,7 +14,12 @@ import java.util.Locale;
 
 /** Process-local component-5 handover for the exact V039 DiPO application. */
 public final class RelayBridge {
+    private static final int COMPONENT_USB = 1;
+    private static final int COMPONENT_BT_CARPLAY = 4;
     private static final int COMPONENT_CARPLAY = 5;
+    private static final int NOTI_IDENTIFICATION_ACCEPTED = 0;
+    private static final int NOTI_TRANSPORT_IDENTIFIER = 24;
+    private static final String TAG = "Gen5wWireless";
     private static final int LISTENER_CARPLAY_TRANSPORT = 2048;
     private static final int NOTI_CARPLAY_TRANSPORT = 81;
     private static final int MAX_PENDING = 64;
@@ -35,6 +41,8 @@ public final class RelayBridge {
     private static boolean present;
     private static boolean wired;
     private static boolean usb;
+    /** DiPO's listener was just told component 1 for the relay's Bluetooth session. */
+    private static boolean mappedBluetooth;
     private static int pendingBytes;
     private static boolean draining;
     private static long generation;
@@ -88,6 +96,54 @@ public final class RelayBridge {
         kr.gen5w.diag.SafeDiagnostic.failure("cp5.register", failure);
     }
 
+    /**
+     * Entry of V039 DiPO's own iAP2 listener (e/g.connected). That listener turns its
+     * notifications on and starts CarPlay only for component 1, so the relay's Bluetooth
+     * session (4) is passed on as 1, as in the bridge build that ran on this car.
+     * Returns the component to continue with, or -1 for component 5: the caller then only
+     * turns DiPO's notifications on, because DiPO already holds this phone.
+     */
+    public static int listenerComponent(int component) {
+        synchronized (LOCK) {
+            mappedBluetooth = component == COMPONENT_BT_CARPLAY;
+        }
+        if (component == COMPONENT_BT_CARPLAY) {
+            log("path=dipo event=listener result=bluetooth-as-phone component=4");
+            return COMPONENT_USB;
+        }
+        if (component == COMPONENT_CARPLAY) {
+            log("path=dipo event=listener result=channel-notify-on component=5");
+            return -1;
+        }
+        return component;
+    }
+
+    /** DiPO's listener: the Bluetooth and channel sessions ending while wireless CarPlay runs are not a phone leaving. */
+    public static boolean ignoreListenerDisconnect(int component) {
+        boolean ignore;
+        synchronized (LOCK) {
+            ignore = (component == COMPONENT_BT_CARPLAY || component == COMPONENT_CARPLAY)
+                    && present && !wired && !usb && (wireless || requested);
+        }
+        if (ignore) log("path=dipo event=listener result=ignore-disconnect component=" + component);
+        return ignore;
+    }
+
+    /** DiPO's listener: the channel session's identification is not a new phone (it would restart AirPlay). */
+    public static boolean dropListenerNotify(int what) {
+        if (what != NOTI_IDENTIFICATION_ACCEPTED && what != NOTI_TRANSPORT_IDENTIFIER) return false;
+        boolean drop;
+        synchronized (LOCK) {
+            drop = present && !wired && !usb && requested;
+        }
+        if (drop) log("path=dipo event=listener result=drop-notify what=" + what);
+        return drop;
+    }
+
+    private static void log(String message) {
+        try { Log.i(TAG, message); } catch (RuntimeException ignored) { }
+    }
+
     /** Preserve the component-4 peer identity and consume only component 5. */
     public static boolean connected(int component, String value) {
         return connected(component, value, 0);
@@ -101,7 +157,11 @@ public final class RelayBridge {
             if (sequence != 0 && sequence != bindingSequence) return true;
         // Component 4 remains owned by the host-side adapter. The original
         // listener must still receive it, so return false for every non-5 event.
-            if (component == 1) usb = true;
+            if (component == COMPONENT_USB) {
+                // DiPO's own listener sees the relay's Bluetooth session as 1 (listenerComponent).
+                if (sequence == 0 && mappedBluetooth) mappedBluetooth = false;
+                else usb = true;
+            }
             if (component != COMPONENT_CARPLAY) return false;
             if (!present || wired || usb || !requested) return true;
             connected = true;

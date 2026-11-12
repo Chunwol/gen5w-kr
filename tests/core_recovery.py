@@ -26,13 +26,13 @@ import java.util.concurrent.*;
 public class OwnerRecoveryTest {
     static final Object STATE = new Object();
     static final Observation observation = new Observation();
-    static class Context {
+    interface Source { Cursor query(Object uri, String[] columns) throws Exception; }
+    static class Context implements Source {
         final CountDownLatch release = new CountDownLatch(1);
         final CountDownLatch entered = new CountDownLatch(1);
         volatile boolean stalled = true;
         int calls;
-        Context getContentResolver() { return this; }
-        Cursor query(Object u, String[] columns, Object a, Object b, Object c) {
+        public Cursor query(Object u, String[] columns) {
             calls++;
             entered.countDown();
             if (stalled) try { release.await(); } catch (InterruptedException e) { throw new RuntimeException(e); }
@@ -214,3 +214,20 @@ public class AtomicFile {
 }''', encoding='utf-8')
     subprocess.run(['javac','--release','8','-d',tmp,str(path),str(clock),str(atomic),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')],check=True)
     subprocess.run(['java','-cp',tmp,'HudHealthTest',tmp],check=True,timeout=10)
+
+# V039 car findings (2026-11-12 diag): an app_process owner has no app record, so a
+# ContentResolver query is refused by ActivityManagerService; the package service can be
+# absent at early boot; finish() is checked against GET_TASKS by the car's activity controller.
+owner_main = block(owner, 'public static void main(')
+if 'getContentResolver()' in owner or 'new ExternalSource()' not in owner_main:
+    raise SystemExit('FAIL owner must read the stock provider without an app record')
+for name in ('"getContentProviderExternal"', '"removeContentProviderExternal"', '"android.content.IContentProvider"'):
+    if name not in owner:
+        raise SystemExit('FAIL owner external provider path is missing ' + name)
+if 'getPackageManager().getApplicationInfo' in owner_main or 'clientUid(context)' not in owner_main:
+    raise SystemExit('FAIL owner must wait for the package service at early boot')
+manifest = (root/'app/AndroidManifest.xml').read_text(encoding='utf-8')
+activity = (root/'app/src/kr/gen5w/ui/MainActivity.java').read_text(encoding='utf-8')
+if 'android.permission.GET_TASKS' not in manifest or 'catch (SecurityException e)' not in activity or 'moveTaskToBack(true)' not in activity:
+    raise SystemExit('FAIL back button must survive the car activity controller GET_TASKS check')
+print('PASS owner provider path, early boot wait, back button permission')
