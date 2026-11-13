@@ -81,14 +81,20 @@ chmod +x "$t/bin/getprop"
 
 # Extract a script's production op() case statement (without the fixture branch).
 extract_op() {
-    awk '/^op\(\) \{$/{on=1;next} on&&/^\}$/{exit} on' "$1" | grep -v 'if \[ -n "\$ROOT" \]' | sed 's#/system/bin/sh #mksh #g'
+    awk '/^op\(\) \{$/{on=1;next} on&&/^    case "\$1" in$/{body=1} on&&/^\}$/{exit} body' "$1" | sed 's#/system/bin/sh #mksh #g'
 }
 # Caller script path: adapters run as children of the calling script process.
 cat > "$t/caller.sh" <<'SH'
 caller() {
-    local arg
-    for arg in $(tr '\0' '\n' < "/proc/$PPID/cmdline"); do
-        case "$arg" in */boot.sh|*/rescue.sh|*/runtime.sh|*/overlay.sh) echo "$arg"; return 0;; esac
+    local arg parent=$PPID depth=0 line rest
+    # Bounded query workers now have the native supervisor between adapter and
+    # script. Walk proven live ancestors instead of assuming direct parenthood.
+    while [ "$depth" -lt 6 ] && [ "$parent" -gt 1 ]; do
+        for arg in $(tr '\0' '\n' < "/proc/$parent/cmdline"); do
+            case "$arg" in */boot.sh|*/rescue.sh|*/runtime.sh|*/overlay.sh) echo "$arg"; return 0;; esac
+        done
+        IFS= read -r line < "/proc/$parent/stat" || return 1
+        rest=${line##*) }; set -- $rest; parent=$2; depth=$((depth+1))
     done
     return 1
 }
@@ -102,6 +108,7 @@ SH
 ROOT=$PORTABLE_TEST_ROOT
 STATE=$ROOT/data/local/gen5w-portable/boot
 PAYLOAD=$ROOT/data/local/gen5w-portable/runtime-payload
+SUPERVISOR=$PORTABLE_TEST_SUPERVISOR
 script=$(caller) || { echo "adapter: unknown caller for $1" >> "$ACTIONS/errors"; exit 1; }
 BASE=${script%/*}
 case "$script" in */boot.sh) HELPER=$PORTABLE_TEST_HELPER;; *) HELPER=$BASE/bin/dex-patch;; esac
@@ -217,6 +224,13 @@ export PORTABLE_TEST_ROOT=$R PORTABLE_TEST_BOOT_ADAPTER=$t/boot-adapter PORTABLE
 export PORTABLE_TEST_SUPERVISOR=$H PORTABLE_BOOT_TIMEOUT=10
 export PORTABLE_TEST_ADAPTER=$t/overlay-adapter PORTABLE_STATE_DIR=$P/overlay
 export PORTABLE_TEST_RUNTIME_ADAPTER=$t/runtime-adapter
+cat > "$t/ap-adapter" <<'SH'
+#!/bin/sh
+case "$1" in boot) cat "$ACTIONS/boot";; wifi-ap-on) echo 0;; sync) :;; *) exit 1;; esac
+SH
+chmod +x "$t/ap-adapter"
+export PORTABLE_TEST_AP_ADAPTER=$t/ap-adapter
+
 boot() { mksh "$B/boot.sh" "$@"; }
 J=$P/boot
 prop() { cat "$A/props/$1" 2>/dev/null || :; }
@@ -255,7 +269,7 @@ quickboot() { # same kernel boot_id; $1 = which volatile state is lost
 start_run() {
     setsid mksh "$B/boot.sh" run > "$t/run.out" 2>&1 & runner=$!
     local i
-    for i in $(seq 1 500); do
+    for i in $(seq 1 3000); do
         grep -q "|healthy$" "$J/attempt" 2>/dev/null && [ -f "$A/session-live" ] && return 0
         kill -0 "$runner" 2>/dev/null || break
         sleep .02
@@ -310,7 +324,7 @@ echo 'PASS QuickBoot same boot_id with erased mounts+wrappers re-activates once'
 settle() {
     setsid mksh "$B/boot.sh" run > "$t/run.out" 2>&1 & runner=$!
     local i
-    for i in $(seq 1 500); do
+    for i in $(seq 1 3000); do
         if ! kill -0 "$runner" 2>/dev/null; then settled=0; wait "$runner" 2>/dev/null || settled=$?; runner=; return 0; fi
         grep -q "|healthy$" "$J/attempt" 2>/dev/null && [ -f "$A/session-live" ] && { settled=running; return 0; }
         sleep .02

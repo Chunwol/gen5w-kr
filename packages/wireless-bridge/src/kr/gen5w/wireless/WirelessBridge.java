@@ -52,12 +52,21 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     final StockApGuard apGuard;
 
     WirelessBridge(Context context) {
+        this(context, null);
+    }
+
+    /** guard == null selects the production guard in the host's files directory. */
+    WirelessBridge(Context context, StockApGuard guard) {
         this.context = context;
         this.main = new Handler(Looper.getMainLooper());
         this.relay = new V039RelayCoordinator(context, main, this);
-        java.io.File files = null;
-        try { files = context.getFilesDir(); } catch (RuntimeException ignored) {}
-        this.apGuard = new StockApGuard(files, StockApGuard.readBootId());
+        if (guard == null) {
+            java.io.File files = null;
+            try { files = context.getFilesDir(); } catch (RuntimeException ignored) {}
+            // A missing files directory or boot id makes every AP request fail closed.
+            guard = new StockApGuard(files, StockApGuard.readBootId());
+        }
+        this.apGuard = guard;
     }
 
     void run() {
@@ -475,8 +484,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                                     if (!refreshOemOwnership(generation, address) ||
                                             !session.claimBootstrapBroadcast(generation, address, now()) ||
                                             shuttingDown || cable) return false;
-                                    sendOemAction(action, packageName, extra, value);
-                                    return true;
+                                    return sendOemAction(action, packageName, extra, value);
                                 }
                             }, address, new PhoneProjectionAccess.BootstrapAdmission() {
                                 public boolean claim() {
@@ -511,8 +519,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                                     if (!refreshOemOwnership(generation, address) ||
                                             !session.claimRequest(generation, address, now()) ||
                                             shuttingDown || cable) return false;
-                                    sendOemAction(action, packageName, extra, value);
-                                    return true;
+                                    return sendOemAction(action, packageName, extra, value);
                                 }
                             }, address);
                     main.post(new Runnable() {
@@ -548,13 +555,17 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         }
     }
 
-    private void sendOemAction(String action, String packageName, String extra, String value) {
-        // Either action can lead the OEM stack to start the AP; record it first.
-        apGuard.begin();
-        Intent intent = new Intent(action);
+    /**
+     * Either action can lead the OEM stack to start the AP, so a durable restart
+     * record must exist first. Returns false, having sent nothing, when it does not.
+     */
+    private boolean sendOemAction(String action, String packageName, String extra, String value) {
+        final Intent intent = new Intent(action);
         intent.setPackage(packageName);
         intent.putExtra(extra, value);
-        context.sendBroadcast(intent);
+        if (apGuard.admit(new Runnable() { public void run() { context.sendBroadcast(intent); } })) return true;
+        log("path=stock event=ap-guard result=record-failed");
+        return false;
     }
 
     private static int apState(ProjectionWifiAccess.ApProgress progress) {

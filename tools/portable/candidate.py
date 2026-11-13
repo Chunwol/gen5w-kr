@@ -100,9 +100,9 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
                     shutil.copyfileobj(stream, destination)
             target.chmod(0o755 if name.endswith('.sh') or name.startswith('bin/') else 0o644)
         metadata = {
-            'format': 1, 'activation': 'next-boot-after-package-install' if runtime else 'manual', 'vehicle_verified': False,
+            'format': 1, 'activation': 'one-shot-next-boot-radio-off' if runtime else 'manual', 'vehicle_verified': False,
             'structural_patches': ['bt', 'route', 'dipo', 'gpm', 'hotspot'],
-            'runtime_hooks': 'automatic-after-local-probe' if runtime else 'separate-explicit-activation-required',
+            'runtime_hooks': 'one-shot-after-local-probe-radio-held' if runtime else 'separate-explicit-activation-required',
             'source_revision': git_output('rev-parse', 'HEAD'),
             'source_dirty': bool(git_output('status', '--porcelain')),
         }

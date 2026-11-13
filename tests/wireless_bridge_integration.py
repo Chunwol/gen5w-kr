@@ -65,7 +65,10 @@ public class WirelessBridgeIntegrationTest {
     }
     public static class TestContext extends android.content.Context implements PhoneProjectionAccess.ProfileProvider {
         Manager manager=new Manager(); WirelessBridge bridge; int broadcasts; boolean foreignAfterBroadcast,unavailableAfterBroadcast;
-        TestContext(){manager.context=this; bridge=new WirelessBridge(this);
+        static final StockApGuard.Flush NO_FLUSH=new StockApGuard.Flush(){public void run(){}};
+        static StockApGuard tempGuard(StockApGuard.Flush flush){try{return new StockApGuard(java.nio.file.Files.createTempDirectory("gen5w-apguard").toFile(),"0123abcd-0000-1111-2222-333344445555",flush);}catch(java.io.IOException e){throw new AssertionError(e);}}
+        TestContext(){this(tempGuard(NO_FLUSH));}
+        TestContext(StockApGuard guard){manager.context=this; bridge=new WirelessBridge(this,guard);
             try { java.lang.reflect.Field f=WirelessBridge.class.getDeclaredField("oemCalls");f.setAccessible(true);
                 bridge.oemCalls.shutdownNow();f.set(bridge,new TrackedPool());
             }catch(Exception e){throw new AssertionError(e);}
@@ -104,6 +107,19 @@ public class WirelessBridgeIntegrationTest {
         TestContext c=new TestContext();try{c.bridge.session.candidate("phone",10);c.bridge.session.tick(10);settle(c);
             check(c.broadcasts==1&&c.manager.calls==1&&c.bridge.session.phase()==StockProjectionSession.Phase.WAITING_PROFILE,"idle OEM permits one complete bootstrap");
         }finally{c.bridge.shutdown();}
+    }
+    /** M6: a failed durable AP-attempt record must stop the OEM action itself. */
+    static void apGuardFailureSendsNoOemAction() throws Exception {
+        TestContext c=new TestContext(TestContext.tempGuard(new StockApGuard.Flush(){public void run() throws java.io.IOException{throw new java.io.IOException("injected sync failure");}}));
+        try{c.bridge.session.candidate("phone",10);c.bridge.session.tick(10);settle(c);
+            check(c.broadcasts==0,"guard record failure sends no OEM broadcast");
+            check(c.manager.calls==0,"guard record failure performs no Binder continuation");
+            check(c.bridge.session.phase()==StockProjectionSession.Phase.CANCELLED,"guard record failure cancels the request");
+        }finally{c.bridge.shutdown();}
+        TestContext none=new TestContext(new StockApGuard(null,null,TestContext.NO_FLUSH));
+        try{none.bridge.session.candidate("phone",10);none.bridge.session.tick(10);settle(none);
+            check(none.broadcasts==0&&none.bridge.session.phase()==StockProjectionSession.Phase.CANCELLED,"unavailable guard directory/boot id sends nothing");
+        }finally{none.bridge.shutdown();}
     }
     static void interfaceDiagnosticsNeverBlockBootstrap() throws Exception {
         String present=java.net.NetworkInterface.getNetworkInterfaces().nextElement().getName();
@@ -274,7 +290,7 @@ public class WirelessBridgeIntegrationTest {
         check("".equals(c.receiverPermissions.get("connected")),"system Bluetooth broadcasts stay open");
       }finally{c.bridge.shutdown();}
     }
-    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();wifiSettingsAreNeverReadOnTheMainThread();lateAppleSdpEndsStockProfileWait();System.out.println("PASS production WirelessBridge ownership integration");}
+    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();apGuardFailureSendsNoOemAction();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();wifiSettingsAreNeverReadOnTheMainThread();lateAppleSdpEndsStockProfileWait();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:

@@ -37,10 +37,20 @@ dependencies() {
     done
     [ "$found" = 1 ]
 }
+# All callers (including overlay/runtime commit) get a process-group deadline.
+# The host fixture supplies its native helper and interpreter explicitly.
+if [ "$1" = ready ]; then
+    base=${0%/*}; [ "$base" != "$0" ] || base=.
+    if [ -x /system/bin/sh ]; then
+        exec "$base/bin/dex-patch" supervise 8 /system/bin/true /system/bin/sh "$0" ready-bounded "${2:-}"
+    elif [ -n "${PORTABLE_TEST_FRAMEWORK_HELPER:-}" ]; then
+        exec "$PORTABLE_TEST_FRAMEWORK_HELPER" supervise "${PORTABLE_TEST_FRAMEWORK_TIMEOUT:-8}" /bin/true /usr/bin/mksh "$0" ready-bounded "${2:-}"
+    fi
+fi
 case "$1" in
  dependencies) dependencies "${2:-/}";;
 identity) identity;;
-ready)
+ready|ready-bounded)
     current=$(identity) && [ "$current" != "${2:-}" ] || exit 1
     [ "$(getprop init.svc.zygote)" = running ] || exit 1
     service check package | grep -q ': found$' || exit 1

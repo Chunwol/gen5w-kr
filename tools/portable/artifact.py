@@ -86,7 +86,7 @@ def audit(files):
     assert meta['service.1']['path'] == 'ui.sh' and meta['service.1']['uid'] == 'root'
     info = json.loads(files['CANDIDATE.json'])
     assert info['vehicle_verified'] is False and re.fullmatch('[a-f0-9]{40}', info['source_revision'])
-    assert info['activation'] == 'next-boot-after-package-install'
+    assert info['activation'] == 'one-shot-next-boot-radio-off'
     for name, data in files.items():
         if name.endswith(('.sh', '.data', '.xml')): assert b'\r' not in data, 'CRLF: '+name
         if name.startswith('bin/') or name.endswith('.so'): elf(data, shared=name.endswith('.so'))

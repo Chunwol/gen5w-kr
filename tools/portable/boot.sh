@@ -27,17 +27,22 @@ else
 fi
 plain "$BASE" && plain "$STATE" && plain "$HELPER" && [ -x "$HELPER" ] || fail 'unsafe bundle/state/helper'
 mkdir -p "$STATE" && chmod 700 "$STATE" || fail state
-for file in enabled enabled.new attempt attempt.new origins origins.new manifest manifest.new maintenance reason reason.new fingerprint fingerprint.new runtime-mode runtime-mode.new bundle-hashes bundle-hashes.new framework-before framework-before.new boot-manifest boot-manifest.new skipped skipped.new dependencies dependencies.new runtime-policy runtime-policy.new reconcile reconcile.new; do
+for file in enabled enabled.new attempt attempt.new origins origins.new manifest manifest.new maintenance reason reason.new fingerprint fingerprint.new runtime-mode runtime-mode.new bundle-hashes bundle-hashes.new framework-before framework-before.new boot-manifest boot-manifest.new skipped skipped.new dependencies dependencies.new runtime-policy runtime-policy.new reconcile reconcile.new mode mode.new consumed consumed.new; do
     [ ! -L "$STATE/$file" ] && { [ ! -e "$STATE/$file" ] || [ -f "$STATE/$file" ]; } || fail 'unsafe state file'
 done
 op() {
-    if [ -n "$ROOT" ]; then "$ADAPTER" "$@"; return $?; fi
+    if [ -n "$ROOT" ]; then
+        case "$1" in framework|framework-ready|launch-dipo|dipo-ready|probe-ready|busy|session-ready)
+            "$SUPERVISOR" supervise "${PORTABLE_QUERY_TIMEOUT:-8}" /bin/true "$ADAPTER" "$@";;
+        *) "$ADAPTER" "$@";; esac
+        return $?
+    fi
     case "$1" in
     boot) cat /proc/sys/kernel/random/boot_id;;
     get) getprop "$2";;
     dependencies) /system/bin/sh "$BASE/framework.sh" dependencies;;
-    framework) /system/bin/sh "$BASE/framework.sh" identity;;
-    framework-ready) /system/bin/sh "$BASE/framework.sh" ready "$(cat "$STATE/framework-before" 2>/dev/null)";;
+    framework) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/sh "$BASE/framework.sh" identity;;
+    framework-ready) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/sh "$BASE/framework.sh" ready "$(cat "$STATE/framework-before" 2>/dev/null)";;
     ap-prepare) /system/bin/sh "$BASE/ap.sh" prepare;;
     ap-check) /system/bin/sh "$BASE/ap.sh" check;;
     ap-disable) /system/bin/sh "$BASE/ap.sh" disable;;
@@ -49,6 +54,8 @@ op() {
     plan-static) PORTABLE_HELPER=$HELPER /system/bin/sh "$BASE/overlay.sh" prepare-boot "$STATE/boot-manifest";;
     apply) /system/bin/sh "$BASE/portable.sh" apply;;
     runtime-enable) /system/bin/sh "$PAYLOAD/runtime.sh" enable both;;
+    runtime-probe) /system/bin/sh "$PAYLOAD/runtime.sh" enable probe;;
+    probe-ready) /system/bin/sh "$BASE/check.sh" probe-loaded;;
     runtime-disable) /system/bin/sh "$BASE/runtime.sh" disable;;
     overlay-disable) /system/bin/sh "$BASE/portable.sh" disable;;
     commit-static) [ ! -s "$STATE/boot-manifest" ] || /system/bin/sh "$BASE/portable.sh" commit;;
@@ -62,7 +69,7 @@ op() {
         done < "$STATE/dependencies"
         setprop ctl.start zygote || return 1
         return "$result";;
-    launch-dipo) am startservice -n com.daudio.app.dipo/.service.DipoService;;
+    launch-dipo) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/am startservice -n com.daudio.app.dipo/.service.DipoService;;
     dipo-ready) /system/bin/sh "$BASE/session.sh" ready;;
     busy) /system/bin/sh "$BASE/session.sh" busy;;
     dirty)
@@ -80,13 +87,37 @@ op() {
         fi
         local active_status=$(/system/bin/sh "$BASE/portable.sh" status)
         case "$active_status" in 'state|committed'*) return 0;; *) return 1;; esac;;
+    clock) local up rest; read -r up rest < /proc/uptime; echo "${up%%.*}";;
     pause) sleep 1;;
     *) return 1;;
     esac
 }
 put() { print -r -- "$2" > "$STATE/$1.new" && mv "$STATE/$1.new" "$STATE/$1"; }
 enabled() { [ -f "$STATE/enabled" ] && [ "$(cat "$STATE/enabled")" = 1 ]; }
-backoff() { put enabled 0; put reason "$1"; echo "boot: disabled: $1" >&2; }
+backoff() { put enabled 0; put reason "$1"; sync; echo "boot: disabled: $1" >&2; }
+# Durable, monotonic stage evidence. No wall-clock assumption after RTC changes.
+stage() {
+    # Diagnostics must never prevent disable or emergency restoration.
+    if [ ! -L "$STATE/timeline" ] && { [ ! -e "$STATE/timeline" ] || [ -f "$STATE/timeline" ]; }; then
+        print -r -- "$(clock)|$*" >> "$STATE/timeline" 2>/dev/null || :
+    fi
+    return 0
+}
+clock() { local up rest; read -r up rest < /proc/uptime || return 1; echo "${up%%.*}"; }
+# Every wait has a monotonic deadline as well as an iteration bound. Each
+# potentially blocking Android query is independently supervised below.
+deadline() { local seconds=$1; if [ -n "$ROOT" ] && [ -n "${PORTABLE_TEST_DEADLINE_CAP:-}" ]; then seconds=$PORTABLE_TEST_DEADLINE_CAP; fi; limit=$(( $(clock) + seconds )); }
+within() { [ "$(clock)" -lt "$limit" ]; }
+stop_session() {
+    op session-stop || return 1
+    local count=0 limit
+    deadline 35
+    while op busy; do
+        count=$((count+1)); [ "$count" -lt 35 ] && within || return 1
+        op pause
+    done
+}
+
 process_key() {
     local pid=$1 line rest count=0
     case "$pid" in ''|*[!0-9]*) return 1;; esac
@@ -280,43 +311,49 @@ copy_rescue() {
 bounded() {
     local timeout=60
     [ -z "$ROOT" ] || timeout=${PORTABLE_BOOT_TIMEOUT:-3}
-    "$SUPERVISOR" supervise "$timeout" "$STATE/recovery/rescue.sh" "$BASE/boot.sh" "$1"
+    PORTABLE_BOOT_GUARDED=1 "$SUPERVISOR" supervise "$timeout" "$STATE/recovery/rescue.sh" "$BASE/boot.sh" "$1"
 }
 wait_zygote() {
-    local count=0
+    local count=0 limit
+    deadline 10
     while [ "$(op get init.svc.zygote)" != "$1" ]; do
-        count=$((count+1)); [ "$count" -lt 10 ] || return 1; op pause
+        count=$((count+1)); [ "$count" -lt 10 ] && within || return 1; op pause
     done
 }
 wait_framework() {
-    local count=0
+    local count=0 limit
+    deadline 90
     while ! op framework-ready; do
-        count=$((count+1)); [ "$count" -lt 90 ] || return 1; op pause
+        count=$((count+1)); [ "$count" -lt 90 ] && within || return 1; op pause
     done
 }
 cancelled() {
     enabled && return 0
-    op session-stop
+    stop_session || fail 'session stop timed out; auto-start disabled'
     bounded recover && wait_framework || fail 'cancelled startup restore/readiness failed'
     put reason disabled-restored
     exit 0
 }
 finish_static() {
-    local count=0
+    local count=0 limit
+    deadline 90
     while ! op framework-ready; do
         cancelled
-        count=$((count+1)); [ "$count" -lt 90 ] || return 1; op pause
+        count=$((count+1)); [ "$count" -lt 90 ] && within || return 1; op pause
     done
     op commit-static && put attempt "$current|healthy" && put reason runtime-unavailable && sync || return 1
     echo 'boot: independent static features active; optional CarPlay runtime unavailable'
 }
 command=${1:-run}; [ "$#" = 0 ] || shift
+case "$command" in status) :;; *) stage "$command begin" || fail timeline;; esac
 case "$command" in
 transact|recover|recover-runtime)
+    [ "${PORTABLE_BOOT_GUARDED:-}" = 1 ] || fail 'internal command requires native supervision'
     # The native supervisor has already armed its independent rescue process.
     print -r -- "$(op boot)" > "$STATE/maintenance" || fail maintenance
     previous_framework=$(op framework) || previous_framework=
     put framework-before "$previous_framework" || fail journal
+    stage framework-stop || fail timeline
     op stop-android && wait_zygote stopped || fail 'framework stop failed'
     if [ "$command" = transact ]; then
         if [ "$(cat "$STATE/reconcile" 2>/dev/null)" = 1 ]; then
@@ -330,11 +367,13 @@ transact|recover|recover-runtime)
         # properties. Retire the owned journal under stopped zygote first.
         op runtime-disable || fail 'previous runtime retirement failed'
         result=0
-        if [ "$(cat "$STATE/runtime-policy" 2>/dev/null)" = skip-until-rearm ]; then
+        if [ "$(cat "$STATE/mode" 2>/dev/null)" = probe ]; then
+            op runtime-probe && put runtime-mode probe || fail 'probe wrapper failed'
+        elif [ "$(cat "$STATE/runtime-policy" 2>/dev/null)" = skip-until-rearm ]; then
             put runtime-mode static || fail journal
         else op runtime-enable || result=$?; fi
         case "$result" in
-        0) [ "$(cat "$STATE/runtime-policy" 2>/dev/null)" = skip-until-rearm ] || put runtime-mode full || fail journal;;
+        0) if [ "$(cat "$STATE/mode" 2>/dev/null)" != probe ] && [ "$(cat "$STATE/runtime-policy" 2>/dev/null)" != skip-until-rearm ]; then put runtime-mode full || fail journal; fi;;
         77) static_plan && put runtime-mode static && put runtime-policy skip-until-rearm || fail 'static fallback failed';;
         *) fail 'runtime activation failed';;
         esac
@@ -343,23 +382,56 @@ transact|recover|recover-runtime)
     else
         op runtime-disable && op overlay-disable || fail 'restore failed'
     fi
+    stage framework-start || fail timeline
     op start-android && wait_zygote running || fail 'framework start failed'
     rm -f "$STATE/maintenance" || fail maintenance
     ;;
+probe)
+    [ "$#" = 1 ] || fail 'probe manifest required'
+    # arm does not stop Android. The only mutation window is the native
+    # supervisor below; its own setsid worker/guardian survives caller loss.
+    "$BASE/boot.sh" arm --probe "$1" || exit 1
+    exec "$BASE/boot.sh" activate
+    ;;
 arm)
+    mode=auto
+    case "${1:-}" in --trial) mode=trial; shift;; --probe) mode=probe; shift;; esac
     [ "$#" = 1 ] && plain "$ROOT$1" && [ -f "$ROOT$1" ] || fail 'manifest required'
     lock || fail locked
     enabled && fail 'disable the current automatic installation first'
+    [ ! -f "$STATE/maintenance" ] || [ "$(cat "$STATE/maintenance")" != "$(op boot)" ] || fail 'independent recovery is still active; wait or cold restart'
+    if [ -f "$STATE/attempt" ]; then
+        IFS='|' read -r prior_boot prior_phase < "$STATE/attempt" || fail 'attempt state unreadable; inspect recovery state'
+        [ "$prior_boot:$prior_phase" != "$(op boot):pending" ] || fail 'unfinished attempt in this boot; cold restart before re-arm'
+    fi
     op busy && fail 'another host/core/AP owner is active'
     verify_bundle "$BASE/SHA256SUMS" || fail 'bundle integrity failed'
     op dependencies > "$STATE/dependencies.new" && mv "$STATE/dependencies.new" "$STATE/dependencies" || fail 'stock zygote restart profile unavailable'
+    if [ "$mode" = probe ]; then
+        # A premise trial must not smuggle a modified OEM file or declarations.
+        rows=0
+        while IFS='|' read -r feature source target digest uid gid permissions kind extra; do
+            rows=$((rows+1))
+            [ "$rows:$feature:$target:$kind" = '1:probe:/system/app/HKMC_DiPO.odex:static' ] && [ -z "$extra" ] && plain "$ROOT$source" || fail 'only one identical DiPO probe row is allowed'
+            [ "$("$HELPER" sha256 "$ROOT$source")" = "$("$HELPER" sha256 "$ROOT$target")" ] || fail 'probe must be byte-identical to stock'
+        done < "$ROOT$1"
+        [ "$rows" = 1 ] || fail 'empty probe manifest'
+    fi
     op plan "$ROOT$1" || fail 'plan validation failed'
     origins "$ROOT$1" > "$STATE/origins.new" && [ -s "$STATE/origins.new" ] || fail 'prepared stock identity differs or is absent'
     cp "$ROOT$1" "$STATE/manifest.new" && mv "$STATE/manifest.new" "$STATE/manifest" && mv "$STATE/origins.new" "$STATE/origins" || fail manifest
     copy_rescue || fail 'cannot retain independent recovery payload'
     copy_payload || fail 'cannot retain accessible runtime payload'
     cp "$BASE/SHA256SUMS" "$STATE/bundle-hashes.new" && mv "$STATE/bundle-hashes.new" "$STATE/bundle-hashes" || fail 'bundle seal failed'
-    op ap-prepare || fail 'AP mode/restart guard preparation failed'
+    if [ "$mode" != probe ]; then op ap-prepare || fail 'AP mode/restart guard preparation failed'; fi
+    if [ "$mode" = trial ]; then
+        # Every trial, including manual re-arm, begins with authored radio held.
+        radio=$ROOT/data/nemesis/gen5wkr.ui-wireless-off
+        plain "$radio" && { [ ! -e "$radio" ] || [ -f "$radio" ]; } || fail 'unsafe wireless hold marker'
+        mkdir -p "$ROOT/data/nemesis" || fail 'wireless hold directory'
+        [ -e "$radio" ] || { : > "$radio" && chmod 600 "$radio"; } || fail 'wireless hold failed'
+    fi
+    put mode "$mode" && put consumed none || fail journal
     put runtime-policy full && put fingerprint "$(op get ro.build.fingerprint)" && put attempt "$(op boot)|armed" && put reason armed-next-boot && put enabled 1 || fail journal
     sync || { backoff arm-sync-failed; exit 1; }
     echo 'boot: armed for the next boot; current Android retained'
@@ -368,8 +440,29 @@ run|activate)
     [ "$#" = 0 ] || fail arguments
     enabled || exit 0
     lock || fail locked
+    [ ! -f "$STATE/maintenance" ] || [ "$(cat "$STATE/maintenance")" != "$(op boot)" ] || fail 'independent recovery is still active; wait or cold restart'
     IFS='|' read -r previous phase < "$STATE/attempt" || { backoff attempt-unreadable; exit 1; }
     current=$(op boot)
+    if [ "$previous:$phase" = "$current:pending" ]; then backoff previous-startup-incomplete; exit 1; fi
+    mode=$(cat "$STATE/mode" 2>/dev/null)
+    case "$mode" in auto|trial|probe) :;; *) backoff invalid-mode; exit 1;; esac
+    if [ "$mode" != auto ] && [ "$(cat "$STATE/consumed" 2>/dev/null)" != none ]; then
+        # A resume may reuse boot_id. Never re-enter maintenance for a consumed
+        # trial even then; an intact healthy session may simply remain active.
+        if [ "$previous:$phase" = "$current:healthy" ] && op active; then exit 0; fi
+        backoff trial-consumed
+        if [ "$previous" = "$current" ] && op dirty; then
+            # A same-id resume can leave our binds without the owned wrappers.
+            # Retire that partial trial; never start another activation.
+            stop_session || fail 'consumed trial cleanup still busy; cold restart required'
+            bounded recover && wait_framework || fail 'consumed trial restore failed; cold restart required'
+            put reason trial-consumed-restored && sync || fail journal
+        fi
+        exit 1
+    fi
+    if [ "$mode" = probe ] && { [ "$command" != activate ] || [ "$previous:$phase" != "$current:armed" ]; }; then
+        backoff probe-not-explicit; exit 1
+    fi
     case "$(cat "$STATE/runtime-policy" 2>/dev/null)" in full|skip-until-rearm) :;; *) backoff invalid-runtime-policy; exit 1;; esac
     case "$phase" in pending) backoff previous-startup-incomplete; exit 1;; armed|healthy|degraded) :;; *) backoff invalid-attempt; exit 1;; esac
     if [ "$command:$previous:$phase" = "run:$current:armed" ]; then exit 0; fi
@@ -382,7 +475,8 @@ run|activate)
     put reconcile 0 || fail journal
     if op active; then active=1; op busy && exit 0; else
         op busy && { backoff foreign-session; exit 1; }
-        ap_result=0; op ap-check || ap_result=$?
+        ap_result=0
+        if [ "$mode" != probe ]; then op ap-check || ap_result=$?; fi
         case "$ap_result" in
         0) :;;
         77) put runtime-policy skip-until-rearm || fail journal;;
@@ -401,31 +495,45 @@ run|activate)
     if [ "$active" = 0 ]; then
         # NEMESIS may launch before class_start main. Do not start zygote ahead
         # of init's initial main-class launch (Binder/native peers may be absent).
-        count=0
+        count=0; deadline 90
         while [ "$(op get init.svc.zygote)" != running ]; do
             enabled || exit 0
-            count=$((count+1)); [ "$count" -lt 90 ] || { backoff initial-zygote-unavailable; exit 1; }; op pause
+            count=$((count+1)); [ "$count" -lt 90 ] && within || { backoff initial-zygote-unavailable; exit 1; }; op pause
         done
     fi
-    put attempt "$current|pending" && sync || fail journal
+    put consumed "$current" && put attempt "$current|pending" && sync || fail journal
+    stage maintenance-start || fail timeline
     if [ "$active" = 0 ] && ! bounded transact; then backoff maintenance-failed; exit 1; fi
     cancelled
-    count=0
+    count=0; deadline 90
     while ! op framework-ready; do
         cancelled
-        count=$((count+1)); [ "$count" -lt 90 ] || { backoff boot-timeout; bounded recover; exit 1; }; op pause
+        count=$((count+1)); [ "$count" -lt 90 ] && within || { backoff boot-timeout; bounded recover; exit 1; }; op pause
     done
+    stage framework-ready || fail timeline
+    if [ "$mode" = probe ]; then
+        op launch-dipo || { backoff probe-start-failed; bounded recover; exit 1; }
+        count=0; deadline 30
+        while ! op probe-ready; do
+            cancelled
+            count=$((count+1)); [ "$count" -lt 30 ] && within || { backoff probe-timeout; bounded recover; exit 1; }; op pause
+        done
+        put attempt "$current|healthy" && put reason probe-ready-one-shot && sync || fail journal
+        stage probe-ready
+        echo 'boot: supervised no-hook probe active; disable explicitly or cold boot to restore'
+        exit 0
+    fi
     if [ "$(cat "$STATE/runtime-mode" 2>/dev/null)" = static ]; then
         finish_static || { backoff static-commit-failed; bounded recover; exit 1; }
         exit 0
     fi
     cancelled
     op launch-dipo || { backoff dipo-start-failed; bounded recover; exit 1; }
-    count=0
+    count=0; deadline 30
     while ! op dipo-ready; do
         cancelled
         count=$((count+1))
-        if [ "$count" -ge 30 ]; then
+        if [ "$count" -ge 30 ] || ! within; then
             bounded recover-runtime && finish_static || { backoff runtime-fallback-failed; bounded recover; exit 1; }
             exit 0
         fi
@@ -433,14 +541,15 @@ run|activate)
     done
     cancelled
     op session & child=$!
-    count=0
+    count=0; deadline 15
     while ! op session-ready; do
         cancelled
-        count=$((count+1)); [ "$count" -lt 15 ] || { op session-stop; backoff session-timeout; bounded recover; exit 1; }; op pause
+        count=$((count+1)); [ "$count" -lt 15 ] && within || { backoff session-timeout; stop_session || fail 'session cleanup still busy'; bounded recover; exit 1; }; op pause
     done
     cancelled
-    op commit && put attempt "$current|healthy" && put reason startup-healthy || { op session-stop; backoff commit-failed; bounded recover; exit 1; }
+    op commit && put attempt "$current|healthy" && put reason startup-healthy || { backoff commit-failed; stop_session || fail 'session cleanup still busy'; bounded recover; exit 1; }
     sync
+    stage startup-healthy || fail timeline
     unlock
     trap 'op session-stop; exit 1' HUP INT TERM
     wait "$child"; result=$?
@@ -456,18 +565,16 @@ run|activate)
 disable)
     [ "$#" = 0 ] || fail arguments
     put enabled 0 || fail disable
-    op session-stop || fail 'session stop request failed'
-    count=0
-    while op busy; do count=$((count+1)); [ "$count" -lt 35 ] || fail 'session has not stopped; auto-start is disabled'; op pause; done
-    count=0
-    while ! lock; do count=$((count+1)); [ "$count" -lt 75 ] || fail 'startup still busy; auto-start is disabled'; op pause; done
+    stop_session || fail 'session has not stopped; auto-start is disabled'
+    count=0; deadline 75
+    while ! lock; do count=$((count+1)); [ "$count" -lt 75 ] && within || fail 'startup still busy; auto-start is disabled'; op pause; done
+    # A surviving supervised worker may not have applied anything yet. Always
+    # wait for its marker before inspecting dirtiness or claiming restoration.
+    count=0; deadline 75
+    while [ -f "$STATE/maintenance" ] && [ "$(cat "$STATE/maintenance")" = "$(op boot)" ]; do
+        count=$((count+1)); [ "$count" -lt 75 ] && within || fail 'maintenance remains active; auto-start disabled'; op pause
+    done
     if [ "$(cat "$STATE/reason" 2>/dev/null)" != disabled-restored ] && op dirty; then
-        # An uninstall can outlive the package service shell, while its native
-        # maintenance supervisor still owns a separate worker process group.
-        count=0
-        while [ -f "$STATE/maintenance" ] && [ "$(cat "$STATE/maintenance")" = "$(op boot)" ]; do
-            count=$((count+1)); [ "$count" -lt 75 ] || fail 'maintenance remains active; auto-start disabled'; op pause
-        done
         copy_rescue && bounded recover && wait_framework || fail 'auto-start disabled; inspect restore/readiness status or reboot'
     fi
     op ap-disable || fail 'automatic application disabled; AP marker restoration failed'
@@ -478,9 +585,11 @@ status)
     echo "enabled|$(cat "$STATE/enabled" 2>/dev/null)"
     echo "attempt|$(cat "$STATE/attempt" 2>/dev/null)"
     echo "reason|$(cat "$STATE/reason" 2>/dev/null)"
+    echo "mode|$(cat "$STATE/mode" 2>/dev/null)"
+    echo "consumed|$(cat "$STATE/consumed" 2>/dev/null)"
     echo "runtime-mode|$(cat "$STATE/runtime-mode" 2>/dev/null)"
     echo "runtime-policy|$(cat "$STATE/runtime-policy" 2>/dev/null)"
     [ ! -f "$STATE/skipped" ] || cat "$STATE/skipped"
     ;;
-*) fail 'usage: boot.sh arm MANIFEST | run | activate | disable | status';;
+*) fail 'usage: boot.sh arm [--trial] MANIFEST | probe MANIFEST | run | activate | disable | status';;
 esac

@@ -17,6 +17,7 @@ SH
 cat > "$t/bin/dumpsys" <<'SH'
 #!/bin/sh
 [ "$#" = 2 ] && [ "$1" = activity ] && [ "$2" = p ] || exit 1
+[ ! -f "$FIXTURE/hang" ] || sleep 30
 cat "$FIXTURE/activity"
 SH
 chmod +x "$t/bin/"*
@@ -54,3 +55,13 @@ RC
 echo 'service zygote /system/bin/other' > "$t/init/init.other.rc"
 if mksh tools/portable/framework.sh dependencies "$t/init"; then echo 'FAIL ambiguous zygote definition'; exit 1; fi
 echo 'PASS local stock zygote dependency discovery without executing arbitrary init actions'
+
+# Exercise the real native process-group timeout on a stalled Binder query.
+rm -f "$t/no-package"
+touch "$t/hang"
+export PORTABLE_TEST_FRAMEWORK_HELPER=$PWD/.build/portable/dex-patch-host
+export PORTABLE_TEST_FRAMEWORK_TIMEOUT=1
+start=$SECONDS
+if mksh tools/portable/framework.sh ready; then echo 'FAIL accepted hanging AMS'; exit 1; fi
+[ "$((SECONDS-start))" -lt 5 ]
+echo 'PASS stalled dumpsys is killed with descendants within wall-clock deadline'

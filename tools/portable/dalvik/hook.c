@@ -13,25 +13,183 @@
 #include <unistd.h>
 #include <time.h>
 
+extern char **environ;
+
+/* Wrapper inputs stay with the wrapped process only. The constructor copies
+ * every inherited GEN5W_* entry, then removes them and this library's own
+ * LD_PRELOAD entry from the environment before any other code runs, so
+ * children (dexopt, am/pm, sh, ...) neither start the engine again nor rewrite
+ * the probe marker. The preserved copies are read only by this library: the VM
+ * interposer below hands GEN5W_HOOK_LIBRARY, GEN5W_ADAPTER_JAR and
+ * GEN5W_PACKAGE to Bootstrap.start as arguments, so no Java code reads them from
+ * the environment. Nothing is removed unless this library is listed in
+ * LD_PRELOAD (the wrapper case); a capacity overflow declines the engine and still removes the inherited
+ * inputs so a child cannot start it again. */
+#define INPUT_SLOTS 8
+#define INPUT_BYTES 512
+static char inputs[INPUT_SLOTS][INPUT_BYTES];
+static int input_count;
+static int inputs_blocked;
+static char kept_preload[1024];
+
+static const char *entry_value(const char *entry, const char *name, size_t length) {
+    return !strncmp(entry, name, length) && entry[length] == '=' ? entry + length + 1 : 0;
+}
+static const char *environment_value(const char *name) {
+    size_t length = strlen(name);
+    if (!environ) return 0;
+    for (char **entry = environ; *entry; entry++) {
+        const char *value = entry_value(*entry, name, length);
+        if (value) return value;
+    }
+    return 0;
+}
+static const char *input_value(const char *name) {
+    if (!name) return 0;
+    if (!strncmp(name, "GEN5W_", 6)) {
+        if (inputs_blocked) return 0;
+        size_t length = strlen(name);
+        for (int i = 0; i < input_count; i++) {
+            const char *value = entry_value(inputs[i], name, length);
+            if (value) return value;
+        }
+    }
+    return environment_value(name);
+}
+
+static int own_preload(const char *item, size_t length) {
+    static const char own[] = "libgen5whook.so";
+    size_t size = sizeof(own) - 1;
+    return length >= size && !memcmp(item + length - size, own, size) &&
+           (length == size || item[length - size - 1] == '/');
+}
+/* 1 when this library is preloaded; other entries are kept in order. */
+static int split_preload(const char *preload) {
+    size_t used_bytes = 0;
+    int listed = 0, overflow = 0;
+    kept_preload[0] = 0;
+    for (const char *p = preload; *p;) {
+        size_t length = strcspn(p, ": ");
+        if (length && own_preload(p, length)) listed = 1;
+        else if (length && used_bytes + length + 2 <= sizeof(kept_preload)) {
+            if (used_bytes) kept_preload[used_bytes++] = ':';
+            memcpy(kept_preload + used_bytes, p, length);
+            used_bytes += length;
+            kept_preload[used_bytes] = 0;
+        } else if (length) overflow = 1;
+        p += length;
+        if (*p) p++;
+    }
+    if (overflow) kept_preload[0] = 0; /* never pass this library on to a child */
+    return listed;
+}
+static void scrub_inherited(void) {
+    const char *preload = environment_value("LD_PRELOAD");
+    if (!preload || split_preload(preload) != 1) return;
+    int count = 0;
+    for (char **entry = environ; *entry; entry++) {
+        if (strncmp(*entry, "GEN5W_", 6)) continue;
+        size_t length = strlen(*entry);
+        if (count == INPUT_SLOTS || length >= INPUT_BYTES || !strchr(*entry, '=')) { inputs_blocked = 1; break; }
+        memcpy(inputs[count++], *entry, length + 1);
+    }
+    input_count = inputs_blocked ? 0 : count;
+    /* Remove all matching entries even on overflow, without allocating a name
+     * buffer proportional to untrusted input. Constructor runs before threads.
+     * Shift pointers only; the inherited string storage remains owned by libc. */
+    for (char **entry = environ; *entry;) {
+        if (!strncmp(*entry, "GEN5W_", 6)) {
+            for (char **next = entry; *next; next++) *next = *(next + 1);
+        } else entry++;
+    }
+    if (kept_preload[0]) setenv("LD_PRELOAD", kept_preload, 1);
+    else unsetenv("LD_PRELOAD");
+}
+
+#define PROBE_MARKER "/data/data/com.daudio.app.dipo/files/gen5w-portable-probe"
+static int read_small(const char *path, char *buffer, size_t size) {
+    int fd = open(path, O_RDONLY|O_NOFOLLOW|O_CLOEXEC);
+    if (fd < 0) return -1;
+    size_t total = 0;
+    ssize_t count;
+    while (total + 1 < size && (count = read(fd, buffer + total, size - 1 - total)) > 0) total += (size_t)count;
+    close(fd);
+    buffer[total] = 0;
+    return (int)total;
+}
+/* Field 22 (starttime) of /proc/PID/stat: PID plus start time names one process. */
+static int process_start(long pid, char *out, size_t size) {
+    char path[48], stat[512];
+    snprintf(path, sizeof(path), "/proc/%ld/stat", pid);
+    if (read_small(path, stat, sizeof(stat)) <= 0) return -1;
+    char *p = strrchr(stat, ')');
+    if (!p) return -1;
+    p++;
+    for (int field = 0; field < 20; field++) {
+        while (*p == ' ') p++;
+        size_t length = strcspn(p, " \n");
+        if (!length) return -1;
+        if (field == 19) {
+            if (length >= size || strspn(p, "0123456789") < length) return -1;
+            memcpy(out, p, length);
+            out[length] = 0;
+            return 0;
+        }
+        p += length;
+    }
+    return -1;
+}
+static int runs_dipo(long pid) {
+    static const char name[] = "com.daudio.app.dipo";
+    char path[48], line[64];
+    snprintf(path, sizeof(path), "/proc/%ld/cmdline", pid);
+    int length = read_small(path, line, sizeof(line));
+    return length >= (int)sizeof(name) - 1 && !memcmp(line, name, sizeof(name) - 1) &&
+           (length == (int)sizeof(name) - 1 || !line[sizeof(name) - 1]);
+}
+/* A marker written in this boot by a different, still-running DiPO process
+ * belongs to that process (this one would be a descendant that regained the
+ * probe environment). A dead or reused owner may be replaced by a restart. */
+static int marker_owned_by_live_dipo(const char *boot) {
+    char text[320], actual[32], *line, *save = 0;
+    const char *start = 0, *owner_boot = 0;
+    long pid = 0;
+    if (read_small(PROBE_MARKER, text, sizeof(text)) <= 0) return 0;
+    for (line = strtok_r(text, "\n", &save); line; line = strtok_r(0, "\n", &save)) {
+        if (!strncmp(line, "pid=", 4)) pid = strtol(line + 4, 0, 10);
+        else if (!strncmp(line, "start=", 6)) start = line + 6;
+        else if (!strncmp(line, "boot_id=", 8)) owner_boot = line + 8;
+    }
+    if (pid <= 1 || pid == (long)getpid() || !owner_boot || strcmp(owner_boot, boot)) return 0;
+    if (start && (process_start(pid, actual, sizeof(actual)) || strcmp(actual, start))) return 0;
+    return runs_dipo(pid);
+}
 /* Probe mode never loads Java code or changes a Method. The marker is private
  * to DiPO and records when the library, rather than just its wrapper, loaded. */
-__attribute__((constructor)) static void startup_probe(void) {
-    const char *probe = getenv("GEN5W_PROBE"), *package = getenv("GEN5W_PACKAGE");
-    if (!probe || strcmp(probe, "1") || !package || strcmp(package, "com.daudio.app.dipo")) return;
+static void write_probe_marker(void) {
     struct timespec now;
+    char boot[48], start[32], report[320], temporary[sizeof(PROBE_MARKER) + 24];
     if (clock_gettime(CLOCK_MONOTONIC, &now)) return;
-    int fd = open("/data/data/com.daudio.app.dipo/files/gen5w-portable-probe", O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW, 0600);
-    if (fd < 0) return;
-    char boot[48] = {0}, report[240];
-    int bootfd = open("/proc/sys/kernel/random/boot_id", O_RDONLY|O_NOFOLLOW);
-    if (bootfd < 0) { close(fd); return; }
-    int length = read(bootfd, boot, sizeof(boot)-1);
-    close(bootfd);
-    if (length <= 0) { close(fd); return; }
+    int length = read_small("/proc/sys/kernel/random/boot_id", boot, sizeof(boot));
+    if (length <= 0) return;
     if (boot[length-1] == '\n') boot[length-1] = 0;
-    int count = snprintf(report, sizeof(report), "pid=%d\nmonotonic=%ld.%09ld\nmode=no-hooks\nboot_id=%s\n", (int)getpid(), (long)now.tv_sec, (long)now.tv_nsec, boot);
-    if (count > 0 && (size_t)count < sizeof(report)) { (void)write(fd, report, (size_t)count); (void)fsync(fd); }
+    if (process_start(getpid(), start, sizeof(start)) || marker_owned_by_live_dipo(boot)) return;
+    int count = snprintf(report, sizeof(report), "pid=%d\nstart=%s\nmonotonic=%ld.%09ld\nmode=no-hooks\nboot_id=%s\n",
+                         (int)getpid(), start, (long)now.tv_sec, (long)now.tv_nsec, boot);
+    if (count <= 0 || (size_t)count >= sizeof(report)) return;
+    snprintf(temporary, sizeof(temporary), "%s.%d.tmp", PROBE_MARKER, (int)getpid());
+    unlink(temporary);
+    int fd = open(temporary, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC, 0600);
+    if (fd < 0) return;
+    int written = write(fd, report, (size_t)count) == count && !fsync(fd);
     close(fd);
+    if (!written || rename(temporary, PROBE_MARKER)) unlink(temporary);
+}
+__attribute__((constructor)) static void startup(void) {
+    const char *probe = environment_value("GEN5W_PROBE"), *package = environment_value("GEN5W_PACKAGE");
+    int probe_role = probe && !strcmp(probe, "1") && package && !strcmp(package, "com.daudio.app.dipo");
+    scrub_inherited();
+    if (probe_role) write_probe_marker();
 }
 
 typedef union { int32_t i; int64_t j; float f; double d; void *l; } Value;
@@ -67,7 +225,7 @@ JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arg
         if (lib) *(void **)(&real_create) = dlsym(lib, "JNI_CreateJavaVM");
     }
     if (!real_create || real_create == JNI_CreateJavaVM) return JNI_ERR;
-    const char *engine = getenv("GEN5W_ENGINE_JAR");
+    const char *engine = input_value("GEN5W_ENGINE_JAR");
     if (!engine || engine[0] != '/') return real_create(vm, env_out, arguments);
     JavaVMInitArgs copy = *(JavaVMInitArgs *)arguments;
     if (copy.nOptions < 0 || copy.nOptions > 4096) return JNI_ERR;
@@ -93,8 +251,17 @@ JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arg
     JNIEnv *env = (JNIEnv *)*env_out;
     jclass bootstrap = (*env)->FindClass(env, "kr/gen5w/portable/Bootstrap");
     if (bootstrap) {
-        jmethodID start = (*env)->GetStaticMethodID(env, bootstrap, "start", "()V");
-        if (start) (*env)->CallStaticVoidMethod(env, bootstrap, start);
+        jmethodID start = (*env)->GetStaticMethodID(env, bootstrap, "start",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+        if (start) {
+            const char *values[3] = {input_value("GEN5W_HOOK_LIBRARY"), input_value("GEN5W_ADAPTER_JAR"), input_value("GEN5W_PACKAGE")};
+            jstring text[3] = {0, 0, 0};
+            for (int i = 0; i < 3 && !(*env)->ExceptionCheck(env); i++)
+                if (values[i]) text[i] = (*env)->NewStringUTF(env, values[i]);
+            /* Bootstrap rejects a missing input itself and the VM stays stock. */
+            if (!(*env)->ExceptionCheck(env)) (*env)->CallStaticVoidMethod(env, bootstrap, start, text[0], text[1], text[2]);
+            for (int i = 0; i < 3; i++) if (text[i]) (*env)->DeleteLocalRef(env, text[i]);
+        }
     }
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionDescribe(env);

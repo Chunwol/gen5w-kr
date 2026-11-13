@@ -10,14 +10,18 @@ import java.lang.reflect.Method;
 public final class Bootstrap {
     private static boolean installed;
     private static boolean adaptersInstalled;
+    /* Wrapper inputs, kept here because the native interposer removes them from
+     * the process environment before startup so that children do not inherit
+     * the engine. Written once in start(), read under the same class lock. */
+    private static String adapterJar, ownerPackage;
     private Bootstrap() {}
-    public static synchronized void start() throws Exception {
+    /** Called by the native VM interposer with its preserved wrapper inputs. */
+    public static synchronized void start(String library, String jar, String owner) throws Exception {
         if (installed) return;
-        String library = System.getenv("GEN5W_HOOK_LIBRARY");
-        String jar = System.getenv("GEN5W_ADAPTER_JAR");
-        String owner = System.getenv("GEN5W_PACKAGE");
         if (library == null || jar == null || owner == null || !new File(library).isAbsolute() || !new File(jar).isAbsolute())
             throw new IllegalArgumentException("explicit absolute library/adapter and package required");
+        adapterJar = jar;
+        ownerPackage = owner;
         System.load(library);
         Class<?> application = Class.forName("android.app.Application");
         Class<?> context = Class.forName("android.content.Context");
@@ -32,13 +36,13 @@ public final class Bootstrap {
             try {
                 Class<?> type = Class.forName("android.content.Context");
                 String owner = (String)type.getMethod("getPackageName").invoke(context);
-                if (!owner.equals(System.getenv("GEN5W_PACKAGE"))) return;
+                if (!owner.equals(ownerPackage)) return;
                 File files = (File)type.getMethod("getFilesDir").invoke(context);
                 File ready = new File(files, "gen5w-portable-ready");
                 if (ready.exists() && !ready.delete()) throw new IllegalStateException("stale readiness marker cannot be removed");
                 ClassLoader parent = (ClassLoader)type.getMethod("getClassLoader").invoke(context);
                 File cache = (File)type.getMethod("getDir", String.class, Integer.TYPE).invoke(context, "gen5w-adapters", 0);
-                ClassLoader loader = AppLocalLoader.create(System.getenv("GEN5W_ADAPTER_JAR"), cache.getAbsolutePath(), parent);
+                ClassLoader loader = AppLocalLoader.create(adapterJar, cache.getAbsolutePath(), parent);
                 Class<?> adapter = AppLocalLoader.loadWith(loader, "kr.gen5w.portable.ProjectionAdapters");
                 Object result = AppLocalLoader.invoke(adapter.getMethod("install", type), null, new Object[]{context});
                 if (!Boolean.TRUE.equals(result)) throw new IllegalStateException("adapter discovery declined");

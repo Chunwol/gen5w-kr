@@ -3,7 +3,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-boot.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+cleanup() {
+    # An assertion failure must not leave a modeled session spinning forever.
+    [ ! -d "$t/actions" ] || touch "$t/actions/session-stop"
+    for owned_job in $(jobs -pr); do kill "$owned_job" 2>/dev/null || :; done
+    wait 2>/dev/null || :
+    rm -rf "$t"
+}
+trap cleanup EXIT
+if [ "${PORTABLE_BOOT_DEBUG:-0}" = 1 ]; then
+ trap 'rc=$?; if [ "$rc" != 0 ]; then find "$t/actions" -name "*.log" -exec tail -n 20 {} \;; [ ! -f "$t/root/data/local/gen5w-portable/boot/timeline" ] || tail -n 30 "$t/root/data/local/gen5w-portable/boot/timeline"; fi; cleanup' EXIT
+fi
 mkdir -p "$t/root/data/bundle/bin" "$t/root/data/plan" "$t/root/system/app" "$t/actions"
 cp tools/portable/boot.sh tools/portable/rescue.sh tools/portable/runtime.sh tools/portable/overlay.sh tools/portable/framework.sh tools/portable/wrap-*.sh "$t/root/data/bundle/"
 mkdir "$t/root/data/bundle/dalvik"
@@ -16,13 +26,16 @@ echo "$(sha256sum "$t/root/system/app/Iap2ServerApp.odex" | cut -d' ' -f1)" > "$
 hash=$(sha256sum "$t/root/data/plan/replacement" | cut -d' ' -f1)
 echo "bt|/data/plan/replacement|/system/app/Iap2ServerApp.odex|$hash|0|0|644|static" > "$t/root/data/plan/manifest"
 echo 'projection|/data/plan/xml|/system/etc/permissions|ignored|0|0|755|directory' >> "$t/root/data/plan/manifest"
-cat > "$t/helper" <<'PY'
-#!/usr/bin/python3
-import hashlib,os,stat,sys
-if sys.argv[1]=='sha256': print(hashlib.sha256(open(sys.argv[2],'rb').read()).hexdigest())
-elif sys.argv[1]=='metadata': print('0|0|644')
-else: sys.exit(1)
-PY
+# Use the production native digest instead of starting Python for every tiny
+# fixture file; metadata alone is an Android/root-ownership boundary.
+cat > "$t/helper" <<'SH'
+#!/bin/sh
+case "$1" in
+sha256) exec "$PORTABLE_TEST_SUPERVISOR" "$@";;
+metadata) echo '0|0|644';;
+*) exit 1;;
+esac
+SH
 chmod +x "$t/helper"
 cp .build/portable/dex-patch-host "$t/root/data/bundle/bin/dex-patch"
 cat > "$t/adapter" <<'SH'
@@ -37,14 +50,16 @@ dependencies) echo media; echo netd;;
 framework) cat "$ACTIONS/framework";;
 framework-ready) test "$(cat "$ACTIONS/healthy")" = 1 && test ! -f "$ACTIONS/framework-notready";;
 get) case "$2" in init.svc.zygote) cat "$ACTIONS/zygote";; sys.boot_completed) cat "$ACTIONS/healthy";; esac;;
-plan|plan-boot|plan-static|apply|runtime-enable|runtime-disable|overlay-disable|commit|commit-static|launch-dipo|session-stop)
+plan|plan-boot|plan-static|apply|runtime-enable|runtime-probe|runtime-disable|overlay-disable|commit|commit-static|launch-dipo|session-stop)
  [ "$1" != runtime-enable ] || [ ! -f "$ACTIONS/unsupported" ] || exit 77
  echo "$1" >> "$ACTIONS/log"
+ if [ "$1" = apply ] && [ -f "$ACTIONS/hold.before-apply" ]; then touch "$ACTIONS/preapply-window"; sleep 1; fi
+ if [ "$1" = runtime-probe ] && [ -f "$ACTIONS/hang.runtime-probe" ]; then touch "$ACTIONS/probe-window"; sleep 30; fi
  [ ! -f "$ACTIONS/fail.$1" ] || exit 1
  case "$1" in session-stop) touch "$ACTIONS/session-stop";; apply) touch "$ACTIONS/dirty";; overlay-disable) rm -f "$ACTIONS/dirty";; esac;;
 stop-android) echo stop >> "$ACTIONS/log"; echo stopped > "$ACTIONS/zygote";;
 start-android) echo start >> "$ACTIONS/log"; echo running > "$ACTIONS/zygote"; echo 1 > "$ACTIONS/healthy"; [ ! -f "$ACTIONS/hold-boot" ] || echo 0 > "$ACTIONS/healthy";;
-dipo-ready) test ! -f "$ACTIONS/fail.dipo";;
+dipo-ready|probe-ready) test ! -f "$ACTIONS/fail.dipo";;
 busy) test -f "$ACTIONS/session-live";;
 dirty) test -f "$ACTIONS/dirty";;
 active) test -f "$ACTIONS/active";;
@@ -57,7 +72,7 @@ session)
  done
  rm "$ACTIONS/session-live";;
 session-ready) test -f "$ACTIONS/session-live";;
-pause) sleep .02;;
+pause) if [ -f "$ACTIONS/long-pause" ]; then sleep .05; else sleep .02; fi;;
 *) exit 1;;
 esac
 SH
@@ -78,7 +93,7 @@ boot disable
 boot arm /data/plan/manifest
 echo boot2 > "$ACTIONS/boot"
 boot run & runner=$!
-for unused in $(seq 1 200); do grep -q 'healthy' "$t/root/data/local/gen5w-portable/boot/attempt" 2>/dev/null && break; sleep .02; done
+for unused in $(seq 1 1500); do grep -q 'healthy' "$t/root/data/local/gen5w-portable/boot/attempt" 2>/dev/null && break; sleep .02; done
 grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
 [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ]
 [ "$(grep -cx stop "$ACTIONS/log")" = 1 ]
@@ -113,6 +128,7 @@ echo 'PASS automatic boot: deferred install, one activation, owned session, expl
 
 # An unsupported optional VM leaves independently validated overlays active.
 rm "$ACTIONS/fail.runtime-enable"
+echo boot5-cold-after-failure > "$ACTIONS/boot"
 touch "$ACTIONS/unsupported"
 rm -f "$ACTIONS/session-stop"
 boot arm /data/plan/manifest
@@ -153,7 +169,7 @@ boot arm /data/plan/manifest
 echo boot8 > "$ACTIONS/boot"
 old_launch=$(grep -cx launch-dipo "$ACTIONS/log")
 boot run & runner=$!
-for unused in $(seq 1 200); do [ "$(cat "$ACTIONS/healthy")" = 0 ] && break; sleep .01; done
+for unused in $(seq 1 1500); do [ "$(cat "$ACTIONS/healthy")" = 0 ] && break; sleep .01; done
 [ "$(cat "$ACTIONS/healthy")" = 0 ]
 rm "$ACTIONS/framework-notready" "$ACTIONS/hold-boot"
 boot disable
@@ -162,6 +178,7 @@ wait "$runner"
 [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
 [ "$(cat "$ACTIONS/zygote")" = running ]
 echo 'PASS disable cancels pending startup before launching any CarPlay owner'
+echo boot8-cold-after-cancel > "$ACTIONS/boot"
 
 # Session exits are ephemeral: no mid-session framework restart and next boot
 # remains armed, for both a clean exit and a crash.
@@ -171,7 +188,7 @@ for code in 0 7; do
  boot arm /data/plan/manifest
  echo "boot-session-$code" > "$ACTIONS/boot"
  boot run & runner=$!
- for unused in $(seq 1 300); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+ for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
  grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
  old_stop=$(grep -cx stop "$ACTIONS/log")
  echo "$code" > "$ACTIONS/session-exit-code"
@@ -195,12 +212,16 @@ boot arm /data/plan/manifest
 printf updated-audio > "$t/root/system/app/audio-fixture.so"
 echo boot-optional > "$ACTIONS/boot"
 boot run & runner=$!
-for unused in $(seq 1 300); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
 grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
 grep -qx 'audio|skipped|stock-changed' "$t/root/data/local/gen5w-portable/boot/skipped"
 grep -q '^bt|' "$t/root/data/local/gen5w-portable/boot/boot-manifest"
 if grep -q '^audio|' "$t/root/data/local/gen5w-portable/boot/boot-manifest"; then echo 'FAIL retained optional drift'; exit 1; fi
+rm "$t/root/data/local/gen5w-portable/boot/timeline"
+ln -s /dev/full "$t/root/data/local/gen5w-portable/boot/timeline"
 boot disable
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+rm "$t/root/data/local/gen5w-portable/boot/timeline"
 wait "$runner"
 printf stock-audio > "$t/root/system/app/audio-fixture.so"
 # Retained wrappers and libraries survive deletion of their NEMESIS package.
@@ -209,6 +230,131 @@ payload=$t/root/data/local/gen5w-portable/runtime-payload
 cmp -s "$payload/dalvik/engine.jar" "$t/root/data/bundle/dalvik/engine.jar"
 [ "$(stat -c %a "$payload")" = 755 ]
 echo 'PASS optional stock drift, independent plan selection and retained accessible runtime payload'
+old_stop=$(grep -cx stop "$ACTIONS/log")
+if boot transact; then echo 'FAIL unsupervised internal maintenance'; exit 1; fi
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+# A current guardian marker fences re-arm even when its original caller died.
+echo "$(cat "$ACTIONS/boot")" > "$t/root/data/local/gen5w-portable/boot/maintenance"
+if boot arm --trial /data/plan/manifest; then echo 'FAIL arm raced retained guardian'; exit 1; fi
+rm "$t/root/data/local/gen5w-portable/boot/maintenance"
+
+# A successful one-shot vehicle trial must never apply on another boot.
+boot arm --trial /data/plan/manifest
+[ -f "$t/root/data/nemesis/gen5wkr.ui-wireless-off" ]
+echo boot-trial > "$ACTIONS/boot"
+boot run & runner=$!
+for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
+for unused in $(seq 1 1500); do [ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ] && break; sleep .01; done
+[ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ]
+old_stop=$(grep -cx stop "$ACTIONS/log")
+# Model loss of the prior userspace without a graceful disable.
+kill -KILL "$runner"; wait "$runner" 2>/dev/null || :
+echo trial-next > "$ACTIONS/boot"
+if boot run; then echo 'FAIL repeated a consumed trial'; exit 1; fi
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+grep -qx trial-consumed "$t/root/data/local/gen5w-portable/boot/reason"
+boot disable
+echo 'PASS trial consumes before maintenance and next boot remains stock even after healthy'
+
+# Trial must not replay when a resume reuses its boot id but loses state.
+rm "$t/root/data/nemesis/gen5wkr.ui-wireless-off"
+boot arm --trial /data/plan/manifest
+[ -f "$t/root/data/nemesis/gen5wkr.ui-wireless-off" ]
+echo boot-trial-resume > "$ACTIONS/boot"
+boot run & runner=$!
+for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
+for unused in $(seq 1 1500); do [ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ] && break; sleep .01; done
+[ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ]
+old_apply=$(grep -cx apply "$ACTIONS/log")
+if boot run; then echo 'FAIL replayed consumed same-id trial'; exit 1; fi
+grep -qx trial-consumed-restored "$t/root/data/local/gen5w-portable/boot/reason"
+[ ! -f "$ACTIONS/dirty" ]
+[ "$(cat "$ACTIONS/zygote")" = running ]
+[ "$(grep -cx apply "$ACTIONS/log")" = "$old_apply" ]
+boot disable
+wait "$runner" || :
+echo 'PASS same-id resume never re-enters consumed trial maintenance'
+
+# Probe uses the same retained rescue and service dependency window before arm.
+cp "$t/root/system/app/Iap2ServerApp.odex" "$t/root/system/app/HKMC_DiPO.odex"
+cp "$t/root/system/app/HKMC_DiPO.odex" "$t/root/data/plan/probe.odex"
+sha256sum "$t/root/system/app/HKMC_DiPO.odex" | cut -d' ' -f1 > "$t/root/data/plan/probe.odex.stock"
+echo "probe|/data/plan/probe.odex|/system/app/HKMC_DiPO.odex|$(cat "$t/root/data/plan/probe.odex.stock")|0|0|644|static" > "$t/root/data/plan/probe-manifest"
+boot probe /data/plan/probe-manifest
+grep -qx probe-ready-one-shot "$t/root/data/local/gen5w-portable/boot/reason"
+grep -qx runtime-probe "$ACTIONS/log"
+[ "$(cat "$ACTIONS/zygote")" = running ]
+[ "$(stat -c %a "$payload/wrap-probe.sh")" = 755 ]
+echo probe-next > "$ACTIONS/boot"
+old_stop=$(grep -cx stop "$ACTIONS/log")
+if boot run; then echo 'FAIL replayed a no-hook probe'; exit 1; fi
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+boot disable
+echo 'PASS supervised explicit probe, accessible payload, no next-boot replay'
+
+# A failed no-hook activation is recovered by the independent native guardian.
+touch "$ACTIONS/fail.runtime-probe"
+if boot probe /data/plan/probe-manifest; then echo 'FAIL accepted failed probe activation'; exit 1; fi
+[ "$(cat "$ACTIONS/zygote")" = running ]
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+[ ! -e "$t/root/data/local/gen5w-portable/boot/maintenance" ]
+rm "$ACTIONS/fail.runtime-probe"
+boot disable
+if boot arm --trial /data/plan/probe-manifest; then echo 'FAIL re-armed unfinished same-boot attempt'; exit 1; fi
+echo probe-retry-cold > "$ACTIONS/boot"
+# Killing the entire calling terminal group during the stopped window must
+# still invoke the retained guardian in its independent session.
+touch "$ACTIONS/hang.runtime-probe"
+setsid "$t/root/data/bundle/boot.sh" probe /data/plan/probe-manifest > "$ACTIONS/probe-killed.log" 2>&1 & probe_runner=$!
+for unused in $(seq 1 1500); do [ -f "$ACTIONS/probe-window" ] && break; sleep .01; done
+if [ ! -f "$ACTIONS/probe-window" ]; then
+ cat "$ACTIONS/probe-killed.log" >&2
+ boot status >&2
+ echo "FAIL probe did not reach controlled kill window; zygote=$(cat "$ACTIONS/zygote")" >&2
+ exit 1
+fi
+[ "$(cat "$ACTIONS/zygote")" = stopped ]
+kill -KILL -- "-$probe_runner"
+wait "$probe_runner" 2>/dev/null || :
+for unused in $(seq 1 1500); do
+ [ "$(cat "$ACTIONS/zygote")" = running ] && [ ! -e "$t/root/data/local/gen5w-portable/boot/maintenance" ] && break
+ sleep .01
+done
+[ "$(cat "$ACTIONS/zygote")" = running ]
+[ ! -e "$t/root/data/local/gen5w-portable/boot/maintenance" ]
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+rm "$ACTIONS/hang.runtime-probe" "$ACTIONS/probe-window"
+boot disable
+echo 'PASS killed probe caller process group still restores stock Android via retained rescue'
+# Caller-only death can leave the native worker alive before its apply. Disable
+# must wait for the marker even while dirty is still false.
+echo disable-guard-cold > "$ACTIONS/boot"
+touch "$ACTIONS/hold.before-apply" "$ACTIONS/long-pause"
+setsid "$t/root/data/bundle/boot.sh" probe /data/plan/probe-manifest > "$ACTIONS/disable-race.log" 2>&1 & probe_runner=$!
+for unused in $(seq 1 1500); do [ -f "$ACTIONS/preapply-window" ] && break; sleep .01; done
+[ -f "$ACTIONS/preapply-window" ] && [ ! -f "$ACTIONS/dirty" ]
+kill -KILL "$probe_runner"
+wait "$probe_runner" 2>/dev/null || :
+boot disable
+premature=0
+[ ! -f "$t/root/data/local/gen5w-portable/boot/maintenance" ] || premature=1
+# Reap the surviving fixture worker even when running the old faulty ordering.
+for unused in $(seq 1 1500); do [ ! -f "$t/root/data/local/gen5w-portable/boot/maintenance" ] && break; sleep .01; done
+[ "$premature" = 0 ] || { echo 'FAIL disable reported restored before guardian finished'; exit 1; }
+[ ! -f "$ACTIONS/dirty" ] && [ "$(cat "$ACTIONS/zygote")" = running ]
+grep -qx disabled-restored "$t/root/data/local/gen5w-portable/boot/reason"
+rm "$ACTIONS/hold.before-apply" "$ACTIONS/preapply-window" "$ACTIONS/long-pause"
+echo 'PASS disable waits for surviving maintenance even before first apply'
+
+echo probe-modified-cold > "$ACTIONS/boot"
+old_stop=$(grep -cx stop "$ACTIONS/log")
+printf altered > "$t/root/data/plan/probe.odex"
+if boot probe /data/plan/probe-manifest; then echo 'FAIL accepted modified premise file'; exit 1; fi
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+echo 'PASS failed probe restores Android; modified premise rejected before stop'
+
 # Corrupted runtime payload is rejected before stopping stock Android.
 rm -f "$ACTIONS/hold-boot"
 echo 1 > "$ACTIONS/healthy"
