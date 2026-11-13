@@ -13,7 +13,7 @@ not a confirmed vehicle release. Existing rc.1q/USB contents remain untouched.
 | AP guard | Ownership, foreign inode, linked paths and unfinished starts in same boot refused; evidence retained |
 | Authored APK build | Fresh core/host source build, core boot receiver disabled, portable restoration text and token-loss handling; signatures verified |
 | UI | Independent Claude review and nine groups reproduced by parent, including strong process identity and AP guard lock; fresh UI/Java tests passed |
-| Package archive | Five adversarial artifact tests passed on final-inputs-v5; archive generation is the next packaging step |
+| Package archive | PASS: five adversarial tests; final ZIP audited after writing and reopening, 42 authored members, 309996 bytes |
 | Full regression | PASS: full-isolated-final.log ended ALL TESTS PASSED, exit 0, TEST_JOBS=2; includes the final UI/Java source |
 | Vehicle | Not applied or verified |
 
@@ -35,3 +35,18 @@ runs overlapped those installer tests. A controlled probe reproduced detection
 and disappearance after exit. The UI fixture is now serialized after the other
 shell tests and reaps its owned jobs before returning; production refusal logic
 was preserved. The fresh whole-suite rerun passed and is recorded in `full-isolated-final.log`.
+
+## Final PC candidate
+
+- Code checkpoint: `336f996` (local, no release/push).
+- Archive: `.build/portable/gen5w.kr.portable-336f996-pc.zip`.
+- SHA256: `970319963da710cbaad7e68972fc9d841d0117b10539db6b0e73df1ce730fc81`.
+- A companion `.zip.sha256` is next to it. Audit log: `audit-final-336f996.log`.
+- The archive records the full code revision and `vehicle_verified=false`.
+  Its conservative whole-worktree dirty flag remains true because unrelated
+  existing notes/crash logs are preserved; these are outside the shipped list.
+- Vehicle/OEM files and private signing material are excluded. Core and host
+  are freshly compiled authored code; compile-only declarations are not shipped.
+- No vehicle or USB installation was changed. One final visit must confirm cold
+  boot/normal ignition, connection timing, wireless/audio/HUD and explicit disable
+  against the stock baseline before a vehicle-success claim.
