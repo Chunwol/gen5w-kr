@@ -31,6 +31,6 @@ public final class BootstrapVmTest {
             throw new AssertionError("app-local bootstrap adapter not called");
         File ready = new File(args[0], "files/gen5w-portable-ready");
         if (!ready.isFile()) throw new AssertionError("private readiness marker not published");
-        System.out.println("PASS V039 JNI interposer bootclasspath Application.attach app-local adapter");
+        System.out.println("PASS V039 JNI interposer app-local engine Application.attach app-local adapter");
     }
 }

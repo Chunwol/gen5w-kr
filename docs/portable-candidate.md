@@ -3,6 +3,16 @@
 This is a separate, explicitly installed validation build. It preserves rc.1q. Manufacturer apps, ODEX files and libraries are read
 from the vehicle during preparation and are not included in the candidate.
 
+Runtime preflight waits for the initial Android framework to be ready before
+running the native-supervised Dalvik test. The seal records the current boot ID
+and all eight runtime artifact digests; it never reads the caller's console
+stdin. Open-input and changed-artifact regressions cover this contract. The
+framework-stopped transaction retains its independent 60-second recovery limit.
+For an unreconciled stock boot, preparation runs while Android remains available.
+The stopped transaction reuses it only when its boot ID and exact manifest agree;
+apply still validates every source immediately before binding. Runtime prerequisite
+checks share one fully validated overlay snapshot within the same invocation.
+
 ## Build and PC verification
 
 Build `python tools/portable/build.py`. Build the independently authored Dalvik
@@ -13,6 +23,14 @@ Build the portable authored core/host variants with `python tools/portable/build
 --java-home JDK --output .build/portable/apps` (fresh output only).
 Place dex-patch, dalvik/ and apps/ under one private input directory, then run
 `python tools/portable/candidate.py --runtime --inputs INPUTS --output .build/portable/NEW`.
+Build the optional regional audio helper with `python tools/audio/build_regions.py
+--reference-lib PRIVATE_SYSTEM/lib --output NEW_AUDIO_BUILD --ndk NDK`. The private
+build reference is the reviewed KR V039 baseline; no reference bytes are packaged.
+Copy `audio-region-patch` into `INPUTS/audio/` before assembling a fresh candidate.
+The candidate records `audio_compatibility=reviewed-elf-regions`. Failed audio
+builds are refused. Whole-file reference digests establish recipe provenance at
+build time, not runtime compatibility.
+
 An existing destination, source directory, symlink ancestor or incomplete input
 is refused. SHA256SUMS covers every included file except itself; CANDIDATE.json
 records the source revision, dirty state, and lack of vehicle verification.
@@ -33,8 +51,11 @@ The native tool accepts bt, route, dipo, gpm and hotspot, reads local metadata a
 reviewed instruction shapes, and creates a new private replacement. Unknown or
 ambiguous structures leave no output. It enforces a 32 MiB bound, DEX035/ODEX036,
 method frames, instruction boundaries, GC-map invalidation and checksums.
-The audio helper continues to require its reviewed native-library identities;
-unknown audio is skipped independently. Runtime hooks require a 32-bit Dalvik
+The portable regional audio helper checks the reviewed selector spans, ELF loader
+mappings, constants/PLT/relocations and dependency loadable ABI regions. It accepts
+unrelated selector-library code and nonloaded metadata differences; it does not
+accept arbitrary decoder implementation changes. Legacy exact audio profiles
+remain independent fallbacks; unknown audio is skipped independently. Runtime hooks require a 32-bit Dalvik
 ABI with the checked native instruction shape, live Method layout, symbols and a
 successful isolated dispatch/original/exception/GC/monitor self-test on that VM.
 A whole-file libdvm hash is provenance only and no longer gates activation.
@@ -51,14 +72,50 @@ No persist.* property is set. Stock PhoneProjection owns its normal UI selection
 
 ## Candidate admission and recovery
 
-This candidate is for a guarded first vehicle visit. Installation arms a **one-shot
-next-boot trial with wireless off**, not permanent automatic activation. The trial
-is durably consumed before any framework stop. A same-id resume with lost wrappers/mounts also cannot repeat activation; any
-remaining owned partial view is restored under the retained supervisor. If that
-restore fails, stop using the unit and require a true cold restart. After any later cold boot it backs
-off with `trial-consumed`, even if the first boot reached `healthy` and a reset
-happened much later. Do not change it to automatic mode before target validation.
-A successful trial marker is software readiness, never a vehicle safety approval.
+The user selected **persistent automatic wireless operation**. Installation arms
+`mode=auto` for the next boot and clears the authored UI wireless hold. Existing
+AP reset evidence and safety inhibits are preserved, not erased to force wireless.
+A healthy marker is software readiness, never proof of vehicle safety.
+`arm --trial` remains available as an optional, explicitly radio-held one-shot;
+it is not the installation default.
+
+Late failures: session exit (including exit 0 without explicit disable), loss of
+the current DiPO/runtime view, and an orphaned session supervisor stop authored
+services without restarting Android while driving. The session records the cause
+in `health-lost`; the root controller then watches Android for 60 seconds. If
+Android stays up and is not shutting down (`sys.powerctl` empty, zygote running),
+automatic operation latches off (`session-ended-latched`) and re-arm is explicit
+after inspection. If Android starts shutting down or power is cut first — the
+expected ignition-off sequence may stop DiPO/host before power loss — operation
+stays armed (`session-ended-at-shutdown`) and the start budget below bounds any
+repeat. Whether this vehicle performs an Android shutdown at ignition off is
+unverified.
+
+Kernel reset evidence: the controller also checks bounded last_kmsg/ramoops panic
+text and `ro.boot.bootreason`. The V039 kernel and boot image provide **none of
+these** (no ram_console/ramoops backend, no bootreason on the cmdline), so on this
+vehicle that check is harmless but detects nothing. Missing evidence never proves
+a clean shutdown; the start budget is the actual bound.
+
+Android dropbox evidence: on each new boot, entry names in `/data/system/dropbox`
+are compared with those recorded at arm/last admitted boot (wall-clock timestamps
+are not trusted). A new `system_server_crash` or `system_server_watchdog`, or a new
+tombstone/app crash/ANR whose first 64 KiB names a patched process (DiPO,
+projection sink, iAP2 server, HKMC WifiSettings), latches operation off before
+maintenance (`dropbox-failure-evidence`). Unrelated app crashes and history do
+not. `SYSTEM_RESTART` is excluded because our own maintenance restarts the
+runtime. Compressed entries are read with the unit's `gzip -d -c`; a stock DiPO
+crash unrelated to the patch also latches (conservative). A hard reset may leave
+no dropbox entry, so this complements, not replaces, the start budget. Real
+vehicle dropbox naming/compression remains unverified.
+
+At most three full-runtime activations are allowed without five minutes of
+observed live session/framework/DiPO readiness. A fourth is blocked *before*
+maintenance, even if every prior attempt briefly reached healthy and left no
+panic report. Continuous stability resets this budget; a tiny healthy window
+does not. Three short normal trips/restarts can also exhaust it: this is a
+conservative circuit breaker, not perfect reset attribution. Unknown late resets
+with no surviving evidence remain a limitation, especially after the stable window.
 
 NEMESIS 1.16.7 or newer must install the authored APKs with its HMG install guard.
 Do not use direct `pm install`. Old package ownership must be resolved through its
@@ -72,10 +129,12 @@ The bounded maintenance worker has its own session and an independent native
 rescue process, retained outside the deletable package. It stops zygote, changes
 the owned view, restarts the local init zygote restart-dependencies (such as media
 and netd), then starts zygote. Worker failure, deadline or supervisor death invokes
-rescue. `framework.sh ready` supervises stalled Binder/dumpsys queries (8 seconds);
+rescue. `framework.sh ready` supervises stalled Binder/dumpsys queries (15 seconds);
 wait loops additionally use monotonic deadlines. Stage times are appended to
-`/data/local/gen5w-portable/boot/timeline`. Initial zygote observation and framework
-readiness allow 90 seconds each; maintenance itself allows 60 seconds. These are
+`/data/local/gen5w-portable/boot/timeline`. Initial zygote observation allows
+90 seconds; initial and restarted framework readiness allow 300 seconds each
+(stock ARM VM restart measured 152 seconds). Maintenance itself allows 60 seconds.
+These are
 separate phases, so 60 seconds is not a total boot-to-ready promise.
 
 Disable records enabled=0 first, waits for exclusively owned session/AP cleanup,
@@ -92,16 +151,36 @@ flush deadline prevents the request. An unfinished attempt blocks subsequent
 wireless activation. AP prepare requires `wifi_ap_on` to read exactly 0; an on,
 unknown, null or failed value is a STOP, not permission to guess. OEM boot-time
 AP restoration and local hotspot UI are outside those authored request guards.
-Do not enable local hotspot during the staged trial.
+Do not exercise the separate local-hotspot menu during CarPlay validation.
 
 ## One vehicle visit: exact admission sequence
 
 All stages are parked; do not drive while testing framework restarts. Keep stable
 vehicle power according to the vehicle service procedure. A stage failure stops
-later stages. Retain the old recovery USB separately, but **it does not recover
-this portable package**. No screen/ADB-independent rescue for a permanently armed
-late-reset loop is claimed; this candidate avoids repeat trials using one-shot
-admission. Never substitute an ignition cycle for a verified cold boot.
+later stages. Preserve the old recovery USB and reports. The new package adds a
+root `rescue-watch.sh` restart service which checks all six fixed NEMESIS USB
+mount roots every two seconds. It reads only `GEN5W-PORTABLE-RESCUE` containing
+exactly `disable-portable-v1` (one line, LF or CRLF); it executes no code from
+the USB. Beware Windows hiding a `.txt` extension: the file name must have no
+extension. It persists a rescue interlock and enabled=0 *before* Android cleanup
+or any lock. It does not rely on NEMESIS USB execute, Manager dialog,
+sys.boot_completed or ADB. Boot admission and the pre-apply worker also check the
+interlock/token. Automatic (`mode=auto`) maintenance additionally requires the
+watcher to be listed as running by `nemesis service list`; otherwise that boot
+stays stock with reason `rescue-watch-unavailable` (not a permanent latch).
+
+This is **not independent of Android**: it requires a live kernel, the NEMESIS
+root service manager, and a USB that the framework has already mounted. NEMESIS
+USB execute is no alternative: on 1.16.7 it needs the Manager dialog once
+`sys.boot_completed=1`, which a late failure never resets. USB host modules load
+after the boot controller starts, so a token present at power-on is normally seen
+only after the framework mounts the stick: one hooked startup can still occur in
+that boot, and the next boot stays stock. It cannot execute during a kernel freeze
+or recover corrupted /data, a dead root daemon, or broken USB storage drivers.
+Real vehicle USB visibility/timing remains unverified.
+A retained full disable controller survives deletion of the package directory,
+but retained files are not an independent init service by themselves.
+Never substitute an ignition cycle for a verified cold boot.
 
 ### 0. Before changing the target
 
@@ -202,87 +281,54 @@ stock bytes/properties, normalized wifi_ap_on and absence of newly retained targ
 mounts. Interface/module/profile differences are reported for review, not ignored.
 If Android does not return, use the recovery rules below; do not continue.
 
-### 3. Install one-shot full-runtime trial, wireless held off
+### 3. Install automatic wireless operation
 
 ```sh
 /system/xbin/nemesis install /data/gen5w.kr.portable.zip
-ls /data/nemesis/apps/gen5w.kr.portable/boot.sh
 B=/data/nemesis/apps/gen5w.kr.portable
 /system/bin/sh "$B/boot.sh" status
-ls /data/nemesis/gen5wkr.ui-wireless-off
 ```
 
-Confirm the real NEMESIS installation directory; if it differs, correct B before
-continuing. Require install exit 0, `mode|trial`, `enabled|1`, `armed` in the current
-boot and the wireless-off flag. Inspect the new plan's features.txt, not an older
-plan: bt, dipo and projection must be prepared for the intended runtime trial;
-record optional skips explicitly. Installation does not stop this Android session.
-Then perform the verified cold boot. Require `healthy`, `startup-healthy`, committed
-overlay/runtime and a running session with this boot/PID's DiPO readiness marker.
+Require install exit 0, mode|auto, enabled|1 and armed-next-boot. No authored
+wireless hold should remain. Inspect the locally prepared plan and optional skips.
+Installation does not restart this Android session; do a verified cold restart.
+Require current-boot healthy and committed overlays/runtime, then test wireless
+CarPlay directly: connection, BT handover, audio, HUD, navigation and camera.
+Record timing, memory, kernel/application logs and unexpected restarts. Test
+ordinary ignition reconnection separately from an actual cold restart.
 
-With the authored host off, connect phone Bluetooth only and observe driver/interface
-state. STOP if an unexpected AP/driver starts: stock autonomous entry is not proven
-blocked. Verify wired CarPlay/audio/navigation/HUD/camera and observe at least ten
-minutes without reset, crash or LMK churn. Record full-mode PSS, free memory and
-startup delay; `-Xint` affects the whole wrapped app and increases possible CPU/RAM
-cost compared with zygote fork. A healthy marker alone does not satisfy this stage.
+### 4. Prove the USB rescue path during the same parked visit
 
-### 4. Explicit wireless admission
+Put a root file named `GEN5W-PORTABLE-RESCUE` on the rescue USB containing:
 
-Only after stage 3 succeeds, while parked:
-
-```sh
-rm /data/nemesis/gen5wkr.ui-wireless-off
+```text
+disable-portable-v1
 ```
 
-Enable phone wireless CarPlay; observe actual session and expected BT handover,
-audio/navigation, HUD turns/distances/lanes and stock navigation ownership changes.
-Observe at least fifteen minutes. Wait >=60 seconds after AP start and verify no
-unfinished guard attempt remains **before** any ignition or cold reboot. Require:
+Insert it. No confirmation on the Android screen is needed by the package's
+root watcher. The first poll disables automatic operation; active restoration
+can take considerably longer (session cleanup, maintenance and framework ready).
+Read `/data/local/gen5w-portable/boot/rescue-result`: `restore-required` means
+completion is not proven; `restored` means the disable controller succeeded.
+If live restore cannot finish, leave the token present, perform the verified cold
+restart, and let the watcher retry. Confirm enabled=0 and run the original
+`check.sh restored /data/g5p-before` comparison. Do not call a restored file alone
+proof of hardware functionality; confirm stock camera/audio/navigation too.
 
-```sh
-/system/bin/sh "$B/ap.sh" status
-settings get global wifi_ap_on
-```
-
-The outputs must be `ap|admitted` and exactly `0`; otherwise STOP and preserve
-evidence. Record
-boot-to-CarPlay time, kernel log, radio state and memory. The 45-second AP settling
-window is a guard heuristic, not proof that hardware cannot reset later.
-
-### 5. Reconnection, restore and final disposition
-
-An ordinary ignition resume can be tested in the same trial only when boot_id is
-unchanged. If it is a cold boot the trial is consumed and must stay stock. This is
-expected protection, not a reconnect PASS. After a passed trial, disable/restore,
-record all results, and explicitly arm another trial for a second cold boot:
+Only after removing the token, a deliberate disable/re-arm selects auto again:
 
 ```sh
 /system/bin/sh "$B/boot.sh" disable
-/system/bin/sh "$B/boot.sh" arm --trial /data/local/gen5w-portable/plan-EXACT/manifest
-reboot
+/system/bin/sh "$B/boot.sh" arm /data/local/gen5w-portable/plan-EXACT/manifest
 ```
 
-Every `arm --trial` recreates the wireless-off hold. Verify
-`ls /data/nemesis/gen5wkr.ui-wireless-off` before restarting; STOP if absent.
-Replace plan-EXACT with the recorded new plan, not a glob. Re-open wireless only
-after confirming admission state, and repeat the actual projection/HUD/restore
-checks. Finally disable, cold boot and run the original `check.sh restored`
-baseline comparison. Failure at any point leaves automatic operation disabled.
-
-Permanent boot-time CarPlay is the final product setting. **Only after the full
-vehicle checklist passes**, explicitly disable and `boot.sh arm MANIFEST` without
---trial, then cold boot and verify it. Reboot now reapplies features; restoration
-requires `boot.sh disable` (or screen restore). Automatic mode still backs off on
-unfinished startup/AP evidence, but a late reset after healthy/AP guard clearance
-has no guaranteed ADB-independent escape. Do not promote if this residual risk is
-unacceptable or if root access/recovery was not proven. Keep the one-shot result
-and permanent-mode validation distinct in the report.
+Use the actual recorded plan. AP evidence requires its separate reviewed rearm
+procedure; none of these operations deletes reset evidence automatically.
 
 ## Stop and recovery
 
 - After any unexpected reset, read `settings get global wifi_ap_on` first; if not
-  exactly 0, preserve evidence and stop. A consumed trial alone does not prove
+  exactly 0, preserve evidence and stop. A disabled authored host alone does not prove
   OEM AP boot restoration cannot occur.
 - Any unexpected reset, repeating crash, abnormal camera/audio/navigation, memory
   pressure or unresponsive screen beyond measured bounds: stop, turn phone radios
@@ -292,10 +338,11 @@ and permanent-mode validation distinct in the report.
   `sync` and the verified cold restart. This prevents reapply, not immediate
   unmount. Never live-unmount mapped code by hand.
 - If screen works but shell does not, use this package's screen restore/remove.
-- If neither works, wait for maintenance rescue. A cold restart clears the trial's
-  ephemeral changes and its consumed marker prevents repetition. Normal ignition
-  without a changed boot_id may not do this. If a true cold restart is unavailable,
-  do not claim recovery; stop using the unit and use its service recovery process.
+- If screen and ADB do not work, insert the prepared rescue-token USB. The
+  independent root watcher disables auto before attempting restoration. If the
+  kernel is frozen, keep the token present through a verified cold restart.
+  If NEMESIS/USB cannot run either, software recovery is not guaranteed: use the
+  unit service recovery procedure rather than assuming a token was consumed.
 - A current maintenance marker refuses new arm/run/activate while independent
   rescue may still own the view. An unfinished attempt from this same boot
   requires a verified cold restart before re-arm. Never invoke internal
@@ -311,7 +358,7 @@ and permanent-mode validation distinct in the report.
   Missing logs alone are not proof. Inspect the reported archive before re-arming.
 
 If disable reports `startup still busy`, auto-start is already off; wait for the
-existing bounded recovery/readiness (up to 60+90 seconds) and re-read status. Do
+  existing bounded recovery/readiness (up to 60+300 seconds) and re-read status. Do
 not start a competing restore. The wireless-off flag is shared with rc.1q and is
 retained: restoring that older package may leave its wireless intentionally off;
 review and change that preference only after clean restoration.
@@ -325,3 +372,40 @@ PC/qemu tests do not establish real Binder/SMP timing, mount propagation, dexopt
 actual radio/suspend behavior, latency, memory safety under vehicle load or display
 receipt. Vehicle verification remains false in CANDIDATE.json until separately
 recorded target evidence exists.
+
+
+## Recovery changes (2026-11-14)
+
+An Android service-start client timeout is not proof that ActivityManager rejected
+the request. Full runtime startup still requires the current-boot live DiPO
+process and loaded hook marker within 180 seconds; an unconfirmed request without
+that evidence disables operation and restores stock. Client completion alone
+never marks the package healthy.
+
+The app-marker observation is independently guarded for eight seconds and does
+not repeatedly hash every overlay while waiting for a cold app process. The
+full overlay/runtime validation still gates session startup and commit, and
+continues during session health monitoring.
+
+First session startup may optimize the three authored helper classpaths. It has
+a separate 90-second allowance; Android start commands are supervised for 30
+seconds. Cancellation is checked between startup steps. Restoration waits for
+the owned startup/cleanup worker to exit (up to 120 seconds), and failed cleanup
+retains its ownership journal for explicit retry. Cleanup service commands have
+10-second guards, with the existing 22-second AP drain retained.
+
+Session lock ownership is published with the lock so a killed worker cannot leave
+an ownerless lock that blocks every later start. Live and concurrent owners remain
+exclusive. USB updates complete read-only preflight before stopping owned apps or
+changing the old preuninstall hook; failure restores the old hook only while the
+temporary replacement is still ours. A newly installed hook is preserved.
+Adapter installation remains provisional until the readiness marker is published.
+Failure rolls back only this attempt's group. A failed rollback retains ownership
+and requires process restart; it never reports a clean uninstalled state.
+
+Read-only runtime preflight retires its previous proof before observing Android.
+A transient readiness failure returns75 and gets a30-second retry budget before
+framework maintenance. The final individual readiness/ABI call has its own
+15/20-second bounds, so this is not a30-second total boot deadline. ABI rejection
+still returns77; seal and other failures remain fatal. No stopped-framework
+transaction deadline is extended by these read-only retries.

@@ -21,13 +21,14 @@ cleanup() {
     rm -rf "$t"
 }
 trap cleanup EXIT
+export PORTABLE_TEST_STABLE_SECONDS=0
 R=$t/root; A=$t/actions; B=$R/data/bundle
 P=$R/data/local/gen5w-portable
 mkdir -p "$B/bin" "$B/dalvik" "$R/data/plan/perms" "$R/system/app" "$R/system/etc/permissions" "$A/props" "$A/stash" "$t/bin"
 fail() { echo "FAIL $*" >&2; exit 1; }
 
 # ---- bundle: production scripts, interpreter path mapped for this host ----
-for name in boot.sh rescue.sh runtime.sh overlay.sh portable.sh framework.sh ap.sh wrap-common.sh wrap-dipo.sh wrap-gpm.sh wrap-probe.sh; do
+for name in boot.sh rescue.sh rescue-watch.sh session.sh runtime.sh overlay.sh portable.sh framework.sh ap.sh wrap-common.sh wrap-dipo.sh wrap-gpm.sh wrap-probe.sh; do
     cp "tools/portable/$name" "$B/$name"
 done
 sed -i '1c#!/usr/bin/mksh' "$B/boot.sh" "$B/rescue.sh"
@@ -134,9 +135,10 @@ surfaceflinger
     session-stop) touch "$ACTIONS/session-stop";;
     session-ready) [ -f "$ACTIONS/session-live" ];;
     pause) sleep .02;;
+    rescue-alive) [ ! -f "$ACTIONS/rescue-dead" ];;
     esac
 }
-case "$1" in boot|get|dependencies|framework|framework-ready|stop-android|start-android|launch-dipo|dipo-ready|busy|session|session-stop|session-ready|pause)
+case "$1" in boot|get|dependencies|framework|framework-ready|stop-android|start-android|launch-dipo|dipo-ready|busy|session|session-stop|session-ready|pause|rescue-alive)
     mock "$@"; exit $?;; esac
 echo "$1 ${script##*/}" >> "$ACTIONS/calls"
 case "$script" in
@@ -357,16 +359,20 @@ start_run 'quickboot mounts-only'; healthy_full 'quickboot mounts-only'
 [ "$(( $(cycles) - before ))" = 1 ] || fail 'mounts-only restarts'; no_errors mounts-only
 echo 'PASS QuickBoot losing only mounts: stale journal retired, one restart, healthy'
 
-# 7. Host session ends: degraded for this boot_id only.
+# 7. Unexpected session end is latched across QuickBoot and cold boot.
 touch "$A/session-stop"; wait "$runner" && fail 'session end reported success'; runner=
-[ "$(cat "$J/attempt")" = 'boot-4|degraded' ] && [ "$(cat "$J/enabled")" = 1 ] || fail 'session end journal'
-before=$(cycles); boot run && fail 'degraded boot retried'; [ "$(cycles)" = "$before" ] || fail 'degraded retry restarted Android'
+[ "$(cat "$J/attempt")" = 'boot-4|degraded' ] && [ "$(cat "$J/enabled")" = 0 ] || fail 'session end journal'
+before=$(cycles); boot run; [ "$(cycles)" = "$before" ] || fail 'latched session restarted Android'
 quickboot mounts+wrappers; before=$(cycles)
-if boot run; then fail 'degraded QuickBoot ran'; fi
-[ "$(cycles)" = "$before" ] && [ ! -s "$A/mounts" ] || fail 'degraded QuickBoot changed Android'
+boot run
+[ "$(cycles)" = "$before" ] && [ ! -s "$A/mounts" ] || fail 'latched QuickBoot changed Android'
 invariant 'degraded quickboot'
-cold_boot boot-5; start_run boot-5; healthy_full boot-5
-echo 'PASS session end: degraded, no same-boot retry (also across QuickBoot), next cold boot healthy'
+cold_boot boot-5; before=$(cycles); boot run
+[ "$(cycles)" = "$before" ] && [ ! -s "$A/mounts" ] || fail 'latched cold boot changed Android'
+boot disable
+boot arm /data/plan/manifest >/dev/null
+cold_boot boot-5-rearmed; start_run boot-5-rearmed; healthy_full boot-5-rearmed
+echo 'PASS session end latches automatic operation off across QuickBoot and cold boot; explicit re-arm restores operation'
 
 # 8. QuickBoot that loses only wrapper properties, mounts retained.
 quickboot wrappers; before=$(cycles)
@@ -415,3 +421,26 @@ stock_sums | diff - "$t/stock.sums" || fail 'stock bytes changed'
 cold_boot boot-13; boot run; expect_mounts '' 'disabled cold boot'
 no_errors final
 echo 'PASS disable restores stock; disabled install stays inert on the next boot'
+
+# Root rescue request uses the actual controller through Android loss.
+boot arm /data/plan/manifest >/dev/null
+cold_boot boot-usb-rescue; start_run boot-usb-rescue; healthy_full boot-usb-rescue
+mkdir -p "$R/storage/usb0"
+printf 'disable-portable-v1\n' > "$R/storage/usb0/GEN5W-PORTABLE-RESCUE"
+cat > "$t/rescue-adapter" <<'SH'
+#!/bin/sh
+[ "$1" = disable ] || exit 1
+exec mksh "$RESCUE_CONTROLLER" disable
+SH
+chmod +x "$t/rescue-adapter"
+export PORTABLE_TEST_RESCUE_ADAPTER=$t/rescue-adapter RESCUE_CONTROLLER=$B/boot.sh
+# Stale boot_completed=1 is irrelevant: this path never asks Manager.
+mksh "$B/rescue-watch.sh" disable > "$t/rescue.out" 2>&1 || { cat "$t/rescue.out"; fail 'USB rescue actual controller'; }
+wait "$runner"; runner=
+[ "$(cat "$J/enabled")" = 0 ] && [ "$(cat "$J/rescue-result")" = restored ] || fail 'USB rescue result'
+expect_mounts '' 'USB rescue'; [ -z "$(prop wrap.com.daudio.app.dipo)" ] || fail 'USB rescue wrapper left'
+# Remove package and invoke the retained copy: no package dependency survives.
+mv "$B" "$R/data/removed-bundle"
+export RESCUE_CONTROLLER=$J/recovery/boot.sh PORTABLE_TEST_HELPER=$J/recovery/bin/dex-patch PORTABLE_TEST_SUPERVISOR=$J/recovery/bin/dex-patch
+mksh "$J/recovery/rescue-watch.sh" disable > "$t/retained.out" 2>&1 || { cat "$t/retained.out"; fail 'retained USB rescue'; }
+echo 'PASS actual-controller USB rescue restores owned views; retained disable survives package deletion'

@@ -46,7 +46,9 @@ op() {
         "$ADAPTER" "$@"; return $?
     fi
     case "$1" in
-    wifi-ap-on) "$HELPER" supervise 8 /system/bin/true /system/bin/settings get global wifi_ap_on;;
+    # V039 /system/bin/settings has no #! line: a direct execve fails ENOEXEC
+    # (vehicle 2026-11-13). Run it through sh; app_process start is slow.
+    wifi-ap-on) "$HELPER" supervise 20 /system/bin/true /system/bin/sh /system/bin/settings get global wifi_ap_on;;
     boot) cat /proc/sys/kernel/random/boot_id;;
     sync) "$HELPER" supervise 30 /system/bin/true /system/bin/sync;;
     *) return 1;;

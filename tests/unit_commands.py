@@ -23,7 +23,7 @@ UNIT_DIR = ROOT / 'tests' / 'unit'
 # On-unit scripts: package hooks, package binaries, the USB installer and the probe.
 SCRIPT_GLOBS = [
     'packages/*/scripts/*.sh', 'packages/*/bin/*.sh',
-    'tools/integrated/*.sh', 'tools/portable/*.sh',
+    'tools/integrated/*.sh', 'tools/portable/*.sh', 'tools/portable/usb/*.sh', 'tools/portable/usb-collect/*.sh',
     'tools/usb-wifi/package/scripts/*.sh', 'tools/usb-wifi/package/bin/*',
     'tools/usb-wifi/scripts/*.sh',
     'probe/package/bin/*.sh', 'probe/usb/*/*.sh',
@@ -550,6 +550,41 @@ def self_test():
     return failed
 
 
+# V039 /system/bin scripts without a #! line (read from the car's system image,
+# 2026-11-13). A shell runs them, but a raw execve (dex-patch supervise) fails
+# with ENOEXEC, so they must be passed as an argument to /system/bin/sh.
+NO_SHEBANG = ('bmgr', 'bu', 'content', 'ime', 'input', 'media', 'monkey', 'pm',
+              'requestsync', 'settings', 'svc', 'uiautomator', 'wm')
+DIRECT_EXEC = re.compile(r'supervise\s+\S+\s+\S+\s+/system/bin/(' + '|'.join(NO_SHEBANG) + r')(?![\w.-])')
+
+
+def direct_exec_errors(files):
+    errors = []
+    for path in files:
+        path = pathlib.Path(path)
+        if not path.is_absolute():
+            path = ROOT / path
+        for number, line in enumerate(path.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+            match = DIRECT_EXEC.search(line)
+            if match:
+                errors.append(f'{path.relative_to(ROOT).as_posix()}:{number}: /system/bin/{match.group(1)} has no #! line on the unit; supervise it via /system/bin/sh')
+    return errors
+
+
+def android_reset_errors(files):
+    """Every zygote start must first set sys.boot_count 0 (V039 reboots otherwise)."""
+    errors = []
+    for path in files:
+        path = pathlib.Path(path)
+        if not path.is_absolute():
+            path = ROOT / path
+        lines = path.read_text(encoding='utf-8', errors='replace').splitlines()
+        for number, line in enumerate(lines, 1):
+            if 'ctl.start zygote' in line and (number < 2 or 'setprop sys.boot_count 0' not in lines[number - 2]):
+                errors.append(f'{path.relative_to(ROOT).as_posix()}:{number}: zygote start without setprop sys.boot_count 0 just before it; V039 reboots the unit')
+    return errors
+
+
 def main():
     if sys.argv[1:] == ['--list']:
         for path in script_files():
@@ -564,6 +599,8 @@ def main():
     if dist and not files:
         print('FAIL unit commands: no built scripts in dist/ (run tools/build-all.sh first)')
         return 1
+    linter.errors.extend(direct_exec_errors(files))
+    linter.errors.extend(android_reset_errors(files))
     for e in linter.errors:
         print(f'FAIL {e}')
     if linter.errors:

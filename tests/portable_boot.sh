@@ -15,7 +15,7 @@ if [ "${PORTABLE_BOOT_DEBUG:-0}" = 1 ]; then
  trap 'rc=$?; if [ "$rc" != 0 ]; then find "$t/actions" -name "*.log" -exec tail -n 20 {} \;; [ ! -f "$t/root/data/local/gen5w-portable/boot/timeline" ] || tail -n 30 "$t/root/data/local/gen5w-portable/boot/timeline"; fi; cleanup' EXIT
 fi
 mkdir -p "$t/root/data/bundle/bin" "$t/root/data/plan" "$t/root/system/app" "$t/actions"
-cp tools/portable/boot.sh tools/portable/rescue.sh tools/portable/runtime.sh tools/portable/overlay.sh tools/portable/framework.sh tools/portable/wrap-*.sh "$t/root/data/bundle/"
+cp tools/portable/boot.sh tools/portable/rescue.sh tools/portable/rescue-watch.sh tools/portable/runtime.sh tools/portable/overlay.sh tools/portable/framework.sh tools/portable/portable.sh tools/portable/ap.sh tools/portable/session.sh tools/portable/wrap-*.sh "$t/root/data/bundle/"
 mkdir "$t/root/data/bundle/dalvik"
 for name in engine.jar adapter.jar libgen5whook.so hook-vm-test.jar; do echo authored > "$t/root/data/bundle/dalvik/$name"; done
 sed -i '1c#!/usr/bin/mksh' "$t/root/data/bundle/boot.sh" "$t/root/data/bundle/rescue.sh"
@@ -43,23 +43,48 @@ cat > "$t/adapter" <<'SH'
 set -e
 case "$1" in
 boot) cat "$ACTIONS/boot";;
+rescue-requested)
+ if [ -f "$ACTIONS/rescue-usb-late" ]; then n=$(cat "$ACTIONS/rescue-calls" 2>/dev/null || echo 0); echo $((n+1)) > "$ACTIONS/rescue-calls"; [ "$n" -ge 1 ]
+ else test -f "$ACTIONS/rescue-usb"; fi;;
 ap-prepare|ap-disable) :;;
 ap-check) [ ! -f "$ACTIONS/ap-unsafe" ] || exit 77;;
 owned-overlays) test -f "$ACTIONS/owned-overlays";;
 dependencies) echo media; echo netd;;
 framework) cat "$ACTIONS/framework";;
-framework-ready) test "$(cat "$ACTIONS/healthy")" = 1 && test ! -f "$ACTIONS/framework-notready";;
-get) case "$2" in init.svc.zygote) cat "$ACTIONS/zygote";; sys.boot_completed) cat "$ACTIONS/healthy";; esac;;
-plan|plan-boot|plan-static|apply|runtime-enable|runtime-probe|runtime-disable|overlay-disable|commit|commit-static|launch-dipo|session-stop)
+plan-ready) test -f "$ACTIONS/plan-ready" && cmp -s "$ACTIONS/plan-ready" "$ACTIONS/boot";;
+framework-ready)
+ test "$(cat "$ACTIONS/healthy")" = 1 && test ! -f "$ACTIONS/framework-notready" || exit 1
+ if [ -f "$ACTIONS/slow-framework-after-start" ]; then
+  before=$(cat "$ACTIONS/slow-framework-after-start")
+  current=$(grep -cx start "$ACTIONS/log" 2>/dev/null || :)
+  if [ "$current" -gt "$before" ]; then
+   polls=$(cat "$ACTIONS/slow-framework-polls" 2>/dev/null || echo 0)
+   polls=$((polls+1)); echo "$polls" > "$ACTIONS/slow-framework-polls"
+   [ "$polls" -ge 100 ] || exit 1
+  fi
+ fi
+ if [ -f "$ACTIONS/framework-notready-after-restart" ]; then
+  before=$(cat "$ACTIONS/framework-notready-after-restart")
+  current=$(grep -cx start "$ACTIONS/log" 2>/dev/null || :)
+  [ "$current" -le "$before" ] || exit 1
+ fi;;
+get) case "$2" in init.svc.zygote) cat "$ACTIONS/zygote";; sys.boot_completed) cat "$ACTIONS/healthy";; sys.powerctl) cat "$ACTIONS/powerctl" 2>/dev/null || :;; esac;;
+rescue-alive) test ! -f "$ACTIONS/rescue-dead";;
+plan|plan-boot|plan-static|apply|runtime-enable|runtime-preflight|runtime-probe|runtime-disable|overlay-disable|commit|commit-static|launch-dipo|session-stop)
  [ "$1" != runtime-enable ] || [ ! -f "$ACTIONS/unsupported" ] || exit 77
  echo "$1" >> "$ACTIONS/log"
  if [ "$1" = apply ] && [ -f "$ACTIONS/hold.before-apply" ]; then touch "$ACTIONS/preapply-window"; sleep 1; fi
  if [ "$1" = runtime-probe ] && [ -f "$ACTIONS/hang.runtime-probe" ]; then touch "$ACTIONS/probe-window"; sleep 30; fi
  [ ! -f "$ACTIONS/fail.$1" ] || exit 1
- case "$1" in session-stop) touch "$ACTIONS/session-stop";; apply) touch "$ACTIONS/dirty";; overlay-disable) rm -f "$ACTIONS/dirty";; esac;;
+ case "$1" in plan|plan-boot|plan-static) cp "$ACTIONS/boot" "$ACTIONS/plan-ready";; session-stop) touch "$ACTIONS/session-stop";; apply) touch "$ACTIONS/dirty";; overlay-disable) rm -f "$ACTIONS/dirty" "$ACTIONS/plan-ready";; esac;;
 stop-android) echo stop >> "$ACTIONS/log"; echo stopped > "$ACTIONS/zygote";;
 start-android) echo start >> "$ACTIONS/log"; echo running > "$ACTIONS/zygote"; echo 1 > "$ACTIONS/healthy"; [ ! -f "$ACTIONS/hold-boot" ] || echo 0 > "$ACTIONS/healthy";;
-dipo-ready|probe-ready) test ! -f "$ACTIONS/fail.dipo";;
+dipo-ready|probe-ready)
+ if [ "$1" = dipo-ready ] && [ -f "$ACTIONS/slow-dipo-polls" ]; then
+  polls=$(cat "$ACTIONS/slow-dipo-polls"); polls=$((polls+1)); echo "$polls" > "$ACTIONS/slow-dipo-polls"
+  [ "$polls" -ge 35 ] || exit 1
+ fi
+ test ! -f "$ACTIONS/fail.dipo";;
 busy) test -f "$ACTIONS/session-live";;
 dirty) test -f "$ACTIONS/dirty";;
 active) test -f "$ACTIONS/active";;
@@ -71,7 +96,12 @@ session)
    sleep .05
  done
  rm "$ACTIONS/session-live";;
-session-ready) test -f "$ACTIONS/session-live";;
+session-ready)
+ if [ -f "$ACTIONS/slow-session-polls" ]; then
+  polls=$(cat "$ACTIONS/slow-session-polls"); polls=$((polls+1)); echo "$polls" > "$ACTIONS/slow-session-polls"
+  [ "$polls" -ge 20 ] || exit 1
+ fi
+ test -f "$ACTIONS/session-live";;
 pause) if [ -f "$ACTIONS/long-pause" ]; then sleep .05; else sleep .02; fi;;
 *) exit 1;;
 esac
@@ -79,7 +109,7 @@ SH
 chmod +x "$t/adapter"
 export ACTIONS=$t/actions PORTABLE_TEST_ROOT=$t/root PORTABLE_TEST_BOOT_ADAPTER=$t/adapter PORTABLE_TEST_HELPER=$t/helper
 export PORTABLE_TEST_SUPERVISOR=$PWD/.build/portable/dex-patch-host
-export PORTABLE_BOOT_TIMEOUT=3
+export PORTABLE_BOOT_TIMEOUT=3 PORTABLE_TEST_STABLE_SECONDS=0 PORTABLE_TEST_LOSS_GRACE=1
 (cd "$t/root/data/bundle" && find . -type f ! -name SHA256SUMS -print | sort | while read -r file; do sha256sum "${file#./}"; done) > "$t/root/data/bundle/SHA256SUMS"
 boot() { mksh "$t/root/data/bundle/boot.sh" "$@"; }
 echo 100:1 > "$ACTIONS/framework"
@@ -92,13 +122,36 @@ boot disable
 [ "$(grep -cx stop "$ACTIONS/log" || :)" = "$old_stop" ]
 boot arm /data/plan/manifest
 echo boot2 > "$ACTIONS/boot"
-boot run & runner=$!
-for unused in $(seq 1 1500); do grep -q 'healthy' "$t/root/data/local/gen5w-portable/boot/attempt" 2>/dev/null && break; sleep .02; done
+# Binder may accept startService before the bounded am client returns. The
+# current-boot, live hooked-process marker must decide readiness independently.
+touch "$ACTIONS/fail.launch-dipo"
+echo 0 > "$ACTIONS/slow-session-polls"
+echo 0 > "$ACTIONS/slow-dipo-polls"
+grep -cx start "$ACTIONS/log" > "$ACTIONS/slow-framework-after-start" || :
+echo 0 > "$ACTIONS/healthy"
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+for unused in $(seq 1 1500); do grep -q '|runtime-preflight-wait$' "$t/root/data/local/gen5w-portable/boot/timeline" 2>/dev/null && break; sleep .02; done
+grep -q '|runtime-preflight-wait$' "$t/root/data/local/gen5w-portable/boot/timeline"
+! grep -qx runtime-preflight "$ACTIONS/log"
+echo 1 > "$ACTIONS/healthy"
+for unused in $(seq 1 3000); do grep -q 'healthy' "$t/root/data/local/gen5w-portable/boot/attempt" 2>/dev/null && break; sleep .02; done
 grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
+grep -q '|dipo-start-request-unconfirmed$' "$t/root/data/local/gen5w-portable/boot/timeline"
+rm "$ACTIONS/fail.launch-dipo"
+[ "$(cat "$ACTIONS/slow-session-polls")" -ge 20 ]
+rm "$ACTIONS/slow-session-polls"
+[ "$(cat "$ACTIONS/slow-dipo-polls")" -ge 35 ]
+rm "$ACTIONS/slow-dipo-polls"
 [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ]
 [ "$(grep -cx stop "$ACTIONS/log")" = 1 ]
+timeline=$t/root/data/local/gen5w-portable/boot/timeline
+for marker in runtime-preflight-wait framework-initial-ready runtime-preflight overlay-prepared-running framework-stopped identity-verified overlay-planned overlay-applied runtime-retired runtime-selected framework-start framework-running; do
+ grep -q "|$marker$" "$timeline" || { echo "FAIL missing transaction stage $marker"; exit 1; }
+done
 boot disable
 wait "$runner"
+test "$(cat "$ACTIONS/slow-framework-polls")" -ge 100
+rm "$ACTIONS/slow-framework-after-start" "$ACTIONS/slow-framework-polls"
 [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
 [ "$(cat "$ACTIONS/zygote")" = running ]
 [ ! -f "$ACTIONS/session-live" ]
@@ -161,17 +214,30 @@ grep -qx runtime-unavailable "$t/root/data/local/gen5w-portable/boot/reason"
 boot disable
 echo 'PASS unknown DiPO app removes runtime and wireless-only features safely'
 
+# An unconfirmed request without a real marker is still a hard failure.
+echo dipo-unconfirmed-control > "$ACTIONS/boot"
+boot arm /data/plan/manifest
+echo dipo-unconfirmed-trial > "$ACTIONS/boot"
+touch "$ACTIONS/fail.launch-dipo"
+if boot run; then echo 'FAIL accepted unconfirmed DiPO without readiness'; exit 1; fi
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+grep -qx dipo-start-failed "$t/root/data/local/gen5w-portable/boot/reason"
+[ "$(cat "$ACTIONS/zygote")" = running ]
+rm "$ACTIONS/fail.launch-dipo"
+echo 'PASS unconfirmed DiPO requires actual readiness or disables and restores'
+
 # Disable while sys.boot_completed is pending must cancel before app launch.
 rm "$ACTIONS/fail.dipo"
-touch "$ACTIONS/framework-notready"
+echo dipo-unconfirmed-restored-cold > "$ACTIONS/boot"
+grep -cx start "$ACTIONS/log" > "$ACTIONS/framework-notready-after-restart"
 touch "$ACTIONS/hold-boot"
 boot arm /data/plan/manifest
 echo boot8 > "$ACTIONS/boot"
 old_launch=$(grep -cx launch-dipo "$ACTIONS/log")
-boot run & runner=$!
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
 for unused in $(seq 1 1500); do [ "$(cat "$ACTIONS/healthy")" = 0 ] && break; sleep .01; done
 [ "$(cat "$ACTIONS/healthy")" = 0 ]
-rm "$ACTIONS/framework-notready" "$ACTIONS/hold-boot"
+rm "$ACTIONS/framework-notready-after-restart" "$ACTIONS/hold-boot"
 boot disable
 wait "$runner"
 [ "$(grep -cx launch-dipo "$ACTIONS/log")" = "$old_launch" ]
@@ -180,28 +246,187 @@ wait "$runner"
 echo 'PASS disable cancels pending startup before launching any CarPlay owner'
 echo boot8-cold-after-cancel > "$ACTIONS/boot"
 
-# Session exits are ephemeral: no mid-session framework restart and next boot
-# remains armed, for both a clean exit and a crash.
+# A slower healthy framework is admitted above, but an unavailable framework
+# must still reach its monotonic deadline and restore stock without a session.
+boot arm /data/plan/manifest
+grep -cx start "$ACTIONS/log" > "$ACTIONS/framework-notready-after-restart"
+echo boot8-never-ready > "$ACTIONS/boot"
+if PORTABLE_TEST_DEADLINE_CAP=1 boot run; then echo 'FAIL unbounded framework readiness'; exit 1; fi
+grep -qx boot-timeout "$t/root/data/local/gen5w-portable/boot/reason"
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+[ "$(cat "$ACTIONS/zygote")" = running ]
+[ ! -f "$ACTIONS/dirty" ]
+[ ! -f "$ACTIONS/session-live" ]
+rm "$ACTIONS/framework-notready-after-restart"
+echo boot8-cold-after-timeout > "$ACTIONS/boot"
+echo 'PASS slow framework allowed; missing framework remains bounded and restores stock'
+
+# Unexpected session exits latch automatic operation off, without restarting
+# Android while driving; a cold boot must remain stock for exit 0 and a crash.
 for code in 0 7; do
  rm -f "$ACTIONS/hold-boot" "$ACTIONS/framework-notready" "$ACTIONS/session-stop" "$ACTIONS/session-exit-code"
  echo 1 > "$ACTIONS/healthy"
  boot arm /data/plan/manifest
  echo "boot-session-$code" > "$ACTIONS/boot"
- boot run & runner=$!
+ mksh "$t/root/data/bundle/boot.sh" run & runner=$!
  for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
  grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
  old_stop=$(grep -cx stop "$ACTIONS/log")
  echo "$code" > "$ACTIONS/session-exit-code"
  rc=0; wait "$runner" || rc=$?
  [ "$rc" != 0 ]
- [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ]
+ [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
  grep -q degraded "$t/root/data/local/gen5w-portable/boot/attempt"
  [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
- if boot run; then echo 'FAIL retried degraded session within same boot'; exit 1; fi
+ boot run
+ [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+ echo "boot-after-session-$code" > "$ACTIONS/boot"
+ boot run
+ [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+ grep -qx session-ended-latched "$t/root/data/local/gen5w-portable/boot/reason"
  boot disable
 done
 rm -f "$ACTIONS/session-exit-code"
-echo 'PASS session exit keeps next boot armed, records degradation and avoids mid-drive restart'
+echo 'PASS session exit latches next boot off, records degradation and avoids mid-drive restart'
+
+# Ignition off: Android shutdown may stop DiPO/host before power is cut. The
+# resulting session end must not latch; a later cold boot applies normally.
+for signal in powerctl zygote; do
+ rm -f "$ACTIONS/session-stop" "$ACTIONS/session-exit-code" "$ACTIONS/powerctl"
+ echo 1 > "$ACTIONS/healthy"; echo running > "$ACTIONS/zygote"
+ boot arm /data/plan/manifest
+ echo "boot-ignition-$signal" > "$ACTIONS/boot"
+ mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+ for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+ grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
+ old_stop=$(grep -cx stop "$ACTIONS/log")
+ if [ "$signal" = powerctl ]; then echo shutdown,ignition > "$ACTIONS/powerctl"; else echo stopped > "$ACTIONS/zygote"; fi
+ echo 7 > "$ACTIONS/session-exit-code"
+ rc=0; wait "$runner" || rc=$?
+ [ "$rc" != 0 ]
+ [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ]
+ grep -qx session-ended-at-shutdown "$t/root/data/local/gen5w-portable/boot/reason"
+ grep -qx "boot-ignition-$signal|degraded" "$t/root/data/local/gen5w-portable/boot/attempt"
+ [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+ rm -f "$ACTIONS/session-exit-code" "$ACTIONS/powerctl"; echo running > "$ACTIONS/zygote"
+ echo "boot-after-ignition-$signal" > "$ACTIONS/boot"
+ mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+ for unused in $(seq 1 1500); do grep -qx "boot-after-ignition-$signal|healthy" "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+ grep -qx "boot-after-ignition-$signal|healthy" "$t/root/data/local/gen5w-portable/boot/attempt"
+ boot disable
+ wait "$runner" 2>/dev/null || :
+done
+echo 'PASS health loss during Android shutdown stays armed; the next cold boot applies again'
+# The independent USB rescue watcher must be running before automatic
+# maintenance; otherwise this boot stays stock without a permanent latch.
+rm -f "$ACTIONS/session-stop" "$ACTIONS/session-exit-code"
+echo 1 > "$ACTIONS/healthy"; echo running > "$ACTIONS/zygote"
+boot arm /data/plan/manifest
+echo boot-rescue-dead > "$ACTIONS/boot"
+touch "$ACTIONS/rescue-dead"
+old_stop=$(grep -cx stop "$ACTIONS/log")
+rc=0; boot run || rc=$?
+[ "$rc" != 0 ]
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ]
+grep -qx rescue-watch-unavailable "$t/root/data/local/gen5w-portable/boot/reason"
+rm "$ACTIONS/rescue-dead"
+echo boot-rescue-back > "$ACTIONS/boot"
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+for unused in $(seq 1 1500); do grep -qx 'boot-rescue-back|healthy' "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
+grep -qx 'boot-rescue-back|healthy' "$t/root/data/local/gen5w-portable/boot/attempt"
+boot disable
+wait "$runner" 2>/dev/null || :
+echo 'PASS automatic maintenance requires a live USB rescue watcher; absence skips one boot without latching'
+# A new panic report after a healthy run must refuse the next activation.
+mkdir -p "$t/root/proc"
+echo 'old Kernel panic - not syncing: preserved report' > "$t/root/proc/last_kmsg"
+boot arm /data/plan/manifest
+echo boot-reset-evidence > "$ACTIONS/boot"
+# Change identity: an unchanged historical panic must not poison admission.
+echo 'new Kernel panic - not syncing: test reset' > "$t/root/proc/last_kmsg"
+old_stop=$(grep -cx stop "$ACTIONS/log")
+if boot run; then echo 'FAIL ignored new kernel panic evidence'; exit 1; fi
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+grep -qx reset-evidence "$t/root/data/local/gen5w-portable/boot/reason"
+rm "$t/root/proc/last_kmsg"
+boot disable
+echo 'PASS new kernel panic evidence latches next activation off before maintenance'
+
+# Android dropbox: framework crash/watchdog or a crash naming a patched app,
+# new since the last admitted boot, latches before maintenance. Historical and
+# unrelated entries do not. Compressed entries are inspected too.
+db=$t/root/data/system/dropbox
+J=$t/root/data/local/gen5w-portable/boot
+dropbox_case() { # name content expect(latch|pass)
+ rm -rf "$db"; mkdir -p "$db"
+ echo 'Process: com.daudio.app.dipo' > "$db/system_app_crash@1000.txt"
+ echo old > "$db/system_server_crash@1001.txt"
+ boot arm /data/plan/manifest
+ echo "boot-dropbox-$4" > "$ACTIONS/boot"
+ case "$1" in
+ *.gz) printf '%s\n' "$2" | gzip -c > "$db/$1";;
+ *) printf '%s\n' "$2" > "$db/$1";;
+ esac
+ old_stop=$(grep -cx stop "$ACTIONS/log")
+ if [ "$3" = latch ]; then
+  if boot run; then echo "FAIL ignored dropbox $1"; exit 1; fi
+  [ "$(cat "$J/enabled")" = 0 ]
+  [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+  grep -qx dropbox-failure-evidence "$J/reason"
+  boot disable
+ else
+  mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+  for unused in $(seq 1 1500); do grep -qx "boot-dropbox-$4|healthy" "$J/attempt" && break; sleep .01; done
+  grep -qx "boot-dropbox-$4|healthy" "$J/attempt"
+  boot disable
+  wait "$runner" 2>/dev/null || :
+ fi
+}
+dropbox_case system_server_crash@2000.txt 'java.lang.RuntimeException' latch 1
+dropbox_case system_server_watchdog@2000.txt.gz 'Blocked in handler' latch 2
+dropbox_case SYSTEM_TOMBSTONE@2000.txt.gz 'pid: 9, name: com.google.android.projection.sink' latch 3
+dropbox_case data_app_crash@2000.txt 'Process: com.hkmc.wifisettings' latch 4
+dropbox_case system_app_crash@2000.txt 'Process: com.example.radio' pass 5
+dropbox_case system_app_anr@2000.txt 'Process: com.tcc.iap2server' latch 6
+rm -rf "$db"
+echo 'PASS new dropbox framework/patched-app failure evidence latches before maintenance; old and unrelated entries do not'
+
+# Healthy is not enough to forgive repeated sudden early resets. No panic log
+# or graceful userspace exit is available in this injected scenario.
+export PORTABLE_TEST_STABLE_SECONDS=300
+boot arm /data/plan/manifest
+for n in 1 2 3; do
+ echo "rapid-reset-$n" > "$ACTIONS/boot"
+ mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+ for unused in $(seq 1 1500); do grep -qx "rapid-reset-$n|healthy" "$t/root/data/local/gen5w-portable/boot/attempt" && [ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ] && break; sleep .01; done
+ grep -qx "rapid-reset-$n|healthy" "$t/root/data/local/gen5w-portable/boot/attempt"
+ kill -KILL "$runner"; wait "$runner" 2>/dev/null || :
+ touch "$ACTIONS/session-stop"
+ for unused in $(seq 1 1500); do [ -f "$ACTIONS/session-live" ] || break; sleep .01; done
+ [ ! -f "$ACTIONS/session-live" ]
+done
+echo rapid-reset-4 > "$ACTIONS/boot"
+old_stop=$(grep -cx stop "$ACTIONS/log")
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
+for unused in $(seq 1 1500); do
+ [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" != 0 ] || break
+ if grep -qx 'rapid-reset-4|healthy' "$t/root/data/local/gen5w-portable/boot/attempt"; then
+  kill -KILL "$runner"; wait "$runner" 2>/dev/null || :
+  echo 'FAIL repeated fourth unobserved early reset'; exit 1
+ fi
+ sleep .01
+done
+rc=0; wait "$runner" || rc=$?
+[ "$rc" != 0 ]
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+grep -qx rapid-start-limit "$t/root/data/local/gen5w-portable/boot/reason"
+boot disable
+export PORTABLE_TEST_STABLE_SECONDS=0
+echo 'PASS repeated post-healthy early resets without logs stop before fourth activation'
+
 # Optional stock drift drops only that feature before maintenance.
 printf stock-audio > "$t/root/system/app/audio-fixture.so"
 printf patched-audio > "$t/root/data/plan/audio"
@@ -211,12 +436,14 @@ rm -f "$ACTIONS/session-stop"
 boot arm /data/plan/manifest
 printf updated-audio > "$t/root/system/app/audio-fixture.so"
 echo boot-optional > "$ACTIONS/boot"
-boot run & runner=$!
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
 for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
 grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
 grep -qx 'audio|skipped|stock-changed' "$t/root/data/local/gen5w-portable/boot/skipped"
 grep -q '^bt|' "$t/root/data/local/gen5w-portable/boot/boot-manifest"
 if grep -q '^audio|' "$t/root/data/local/gen5w-portable/boot/boot-manifest"; then echo 'FAIL retained optional drift'; exit 1; fi
+# The controller appends startup-healthy right after the attempt marker.
+for unused in $(seq 1 1500); do grep -q startup-healthy "$t/root/data/local/gen5w-portable/boot/timeline" && break; sleep .01; done
 rm "$t/root/data/local/gen5w-portable/boot/timeline"
 ln -s /dev/full "$t/root/data/local/gen5w-portable/boot/timeline"
 boot disable
@@ -242,7 +469,7 @@ rm "$t/root/data/local/gen5w-portable/boot/maintenance"
 boot arm --trial /data/plan/manifest
 [ -f "$t/root/data/nemesis/gen5wkr.ui-wireless-off" ]
 echo boot-trial > "$ACTIONS/boot"
-boot run & runner=$!
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
 for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
 grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
 for unused in $(seq 1 1500); do [ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ] && break; sleep .01; done
@@ -262,7 +489,7 @@ rm "$t/root/data/nemesis/gen5wkr.ui-wireless-off"
 boot arm --trial /data/plan/manifest
 [ -f "$t/root/data/nemesis/gen5wkr.ui-wireless-off" ]
 echo boot-trial-resume > "$ACTIONS/boot"
-boot run & runner=$!
+mksh "$t/root/data/bundle/boot.sh" run & runner=$!
 for unused in $(seq 1 1500); do grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt" && break; sleep .01; done
 grep -q healthy "$t/root/data/local/gen5w-portable/boot/attempt"
 for unused in $(seq 1 1500); do [ ! -d "$t/root/data/local/gen5w-portable/boot/lock" ] && break; sleep .01; done
@@ -355,6 +582,14 @@ if boot probe /data/plan/probe-manifest; then echo 'FAIL accepted modified premi
 [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
 echo 'PASS failed probe restores Android; modified premise rejected before stop'
 
+# A rescue token inserted while arm is running must win over arm's enabled=1.
+rm -f "$ACTIONS/rescue-calls"; touch "$ACTIONS/rescue-usb-late"
+if boot arm /data/plan/manifest; then echo 'FAIL arm overruled a token inserted during arm'; exit 1; fi
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+grep -qx usb-rescue-requested "$t/root/data/local/gen5w-portable/boot/reason"
+rm -f "$ACTIONS/rescue-usb-late" "$ACTIONS/rescue-calls"
+echo 'PASS rescue token inserted during arm stays disabled'
+
 # Corrupted runtime payload is rejected before stopping stock Android.
 rm -f "$ACTIONS/hold-boot"
 echo 1 > "$ACTIONS/healthy"
@@ -366,3 +601,13 @@ if boot run; then echo 'FAIL accepted changed sealed bundle'; exit 1; fi
 [ "$(grep -cx stop "$ACTIONS/log")" = "$old" ]
 grep -qx bundle-changed "$t/root/data/local/gen5w-portable/boot/reason"
 echo 'PASS sealed bundle integrity checked before framework maintenance'
+
+# Rescue insertion fences re-arm and run before framework maintenance.
+touch "$ACTIONS/rescue-usb"
+old_stop=$(grep -cx stop "$ACTIONS/log")
+if boot arm /data/plan/manifest; then echo 'FAIL armed with rescue USB'; exit 1; fi
+boot run
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
+[ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
+rm "$ACTIONS/rescue-usb"
+echo 'PASS rescue USB fences arm and startup before maintenance'

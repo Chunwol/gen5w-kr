@@ -8,6 +8,13 @@ ROOT=${PORTABLE_TEST_ROOT:-}
 STATE=$ROOT/data/local/gen5w-portable/boot
 HELPER=$BASE/bin/dex-patch
 SUPERVISOR=$HELPER
+# Android stays running during readiness observation. A stock restart in the
+# isolated ARM VM takes 152 seconds; use the same bounded allowance as initial
+# framework startup. The independently supervised stopped transaction stays 60s.
+FRAMEWORK_READY_SECONDS=300
+# Cold session startup also optimizes authored DEX and starts Java workers.
+SESSION_READY_SECONDS=90
+APP_READY_SECONDS=180
 PAYLOAD=$ROOT/data/local/gen5w-portable/runtime-payload
 ADAPTER=${PORTABLE_TEST_BOOT_ADAPTER:-}
 fail() { echo "boot: $*" >&2; exit 1; }
@@ -27,7 +34,7 @@ else
 fi
 plain "$BASE" && plain "$STATE" && plain "$HELPER" && [ -x "$HELPER" ] || fail 'unsafe bundle/state/helper'
 mkdir -p "$STATE" && chmod 700 "$STATE" || fail state
-for file in enabled enabled.new attempt attempt.new origins origins.new manifest manifest.new maintenance reason reason.new fingerprint fingerprint.new runtime-mode runtime-mode.new bundle-hashes bundle-hashes.new framework-before framework-before.new boot-manifest boot-manifest.new skipped skipped.new dependencies dependencies.new runtime-policy runtime-policy.new reconcile reconcile.new mode mode.new consumed consumed.new; do
+for file in enabled enabled.new attempt attempt.new origins origins.new manifest manifest.new maintenance reason reason.new fingerprint fingerprint.new runtime-mode runtime-mode.new bundle-hashes bundle-hashes.new framework-before framework-before.new boot-manifest boot-manifest.new skipped skipped.new dependencies dependencies.new runtime-policy runtime-policy.new reconcile reconcile.new mode mode.new consumed consumed.new rescue-request rescue-request.new rescue-result rescue-result.new reset-baseline reset-baseline.new reset-current reset-scan retry-count retry-count.new health-lost health-lost.new dropbox-baseline dropbox-baseline.new dropbox-current dropbox-scan; do
     [ ! -L "$STATE/$file" ] && { [ ! -e "$STATE/$file" ] || [ -f "$STATE/$file" ]; } || fail 'unsafe state file'
 done
 op() {
@@ -39,10 +46,12 @@ op() {
     fi
     case "$1" in
     boot) cat /proc/sys/kernel/random/boot_id;;
+    rescue-requested) /system/bin/sh "$BASE/rescue-watch.sh" check;;
+    rescue-alive) /system/xbin/nemesis service list 2>/dev/null | grep -q '^gen5w\.kr\.portable/rescue|restart|running|';;
     get) getprop "$2";;
     dependencies) /system/bin/sh "$BASE/framework.sh" dependencies;;
     framework) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/sh "$BASE/framework.sh" identity;;
-    framework-ready) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/sh "$BASE/framework.sh" ready "$(cat "$STATE/framework-before" 2>/dev/null)";;
+    framework-ready) "$SUPERVISOR" supervise 15 /system/bin/true /system/bin/sh "$BASE/framework.sh" ready "$(cat "$STATE/framework-before" 2>/dev/null)";;
     ap-prepare) /system/bin/sh "$BASE/ap.sh" prepare;;
     ap-check) /system/bin/sh "$BASE/ap.sh" check;;
     ap-disable) /system/bin/sh "$BASE/ap.sh" disable;;
@@ -50,10 +59,16 @@ op() {
         local status=$(/system/bin/sh "$BASE/portable.sh" status) || return 1
         case "$status" in 'state|committed'*|'state|pending'*) return 0;; *) return 1;; esac;;
     plan) PORTABLE_HELPER=$HELPER /system/bin/sh "$BASE/overlay.sh" prepare "$2";;
+    plan-ready)
+        local overlay_state=$ROOT/data/local/gen5w-portable/overlay
+        [ "$(cat "$overlay_state/state")" = prepared ] &&
+        [ "$(cat "$overlay_state/prepareboot")" = "$(op boot)" ] &&
+        [ "$("$HELPER" sha256 "$overlay_state/manifest")" = "$("$HELPER" sha256 "$STATE/boot-manifest")" ];;
     plan-boot) PORTABLE_HELPER=$HELPER /system/bin/sh "$BASE/overlay.sh" prepare-boot "$STATE/boot-manifest";;
     plan-static) PORTABLE_HELPER=$HELPER /system/bin/sh "$BASE/overlay.sh" prepare-boot "$STATE/boot-manifest";;
     apply) /system/bin/sh "$BASE/portable.sh" apply;;
     runtime-enable) /system/bin/sh "$PAYLOAD/runtime.sh" enable both;;
+    runtime-preflight) /system/bin/sh "$PAYLOAD/runtime.sh" preflight;;
     runtime-probe) /system/bin/sh "$PAYLOAD/runtime.sh" enable probe;;
     probe-ready) /system/bin/sh "$BASE/check.sh" probe-loaded;;
     runtime-disable) /system/bin/sh "$BASE/runtime.sh" disable;;
@@ -67,19 +82,23 @@ op() {
             case "$dependency" in ''|*[!a-zA-Z0-9_.-]*) result=1; continue;; esac
             setprop ctl.restart "$dependency" || result=1
         done < "$STATE/dependencies"
+        # V039 libcheck_androidreset (system_server start): sys.boot_count other
+        # than 0 means "Android Reset" and, with persist.sys.sync.reset=1, a full
+        # reboot (vehicle 2026-11-13). Our restart is intentional: mark it first boot.
+        setprop sys.boot_count 0 || result=1
         setprop ctl.start zygote || return 1
         return "$result";;
     launch-dipo) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/am startservice -n com.daudio.app.dipo/.service.DipoService;;
-    dipo-ready) /system/bin/sh "$BASE/session.sh" ready;;
+    dipo-ready) "$SUPERVISOR" supervise 8 /system/bin/true /system/bin/sh "$BASE/session.sh" adapter-ready;;
     busy) /system/bin/sh "$BASE/session.sh" busy;;
     dirty)
         local status
         status=$(/system/bin/sh "$BASE/runtime.sh" status) || return 0
         case "$status" in 'runtime|disabled'|'runtime|expired') :;; *) return 0;; esac
         status=$(/system/bin/sh "$BASE/portable.sh" status) || return 0
-        case "$status" in 'state|disabled'*|'state|prepared'*) return 1;; *) return 0;; esac;;
+        case "$status" in 'state|disabled'*|'state|prepared'*|'state|expired'*) return 1;; *) return 0;; esac;;
     session) exec /system/bin/sh "$BASE/session.sh" run;;
-    session-stop) /system/bin/sh "$BASE/session.sh" stop;;
+    session-stop) "$SUPERVISOR" supervise 90 /system/bin/true /system/bin/sh "$BASE/session.sh" stop-maintenance;;
     session-ready) [ "$(/system/bin/sh "$BASE/session.sh" status)" = 'session|running' ];;
     active)
         if [ "$(cat "$STATE/runtime-mode" 2>/dev/null)" != static ]; then
@@ -111,11 +130,13 @@ within() { [ "$(clock)" -lt "$limit" ]; }
 stop_session() {
     op session-stop || return 1
     local count=0 limit
-    deadline 35
-    while op busy; do
-        count=$((count+1)); [ "$count" -lt 35 ] && within || return 1
+    deadline 120
+    while op busy || { [ -n "${child:-}" ] && kill -0 "$child" 2>/dev/null; }; do
+        count=$((count+1)); [ "$count" -lt 120 ] && within || return 1
         op pause
     done
+    # Retry orphan-owned cleanup if the starter's EXIT handler retained it.
+    op session-stop
 }
 
 process_key() {
@@ -301,7 +322,7 @@ copy_rescue() {
     local name output
     plain "$STATE/recovery" && plain "$STATE/recovery/bin" || return 1
     mkdir -p "$STATE/recovery/bin" || return 1
-    for name in rescue.sh runtime.sh overlay.sh bin/dex-patch; do
+    for name in rescue.sh rescue-watch.sh boot.sh runtime.sh overlay.sh portable.sh ap.sh session.sh framework.sh bin/dex-patch; do
         plain "$BASE/$name" && [ -f "$BASE/$name" ] || return 1
         output=$STATE/recovery/$name
         plain "$output" && plain "$output.new" || return 1
@@ -322,9 +343,21 @@ wait_zygote() {
 }
 wait_framework() {
     local count=0 limit
-    deadline 90
+    deadline "$FRAMEWORK_READY_SECONDS"
     while ! op framework-ready; do
-        count=$((count+1)); [ "$count" -lt 90 ] && within || return 1; op pause
+        count=$((count+1)); [ "$count" -lt "$FRAMEWORK_READY_SECONDS" ] && within || return 1; op pause
+    done
+}
+wait_initial_framework() {
+    # NEMESIS starts before Android's main class on some units. A running
+    # zygote alone does not make dalvikvm safe: wait for the newly registered
+    # package/activity services and ActivityManager mBooted state first.
+    local count=0 limit
+    deadline "$FRAMEWORK_READY_SECONDS"
+    while ! op framework-ready; do
+        enabled || return 1
+        count=$((count+1)); [ "$count" -lt "$FRAMEWORK_READY_SECONDS" ] && within || return 1
+        op pause
     done
 }
 cancelled() {
@@ -336,17 +369,117 @@ cancelled() {
 }
 finish_static() {
     local count=0 limit
-    deadline 90
+    deadline "$FRAMEWORK_READY_SECONDS"
     while ! op framework-ready; do
         cancelled
-        count=$((count+1)); [ "$count" -lt 90 ] && within || return 1; op pause
+        count=$((count+1)); [ "$count" -lt "$FRAMEWORK_READY_SECONDS" ] && within || return 1; op pause
     done
     op commit-static && put attempt "$current|healthy" && put reason runtime-unavailable && sync || return 1
     echo 'boot: independent static features active; optional CarPlay runtime unavailable'
 }
+# Bound retained kernel evidence reads: proc files often report st_size=0.
+# Absence is not a clean-shutdown acknowledgement; only positive new evidence
+# or a reported panic/watchdog reset latches operation off.
+reset_snapshot() {
+    local path digest flag
+    for path in /proc/last_kmsg /sys/fs/pstore/console-ramoops /sys/fs/pstore/console-ramoops-0 /sys/fs/pstore/dmesg-ramoops-0; do
+        [ -e "$ROOT$path" ] || [ -L "$ROOT$path" ] || continue
+        plain "$ROOT$path" && [ -f "$ROOT$path" ] || return 1
+        # dd itself bounds the read to 8 MiB (the toolbox has no wc/stat).
+        dd if="$ROOT$path" of="$STATE/reset-scan" bs=65536 count=128 2>/dev/null || return 1
+        digest=$("$HELPER" sha256 "$STATE/reset-scan") || return 1
+        flag=none
+        grep -qE 'Kernel panic - not syncing|BUG: soft lockup|watchdog bite|watchdog bark' "$STATE/reset-scan" && flag=panic
+        print -r -- "$path|$digest|$flag"
+    done
+    rm -f "$STATE/reset-scan"
+}
+scan_bounded() {
+    # A retained backlog of 19 new records takes 27s on V039 ARM emulation.
+    # This read-only scan runs while Android stays up, before maintenance.
+    # Keep reset reads short and keep the stopped transaction's own budget.
+    local seconds=15
+    [ "$1" != dropbox-scan ] || seconds=60
+    if [ -n "$ROOT" ]; then
+        "$SUPERVISOR" supervise "$seconds" /bin/true /usr/bin/mksh "$BASE/boot.sh" "$1"
+    else
+        "$SUPERVISOR" supervise "$seconds" /system/bin/true /system/bin/sh "$BASE/boot.sh" "$1"
+    fi
+}
+reset_bounded() { scan_bounded reset-snapshot; }
+# Android dropbox is the only failure record that survives on V039 (no
+# last_kmsg/ramoops). Names are compared with the last admitted boot; wall
+# clock timestamps are not trusted. SYSTEM_RESTART is deliberately excluded:
+# our own maintenance restarts the runtime every boot.
+DROPBOX=$ROOT/data/system/dropbox
+dropbox_names() {
+    local entry name count=0
+    plain "$DROPBOX" || return 1
+    [ -e "$DROPBOX" ] || [ -L "$DROPBOX" ] || return 0
+    [ -d "$DROPBOX" ] && [ ! -L "$DROPBOX" ] || return 1
+    for entry in "$DROPBOX"/system_server_crash@* "$DROPBOX"/system_server_watchdog@* "$DROPBOX"/SYSTEM_TOMBSTONE@* \
+        "$DROPBOX"/system_app_crash@* "$DROPBOX"/system_app_native_crash@* "$DROPBOX"/system_app_anr@* \
+        "$DROPBOX"/data_app_crash@* "$DROPBOX"/data_app_native_crash@* "$DROPBOX"/data_app_anr@*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        name=${entry##*/}
+        case "$name" in *[!a-zA-Z0-9_@.]*) return 1;; esac
+        count=$((count+1)); [ "$count" -le 4096 ] || return 1
+        print -r -- "$name"
+    done
+}
+# Prints clean or hit|NAME. Framework crash/watchdog names alone are failures;
+# App entries identify their failed Process, not incidental CPU-table mentions.
+# Native tombstones identify the crashed process in their pid/command header.
+dropbox_scan() {
+    local name file pattern baseline newline='
+'
+    [ -f "$STATE/dropbox-baseline" ] || return 1
+    dropbox_names > "$STATE/dropbox-current" || return 1
+    if cmp "$STATE/dropbox-current" "$STATE/dropbox-baseline" >/dev/null 2>&1; then echo clean; return 0; fi
+    # Names contain no shell pattern characters or newlines (dropbox_names).
+    # Read once: a grep process per historical file exceeds the native scan
+    # budget on the vehicle CPU. Quoted newline boundaries retain exact matches.
+    baseline=$(cat "$STATE/dropbox-baseline") || return 1
+    while IFS= read -r name; do
+        case "$newline$baseline$newline" in *"$newline$name$newline"*) continue;; esac
+        case "$name" in system_server_crash@*|system_server_watchdog@*) print -r -- "hit|$name"; return 0;; esac
+        # plain() rejects '@'; the directory was checked and the name validated.
+        file=$DROPBOX/$name
+        [ -f "$file" ] && [ ! -L "$file" ] || return 1
+        rm -f "$STATE/dropbox-scan"
+        case "$name" in
+        *.lost) continue;;
+        *.gz) gzip -d -c "$file" 2>/dev/null | dd of="$STATE/dropbox-scan" bs=65536 count=1 2>/dev/null;;
+        *) dd if="$file" of="$STATE/dropbox-scan" bs=65536 count=1 2>/dev/null || return 1;;
+        esac
+        [ -f "$STATE/dropbox-scan" ] || continue
+        pattern='^Process:[[:space:]]+'
+        case "$name" in
+        SYSTEM_TOMBSTONE@*|*_native_crash@*) pattern='^(Process:|Cmd line:|pid:.*(name:|>>>))[[:space:]]+';;
+        esac
+        pattern="$pattern"'(com\.daudio\.app\.dipo|com\.google\.android\.projection|com\.tcc\.iap2(server)?|com\.hkmc\.wifisettings)([.:[:space:]]|$)'
+        if grep -qE "$pattern" "$STATE/dropbox-scan"; then
+            rm -f "$STATE/dropbox-scan"; print -r -- "hit|$name"; return 0
+        fi
+    done < "$STATE/dropbox-current"
+    rm -f "$STATE/dropbox-scan"
+    echo clean
+}
+reset_check() {
+    local reason path digest flag
+    reason=$(op get ro.boot.bootreason) || return 1
+    case "$reason" in *panic*|*watchdog*|*wdog*|*wdt*|*PANIC*|*WATCHDOG*) return 77;; esac
+    [ -f "$STATE/reset-baseline" ] && reset_bounded > "$STATE/reset-current" || return 1
+    while IFS='|' read -r path digest flag; do
+        if [ "$flag" = panic ] && ! grep -qFx "$path|$digest|$flag" "$STATE/reset-baseline"; then return 77; fi
+    done < "$STATE/reset-current"
+}
 command=${1:-run}; [ "$#" = 0 ] || shift
 case "$command" in status) :;; *) stage "$command begin" || fail timeline;; esac
 case "$command" in
+reset-snapshot) reset_snapshot;;
+dropbox-names) dropbox_names;;
+dropbox-scan) dropbox_scan;;
 transact|recover|recover-runtime)
     [ "${PORTABLE_BOOT_GUARDED:-}" = 1 ] || fail 'internal command requires native supervision'
     # The native supervisor has already armed its independent rescue process.
@@ -355,17 +488,31 @@ transact|recover|recover-runtime)
     put framework-before "$previous_framework" || fail journal
     stage framework-stop || fail timeline
     op stop-android && wait_zygote stopped || fail 'framework stop failed'
+    stage framework-stopped || fail timeline
     if [ "$command" = transact ]; then
         if [ "$(cat "$STATE/reconcile" 2>/dev/null)" = 1 ]; then
             op runtime-disable && op overlay-disable && select_plan || fail 'owned resume reconciliation failed'
+            stage reconciled || fail timeline
         fi
-        enabled && verify_origins || fail 'activation identity failed'
-        if [ -s "$STATE/boot-manifest" ]; then op plan-boot && op apply || fail 'activation failed';
-        else op overlay-disable || fail 'empty plan restore failed'; fi
+        [ ! -f "$STATE/rescue-request" ] && ! op rescue-requested && enabled && verify_origins || fail 'activation identity failed'
+        stage identity-verified || fail timeline
+        if [ -s "$STATE/boot-manifest" ]; then
+            # A running-framework prepare is reusable only for this boot and
+            # this exact manifest. apply still revalidates every source while
+            # stopped, immediately before the first bind.
+            op plan-ready || op plan-boot || fail 'activation planning failed'
+            stage overlay-planned || fail timeline
+            op apply || fail 'activation apply failed'
+            stage overlay-applied || fail timeline
+        else
+            op overlay-disable || fail 'empty plan restore failed'
+            stage overlay-disabled || fail timeline
+        fi
         enabled || fail 'activation cancelled'
         # QuickBoot can restore the same kernel boot_id while discarding wrap
         # properties. Retire the owned journal under stopped zygote first.
         op runtime-disable || fail 'previous runtime retirement failed'
+        stage runtime-retired || fail timeline
         result=0
         if [ "$(cat "$STATE/mode" 2>/dev/null)" = probe ]; then
             op runtime-probe && put runtime-mode probe || fail 'probe wrapper failed'
@@ -377,6 +524,7 @@ transact|recover|recover-runtime)
         77) static_plan && put runtime-mode static && put runtime-policy skip-until-rearm || fail 'static fallback failed';;
         *) fail 'runtime activation failed';;
         esac
+        stage runtime-selected || fail timeline
     elif [ "$command" = recover-runtime ]; then
         op runtime-disable && static_plan && put runtime-mode static && put runtime-policy skip-until-rearm || fail 'runtime restore failed'
     else
@@ -384,6 +532,7 @@ transact|recover|recover-runtime)
     fi
     stage framework-start || fail timeline
     op start-android && wait_zygote running || fail 'framework start failed'
+    stage framework-running || fail timeline
     rm -f "$STATE/maintenance" || fail maintenance
     ;;
 probe)
@@ -398,6 +547,7 @@ arm)
     case "${1:-}" in --trial) mode=trial; shift;; --probe) mode=probe; shift;; esac
     [ "$#" = 1 ] && plain "$ROOT$1" && [ -f "$ROOT$1" ] || fail 'manifest required'
     lock || fail locked
+    op rescue-requested && fail 'remove the rescue USB token before re-arm'
     enabled && fail 'disable the current automatic installation first'
     [ ! -f "$STATE/maintenance" ] || [ "$(cat "$STATE/maintenance")" != "$(op boot)" ] || fail 'independent recovery is still active; wait or cold restart'
     if [ -f "$STATE/attempt" ]; then
@@ -420,6 +570,8 @@ arm)
     op plan "$ROOT$1" || fail 'plan validation failed'
     origins "$ROOT$1" > "$STATE/origins.new" && [ -s "$STATE/origins.new" ] || fail 'prepared stock identity differs or is absent'
     cp "$ROOT$1" "$STATE/manifest.new" && mv "$STATE/manifest.new" "$STATE/manifest" && mv "$STATE/origins.new" "$STATE/origins" || fail manifest
+    reset_bounded > "$STATE/reset-baseline.new" && mv "$STATE/reset-baseline.new" "$STATE/reset-baseline" || fail 'kernel reset baseline unavailable'
+    scan_bounded dropbox-names > "$STATE/dropbox-baseline.new" && mv "$STATE/dropbox-baseline.new" "$STATE/dropbox-baseline" || fail 'dropbox baseline unavailable'
     copy_rescue || fail 'cannot retain independent recovery payload'
     copy_payload || fail 'cannot retain accessible runtime payload'
     cp "$BASE/SHA256SUMS" "$STATE/bundle-hashes.new" && mv "$STATE/bundle-hashes.new" "$STATE/bundle-hashes" || fail 'bundle seal failed'
@@ -431,13 +583,18 @@ arm)
         mkdir -p "$ROOT/data/nemesis" || fail 'wireless hold directory'
         [ -e "$radio" ] || { : > "$radio" && chmod 600 "$radio"; } || fail 'wireless hold failed'
     fi
-    put mode "$mode" && put consumed none || fail journal
+    rm -f "$STATE/rescue-request" "$STATE/rescue-result" || fail 'rescue interlock retained'
+    put retry-count 0 && put mode "$mode" && put consumed none || fail journal
     put runtime-policy full && put fingerprint "$(op get ro.build.fingerprint)" && put attempt "$(op boot)|armed" && put reason armed-next-boot && put enabled 1 || fail journal
+    # The watcher writes rescue-request before enabled=0. Re-check after our
+    # enabled=1 so a token inserted during arm can never be overruled.
+    if [ -f "$STATE/rescue-request" ] || op rescue-requested; then backoff usb-rescue-requested; fail 'rescue USB inserted during arm; remains disabled'; fi
     sync || { backoff arm-sync-failed; exit 1; }
     echo 'boot: armed for the next boot; current Android retained'
     ;;
 run|activate)
     [ "$#" = 0 ] || fail arguments
+    if [ -f "$STATE/rescue-request" ] || op rescue-requested; then backoff usb-rescue-requested; exit 0; fi
     enabled || exit 0
     lock || fail locked
     [ ! -f "$STATE/maintenance" ] || [ "$(cat "$STATE/maintenance")" != "$(op boot)" ] || fail 'independent recovery is still active; wait or cold restart'
@@ -471,6 +628,18 @@ run|activate)
     op dependencies > "$STATE/dependencies.new" && [ "$("$HELPER" sha256 "$STATE/dependencies.new")" = "$("$HELPER" sha256 "$STATE/dependencies")" ] || { backoff init-profile-changed; exit 1; }
     verify_bundle "$STATE/bundle-hashes" || { backoff bundle-changed; exit 1; }
     [ "$(cat "$STATE/fingerprint")" = "$(op get ro.build.fingerprint)" ] || { backoff firmware-changed; exit 1; }
+    if [ "$previous" != "$current" ]; then
+        reset_result=0; reset_check || reset_result=$?
+        case "$reset_result" in 0) :;; 77) backoff reset-evidence; exit 1;; *) backoff reset-evidence-unreadable; exit 1;; esac
+        cp "$STATE/reset-current" "$STATE/reset-baseline.new" && mv "$STATE/reset-baseline.new" "$STATE/reset-baseline" || { backoff reset-baseline-failed; exit 1; }
+        dropbox=$(scan_bounded dropbox-scan) || { backoff dropbox-evidence-unreadable; exit 1; }
+        case "$dropbox" in
+        clean) :;;
+        hit\|*) echo "boot: dropbox failure evidence ${dropbox#hit|}" >&2; backoff dropbox-failure-evidence; exit 1;;
+        *) backoff dropbox-evidence-unreadable; exit 1;;
+        esac
+        cp "$STATE/dropbox-current" "$STATE/dropbox-baseline.new" && mv "$STATE/dropbox-baseline.new" "$STATE/dropbox-baseline" || { backoff dropbox-baseline-failed; exit 1; }
+    fi
     active=0
     put reconcile 0 || fail journal
     if op active; then active=1; op busy && exit 0; else
@@ -501,14 +670,58 @@ run|activate)
             count=$((count+1)); [ "$count" -lt 90 ] && within || { backoff initial-zygote-unavailable; exit 1; }; op pause
         done
     fi
+    if [ "$mode" = auto ] && [ "$active" = 0 ]; then
+        # Persistent operation relies on the USB rescue watcher. NEMESIS stops
+        # restarting a repeatedly failing service, so verify it before any
+        # maintenance. Absence keeps this boot stock without a permanent latch.
+        count=0; deadline 30
+        until op rescue-alive; do
+            count=$((count+1))
+            [ "$count" -lt 30 ] && within || { put reason rescue-watch-unavailable && sync; echo 'boot: USB rescue watcher not running; this boot stays stock' >&2; exit 1; }
+            op pause
+        done
+    fi
+    if [ "$mode" = auto ] && [ "$(cat "$STATE/runtime-policy")" = full ]; then
+        retries=$(cat "$STATE/retry-count") || { backoff retry-state-unreadable; exit 1; }
+        case "$retries" in 0|1|2) :;; 3) backoff rapid-start-limit; exit 1;; *) backoff retry-state-invalid; exit 1;; esac
+        put retry-count "$((retries+1))" || fail journal
+    fi
+    if [ "$active" = 0 ] && [ "$mode" != probe ] && [ "$(cat "$STATE/runtime-policy")" = full ]; then
+        stage runtime-preflight-wait || fail timeline
+        wait_initial_framework || { backoff initial-framework-unavailable; exit 1; }
+        stage framework-initial-ready || fail timeline
+        preflight_result=0
+        # A successful ready poll can be followed by a transient busy Binder
+        # query during stock startup. Retry only that distinct read-only status;
+        # ABI rejection, seal errors and the stopped transaction stay strict.
+        deadline 30
+        while :; do
+            preflight_result=0
+            op runtime-preflight || preflight_result=$?
+            [ "$preflight_result" = 75 ] || break
+            enabled || exit 0
+            within || { backoff runtime-preflight-failed; exit 1; }
+            stage runtime-preflight-retry
+            op pause
+        done
+        case "$preflight_result" in
+        0) stage runtime-preflight || fail timeline;;
+        77) stage runtime-preflight-unavailable || fail timeline;;
+        *) backoff runtime-preflight-failed; exit 1;;
+        esac
+        if [ "$(cat "$STATE/reconcile")" = 0 ] && [ -s "$STATE/boot-manifest" ]; then
+            op plan "$STATE/boot-manifest" || { backoff activation-prepare-failed; exit 1; }
+            stage overlay-prepared-running || fail timeline
+        fi
+    fi
     put consumed "$current" && put attempt "$current|pending" && sync || fail journal
     stage maintenance-start || fail timeline
     if [ "$active" = 0 ] && ! bounded transact; then backoff maintenance-failed; exit 1; fi
     cancelled
-    count=0; deadline 90
+    count=0; deadline "$FRAMEWORK_READY_SECONDS"
     while ! op framework-ready; do
         cancelled
-        count=$((count+1)); [ "$count" -lt 90 ] && within || { backoff boot-timeout; bounded recover; exit 1; }; op pause
+        count=$((count+1)); [ "$count" -lt "$FRAMEWORK_READY_SECONDS" ] && within || { backoff boot-timeout; bounded recover; exit 1; }; op pause
     done
     stage framework-ready || fail timeline
     if [ "$mode" = probe ]; then
@@ -528,36 +741,78 @@ run|activate)
         exit 0
     fi
     cancelled
-    op launch-dipo || { backoff dipo-start-failed; bounded recover; exit 1; }
-    count=0; deadline 30
+    # am is a Binder client: ActivityManager can accept the request before the
+    # bounded client returns. A timeout does not retract that accepted request.
+    # Only a current-boot live hooked-process marker proves application readiness.
+    launch_confirmed=1
+    op launch-dipo || { launch_confirmed=0; stage dipo-start-request-unconfirmed; }
+    count=0; deadline "$APP_READY_SECONDS"
     while ! op dipo-ready; do
         cancelled
         count=$((count+1))
-        if [ "$count" -ge 30 ] || ! within; then
+        if [ "$count" -ge "$APP_READY_SECONDS" ] || ! within; then
+            if [ "$launch_confirmed" = 0 ]; then
+                backoff dipo-start-failed; bounded recover; exit 1
+            fi
             bounded recover-runtime && finish_static || { backoff runtime-fallback-failed; bounded recover; exit 1; }
             exit 0
         fi
         op pause
     done
     cancelled
+    # Session health performs a locked overlay status check immediately after
+    # publishing readiness. Finish the initial commit before that reader exists;
+    # otherwise its valid read lock can make commit fail on a healthy startup.
+    # The boot attempt stays pending until the authored services are ready.
+    op commit || { backoff commit-failed; bounded recover; exit 1; }
     op session & child=$!
-    count=0; deadline 15
+    count=0; deadline "$SESSION_READY_SECONDS"
     while ! op session-ready; do
         cancelled
-        count=$((count+1)); [ "$count" -lt 15 ] && within || { backoff session-timeout; stop_session || fail 'session cleanup still busy'; bounded recover; exit 1; }; op pause
+        count=$((count+1)); [ "$count" -lt "$SESSION_READY_SECONDS" ] && within && kill -0 "$child" 2>/dev/null || { backoff session-timeout; stop_session || fail 'session cleanup still busy'; bounded recover; exit 1; }; op pause
     done
     cancelled
-    op commit && put attempt "$current|healthy" && put reason startup-healthy || { backoff commit-failed; stop_session || fail 'session cleanup still busy'; bounded recover; exit 1; }
+    put attempt "$current|healthy" && put reason startup-healthy || { backoff commit-failed; stop_session || fail 'session cleanup still busy'; bounded recover; exit 1; }
     sync
     stage startup-healthy || fail timeline
     unlock
     trap 'op session-stop; exit 1' HUP INT TERM
+    # A momentary healthy marker never forgives a sudden reset loop. Three
+    # starts are allowed until a live session has been observed for five minutes.
+    # This also bounds resets that leave neither a panic dump nor exit status.
+    stable_seconds=300
+    [ -z "$ROOT" ] || stable_seconds=${PORTABLE_TEST_STABLE_SECONDS:-300}
+    stable_start=$(clock)
+    while kill -0 "$child" 2>/dev/null; do
+        if [ "$(( $(clock)-stable_start ))" -ge "$stable_seconds" ]; then
+            if enabled && op session-ready && op framework-ready && op dipo-ready; then
+                put retry-count 0 && sync || { backoff stability-sync-failed; break; }
+                stage continuous-session-stable
+            fi
+            break
+        fi
+        op pause
+    done
     wait "$child"; result=$?
     if enabled; then
+        put attempt "$current|degraded" && put reason session-ended-confirming && sync || { op session-stop; backoff journal-failed-after-session; exit 1; }
         op session-stop
-        put attempt "$current|degraded" && put reason session-ended-this-boot && sync || fail journal
-        # An ephemeral host exit does not poison the next boot. Do not restart
-        # the framework while driving or retry repeatedly within this boot.
+        # Ignition off may stop DiPO/host before power is cut. Latch only when
+        # Android stays up and is not shutting down for a bounded grace period;
+        # otherwise leave operation armed (the start budget bounds repeats).
+        # Retain the current view while driving: no framework restart here.
+        grace=60; [ -z "$ROOT" ] || grace=${PORTABLE_TEST_LOSS_GRACE:-60}
+        grace_start=$(clock); shutting=0
+        while [ "$(( $(clock)-grace_start ))" -lt "$grace" ]; do
+            if [ -n "$(op get sys.powerctl)" ] || [ "$(op get init.svc.zygote)" != running ]; then shutting=1; break; fi
+            enabled || break
+            op pause
+        done
+        if [ "$shutting" = 1 ]; then
+            put reason session-ended-at-shutdown && sync
+        elif enabled; then
+            backoff session-ended-latched
+        fi
         [ "$result" != 0 ] || result=1
     fi
     exit "$result"

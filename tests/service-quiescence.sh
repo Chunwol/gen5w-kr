@@ -1,4 +1,18 @@
 #!/bin/bash
+# The real /proc ambiguity guard must see only this fixture's processes.
+# Parallel suites can open unrelated WSL sessions while a stop proof is active.
+# Keep a waiting shell as namespace PID 1 so the fixture supervisor is PID 2.
+if [ "${SERVICE_QUIESCENCE_NAMESPACE:-}" != 1 ]; then
+    command -v unshare >/dev/null 2>&1 || {
+        echo 'FAIL service-quiescence requires unshare with user/PID/mount namespaces' >&2
+        exit 1
+    }
+    SERVICE_QUIESCENCE_NAMESPACE=1 unshare --user --map-root-user --mount --pid --fork --mount-proc \
+        bash -c 'bash "$1"; result=$?; exit "$result"' _ "$0"
+    result=$?
+    [ "$result" = 0 ] || echo 'FAIL isolated service-quiescence fixture (namespace setup or test failure)' >&2
+    exit "$result"
+fi
 cd "$(dirname "$0")/.." || exit 1
 . tests/lib.sh
 W=$(mktemp -d)

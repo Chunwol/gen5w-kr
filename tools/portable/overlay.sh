@@ -133,7 +133,17 @@ lock_acquire() {
     done
     return 1
 }
-lock_acquire || { echo 'portable: locked or unsafe lock' >&2; exit 1; }
+lock_acquire_bounded() {
+    local up rest until
+    IFS=' ' read -r up rest < /proc/uptime || return 1
+    until=$((${up%%.*}+10))
+    while ! lock_acquire; do
+        IFS=' ' read -r up rest < /proc/uptime || return 1
+        [ "${up%%.*}" -lt "$until" ] || return 1
+        sleep 1
+    done
+}
+lock_acquire_bounded || { echo 'portable: locked or unsafe lock' >&2; exit 1; }
 trap lock_release EXIT
 trap 'exit 1' HUP INT TERM
 write_state() { echo "$1" > "$STATE/state.new" && mv "$STATE/state.new" "$STATE/state" && op sync; }
@@ -275,9 +285,11 @@ prepare|prepare-boot)
         selected=0; [ $# -ne 0 ] || selected=1
         for requested in "$@"; do [ "$requested" != "$feature" ] || selected=1; done
         [ "$selected" = 1 ] || continue
-        validate_row || { write_state failed; err 'invalid selected row'; exit 1; }
         echo "$feature|$src|$dst|$hash|$uid|$gid|$mode|$kind${extra:+|$extra}" >> "$STATE/manifest.new"
     done < "$manifest"
+    # validate_file checks every selected row and the duplicate-target rule in
+    # one pass. Revalidating each row above doubled the stopped-framework
+    # window, especially for the permissions directory inventory.
     validate_file "$STATE/manifest.new" || { rm -f "$STATE/manifest.new"; write_state failed; err 'invalid manifest or source'; exit 1; }
     for requested in "$@"; do
         found=0
@@ -302,7 +314,10 @@ apply)
     : > "$STATE/journal"
     write_state applying || exit 1
     while IFS='|' read -r feature src dst hash uid gid mode kind extra; do
-        validate_row || { rollback; write_state failed; exit 1; }
+        # The complete manifest was validated immediately before mutation while
+        # this transaction held the overlay lock. Keep the durable per-target
+        # journal and identity checks below; a second full hash/tree pass here
+        # only lengthens the Android-off interval.
         owner_identity=$(op identity "$ROOT$src")
         [ -n "$owner_identity" ] || { rollback; write_state failed; exit 1; }
         echo "$dst|$owner_identity" >> "$STATE/journal" && op sync || { rollback; write_state failed; exit 1; }
@@ -325,8 +340,11 @@ disable)
 status)
     [ $# = 0 ] || exit 1
     s=$(current)
-    case "$s" in applying) s=failed;; pending|committed)
+    case "$s" in applying|pending|committed)
+        # Bind mounts never survive a kernel reboot: any record of an earlier
+        # boot is stale. Treating it as failed made disable restart Android.
         if [ "$(cat "$STATE/boot" 2>/dev/null)" != "$(op boot)" ]; then s=expired
+        elif [ "$s" = applying ]; then s=failed
         elif ! active_check; then s=failed; fi;;
     esac
     echo "state|$s"

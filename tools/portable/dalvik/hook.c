@@ -12,6 +12,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 extern char **environ;
 
@@ -215,8 +217,55 @@ static void (*lock_object)(void *, void *);
 static int (*unlock_object)(void *, void *);
 static int ready;
 
-/* Process wrapper opt-in only. Preserve every caller VM option and append the
- * engine to an existing bootclasspath suffix rather than replacing it. */
+/* Load the engine through a process-local DexClassLoader. The bootclasspath is
+ * never changed: V039 libdvm records the exact bootclasspath in every cached
+ * dex ("deps"); any extra entry makes each cache this process opens stale, and
+ * a stale cache is truncated and rebuilt in place. On the vehicle that
+ * truncated the shared com.broadcom.bt dex cache under every other app (mass
+ * SIGBUS in dexFindClass, 2026-11-13). The optimized engine DEX goes to an
+ * app-private directory with deps for the stock bootclasspath. */
+/* The optimized engine DEX directory must be a real directory owned by this
+ * uid and closed to everyone else; checked (and created) before the VM starts
+ * so that any problem leaves the VM completely stock, without even -Xint. */
+static int cache_ready(const char *cache) {
+    struct stat info;
+    if (!cache || cache[0] != '/' || strstr(cache, "/..") || strlen(cache) > 400) return 0;
+    if (mkdir(cache, 0700) != 0 && errno != EEXIST) return 0;
+    if (lstat(cache, &info) != 0 || !S_ISDIR(info.st_mode)) return 0;
+    return info.st_uid == getuid() && (info.st_mode & 0777) == 0700;
+}
+/* Every JNI call is followed by a failure check: nothing else is called while
+ * an exception is pending (the caller describes and clears it). Local
+ * references live in one frame; only the Bootstrap class survives it. */
+#define NEED(value) do { if ((*env)->ExceptionCheck(env) || !(value)) goto done; } while (0)
+static jclass load_engine(JNIEnv *env, const char *engine, const char *cache) {
+    jobject result = 0;
+    if ((*env)->PushLocalFrame(env, 16) != JNI_OK) return 0;
+    jclass loader_type = (*env)->FindClass(env, "java/lang/ClassLoader"); NEED(loader_type);
+    jclass dex_type = (*env)->FindClass(env, "dalvik/system/DexClassLoader"); NEED(dex_type);
+    jmethodID system = (*env)->GetStaticMethodID(env, loader_type, "getSystemClassLoader", "()Ljava/lang/ClassLoader;"); NEED(system);
+    jmethodID up = (*env)->GetMethodID(env, loader_type, "getParent", "()Ljava/lang/ClassLoader;"); NEED(up);
+    jmethodID load = (*env)->GetMethodID(env, loader_type, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;"); NEED(load);
+    jmethodID create = (*env)->GetMethodID(env, dex_type, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/ClassLoader;)V"); NEED(create);
+    /* Parent is the boot loader: engine classes never resolve from a copy on
+     * the application classpath, and nothing joins the bootclasspath. */
+    jobject system_loader = (*env)->CallStaticObjectMethod(env, loader_type, system); NEED(system_loader);
+    jobject boot_loader = (*env)->CallObjectMethod(env, system_loader, up); NEED(boot_loader);
+    jstring jar = (*env)->NewStringUTF(env, engine); NEED(jar);
+    jstring dir = (*env)->NewStringUTF(env, cache); NEED(dir);
+    jstring name = (*env)->NewStringUTF(env, "kr.gen5w.portable.Bootstrap"); NEED(name);
+    jobject loader = (*env)->NewObject(env, dex_type, create, jar, dir, (jstring)0, boot_loader); NEED(loader);
+    result = (*env)->CallObjectMethod(env, loader, load, name);
+    if ((*env)->ExceptionCheck(env)) result = 0;
+done:
+    /* PopLocalFrame is allowed with a pending exception. */
+    return (jclass)(*env)->PopLocalFrame(env, result);
+}
+#undef NEED
+
+/* Process wrapper opt-in only. Preserve every caller VM option and its
+ * bootclasspath unchanged; only force the interpreter. */
 JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arguments) {
     jint (*real_create)(JavaVM **, JNIEnv **, void *) = 0;
     *(void **)(&real_create) = dlsym(RTLD_NEXT, "JNI_CreateJavaVM");
@@ -226,34 +275,24 @@ JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arg
     }
     if (!real_create || real_create == JNI_CreateJavaVM) return JNI_ERR;
     const char *engine = input_value("GEN5W_ENGINE_JAR");
-    if (!engine || engine[0] != '/') return real_create(vm, env_out, arguments);
+    const char *cache = input_value("GEN5W_ENGINE_CACHE");
+    if (!engine || engine[0] != '/' || !cache_ready(cache)) return real_create(vm, env_out, arguments);
     JavaVMInitArgs copy = *(JavaVMInitArgs *)arguments;
     if (copy.nOptions < 0 || copy.nOptions > 4096) return JNI_ERR;
-    JavaVMOption *options = calloc((size_t)copy.nOptions + 2, sizeof(*options));
+    JavaVMOption *options = calloc((size_t)copy.nOptions + 1, sizeof(*options));
     if (!options) return JNI_ENOMEM;
     memcpy(options, copy.options, (size_t)copy.nOptions * sizeof(*options));
-    const char prefix[] = "-Xbootclasspath/a:";
-    int previous = -1;
-    for (int i = 0; i < copy.nOptions; i++)
-        if (options[i].optionString && !strncmp(options[i].optionString, prefix, sizeof(prefix)-1)) previous = i;
-    const char *suffix = previous < 0 ? "" : options[previous].optionString + sizeof(prefix)-1;
-    size_t capacity = sizeof(prefix) + strlen(suffix) + strlen(engine) + 2;
-    char *classpath = malloc(capacity);
-    if (!classpath) { free(options); return JNI_ENOMEM; }
-    snprintf(classpath, capacity, "%s%s%s%s", prefix, suffix, *suffix ? ":" : "", engine);
-    if (previous < 0) options[copy.nOptions++].optionString = classpath;
-    else options[previous].optionString = classpath;
     options[copy.nOptions++].optionString = "-Xint";
     copy.options = options;
     jint status = real_create(vm, env_out, &copy);
-    free(classpath); free(options);
+    free(options);
     if (status != JNI_OK) return status;
     JNIEnv *env = (JNIEnv *)*env_out;
-    jclass bootstrap = (*env)->FindClass(env, "kr/gen5w/portable/Bootstrap");
-    if (bootstrap) {
+    jclass bootstrap = load_engine(env, engine, cache);
+    if (bootstrap && !(*env)->ExceptionCheck(env)) {
         jmethodID start = (*env)->GetStaticMethodID(env, bootstrap, "start",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
-        if (start) {
+        if (start && !(*env)->ExceptionCheck(env)) {
             const char *values[3] = {input_value("GEN5W_HOOK_LIBRARY"), input_value("GEN5W_ADAPTER_JAR"), input_value("GEN5W_PACKAGE")};
             jstring text[3] = {0, 0, 0};
             for (int i = 0; i < 3 && !(*env)->ExceptionCheck(env); i++)
@@ -263,6 +302,7 @@ JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arg
             for (int i = 0; i < 3; i++) if (text[i]) (*env)->DeleteLocalRef(env, text[i]);
         }
     }
+    if (bootstrap) (*env)->DeleteLocalRef(env, bootstrap);
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionDescribe(env);
         (*env)->ExceptionClear(env);

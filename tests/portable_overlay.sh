@@ -218,6 +218,16 @@ mkdir -p "$LOCK_STATE/lock"
 printf '%s|%s\n' "$current_boot" "$live_key" > "$LOCK_STATE/lock/owner"
 if run status > /dev/null 2>&1; then echo 'FAIL stole live identity lock'; exit 1; fi
 [ "$(cat "$LOCK_STATE/lock/owner")" = "$current_boot|$live_key" ]
+# A legitimate concurrent status reader releases its lock normally.
+( sleep 1; rm "$LOCK_STATE/lock/owner"; rmdir "$LOCK_STATE/lock" ) & reader=$!
+if ! run status > /dev/null 2>&1; then
+ wait "$reader"
+ echo 'FAIL transient status lock treated as permanent failure'; exit 1
+fi
+wait "$reader"
+mkdir -p "$LOCK_STATE/lock"
+printf '%s|%s\n' "$current_boot" "$live_key" > "$LOCK_STATE/lock/owner"
+echo 'PASS status waits for a transient legitimate reader without stealing ownership'
 printf 'previous-boot|%s\n' "$live_key" > "$LOCK_STATE/lock/owner"
 run status > /dev/null
 [ ! -d "$LOCK_STATE/lock" ]

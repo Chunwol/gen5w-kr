@@ -11,7 +11,7 @@ while [ "$path" != / ]; do
 done
 GEN5W_PACKAGE=com.daudio.app.dipo
 # Keep the original process and VM options; do not load any Java adapter.
-unset GEN5W_ENGINE_JAR GEN5W_ADAPTER_JAR GEN5W_HOOK_LIBRARY
+unset GEN5W_ENGINE_JAR GEN5W_ENGINE_CACHE GEN5W_ADAPTER_JAR GEN5W_HOOK_LIBRARY
 GEN5W_PROBE=1
 LD_PRELOAD=$BASE/dalvik/libgen5whook.so
 [ -f "$LD_PRELOAD" ] && [ ! -L "$LD_PRELOAD" ] || exit 1

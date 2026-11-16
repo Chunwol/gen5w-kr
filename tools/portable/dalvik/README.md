@@ -23,19 +23,25 @@ from adapter.jar. Outputs engine.jar, adapter.jar, libgen5whook.so, abi.sha256
 
 ## Loading and dispatch
 
-The wrapper sets `GEN5W_ENGINE_JAR`, `GEN5W_HOOK_LIBRARY`, `GEN5W_ADAPTER_JAR`,
+The wrapper sets `GEN5W_ENGINE_JAR`, `GEN5W_ENGINE_CACHE`, `GEN5W_HOOK_LIBRARY`, `GEN5W_ADAPTER_JAR`,
 `GEN5W_PACKAGE`, and LD_PRELOAD for one stopped application process. The
-JNI_CreateJavaVM interposer preserves existing VM options and bootclasspath
-suffix, appends engine.jar, and forces `-Xint`. Interpreter mode is required:
+JNI_CreateJavaVM interposer preserves the bootclasspath and existing VM options,
+loads engine.jar through a private DexClassLoader under the boot loader, and
+forces `-Xint`. The optimized engine DEX stays in the application's private
+cache directory. Interpreter mode is required:
 existing JIT traces cannot safely be treated as patched dispatch. This costs
 application execution performance and needs vehicle measurement.
 
 After VM creation Bootstrap hooks Application.attach. It first calls the saved
 original, checks the exact application package, and creates DexClassLoader with
-the application class loader as parent and an application-private optimized DEX
-directory. Thus adapter references resolve the original application's OEM
-classes while every loader shares the boot-loaded Hook class. Discovery errors
-are reported; adapter group installation must roll back before returning failure.
+an engine-first parent and an application-private optimized DEX directory.
+Engine classes resolve from the engine loader, while OEM classes resolve from
+the original application loader. The same adapter class loader is retained for
+retries, preserving transaction ownership. A provisional adapter group commits
+only after the readiness marker is published. Marker failure rolls back only
+that attempt's hooks; previously committed groups remain installed. Incomplete
+rollback retains its remaining handles, rejects another installation and raises
+an explicit process-restart-required failure.
 
 `Hook.install(target,replacement)` accepts a static replacement whose parameters
 are the original receiver (for instance targets), original arguments, and an int

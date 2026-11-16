@@ -4,6 +4,9 @@
 # mksh). Python and JVM tests run on the host at the same time.
 # TEST_JOBS sets the parallelism (default: CPU count).
 cd "$(dirname "$0")/.."
+# This value names a Linux executable used by a Windows Python subprocess.
+# Git Bash must not rewrite /mnt/d/... to C:/Program Files/Git/mnt/d/....
+export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+$MSYS2_ENV_CONV_EXCL;}PORTABLE_BOOTSTRAP_LINUX_JAVA"
 out=$(mktemp -d "${TMPDIR:-/tmp}/gen5w-run.XXXXXX") || exit 1
 
 shell_mode=skip
@@ -23,7 +26,7 @@ wsl)
 esac
 
 python_tests="tests/unit_commands.py tests/source_revision.py tests/mkpkg_import.py tests/iap2_control.py tests/bt_recipe.py tests/dipo_control.py tests/dipo_relay_structure.py tests/dipo_relay_builder.py tests/v039_bt_adapter.py tests/gpm_control.py tests/fastboot_recovery.py tests/recovery_usb.py"
-python_tests="$python_tests tests/portable_candidate.py tests/hotspot_control.py tests/gpm_guard_builder.py tools/diagnostics/sync.py"
+python_tests="$python_tests tests/portable_candidate.py tests/test_audio_regions.py tests/hotspot_control.py tests/gpm_guard_builder.py tools/diagnostics/sync.py"
 have_jdk=0
 command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && have_jdk=1
 [ "$have_jdk" = 1 ] && python_tests="tests/portable_host_guard.py tests/portable_adapters.py tests/test_portable_dalvik.py tests/core_lifecycle.py tests/core_recovery.py tests/dipo_relay_runtime.py tests/gpm_usb_guard_runtime.py $python_tests"

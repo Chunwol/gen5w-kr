@@ -1,0 +1,7 @@
+[nemesis]
+version=1.0
+type=execute
+path=NEMESIS.sh
+id=gen5w.kr.portable-collect
+name=Gen5W KR portable log collector
+compat=gen5w

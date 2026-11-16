@@ -20,7 +20,7 @@ import kr.gen5w.dipo.RelayBridge;
 
 /** App-local, opt-in adapters. Loading this class installs nothing. */
 public final class DipoAdapters {
-  private static boolean installed;
+  private static ProjectionAdapters.Transaction transaction;
   private static Field binderLocal, localOwner;
   private static Method notifications;
   private static Field detailsService, serviceOwner, serviceBluetooth;
@@ -283,29 +283,35 @@ public final class DipoAdapters {
    * order.
    */
   public static synchronized boolean install(Context context) throws Throwable {
-    if (installed)
-      return true;
+    ProjectionAdapters.Transaction attempt = beginInstall(context);
+    if (attempt == null) return false;
+    attempt.commit();
+    return true;
+  }
+  public static synchronized ProjectionAdapters.Transaction beginInstall(Context context) throws Throwable {
     if (context == null)
       throw new NullPointerException("context");
+    if (transaction != null && !transaction.isRolledBack()) {
+      if (transaction.isCommitted()) return transaction;
+      throw new ProjectionAdapters.RollbackFailure(
+          new IllegalStateException("previous adapter transaction is unresolved"));
+    }
     List<Entry> plan;
     String name = context.getPackageName();
     if ("com.daudio.app.dipo".equals(name))
       plan = dipo(context);
     else
-      return false;
-    List<Integer> handles = new ArrayList<Integer>();
+      return null;
+    transaction = new ProjectionAdapters.Transaction();
     try {
       for (Entry entry : plan)
-        handles.add(Hook.install(entry.target, entry.replacement));
-      installed = true;
-      return true;
+        transaction.add(entry.target, entry.replacement);
+      return transaction;
     } catch (Throwable failure) {
-      for (int i = handles.size() - 1; i >= 0; i--) {
-        try {
-          Hook.uninstall(handles.get(i));
-        } catch (Throwable rollback) {
-          failure.addSuppressed(rollback);
-        }
+      try { transaction.rollback(); }
+      catch (ProjectionAdapters.RollbackFailure rollback) {
+        rollback.addSuppressed(failure);
+        throw rollback;
       }
       throw failure;
     }

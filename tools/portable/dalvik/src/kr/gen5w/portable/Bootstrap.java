@@ -14,6 +14,8 @@ public final class Bootstrap {
      * the process environment before startup so that children do not inherit
      * the engine. Written once in start(), read under the same class lock. */
     private static String adapterJar, ownerPackage;
+    // A retry must see the same adapter transaction, including failed rollback.
+    private static Class<?> adapterType;
     private Bootstrap() {}
     /** Called by the native VM interposer with its preserved wrapper inputs. */
     public static synchronized void start(String library, String jar, String owner) throws Exception {
@@ -33,19 +35,24 @@ public final class Bootstrap {
         Hook.original(handle, application, new Object[]{context});
         synchronized (Bootstrap.class) {
             if (adaptersInstalled) return;
+            Object transaction = null;
+            File ready = null, temporary = null;
+            boolean published = false;
             try {
                 Class<?> type = Class.forName("android.content.Context");
                 String owner = (String)type.getMethod("getPackageName").invoke(context);
                 if (!owner.equals(ownerPackage)) return;
                 File files = (File)type.getMethod("getFilesDir").invoke(context);
-                File ready = new File(files, "gen5w-portable-ready");
+                ready = new File(files, "gen5w-portable-ready");
                 if (ready.exists() && !ready.delete()) throw new IllegalStateException("stale readiness marker cannot be removed");
-                ClassLoader parent = (ClassLoader)type.getMethod("getClassLoader").invoke(context);
-                File cache = (File)type.getMethod("getDir", String.class, Integer.TYPE).invoke(context, "gen5w-adapters", 0);
-                ClassLoader loader = AppLocalLoader.create(adapterJar, cache.getAbsolutePath(), parent);
-                Class<?> adapter = AppLocalLoader.loadWith(loader, "kr.gen5w.portable.ProjectionAdapters");
-                Object result = AppLocalLoader.invoke(adapter.getMethod("install", type), null, new Object[]{context});
-                if (!Boolean.TRUE.equals(result)) throw new IllegalStateException("adapter discovery declined");
+                if (adapterType == null) {
+                    ClassLoader parent = (ClassLoader)type.getMethod("getClassLoader").invoke(context);
+                    File cache = (File)type.getMethod("getDir", String.class, Integer.TYPE).invoke(context, "gen5w-adapters", 0);
+                    ClassLoader loader = AppLocalLoader.create(adapterJar, cache.getAbsolutePath(), AppLocalLoader.engineFirst(parent));
+                    adapterType = AppLocalLoader.loadWith(loader, "kr.gen5w.portable.ProjectionAdapters");
+                }
+                transaction = AppLocalLoader.invoke(adapterType.getMethod("beginInstall", type), null, new Object[]{context});
+                if (transaction == null) throw new IllegalStateException("adapter discovery declined");
                 BufferedReader bootReader = new BufferedReader(new FileReader("/proc/sys/kernel/random/boot_id"));
                 String boot;
                 try { boot = bootReader.readLine(); } finally { bootReader.close(); }
@@ -53,17 +60,37 @@ public final class Bootstrap {
                 String process;
                 try { process = processReader.readLine(); } finally { processReader.close(); }
                 int pid = Integer.parseInt(process.substring(0, process.indexOf(' ')));
-                File temporary = new File(files, "gen5w-portable-ready.tmp");
+                temporary = new File(files, "gen5w-portable-ready.tmp");
                 FileOutputStream output = new FileOutputStream(temporary);
                 try {
                     output.write(("boot_id=" + boot + "\npid=" + pid + "\npackage=" + owner + "\n").getBytes("UTF-8"));
                     output.getFD().sync();
                 } finally { output.close(); }
                 if (!temporary.renameTo(ready)) throw new IllegalStateException("readiness marker publication failed");
+                published = true;
+                AppLocalLoader.invoke(transaction.getClass().getMethod("commit"), transaction, new Object[0]);
                 adaptersInstalled = true;
                 System.err.println("Gen5wPortable: app-local adapters installed for " + owner);
             } catch (Throwable failure) {
-                // ProjectionAdapters rolls back its group before reporting failure.
+                // No compile-time dependency on adapter.jar is permitted here.
+                if (failure.getClass().getName().equals("kr.gen5w.portable.ProjectionAdapters$RollbackFailure")) {
+                    System.err.println("Gen5wPortable: adapter rollback incomplete; process restart required: " + failure);
+                    throw failure;
+                }
+                if (published && ready != null && !ready.delete())
+                    failure.addSuppressed(new IllegalStateException("failed readiness marker cleanup"));
+                if (temporary != null && temporary.isFile() && !temporary.delete())
+                    failure.addSuppressed(new IllegalStateException("failed temporary marker cleanup"));
+                if (transaction != null) {
+                    try {
+                        AppLocalLoader.invoke(transaction.getClass().getMethod("rollback"), transaction, new Object[0]);
+                    } catch (Throwable rollback) {
+                        IllegalStateException unresolved = new IllegalStateException("adapter rollback incomplete; process restart required", rollback);
+                        unresolved.addSuppressed(failure);
+                        System.err.println("Gen5wPortable: " + unresolved);
+                        throw unresolved;
+                    }
+                }
                 System.err.println("Gen5wPortable: adapters unavailable: " + failure);
             }
         }

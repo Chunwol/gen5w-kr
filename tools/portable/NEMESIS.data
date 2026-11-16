@@ -3,7 +3,7 @@ version=1.0
 id=gen5w.kr.portable
 name=Gen5W KR - CarPlay HUD
 package-version=0.3.65
-short-desc=Guarded one-shot vehicle trial; explicit automatic promotion
+short-desc=Guarded automatic wireless operation; independent USB disable
 depends=!gen5w.kr.bridge,!gen5w.kr.core,!wireless.projection,!enhanced.projection,!projection.tbt
 types=application,service
 preinstall=package-pre.sh
@@ -33,3 +33,10 @@ kind=sh
 path=ui.sh
 uid=root
 mode=background
+
+[service.2]
+name=rescue
+kind=sh
+path=rescue-watch.sh
+uid=root
+mode=restart

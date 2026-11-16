@@ -12,6 +12,8 @@ DiPO의 `RouteGuidanceAnalyzer`에서 iAP2 ManeuverType 1~53 switch와 driving s
 
 ## 고속도로 표시
 
+2026-11-12 재확인: 같은 V039 `system.ext4`에서 `/app/HKMC_Navi_ExSL.odex`를 읽기 전용으로 다시 추출했다. SHA-256은 `28d91fd3e8457efa8a09313417f96817fa2e10a9092774526cb8495018e7dc7f`이며 기존 V039 원본과 일치한다. DEX method-id 테이블에서 `NavigationCluster.updateTBTInfo` 참조는 있지만 `NavigationCluster.updateTPHighwayMode` 참조는 없다. 서비스 ODEX도 아래 해시를 확인한 뒤 class-data의 실제 메서드명→code offset을 다시 해석하여 `sendTPHighWay`가 DEX `0x9d384`, 한 코드 단위 `000e`임을 재확인했다. 따라서 일반 안내의 누락 결함으로 취급하여 이 전용 API를 앱에 추가할 근거는 없다. 이 판정은 확인한 Java API 경로에 한하며, reflection/JNI/별도 차량 사양의 모든 고속도로 표시가 존재하지 않는다는 뜻은 아니다. 일반 고속도로 분기 화살표·거리·차선 안내는 별도 경로이다.
+
 보유한 V039 시스템 이미지 (SHA-256 `3801ce49a1d98e1b925f382d5e88f66f2d7e3dcd7de1a477a528a4ab7e7e026d`) 안 `/framework/automotive-service.odex` (4,931,848 bytes, SHA-256 `5e4319ec72975b2592f7a2302b3ab9c3c948372905f468971da31476f935620d`)의 원시 코드 항목을 직접 확인했습니다. ODEX 머리말에서 DEX 시작 위치는 `0x28`입니다. `ClusterService.updateTPHighwayMode(...)`는 코드 항목 DEX 위치 `0xaa674` (ODEX 위치 `0xaa69c`), 코드 단위 110개이며 코드 단위 24–25의 `0213 fff2`가 `const/16 v2, -14` (`0xF2`)입니다. 명시 호출 중 MICOM 전송 호출은 없고, 끝의 빠른 가상 호출(코드 단위 103)은 가상 함수 슬롯 145를 부르지만 대상 메서드는 미확정입니다. 이 메서드 자체는 직접 송신을 증명하지 않습니다.
 
 같은 ODEX에서 `NaviCluster.sendTPHighWay()V`는 코드 항목 DEX 위치 `0x9d384` (ODEX 위치 `0x9d3ac`), 코드 단위 1개, 원시 코드 단위 `000e` (`return-void`)입니다. `ClusterHandler`의 `packed-switch` 명령에서 메시지 `0x11` 분기는 코드 단위 719로 이동해 코드 단위 729에서 가상 함수 슬롯 77을 호출합니다. 슬롯 77의 대상 메서드는 미확정입니다. 기존 `analysis_private/hud-v039-service` smali 자료에서는 슬롯 145가 `updateTPHighWay`, 슬롯 77이 `sendTPHighWay`로 읽혔지만, 그 자료와 V039 원본 ODEX 사이의 입력 해시 연결은 확인되지 않았습니다. 따라서 V039 원본에서 처리기 호출이 빈 메서드로 이어진다고 확정하지 않습니다.

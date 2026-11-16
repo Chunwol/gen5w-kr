@@ -136,6 +136,23 @@ projection() {
 audio() (
     local suffix tool target=/system/lib/libCarPlayAudio.so source=$WORK/files/libCarPlayAudio.so
     plain "$ROOT$target" && [ -f "$ROOT$target" ] || { status audio skipped missing-stock; exit 0; }
+    # The regional helper checks loader/constant/patch regions and decoder ABI
+    # regions. Unrelated target code and nonloaded metadata need not match a
+    # model-specific whole-file digest. Legacy profiles remain independent.
+    tool=$BASE/bin/audio-region-patch
+    if plain "$tool" && [ -x "$tool" ] && "$tool" original "$ROOT$target"; then
+        compatible=1
+        for pair in 'libCarPlayCore.so core' 'libCarPlayUtils.so utils' 'libopus.so opus'; do
+            set -- $pair
+            plain "$ROOT/system/lib/$1" && [ -f "$ROOT/system/lib/$1" ] &&
+                "$tool" verify "$ROOT/system/lib/$1" "$2" || compatible=0
+        done
+        if [ "$compatible" = 1 ]; then
+            "$tool" apply "$ROOT$target" "$ROOT$source" && match_meta "$ROOT$target" "$ROOT$source" && row audio "$source" "$target" || fail 'regional audio staging failed'
+            status audio prepared reviewed-native-regions
+            exit 0
+        fi
+    fi
     for suffix in '' -v035; do
         tool=$BASE/bin/audio-patch$suffix
         plain "$tool" && plain "$BASE/audio/recipe$suffix.sh" && [ -x "$tool" ] && [ -f "$BASE/audio/recipe$suffix.sh" ] || continue

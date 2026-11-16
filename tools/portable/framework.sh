@@ -3,7 +3,11 @@
 identity() {
     local process pid line rest count
     for process in /proc/[0-9]*/cmdline; do
-        grep -aq '^system_server' "$process" 2>/dev/null || continue
+        # cmdline is NUL-delimited. mksh can read the first argument directly;
+        # spawning grep for each PID makes two identity scans exceed the bounded
+        # readiness deadline under ARM system emulation.
+        IFS= read -r -d '' line 2>/dev/null < "$process" || continue
+        case "$line" in system_server*) :;; *) continue;; esac
         pid=${process%/cmdline}; pid=${pid##*/}
         IFS= read -r line < "/proc/$pid/stat" || continue
         rest=${line##*) }; [ "$rest" != "$line" ] || continue
@@ -38,13 +42,15 @@ dependencies() {
     [ "$found" = 1 ]
 }
 # All callers (including overlay/runtime commit) get a process-group deadline.
+# V039 full AMS dumps plus identity checks measured 9.96s in the one-core VM;
+# keep every readiness condition while bounding this read-only observation at15s.
 # The host fixture supplies its native helper and interpreter explicitly.
 if [ "$1" = ready ]; then
     base=${0%/*}; [ "$base" != "$0" ] || base=.
     if [ -x /system/bin/sh ]; then
-        exec "$base/bin/dex-patch" supervise 8 /system/bin/true /system/bin/sh "$0" ready-bounded "${2:-}"
+        exec "$base/bin/dex-patch" supervise 15 /system/bin/true /system/bin/sh "$0" ready-bounded "${2:-}"
     elif [ -n "${PORTABLE_TEST_FRAMEWORK_HELPER:-}" ]; then
-        exec "$PORTABLE_TEST_FRAMEWORK_HELPER" supervise "${PORTABLE_TEST_FRAMEWORK_TIMEOUT:-8}" /bin/true /usr/bin/mksh "$0" ready-bounded "${2:-}"
+        exec "$PORTABLE_TEST_FRAMEWORK_HELPER" supervise "${PORTABLE_TEST_FRAMEWORK_TIMEOUT:-15}" /bin/true /usr/bin/mksh "$0" ready-bounded "${2:-}"
     fi
 fi
 case "$1" in
@@ -53,8 +59,8 @@ identity) identity;;
 ready|ready-bounded)
     current=$(identity) && [ "$current" != "${2:-}" ] || exit 1
     [ "$(getprop init.svc.zygote)" = running ] || exit 1
-    service check package | grep -q ': found$' || exit 1
-    service check activity | grep -q ': found$' || exit 1
+    case "$(service check package)" in *': found') :;; *) exit 1;; esac
+    case "$(service check activity)" in *': found') :;; *) exit 1;; esac
     # mBooted belongs to the newly registered ActivityManager, unlike the
     # persistent-within-a-kernel sys.boot_completed property.
     dumpsys activity p | grep -q 'mBooted=true' || exit 1

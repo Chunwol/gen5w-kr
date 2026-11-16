@@ -66,16 +66,16 @@ def audit(files):
     assert set(hashes) == set(files)-{'SHA256SUMS'}, 'unhashed or absent member'
     assert all(hashlib.sha256(files[n]).hexdigest() == h for n, h in hashes.items()), 'checksum differs'
     allowed = {'CANDIDATE.json', 'SHA256SUMS', 'LICENSE', 'README.md', 'NOTICE.md', 'SOURCE.md',
-               'NEMESIS.data', 'bin/dex-patch', 'bin/audio-patch', 'bin/audio-patch-v035',
+               'NEMESIS.data', 'bin/dex-patch', 'bin/audio-patch', 'bin/audio-patch-v035', 'bin/audio-region-patch',
                'audio/recipe.sh', 'audio/recipe-v035.sh', 'app/bridge.dex',
                'app/wireless-host.apk', 'app/gen5w-core.apk', 'dalvik/engine.jar',
                'dalvik/adapter.jar', 'dalvik/hook-vm-test.jar', 'dalvik/libgen5whook.so', 'dalvik/abi.sha256'}
     allowed.update(n+'.sh' for n in ('prepare', 'overlay', 'portable', 'check', 'runtime', 'ap', 'framework', 'wrap-dipo',
-                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'ui', 'boot', 'rescue',
+                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'ui', 'boot', 'rescue', 'rescue-watch',
                    'package-pre', 'package-post', 'package-preun', 'service'))
     allowed.update('permissions/'+n+'.xml' for n in ('com.hkmc.software.connectivity.carplay_wireless',
                    'com.hkmc.software.connectivity.androidauto_wireless', 'com.hkmc.software.wifihotspot'))
-    required = allowed - {'bin/audio-patch', 'bin/audio-patch-v035', 'audio/recipe.sh', 'audio/recipe-v035.sh'}
+    required = allowed - {'bin/audio-patch', 'bin/audio-patch-v035', 'bin/audio-region-patch', 'audio/recipe.sh', 'audio/recipe-v035.sh'}
     assert required <= set(files), 'missing package member: '+str(required-set(files))
     assert set(files) <= allowed, 'unexpected shipped files: '+str(set(files)-allowed)
     meta = configparser.ConfigParser(interpolation=None)
@@ -86,7 +86,8 @@ def audit(files):
     assert meta['service.1']['path'] == 'ui.sh' and meta['service.1']['uid'] == 'root'
     info = json.loads(files['CANDIDATE.json'])
     assert info['vehicle_verified'] is False and re.fullmatch('[a-f0-9]{40}', info['source_revision'])
-    assert info['activation'] == 'one-shot-next-boot-radio-off'
+    assert info['activation'] == 'automatic-next-boot-wireless'
+    assert meta['service.2']['path'] == 'rescue-watch.sh' and meta['service.2']['mode'] == 'restart'
     for name, data in files.items():
         if name.endswith(('.sh', '.data', '.xml')): assert b'\r' not in data, 'CRLF: '+name
         if name.startswith('bin/') or name.endswith('.so'): elf(data, shared=name.endswith('.so'))

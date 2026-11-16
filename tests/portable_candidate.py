@@ -110,6 +110,19 @@ class CandidateTests(unittest.TestCase):
             with self.subTest(output=output), self.assertRaises(ValueError):
                 module.assemble(output, ROOT / '.build/portable')
 
+    def test_regional_audio_helper_is_staged_without_legacy_recipe_gate(self):
+        module = self.module()
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp); inputs=base/'inputs'; (inputs/'audio').mkdir(parents=True)
+            (inputs/'dex-patch').write_bytes(b'helper')
+            (inputs/'audio/audio-region-patch').write_bytes(b'authored-regional-helper')
+            output=base/'candidate'
+            module.assemble(output, inputs)
+            self.assertEqual((output/'bin/audio-region-patch').read_bytes(),b'authored-regional-helper')
+            self.assertEqual(json.loads((output/'CANDIDATE.json').read_text())['audio_compatibility'],'reviewed-elf-regions')
+            (inputs/'audio/BUILD-FAILED').write_text('incomplete')
+            with self.assertRaises(ValueError):module.assemble(base/'incomplete',inputs)
+
 
 if __name__ == '__main__':
     unittest.main()

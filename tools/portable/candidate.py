@@ -64,7 +64,7 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
     if runtime:
         for name in ('engine.jar', 'adapter.jar', 'libgen5whook.so', 'abi.sha256', 'hook-vm-test.jar'):
             files['dalvik/' + name] = inputs / 'dalvik' / name
-        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
+        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
             files[name] = HERE / name
         for name, source in (('bridge.dex', inputs / 'apps/bridge.dex'),
                              ('wireless-host.apk', inputs / 'apps/wireless-host.apk'),
@@ -80,6 +80,11 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
         if helper.is_file():
             files['bin/audio-patch' + suffix] = helper
             files['audio/recipe' + suffix + '.sh'] = ROOT / 'packages/audio-format/scripts' / ('recipe' + suffix + '.sh')
+    regional_audio = inputs / 'audio/audio-region-patch'
+    if regional_audio.is_file():
+        if (inputs / 'audio/BUILD-FAILED').exists():
+            raise ValueError('incomplete regional audio build')
+        files['bin/audio-region-patch'] = regional_audio
     for source in files.values():
         no_symlink(source.absolute())
         if not source.is_file():
@@ -100,11 +105,12 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
                     shutil.copyfileobj(stream, destination)
             target.chmod(0o755 if name.endswith('.sh') or name.startswith('bin/') else 0o644)
         metadata = {
-            'format': 1, 'activation': 'one-shot-next-boot-radio-off' if runtime else 'manual', 'vehicle_verified': False,
+            'format': 1, 'activation': 'automatic-next-boot-wireless' if runtime else 'manual', 'vehicle_verified': False,
             'structural_patches': ['bt', 'route', 'dipo', 'gpm', 'hotspot'],
-            'runtime_hooks': 'one-shot-after-local-probe-radio-held' if runtime else 'separate-explicit-activation-required',
+            'runtime_hooks': 'automatic-after-local-probe-with-failure-latch' if runtime else 'separate-explicit-activation-required',
             'source_revision': git_output('rev-parse', 'HEAD'),
             'source_dirty': bool(git_output('status', '--porcelain')),
+            'audio_compatibility': 'reviewed-elf-regions' if 'bin/audio-region-patch' in files else 'legacy-exact-profiles',
         }
         (stage / 'CANDIDATE.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8', newline='\n')
         hashes = []

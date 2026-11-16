@@ -23,8 +23,20 @@ mkdir "$work/cache" "$work/application"
 export DVM_OPTS='-Xint -Xdexopt:none'
 run() { timeout -k 2 30 "$PORTABLE_VM_RUNNER" "$work/hook-vm-test.jar" "$@"; }
 run HookVmTest "$guest/libgen5whook.so"
+# The hooked VM must not rewrite dex caches made by stock VMs: V039 records the
+# exact bootclasspath as cache deps, and an in-place rewrite under other mapped
+# processes was the vehicle's mass SIGBUS (2026-11-13).
+# Every cache file is compared (inode, size, mtime, content), not only the
+# test's own; the test jar cache made by the stock VM above must exist.
+[ -f "$root/data/dalvik-cache/tmp@run.jar@classes.dex" ] || { echo 'stock dex cache missing' >&2; exit 1; }
+snapshot() { (cd "$root/data/dalvik-cache" && for f in *; do printf '%s %s ' "$f" "$(stat -c '%i %s %Y' "$f")"; md5sum < "$f"; done); }
+before=$(snapshot)
 run LoaderVmTest "$guest/loader-fixture.jar" "$guest/cache"
-DVM_PRELOAD=$guest/libgen5whook.so DVM_ENV="GEN5W_ENGINE_JAR=$guest/engine.jar GEN5W_HOOK_LIBRARY=$guest/libgen5whook.so GEN5W_ADAPTER_JAR=$guest/bootstrap-fixture.jar GEN5W_PACKAGE=fixture" run BootstrapVmTest "$guest/application"
+DVM_PRELOAD=$guest/libgen5whook.so DVM_ENV="GEN5W_ENGINE_JAR=$guest/engine.jar GEN5W_ENGINE_CACHE=$guest/application/app_gen5w-engine GEN5W_HOOK_LIBRARY=$guest/libgen5whook.so GEN5W_ADAPTER_JAR=$guest/bootstrap-fixture.jar GEN5W_PACKAGE=fixture" run BootstrapVmTest "$guest/application"
+after=$(snapshot)
+[ "$before" = "$after" ] || { echo 'hooked VM changed /data/dalvik-cache:' >&2; diff <(echo "$before") <(echo "$after") >&2; exit 1; }
+ls "$work/application/app_gen5w-engine/" | grep -q . || { echo 'engine optimized DEX not app-private' >&2; exit 1; }
+echo 'PASS hooked VM leaves every /data/dalvik-cache file untouched; engine DEX app-private (dexopt runs with -Xdexopt:none here)'
 mkdir -p "$root/data/data/com.daudio.app.dipo/files"
 marker=$root/data/data/com.daudio.app.dipo/files/gen5w-portable-probe
 [ ! -L "$marker" ] || exit 1

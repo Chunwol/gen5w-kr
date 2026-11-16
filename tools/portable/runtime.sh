@@ -34,19 +34,17 @@ op() {
     healthy) /system/bin/sh "$BASE/framework.sh" ready;;
     set) setprop "$2" "$3";;
     feature)
-        PORTABLE_HELPER=$HELPER /system/bin/sh "$BASE/overlay.sh" status > "$STATE/overlay.status.tmp" || return 1
+        if [ "${feature_snapshot:-0}" != 1 ]; then
+            PORTABLE_HELPER=$HELPER /system/bin/sh "$BASE/overlay.sh" status > "$STATE/overlay.status.tmp" || return 1
+            feature_snapshot=1
+        fi
         while IFS='|' read -r feature flag; do
             [ "$feature" != "$2" ] || { [ "$flag" = active ] && return 0; }
         done < "$STATE/overlay.status.tmp"
         return 1;;
     probe)
         # Test authored dispatch against this VM before touching application state.
-        /system/bin/dalvikvm -Xint -cp "$BASE/dalvik/hook-vm-test.jar" HookVmTest "$BASE/dalvik/libgen5whook.so" > "$STATE/abi-probe.log" 2>&1 &
-        local probe=$! guard result
-        ( sleep 20; kill -TERM "$probe" 2>/dev/null ) & guard=$!
-        wait "$probe"; result=$?
-        kill "$guard" 2>/dev/null; wait "$guard" 2>/dev/null
-        [ "$result" = 0 ];;
+        "$HELPER" supervise 20 /system/bin/true /system/bin/dalvikvm -Xint -cp "$BASE/dalvik/hook-vm-test.jar" HookVmTest "$BASE/dalvik/libgen5whook.so" > "$STATE/abi-probe.log" 2>&1;;
     boot) cat /proc/sys/kernel/random/boot_id;;
     *) return 1;;
     esac
@@ -54,10 +52,34 @@ op() {
 phase() { if [ -f "$STATE/phase" ]; then cat "$STATE/phase"; else echo disabled; fi; }
 write_phase() { print -r -- "$1" > "$STATE/phase.new" && mv "$STATE/phase.new" "$STATE/phase" && sync; }
 mkdir -p "$STATE" && chmod 700 "$STATE" || fail 'state creation failed'
-for name in phase phase.new journal journal.new boot overlay.status.tmp abi-probe.log; do
+for name in phase phase.new journal journal.new boot overlay.status.tmp abi-probe.log preflight preflight.new preflight.check; do
     [ ! -L "$STATE/$name" ] || fail 'symlink state'
     if [ -e "$STATE/$name" ] && [ ! -f "$STATE/$name" ]; then fail 'nonregular state'; fi
 done
+runtime_files() {
+    echo bin/dex-patch
+    echo dalvik/engine.jar
+    echo dalvik/adapter.jar
+    echo dalvik/libgen5whook.so
+    echo dalvik/hook-vm-test.jar
+    echo wrap-common.sh
+    echo wrap-dipo.sh
+    echo wrap-gpm.sh
+}
+preflight_record() {
+    op boot || return 1
+    local name digest
+    for name in $(runtime_files); do
+        plain "$BASE/$name" && [ -f "$BASE/$name" ] || return 1
+        digest=$("$HELPER" sha256 "$BASE/$name") || return 1
+        print -r -- "$digest|$name"
+    done
+}
+preflight_ok() {
+    [ -s "$STATE/preflight" ] || return 1
+    preflight_record > "$STATE/preflight.check" || return 1
+    [ "$("$HELPER" sha256 "$STATE/preflight.check")" = "$("$HELPER" sha256 "$STATE/preflight")" ]
+}
 # Publish complete owner records atomically; reclaimers remain anchored to
 # the stale directory so they can never delete a newly published owner.
 process_key() {
@@ -141,7 +163,17 @@ lock_acquire() {
     done
     return 1
 }
-lock_acquire || { echo 'portable: locked or unsafe lock' >&2; exit 1; }
+lock_acquire_bounded() {
+    local up rest until
+    IFS=' ' read -r up rest < /proc/uptime || return 1
+    until=$((${up%%.*}+10))
+    while ! lock_acquire; do
+        IFS=' ' read -r up rest < /proc/uptime || return 1
+        [ "${up%%.*}" -lt "$until" ] || return 1
+        sleep 1
+    done
+}
+lock_acquire_bounded || { echo 'portable: locked or unsafe lock' >&2; exit 1; }
 trap lock_release EXIT
 trap 'exit 1' HUP INT TERM
 stopped() { [ "$(op get init.svc.zygote)" = stopped ]; }
@@ -170,6 +202,22 @@ active() {
 }
 command=${1:-}; [ $# -eq 0 ] || shift
 case "$command" in
+preflight)
+    [ "$#" = 0 ] || fail 'unexpected preflight arguments'
+    # A new observation invalidates the previous proof, including same-boot
+    # proofs. A busy Android query is retryable before any wrapper is changed.
+    rm -f "$STATE/preflight" || fail 'cannot retire previous preflight proof'
+    if ! op healthy; then
+        echo 'runtime: Android readiness temporarily unavailable for preflight' >&2
+        exit 75
+    fi
+    # The expensive Dalvik dispatch/GC/monitor proof runs while stock Android
+    # remains available. The stopped-framework transaction later accepts only
+    # this same-boot, exact-artifact seal.
+    op probe || { rm -f "$STATE/preflight.new"; unsupported 'live Dalvik ABI/dispatch probe failed'; }
+    preflight_record > "$STATE/preflight.new" && mv "$STATE/preflight.new" "$STATE/preflight" || fail 'runtime preflight seal failed'
+    echo 'runtime: live Dalvik preflight passed for this boot and exact bundle'
+    ;;
 enable)
     stopped || fail 'Android must be stopped before enabling wrappers'
     [ "$#" = 1 ] || fail 'select dipo, gpm, or both'
@@ -191,7 +239,7 @@ enable)
     for file in "$HELPER" "$BASE/dalvik/engine.jar" "$BASE/dalvik/adapter.jar" "$BASE/dalvik/libgen5whook.so" "$BASE/dalvik/hook-vm-test.jar" "$BASE/wrap-common.sh"; do
         plain "$file" && [ -f "$file" ] || fail 'missing runtime artifact'
     done
-    [ "$probe_only" = 1 ] || op probe || unsupported "live Dalvik ABI/dispatch probe failed; no wrapper changed"
+    [ "$probe_only" = 1 ] || preflight_ok || unsupported "same-boot Dalvik preflight unavailable or bundle changed; no wrapper changed"
     : > "$STATE/journal.new"
     for app in $apps; do
         wrapper=$app; [ "$probe_only" = 0 ] || wrapper=probe
@@ -238,5 +286,5 @@ status)
     esac
     echo "runtime|$current"
     ;;
-*) fail 'usage: runtime.sh enable probe|dipo|gpm|both | status | commit | disable';;
+*) fail 'usage: runtime.sh preflight | enable probe|dipo|gpm|both | status | commit | disable';;
 esac

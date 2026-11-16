@@ -60,3 +60,32 @@ grep -q '|/system/onebin/osah_kr/featurexml.cfg|' "$t/root/data/onebin/manifest"
 grep -Fx 'literal\ntext' "$t/root/data/onebin/files/featurexml.cfg" >/dev/null
 
 echo 'PASS portable prepare: independent features, config inventory, stock unchanged, overlap/overwrite/symlink refusal'
+
+# Portable-only region helper validates ABI roles, not complete dependency SHA.
+mkdir -p "$t/bundle/bin" "$t/root/system/lib"
+cat > "$t/bundle/bin/audio-region-patch" <<'SH'
+#!/bin/sh
+case "$1" in
+original) [ "$(cat "$2")" = regional-stock ];;
+verify) [ "$(cat "$2")" = "regional-$3" ];;
+apply) [ "$(cat "$2")" = regional-stock ] && echo regional-patched > "$3";;
+*) exit 2;;
+esac
+SH
+chmod +x "$t/bundle/bin/audio-region-patch"
+echo regional-stock > "$t/root/system/lib/libCarPlayAudio.so"
+for pair in 'libCarPlayCore.so core' 'libCarPlayUtils.so utils' 'libopus.so opus'; do
+    set -- $pair; echo "regional-$2" > "$t/root/system/lib/$1"
+done
+"$shell" "$t/bundle/prepare.sh" /data/regional-audio audio > "$t/report"
+grep -q '^audio|prepared|reviewed-native-regions$' "$t/report"
+[ "$(cat "$t/root/data/regional-audio/files/libCarPlayAudio.so")" = regional-patched ]
+[ "$(cat "$t/root/system/lib/libCarPlayAudio.so")" = regional-stock ]
+echo foreign-code > "$t/root/system/lib/libCarPlayUtils.so"
+set +e
+"$shell" "$t/bundle/prepare.sh" /data/unsupported-audio audio > "$t/report"
+rc=$?
+set -e
+[ "$rc" = 77 ] && grep -q '^audio|skipped|unsupported-native-abi$' "$t/report"
+[ ! -e "$t/root/data/unsupported-audio/files/libCarPlayAudio.so" ]
+echo 'PASS regional audio preparation accepts reviewed ABI roles and skips unknown dependency without output'

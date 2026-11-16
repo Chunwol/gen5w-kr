@@ -28,6 +28,10 @@ op() {
                 setprop ctl.restart "$dependency" || result=1
             done < "$STATE/dependencies"
         else result=1; fi
+        # V039 libcheck_androidreset (system_server start): sys.boot_count other
+        # than 0 means "Android Reset" and, with persist.sys.sync.reset=1, a full
+        # reboot (vehicle 2026-11-13). Our restart is intentional: mark it first boot.
+        setprop sys.boot_count 0 || result=1
         setprop ctl.start zygote || return 1
         return "$result";;
     runtime-disable) /system/bin/sh "$BASE/runtime.sh" disable;;

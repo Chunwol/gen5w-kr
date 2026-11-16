@@ -18,6 +18,7 @@ cat > "$t/bin/dumpsys" <<'SH'
 #!/bin/sh
 [ "$#" = 2 ] && [ "$1" = activity ] && [ "$2" = p ] || exit 1
 [ ! -f "$FIXTURE/hang" ] || sleep 30
+[ ! -f "$FIXTURE/delay" ] || sleep 9
 cat "$FIXTURE/activity"
 SH
 chmod +x "$t/bin/"*
@@ -28,6 +29,22 @@ for unused in $(seq 1 100); do
     sleep .01
 done
 [ "${key%%:*}" = "$child" ]
+
+# Per-PID command matching must remain usable without spawning a grep for every
+# process. Under ARM system emulation that scan alone exhausted the 8s guard.
+cat > "$t/bin/grep" <<'SH'
+#!/bin/sh
+if [ "$1" = -aq ]; then
+    echo external-process-match >> "$FIXTURE/identity-execs"
+    exit 1
+fi
+exec /usr/bin/grep "$@"
+SH
+chmod +x "$t/bin/grep"
+fast_key=$(mksh tools/portable/framework.sh identity) || { echo 'FAIL identity depends on per-process external matching'; exit 1; }
+[ "$fast_key" = "$key" ]
+[ ! -e "$t/identity-execs" ]
+echo 'PASS identity preserves PID/start time without per-process helper execution'
 echo 'mBooting=true mBooted=false' > "$t/activity"
 if mksh tools/portable/framework.sh ready; then echo 'FAIL trusted stale sys.boot_completed'; exit 1; fi
 echo 'mBooting=false mBooted=true' > "$t/activity"
@@ -55,6 +72,16 @@ RC
 echo 'service zygote /system/bin/other' > "$t/init/init.other.rc"
 if mksh tools/portable/framework.sh dependencies "$t/init"; then echo 'FAIL ambiguous zygote definition'; exit 1; fi
 echo 'PASS local stock zygote dependency discovery without executing arbitrary init actions'
+
+# A complete healthy dump can take nine seconds on the one-core ARM VM.
+# It must finish while still checking mBooted and the same server identity.
+rm -f "$t/no-package"
+export PORTABLE_TEST_FRAMEWORK_HELPER=$PWD/.build/portable/dex-patch-host
+unset PORTABLE_TEST_FRAMEWORK_TIMEOUT
+touch "$t/delay"
+mksh tools/portable/framework.sh ready || { echo 'FAIL healthy nine-second readiness dump rejected'; exit 1; }
+rm "$t/delay"
+echo 'PASS slow healthy dump retains real booted and identity checks'
 
 # Exercise the real native process-group timeout on a stalled Binder query.
 rm -f "$t/no-package"

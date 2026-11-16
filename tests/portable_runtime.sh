@@ -34,16 +34,51 @@ echo boot1 > "$PROPS/boot"
 echo stopped > "$PROPS/init.svc.zygote"
 echo usb > "$PROPS/persist.ium.support"
 run() { mksh "$t/root/data/bundle/runtime.sh" "$@"; }
+preflight() {
+ echo running > "$PROPS/init.svc.zygote"; echo 1 > "$PROPS/sys.boot_completed"
+ run preflight
+ echo stopped > "$PROPS/init.svc.zygote"
+}
 touch "$PROPS/feature.bt.missing"
 if run enable both >/dev/null 2>&1; then echo 'FAIL ignored missing bt prerequisite'; exit 1; fi
 [ ! -f "$PROPS/wrap.com.daudio.app.dipo" ]
 [ "$(cat "$PROPS/persist.ium.support")" = usb ]
 rm "$PROPS/feature.bt.missing"
+# A transient readiness failure must be distinguishable from ABI rejection,
+# and must retire an earlier same-boot proof before any retry is attempted.
+mkdir -p "$t/root/data/local/gen5w-portable/runtime"
+echo stale > "$t/root/data/local/gen5w-portable/runtime/preflight"
+touch "$PROPS/framework.notready"
+rc=0; run preflight >/dev/null 2>&1 || rc=$?
+[ "$rc" = 75 ] || { echo 'FAIL transient readiness not classified'; exit 1; }
+[ ! -e "$t/root/data/local/gen5w-portable/runtime/preflight" ] || { echo 'FAIL stale preflight proof retained'; exit 1; }
+rm "$PROPS/framework.notready"
+echo 'PASS transient readiness is retryable and retires its stale proof'
+
 touch "$PROPS/probe.fail"
-if run enable both >/dev/null 2>&1; then echo "FAIL accepted failed live ABI probe"; exit 1; fi
+echo running > "$PROPS/init.svc.zygote"; echo 1 > "$PROPS/sys.boot_completed"
+rc=0; run preflight >/dev/null 2>&1 || rc=$?
+[ "$rc" = 77 ] || { echo "FAIL accepted failed live ABI probe"; exit 1; }
+echo stopped > "$PROPS/init.svc.zygote"
+if run enable both >/dev/null 2>&1; then echo "FAIL accepted missing same-boot preflight"; exit 1; fi
 [ ! -f "$PROPS/wrap.com.daudio.app.dipo" ]
 rm "$PROPS/probe.fail"
 echo compatible-unseen-vm > "$t/root/system/lib/libdvm.so"
+preflight
+# An open console stdin must not become the artifact list or block preflight.
+echo running > "$PROPS/init.svc.zygote"
+mkfifo "$t/console"
+exec 9<> "$t/console"
+timeout 5 mksh "$t/root/data/bundle/runtime.sh" preflight <&9
+exec 9>&-
+seal=$t/root/data/local/gen5w-portable/runtime/preflight
+[ "$(wc -l < "$seal")" = 9 ] || { echo 'FAIL incomplete artifact seal'; exit 1; }
+echo changed >> "$t/root/data/bundle/dalvik/engine.jar"
+echo stopped > "$PROPS/init.svc.zygote"
+rc=0; run enable both >/dev/null 2>&1 || rc=$?
+[ "$rc" = 77 ] || { echo 'FAIL accepted changed sealed artifact'; exit 1; }
+echo authored > "$t/root/data/bundle/dalvik/engine.jar"
+preflight
 run enable both
 [ "$(cat "$PROPS/wrap.com.google.android.project")" = '/system/bin/sh /data/bundle/wrap-gpm.sh' ]
 [ "$(cat "$PROPS/persist.ium.support")" = usb ]
@@ -56,11 +91,12 @@ run disable
 [ -z "$(cat "$PROPS/wrap.com.daudio.app.dipo")" ]
 [ "$(cat "$PROPS/persist.ium.support")" = usb ]
 echo wrap.com.google.android.project > "$PROPS/fail"
+preflight
 if run enable both >/dev/null 2>&1; then echo 'FAIL ignored partial property failure'; exit 1; fi
 [ -z "$(cat "$PROPS/wrap.com.daudio.app.dipo")" ]
 [ "$(cat "$PROPS/persist.ium.support")" = usb ]
 run status | grep -qx 'runtime|disabled'
-run enable dipo
+preflight; run enable dipo
 echo foreign > "$PROPS/wrap.com.daudio.app.dipo"
 if run disable >/dev/null 2>&1; then echo 'FAIL overwrote foreign wrapper'; exit 1; fi
 [ "$(cat "$PROPS/wrap.com.daudio.app.dipo")" = foreign ]
@@ -71,7 +107,7 @@ if run enable dipo >/dev/null 2>&1; then echo 'FAIL overwrote preexisting wrappe
 echo 'PASS portable runtime: KitKat truncation, explicit stopped activation, commit, transaction rollback, ownership, reboot expiry'
 # Persistent projection property is still ours after reboot; expired wrappers are not.
 printf '\n' > "$PROPS/wrap.com.daudio.app.dipo"
-run enable gpm
+preflight; run enable gpm
 echo boot3 > "$PROPS/boot"
 printf '\n' > "$PROPS/wrap.com.google.android.project"
 run disable
@@ -98,15 +134,20 @@ run disable
 echo 'PASS explicit no-hook startup probe and persistent configuration unchanged'
 
 # A cold boot expires owned wrapper transactions without requiring manual disable.
-run enable both
+preflight; run enable both
 echo boot4 > "$PROPS/boot"
 printf '\n' > "$PROPS/wrap.com.daudio.app.dipo"
 printf '\n' > "$PROPS/wrap.com.google.android.project"
-run enable both
+preflight; run enable both
 run status | grep -qx 'runtime|pending'
 run disable
 # Capability rejection is distinct from an IO/ownership transaction failure.
 touch "$PROPS/probe.fail"
+rm -f "$t/root/data/local/gen5w-portable/runtime/preflight"
+echo running > "$PROPS/init.svc.zygote"; echo 1 > "$PROPS/sys.boot_completed"
+rc=0; run preflight || rc=$?
+[ "$rc" = 77 ]
+echo stopped > "$PROPS/init.svc.zygote"
 rc=0; run enable both || rc=$?
 [ "$rc" = 77 ]
 run status | grep -qx 'runtime|disabled'
@@ -130,6 +171,16 @@ mkdir -p "$LOCK_STATE/lock"
 printf '%s|%s\n' "$current_boot" "$live_key" > "$LOCK_STATE/lock/owner"
 if run status > /dev/null 2>&1; then echo 'FAIL stole live identity lock'; exit 1; fi
 [ "$(cat "$LOCK_STATE/lock/owner")" = "$current_boot|$live_key" ]
+# A legitimate concurrent status reader releases its lock normally.
+( sleep 1; rm "$LOCK_STATE/lock/owner"; rmdir "$LOCK_STATE/lock" ) & reader=$!
+if ! run status > /dev/null 2>&1; then
+ wait "$reader"
+ echo 'FAIL transient status lock treated as permanent failure'; exit 1
+fi
+wait "$reader"
+mkdir -p "$LOCK_STATE/lock"
+printf '%s|%s\n' "$current_boot" "$live_key" > "$LOCK_STATE/lock/owner"
+echo 'PASS status waits for a transient legitimate reader without stealing ownership'
 printf 'previous-boot|%s\n' "$live_key" > "$LOCK_STATE/lock/owner"
 run status > /dev/null
 [ ! -d "$LOCK_STATE/lock" ]
@@ -183,13 +234,13 @@ echo 'PASS identity locks: live owner, boot/PID reuse, zombie, incomplete recove
 
 rm "$PROPS/probe.fail"
 touch "$PROPS/feature.gpm.missing"
-run enable both
+preflight; run enable both
 [ -n "$(cat "$PROPS/wrap.com.daudio.app.dipo")" ]
 [ -z "$(cat "$PROPS/wrap.com.google.android.project")" ]
 run disable
 rm "$PROPS/feature.gpm.missing"
 echo foreign > "$PROPS/wrap.com.google.android.project"
-run enable both
+preflight; run enable both
 [ -n "$(cat "$PROPS/wrap.com.daudio.app.dipo")" ]
 [ "$(cat "$PROPS/wrap.com.google.android.project")" = foreign ]
 run disable
