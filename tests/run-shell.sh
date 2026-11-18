@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 command -v mksh >/dev/null 2>&1 || { echo "mksh not found"; exit 78; }
 rc=0
 bash tests/nemesis-minimum.sh || rc=1
+bash tests/dongle-test-mode.sh || rc=1
 bash tests/service-quiescence.sh || rc=1
 bash tests/service-install-hold.sh || rc=1
 bash tests/logring.sh || rc=1
@@ -29,14 +30,24 @@ for f in $(find packages probe/package probe/usb tools -name '*.sh' -o -name '*.
     grep -q $'\r' "$f" && { echo "FAIL CRLF in $f"; rc=1; }
 done
 python3 tools/portable/build.py --host-only || exit 1
+bash tests/portable_label.sh || exit 1
+python3 tests/portable_lock.py || exit 1
+python3 tests/portable_recovery_usb.py || exit 1
+python3 tests/portable_recovery_restore.py || exit 1
+python3 tests/portable_persistent_migrate.py || exit 1
+python3 tests/portable_recovery_bundle.py || exit 1
 python3 tests/portable_supervision.py || exit 1
 python3 tests/portable_startup_cancel.py || exit 1
 python3 tests/portable_host_start.py || exit 1
+python3 tests/portable_worker_evidence.py || exit 1
+bash tests/portable_diagnostics.sh || exit 1
+bash tests/portable_debug.sh || exit 1
 python3 tests/portable_commit_order.py || exit 1
 python3 tests/portable_preflight_retry.py || exit 1
 echo "== shell package tests (parallel)"
 bash tests/par.sh bash \
-    tests/portable_rescue.sh tests/portable_usb.sh tests/portable_ap.sh tests/portable_framework.sh tests/portable_boot.sh tests/portable_package.sh tests/portable_overlay.sh tests/portable_runtime.sh tests/portable_session.sh tests/portable_check.sh \
+    tests/portable_rescue.sh tests/portable_usb.sh tests/portable_ap.sh tests/portable_framework.sh tests/portable_boot.sh tests/portable_package.sh tests/portable_persistent_start.sh tests/portable_overlay.sh tests/portable_runtime.sh tests/portable_session.sh tests/portable_check.sh \
+    tests/portable_bootguard.sh tests/portable_prepare.sh tests/portable_package_post.sh tests/portable_service.sh \
     tests/integrated.sh#3 tests/integrated.sh#1 tests/integrated-edge.sh tests/bridge.sh tests/gpm-relay.sh tests/timer.sh tests/dongle.sh tests/check.sh \
     tests/drivelog.sh tests/wireless.sh tests/audio.sh tests/bootguard.sh tests/system-reinstall.sh \
     tests/recovery.sh tests/installation-recovery.sh tests/integrated.sh#2 tests/integrated-build.sh tests/bootguard-runtime.sh tests/wireless-preserve.sh \

@@ -91,6 +91,10 @@ class CandidateTests(unittest.TestCase):
             self.assertTrue((output / 'app/gen5w-core.apk').read_bytes() == b'portable-core-no-autostart', 'wrong core APK variant')
             self.assertTrue((output / 'NEMESIS.data').is_file())
             self.assertTrue((output / 'boot.sh').is_file())
+            self.assertEqual((output / 'bootguard.sh').read_bytes(),
+                             (ROOT / 'tools/portable/bootguard.sh').read_bytes())
+            self.assertEqual((output / 'bootguard-restore.sh').read_bytes(),
+                             (ROOT / 'tools/portable/recovery-usb/restore.sh').read_bytes())
             self.assertTrue((output / 'rescue.sh').is_file())
             self.assertTrue((output / 'dalvik/libgen5whook.so').is_file())
             self.assertTrue((output / 'runtime.sh').is_file())
@@ -122,6 +126,10 @@ class CandidateTests(unittest.TestCase):
             self.assertEqual(json.loads((output/'CANDIDATE.json').read_text())['audio_compatibility'],'reviewed-elf-regions')
             (inputs/'audio/BUILD-FAILED').write_text('incomplete')
             with self.assertRaises(ValueError):module.assemble(base/'incomplete',inputs)
+
+    def test_artifact_audit_allowlist_includes_persistent_start_service(self):
+        source = (ROOT / 'tools/portable/artifact.py').read_text(encoding='utf-8')
+        self.assertIn("'persistent-migrate', 'persistent-start'", source)
 
 
 if __name__ == '__main__':

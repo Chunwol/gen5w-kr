@@ -104,6 +104,7 @@ public final class CoreService extends Service {
                             0,
                             0);
                     DriveLog.core(24, icon, secondIcon, meters, 1, 0, 0);
+                    kr.gen5w.diag.DebugTrace.event("hud.output.tbt", icon, secondIcon, meters);
                     writeDebugLog("TBT: 1st=0x" + Integer.toHexString(icon)
                             + " 2nd=0x" + Integer.toHexString(secondIcon)
                             + " dist=" + meters + "m");
@@ -216,6 +217,7 @@ public final class CoreService extends Service {
     /** Check again at each write, including clears and retries. No OEM stop calls. */
     private boolean refreshOwnership() {
         int next = stockGuidance.read();
+        kr.gen5w.diag.DebugTrace.event("hud.owner", next, epoch.ticket());
         boolean allowed = (next == StockGuidance.IDLE);
         // AA updates are intentionally not accepted while stock ownership is
         // active or unknown. Do not let an older cached turn reappear through
@@ -346,16 +348,23 @@ public final class CoreService extends Service {
     private void requestGuidance() {
         if (stopping || !registered || iap2 == null) return;
         final long ticket = epoch.ticket();
+        kr.gen5w.diag.DebugTrace.event("route.request", ticket, registered ? 1 : 0);
         if (ticket < 0) return;
         final IIap2Service service = iap2;
         try {
             if (guidanceRequest.ensure(ticket,new GuidanceRequest.Backend() {
-                public int count() throws Exception { return service.Iap2SvcGetRouteGuidanceRegisteredComponentCount(); }
+                public int count() throws Exception {
+                    int count = service.Iap2SvcGetRouteGuidanceRegisteredComponentCount();
+                    kr.gen5w.diag.DebugTrace.event("route.components", ticket, count);
+                    return count;
+                }
                 public int components(int[] ids,String[] names) throws Exception {
                     return service.Iap2SvcGetRouteGuidanceComponentNameIdList(ids,names);
                 }
                 public boolean start(String[] names) throws Exception {
-                    return service.Iap2SvcStartRouteGuidanceUpdate(names,true,true);
+                    boolean accepted = service.Iap2SvcStartRouteGuidanceUpdate(names,true,true);
+                    kr.gen5w.diag.DebugTrace.event("route.start", ticket, names.length, accepted ? 1 : 0);
+                    return accepted;
                 }
             })) return;
         } catch (Exception e) { Log.w(TAG,"route request not ready: " + e.getClass().getSimpleName()); }
@@ -397,16 +406,22 @@ public final class CoreService extends Service {
     };
     private final IIap2Listener listener = new IIap2Listener.Stub() {
         public void connected(int type, String name) {
-            if (!stopping) {
-                epoch.open();
+            if (!stopping && type > 0 && type <= 5) {
+                long ticket = epoch.open(type);
+                kr.gen5w.diag.DebugTrace.event("route.connected", type, ticket);
                 io.post(new Runnable() { public void run() { routeSourceCode = 0; resetAaState(); } });
                 queueGuidanceRequest();
             }
         }
         public void disconnected(int type) {
-            if (!stopping) CoreService.this.disconnected();
+            if (!stopping) {
+                long closed = epoch.close(type);
+                kr.gen5w.diag.DebugTrace.event("route.disconnected", type, closed);
+                if (closed >= 0) finishDisconnect(closed);
+            }
         }
         public void notify(final int what, int a, int b, Iap2NotiMsg message) {
+            kr.gen5w.diag.DebugTrace.event("route.notify", what, epoch.ticket());
             // Stock NotiType: IdentificationAccepted=0, AuthenticationSuccess=5.
             if (!stopping && (what == 0 || what == 5)) { queueGuidanceRequest(); return; }
             if (stopping || (what != GuidanceParser.STATUS && what != GuidanceParser.MANEUVER
@@ -423,6 +438,7 @@ public final class CoreService extends Service {
                     refreshOwnership();
                     if (outputEpoch != ticket) { session.disconnect(); outputEpoch = ticket; }
                     session.message(what, fields);
+                    kr.gen5w.diag.DebugTrace.event("route.parsed", what, ticket, fields.size(), session.hasActiveGuidance() ? 1 : 0);
                     if (session.hasActiveGuidance()) {
                         resetAaState();
                     }
@@ -513,8 +529,10 @@ public final class CoreService extends Service {
                 frame[4] & 255, 0);
     }
     private void disconnected() {
+        finishDisconnect(epoch.close());
+    }
+    private void finishDisconnect(final long closed) {
         main.removeCallbacks(routeRetry);
-        final long closed = epoch.close();
         io.post(new Runnable() {
             public void run() {
                 if (outputEpoch <= closed) {

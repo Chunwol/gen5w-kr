@@ -233,6 +233,14 @@ public final class DipoAdapters {
     plan.add(new Entry(
         method(service, "onSessionFinalized", Void.TYPE, Integer.TYPE),
         "sessionFinalized", Object.class, Integer.TYPE, Integer.TYPE));
+    // V039 asks DiPO to disable the phone's Bluetooth link after wireless
+    // CarPlay starts. Keep A2DP/BT available for the active wireless session.
+    try {
+      plan.add(new Entry(method(service, "onDisableBluetooth", Void.TYPE,
+                                String.class),
+                         "disableBluetooth", Object.class, String.class,
+                         Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
     plan.add(new Entry(method(service, "oniAPSendMessage", Void.TYPE,
                               byte[].class, Integer.TYPE),
                        "fromCarPlay", Object.class, Object.class, Integer.TYPE,
@@ -269,6 +277,22 @@ public final class DipoAdapters {
         new Entry(identity, "reconnectIdentity", Object.class, Integer.TYPE));
     plan.add(new Entry(saveAddress, "saveAddress", Object.class, Object.class,
                        Integer.TYPE));
+    // Observe the actual native audio/mode callbacks, then preserve OEM handling.
+    // Older firmware without these callbacks retains the existing adapter plan.
+    try {
+      plan.add(new Entry(method(service, "onAudioStreamStart", Void.TYPE,
+                                Integer.TYPE, Integer.TYPE, Integer.TYPE),
+                         "audioStreamStart", Object.class, Integer.TYPE,
+                         Integer.TYPE, Integer.TYPE, Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
+    try {
+      plan.add(new Entry(method(service, "onModeChanged", Void.TYPE,
+                                Integer.TYPE, Integer.TYPE, Integer.TYPE,
+                                Integer.TYPE, Integer.TYPE, Integer.TYPE),
+                         "modeChanged", Object.class, Integer.TYPE, Integer.TYPE,
+                         Integer.TYPE, Integer.TYPE, Integer.TYPE, Integer.TYPE,
+                         Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
     return plan;
   }
   /**
@@ -318,16 +342,19 @@ public final class DipoAdapters {
   }
   public static void sessionCreated(Object receiver, int handle)
       throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.session.created");
     RelayBridge.sessionCreated((CarPlayService)receiver);
     Hook.original(handle, receiver, NONE);
   }
   public static void sessionStarted(Object receiver, int transport, int handle)
       throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.session.started", transport);
     RelayBridge.sessionStarted((CarPlayService)receiver, transport);
     Hook.original(handle, receiver, new Object[] {transport});
   }
   public static void sessionFinalized(Object receiver, int reason, int handle)
       throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.session.finalized", reason);
     RelayBridge.sessionFinalized((CarPlayService)receiver);
     Hook.original(handle, receiver, new Object[] {reason});
   }
@@ -427,5 +454,25 @@ public final class DipoAdapters {
   }
   public static boolean wirelessSupport(Object receiver, int handle) {
     return false;
+  }
+  public static void audioStreamStart(Object receiver, int stream, int role,
+                                      int rate, int handle) throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.audio.start", stream, role, rate);
+    Hook.original(handle, receiver, new Object[] {stream, role, rate});
+  }
+  public static void modeChanged(Object receiver, int screen, int audio,
+                                 int speech, int phone, int tbt, int speechMode,
+                                 int handle) throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.mode.changed", screen, audio, speech, phone, tbt, speechMode);
+    Hook.original(handle, receiver, new Object[] {screen, audio, speech, phone, tbt, speechMode});
+  }
+
+  public static void disableBluetooth(Object receiver, String reason,
+                                      int handle) throws Throwable {
+    if (RelayBridge.keepBluetoothForWireless()) {
+      kr.gen5w.diag.DebugTrace.event("cp.bluetooth.disable-suppressed", 1);
+      return;
+    }
+    Hook.original(handle, receiver, new Object[] {reason});
   }
 }

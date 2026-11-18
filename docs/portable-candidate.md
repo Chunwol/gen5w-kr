@@ -67,17 +67,18 @@ alternative to bt for HUD-only work; they cannot share one plan. Unsupported
 optional features are reported without discarding unrelated prepared features.
 The permissions overlay preserves every original XML byte and metadata, adds only
 authored declarations, and privately comments matching feature-removal directives.
-No system-partition file, app_process, bootloader or MICOM/CAN state is written.
-No persist.* property is set. Stock PhoneProjection owns its normal UI selection.
+No app_process, bootloader or MICOM/CAN state is written. No `persist.*`
+property is set by the wireless runtime. Stock PhoneProjection owns its normal
+UI selection.
 
 ## Candidate admission and recovery
 
-The user selected **persistent automatic wireless operation**. Installation arms
-`mode=auto` for the next boot and clears the authored UI wireless hold. Existing
-AP reset evidence and safety inhibits are preserved, not erased to force wireless.
-A healthy marker is software readiness, never proof of vehicle safety.
-`arm --trial` remains available as an optional, explicitly radio-held one-shot;
-it is not the installation default.
+The vehicle USB install path writes an allowlisted persistent `/system` payload
+and an immutable stock-byte recovery manifest, then starts the wireless session
+on the next boot without stopping zygote on later startups. Existing AP reset
+evidence and safety inhibits are preserved, not erased to force wireless. A
+healthy marker is software readiness, never proof of vehicle safety. Host fixtures
+do not prove NEMESIS Android-down recovery dispatch or exact restore on the car.
 
 Late failures: session exit (including exit 0 without explicit disable), loss of
 the current DiPO/runtime view, and an orphaned session supervisor stop authored
@@ -119,9 +120,10 @@ with no surviving evidence remain a limitation, especially after the stable wind
 
 NEMESIS 1.16.7 or newer must install the authored APKs with its HMG install guard.
 Do not use direct `pm install`. Old package ownership must be resolved through its
-own uninstall/recovery procedure. Preserve deployed rc.1q USB and backups. Only
-private /data replacements and ephemeral bind mounts/app wrappers are used; there
-is no OEM/system-partition replacement or OEM dexopt. Authored engine/adapter jars
+own uninstall/recovery procedure. Preserve deployed USB and backups. The persistent
+install writes only the allowlisted `/system` targets recorded in the recovery
+manifest; it does not modify app_process, bootloader or MICOM/CAN state. No
+`persist.*` property is set by the wireless runtime. Authored engine/adapter jars
 **can be dexopted on the vehicle**; the PC VM uses `-Xdexopt:none` and cannot prove
 that path, startup delay or memory pressure.
 
@@ -289,10 +291,16 @@ B=/data/nemesis/apps/gen5w.kr.portable
 /system/bin/sh "$B/boot.sh" status
 ```
 
-Require install exit 0, mode|auto, enabled|1 and armed-next-boot. No authored
+Require install exit 0 and a verified persistent recovery manifest. No authored
 wireless hold should remain. Inspect the locally prepared plan and optional skips.
-Installation does not restart this Android session; do a verified cold restart.
-Require current-boot healthy and committed overlays/runtime, then test wireless
+The direct NEMESIS command above is a developer-validation path and does not
+restart this Android session; use a verified cold restart when following this
+manual procedure. The supported USB installer instead requests one automatic
+reboot after a successful install. Its notice is “정상 설치 후 자동 재부팅되며,
+이때 화면이 한 번 꺼졌다가 다시 켜질 수 있습니다”. Keep the USB connected
+until reboot starts, and do not perform an extra manual restart. Verify the
+Android-down recovery dispatch before installing. Require persistent-start healthy,
+then test wireless
 CarPlay directly: connection, BT handover, audio, HUD, navigation and camera.
 Record timing, memory, kernel/application logs and unexpected restarts. Test
 ordinary ignition reconnection separately from an actual cold restart.

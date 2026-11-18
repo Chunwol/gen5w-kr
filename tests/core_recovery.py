@@ -80,7 +80,7 @@ if 'static final class Observation' not in owner:
 with tempfile.TemporaryDirectory(prefix='gen5w-recovery-') as tmp:
     path = Path(tmp)/'OwnerRecoveryTest.java'
     path.write_text(harness + methods + '\n' + flag + '\n}', encoding='utf-8')
-    subprocess.run(['javac', '--release', '8', '-d', tmp, str(path),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')], check=True)
+    subprocess.run(['javac', '--release', '8', '-d', tmp, str(path),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java'),str(root/'shared/src/kr/gen5w/diag/DebugTrace.java')], check=True)
     subprocess.run(['java', '-cp', tmp, 'OwnerRecoveryTest'], check=True, timeout=10)
 
 core = (root/'app/src/kr/gen5w/core/CoreService.java').read_text(encoding='utf-8')
@@ -212,7 +212,7 @@ public class AtomicFile {
     }
     public void failWrite(java.io.FileOutputStream out) { try { out.close(); } catch(java.io.IOException e) {} }
 }''', encoding='utf-8')
-    subprocess.run(['javac','--release','8','-d',tmp,str(path),str(clock),str(atomic),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')],check=True)
+    subprocess.run(['javac','--release','8','-d',tmp,str(path),str(clock),str(atomic),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java'),str(root/'shared/src/kr/gen5w/diag/DebugTrace.java')],check=True)
     subprocess.run(['java','-cp',tmp,'HudHealthTest',tmp],check=True,timeout=10)
 
 # V039 car findings (2026-11-12 diag): an app_process owner has no app record, so a

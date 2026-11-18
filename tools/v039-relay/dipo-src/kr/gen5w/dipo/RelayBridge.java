@@ -273,6 +273,13 @@ public final class RelayBridge {
         }
     }
 
+    /** Keep the phone's Bluetooth link only for an active wireless CarPlay session. */
+    public static boolean keepBluetoothForWireless() {
+        synchronized (LOCK) {
+            return present && wireless && !wired && !usb;
+        }
+    }
+
     public static void sessionFinalized(CarPlayService owner) {
         synchronized (LOCK) {
             if (carPlay != owner) return;

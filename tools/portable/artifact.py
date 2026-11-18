@@ -70,8 +70,8 @@ def audit(files):
                'audio/recipe.sh', 'audio/recipe-v035.sh', 'app/bridge.dex',
                'app/wireless-host.apk', 'app/gen5w-core.apk', 'dalvik/engine.jar',
                'dalvik/adapter.jar', 'dalvik/hook-vm-test.jar', 'dalvik/libgen5whook.so', 'dalvik/abi.sha256'}
-    allowed.update(n+'.sh' for n in ('prepare', 'overlay', 'portable', 'check', 'runtime', 'ap', 'framework', 'wrap-dipo',
-                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'ui', 'boot', 'rescue', 'rescue-watch',
+    allowed.update(n+'.sh' for n in ('prepare', 'overlay', 'portable', 'check', 'runtime', 'ap', 'framework', 'persistent-migrate', 'persistent-start', 'wrap-dipo',
+                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'diagnostics', 'debug', 'ui', 'boot', 'rescue', 'rescue-watch', 'bootguard', 'bootguard-restore',
                    'package-pre', 'package-post', 'package-preun', 'service'))
     allowed.update('permissions/'+n+'.xml' for n in ('com.hkmc.software.connectivity.carplay_wireless',
                    'com.hkmc.software.connectivity.androidauto_wireless', 'com.hkmc.software.wifihotspot'))
@@ -86,8 +86,11 @@ def audit(files):
     assert meta['service.1']['path'] == 'ui.sh' and meta['service.1']['uid'] == 'root'
     info = json.loads(files['CANDIDATE.json'])
     assert info['vehicle_verified'] is False and re.fullmatch('[a-f0-9]{40}', info['source_revision'])
-    assert info['activation'] == 'automatic-next-boot-wireless'
+    assert info['activation'] == 'persistent-system-next-boot-wireless'
+    assert info['system_changes'] == 'allowlisted-/system-with-immutable-stock-restore'
+    assert info['runtime_hooks'] == 'persistent-verified-start-without-zygote-restart'
     assert meta['service.2']['path'] == 'rescue-watch.sh' and meta['service.2']['mode'] == 'restart'
+    assert meta['service.3']['path'] == 'debug.sh' and meta['service.3']['uid'] == 'root'
     for name, data in files.items():
         if name.endswith(('.sh', '.data', '.xml')): assert b'\r' not in data, 'CRLF: '+name
         if name.startswith('bin/') or name.endswith('.so'): elf(data, shared=name.endswith('.so'))

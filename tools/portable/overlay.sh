@@ -46,7 +46,7 @@ op() {
 mkdir -p "$STATE" || exit 1
 chmod 700 "$STATE" || exit 1
 # Refuse persisted symlinks before any journal/state write.
-for name in state state.new boot prepareboot journal manifest manifest.new targets.tmp tree.tmp tree.actual; do
+for name in state state.new boot prepareboot journal manifest manifest.new targets.tmp tree.tmp tree.actual retire.plan retire.plan.new; do
     [ ! -L "$STATE/$name" ] || exit 1
     if [ -e "$STATE/$name" ] && [ ! -f "$STATE/$name" ]; then exit 1; fi
 done
@@ -144,7 +144,16 @@ lock_acquire_bounded() {
     done
 }
 lock_acquire_bounded || { echo 'portable: locked or unsafe lock' >&2; exit 1; }
-trap lock_release EXIT
+retire_active=0
+overlay_exit() {
+    exit_code=$?
+    if [ "$retire_active" = 1 ] && [ -f "$STATE/retire.plan" ]; then
+        retire_restore >/dev/null 2>&1 || echo 'overlay: live retirement recovery remains pending' >&2
+    fi
+    lock_release
+    exit "$exit_code"
+}
+trap overlay_exit EXIT
 trap 'exit 1' HUP INT TERM
 write_state() { echo "$1" > "$STATE/state.new" && mv "$STATE/state.new" "$STATE/state" && op sync; }
 current() { if [ -f "$STATE/state" ]; then cat "$STATE/state"; else echo disabled; fi; }
@@ -173,7 +182,7 @@ validate_row() {
     safe "$src" && safe "$dst" || return 1
     case "$src" in /data/*) :;; *) return 1;; esac
     case "$dst" in
-    /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/build.prop|/system/etc/featurexml.cfg|/system/etc/permissions) :;;
+    /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/etc/featurexml.cfg|/system/etc/permissions) :;;
     /system/onebin/*/featurexml.cfg)
         region=${dst#/system/onebin/}; region=${region%/featurexml.cfg}
         case "$region" in ''|*[!a-zA-Z0-9_-]*) return 1;; esac;;
@@ -259,6 +268,155 @@ rollback() {
     : > "$STATE/journal"
     op sync
 }
+stock_target_check() {
+    local feature=$1 src=$2 dst=$3 hash=$4 uid=$5 gid=$6 mode=$7 kind=$8 stock_hash
+    plain "$ROOT$src" && plain "$ROOT$dst" || return 1
+    case "$kind" in
+        static)
+            plain "$ROOT$src.stock" && [ -f "$ROOT$src.stock" ] || return 1
+            stock_hash=$(cat "$ROOT$src.stock") || return 1
+            case "$stock_hash" in *[!a-f0-9]*|'') return 1;; esac
+            [ "${#stock_hash}" = 64 ] || return 1
+            [ "$(op sha "$ROOT$dst")" = "$stock_hash" ] || return 1
+            ;;
+        directory)
+            verify_tree "$ROOT$dst" "$ROOT$src.stock-inventory" || return 1
+            ;;
+        *) return 1;;
+    esac
+    [ "$(op meta "$ROOT$dst")" = "$uid|$gid|$mode" ]
+}
+retire_restore() {
+    local feature src dst hash uid gid mode kind owner_identity extra actual
+    [ -f "$STATE/retire.plan" ] && [ ! -L "$STATE/retire.plan" ] || return 1
+    [ "$(cat "$STATE/boot" 2>/dev/null)" = "$(op boot)" ] || return 1
+    case "$(current)" in retiring|retired-pending|committed) :;; *) return 1;; esac
+    while IFS='|' read -r feature src dst hash uid gid mode kind owner_identity extra || [ -n "$feature" ]; do
+        [ -n "$feature" ] && [ -z "$extra" ] || return 1
+        actual=$(op identity "$ROOT$src") || return 1
+        [ -n "$owner_identity" ] && [ "$actual" = "$owner_identity" ] || return 1
+        if op visible "$ROOT$dst"; then
+            plain "$ROOT$src" && plain "$ROOT$dst" || return 1
+            op bound "$ROOT$src" "$ROOT$dst" || return 1
+            [ "$(op identity "$ROOT$dst")" = "$owner_identity" ] || return 1
+        else
+            stock_target_check "$feature" "$src" "$dst" "$hash" "$uid" "$gid" "$mode" "$kind" || return 1
+            op namespace && op bind "$ROOT$src" "$ROOT$dst" &&
+                op visible "$ROOT$dst" && op bound "$ROOT$src" "$ROOT$dst" || return 1
+            [ "$(op identity "$ROOT$dst")" = "$owner_identity" ] || return 1
+        fi
+    done < "$STATE/retire.plan"
+    active_check || return 1
+    write_state committed || return 1
+    rm -f "$STATE/retire.plan" "$STATE/retire.plan.new" || return 1
+    op sync
+}
+retire_finalize() {
+    local feature src dst hash uid gid mode kind owner_identity extra
+    [ "$#" = 0 ] || return 1
+    [ "$(cat "$STATE/boot" 2>/dev/null)" = "$(op boot)" ] || return 1
+    case "$(current)" in
+        retired)
+            [ ! -s "$STATE/journal" ] || return 1
+            rm -f "$STATE/retire.plan" "$STATE/retire.plan.new" || return 1
+            op sync
+            return $?
+            ;;
+        retired-pending) :;;
+        *) return 1;;
+    esac
+    [ -f "$STATE/retire.plan" ] && [ ! -L "$STATE/retire.plan" ] || return 1
+    [ -f "$STATE/journal" ] && [ ! -L "$STATE/journal" ] || return 1
+    while IFS='|' read -r feature src dst hash uid gid mode kind owner_identity extra || [ -n "$feature" ]; do
+        [ -n "$feature" ] && [ -z "$extra" ] || return 1
+        [ "$(op identity "$ROOT$src")" = "$owner_identity" ] || return 1
+        op visible "$ROOT$dst" && return 1
+    done < "$STATE/retire.plan"
+    : > "$STATE/journal" || return 1
+    op sync || return 1
+    write_state retired || return 1
+    rm -f "$STATE/retire.plan" "$STATE/retire.plan.new" || return 1
+    op sync
+}
+retire_live() {
+    local feature src dst hash uid gid mode kind extra journal_target journal_identity journal_extra hold
+    local source_identity matches journal_count manifest_count
+    hold=0
+    case "$#:$1" in 0:*) :;; 1:hold) hold=1;; *) return 1;; esac
+    if [ "$(current)" = retiring ]; then
+        retire_restore || { err 'interrupted live retirement could not restore every owned bind'; return 1; }
+        err 'interrupted live retirement was rolled back; retry the operation'
+        return 1
+    fi
+    if [ "$(current)" = retired-pending ]; then
+        [ "$hold" = 1 ] && [ "$(cat "$STATE/boot" 2>/dev/null)" = "$(op boot)" ] &&
+            [ -f "$STATE/retire.plan" ] && [ ! -L "$STATE/retire.plan" ] || return 1
+        while IFS='|' read -r feature src dst hash uid gid mode kind owner_identity extra || [ -n "$feature" ]; do
+            [ -n "$feature" ] && [ -z "$extra" ] || return 1
+            [ "$(op identity "$ROOT$src")" = "$owner_identity" ] || return 1
+            op visible "$ROOT$dst" && return 1
+        done < "$STATE/retire.plan"
+        return 0
+    fi
+    if [ "$(current)" = committed ] && { [ -e "$STATE/retire.plan" ] || [ -e "$STATE/retire.plan.new" ]; }; then
+        retire_restore || { err 'stale retirement plan could not be reconciled with active binds'; return 1; }
+        err 'stale retirement plan was reconciled; retry retirement'
+        return 1
+    fi
+    [ "$(current)" = committed ] && [ "$(cat "$STATE/boot" 2>/dev/null)" = "$(op boot)" ] || { err 'live retirement requires same-boot committed overlays'; return 1; }
+    op namespace && active_check || { err 'live retirement ownership preflight failed'; return 1; }
+    [ -f "$STATE/journal" ] && [ ! -L "$STATE/journal" ] || return 1
+    [ ! -e "$STATE/retire.plan" ] && [ ! -e "$STATE/retire.plan.new" ] || return 1
+    : > "$STATE/retire.plan.new" || return 1
+    : > "$STATE/targets.tmp" || return 1
+    journal_count=0
+    while IFS='|' read -r journal_target journal_identity journal_extra || [ -n "$journal_target" ]; do
+        [ -n "$journal_target" ] && [ -n "$journal_identity" ] && [ -z "$journal_extra" ] || return 1
+        while IFS= read -r prior_target; do [ "$prior_target" != "$journal_target" ] || return 1; done < "$STATE/targets.tmp"
+        echo "$journal_target" >> "$STATE/targets.tmp" || return 1
+        journal_count=$((journal_count+1))
+    done < "$STATE/journal"
+    manifest_count=0
+    while IFS='|' read -r feature src dst hash uid gid mode kind extra || [ -n "$feature" ]; do
+        [ -n "$feature" ] && [ -z "$extra" ] || return 1
+        validate_row || return 1
+        matches=0; source_identity=$(op identity "$ROOT$src") || return 1
+        while IFS='|' read -r journal_target journal_identity journal_extra || [ -n "$journal_target" ]; do
+            if [ "$journal_target" = "$dst" ]; then
+                [ -z "$journal_extra" ] && [ "$journal_identity" = "$source_identity" ] || return 1
+                matches=$((matches+1))
+            fi
+        done < "$STATE/journal"
+        [ "$matches" = 1 ] || return 1
+        echo "$feature|$src|$dst|$hash|$uid|$gid|$mode|$kind|$source_identity" >> "$STATE/retire.plan.new" || return 1
+        manifest_count=$((manifest_count+1))
+    done < "$STATE/manifest"
+    [ "$manifest_count" -gt 0 ] && [ "$manifest_count" = "$journal_count" ] || return 1
+    mv "$STATE/retire.plan.new" "$STATE/retire.plan" || return 1
+    op sync || return 1
+    write_state retiring || return 1
+    retire_active=1
+    while IFS='|' read -r feature src dst hash uid gid mode kind owner_identity extra || [ -n "$feature" ]; do
+        [ -n "$feature" ] && [ -z "$extra" ] || { retire_restore || :; retire_active=0; return 1; }
+        op visible "$ROOT$dst" && op bound "$ROOT$src" "$ROOT$dst" &&
+            [ "$(op identity "$ROOT$dst")" = "$owner_identity" ] || { retire_restore || :; retire_active=0; err 'overlay ownership changed during live retirement'; return 1; }
+        if ! op unmount "$ROOT$dst" || op visible "$ROOT$dst"; then
+            retire_restore || { err 'partial live retirement could not restore every owned bind'; retire_active=0; return 1; }
+            retire_active=0
+            err 'live retirement failed; original overlays were restored'
+            return 1
+        fi
+        op sync || { retire_restore || :; retire_active=0; return 1; }
+    done < "$STATE/retire.plan"
+    if [ "$hold" = 1 ]; then
+        write_state retired-pending || { retire_restore || :; retire_active=0; return 1; }
+        retire_active=0
+        return 0
+    fi
+    write_state retired || { retire_restore || :; retire_active=0; return 1; }
+    : > "$STATE/journal" && rm -f "$STATE/retire.plan" "$STATE/retire.plan.new" && op sync || { retire_active=0; return 1; }
+    retire_active=0
+}
 recover() {
     s=$(current)
     if [ "$s" = applying ] || { [ "$s" = pending ] && [ "$(cat "$STATE/boot" 2>/dev/null)" != "$(op boot)" ]; }; then
@@ -271,6 +429,11 @@ recover() {
     fi
 }
 command=${1:-}; [ $# -eq 0 ] || shift
+state_now=$(current)
+case "$state_now:$command" in
+    retired-pending:retire-live|retired-pending:retire-restore|retired-pending:retire-finalize|retired-pending:status) :;;
+    retired-pending:*) err 'persistent migration retirement is pending; refusing overlay mutation'; exit 1;;
+esac
 case "$command" in
 prepare|prepare-boot)
     [ $# -ge 1 ] || exit 1
@@ -337,6 +500,15 @@ disable)
     [ $# = 0 ] || exit 1
     rollback && write_state disabled || exit 1
     ;;
+retire-live)
+    retire_live "$@" || exit 1
+    ;;
+retire-restore)
+    [ $# = 0 ] && retire_restore || exit 1
+    ;;
+retire-finalize)
+    retire_finalize "$@" || exit 1
+    ;;
 status)
     [ $# = 0 ] || exit 1
     s=$(current)
@@ -356,5 +528,5 @@ status)
         done < "$STATE/manifest"
     fi
     ;;
-*) err 'usage: overlay.sh prepare MANIFEST [FEATURE ...] | apply | status | commit | disable'; exit 1;;
+*) err 'usage: overlay.sh prepare MANIFEST [FEATURE ...] | apply | status | commit | disable | retire-live [hold] | retire-restore | retire-finalize'; exit 1;;
 esac

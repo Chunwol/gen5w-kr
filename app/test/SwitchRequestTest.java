@@ -30,6 +30,11 @@ public final class SwitchRequestTest {
         check("a too long save number is left out", SwitchRequest.write(dir, "on", null, null, null, "12345678901", null) && read(target).equals("wireless=on\n"));
         check("remove number is written", SwitchRequest.write(dir, null, null, null, null, null, "42") && read(target).equals("remove=42" + (char) 10));
         check("a bad remove number is left out", SwitchRequest.write(dir, "on", null, null, null, null, "4 2; x") && read(target).equals("wireless=on" + (char) 10));
+        SwitchRequest.Writer writer = new SwitchRequest.Writer();
+        long seq = writer.issue();
+        check("exclusive fresh debug command", writer.writeDebug(seq, dir, 10, 30,
+                "12345678-1234-1234-1234-123456789abc", true)
+                && read(target).equals("boot=12345678-1234-1234-1234-123456789abc\nexpires=30\ndebug=on\n"));
         target.delete();
         if (failures != 0) { System.out.println("== SwitchRequest: " + failures + " failed"); System.exit(1); }
         System.out.println("== SwitchRequest: all passed");

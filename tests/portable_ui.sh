@@ -23,7 +23,7 @@ N=$R/data/nemesis; UI=$N/gen5wkr.ui; P=$R/data/local/gen5w-portable
 APP=$R/data/data/kr.gen5w.core; REQ=$APP/files/ui-request
 mkdir -p "$B/bin" "$N/logs/gen5w.kr.portable" "$P"/{boot,overlay,runtime,session} "$APP/files" \
     "$R/data/data/kr.gen5w.wirelesshost/files" "$R/proc/sys/kernel/random" "$R/sys/class/net/wlan0" "$R/storage/usb0" "$A/props"
-cp tools/portable/ui.sh tools/portable/boot.sh tools/portable/NEMESIS.data "$B/"
+cp tools/portable/ui.sh tools/portable/boot.sh tools/portable/diagnostics.sh tools/portable/NEMESIS.data "$B/"
 cp .build/portable/dex-patch-host "$B/bin/dex-patch"
 chmod 755 "$B/ui.sh" "$B/bin/dex-patch"; chmod 700 "$APP"; chmod 700 "$APP/files"
 BOOT=12345678-1234-1234-1234-123456789abc
@@ -41,6 +41,7 @@ disable)
     echo 'boot: automatic application disabled and owned overlays/wrappers restored'
     exit "$(cat "$ACTIONS/disable-rc" 2>/dev/null || echo 0)";;
 sync) :;;
+snapshot) mksh "$2" active "$3";;
 *) echo "unexpected $*" >> "$ACTIONS/calls"; exit 1;;
 esac
 SH
@@ -80,7 +81,7 @@ echo "touch $A/OLD-RECOVERY-RAN" > "$N/gen5wkr.recovery/current/recovery.sh"
 
 # 1. Status/log schema from portable journals and the live host.
 collect
-for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.65 apguard=on wired=no sw_wireless=on \
+for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.72 apguard=on wired=no sw_wireless=on \
           sw_timer=unknown sw_bluelink=unknown sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
           wlan=present recovery_state=none recovery_available=no recovery_request=0 recovery_result=none \
           portable_enabled=1 portable_phase=healthy portable_mode=full portable_overlay=committed portable_runtime=committed portable_session=running; do
@@ -93,6 +94,13 @@ grep -q '^portable|session: host/AP/HUD supervisor running$' "$UI/log" || fail '
 grep -q '^boot|enabled=1 phase=healthy' "$UI/log" || fail 'journal summary missing'
 [ ! -e "$APP/files/status" ] && [ "$(ls "$APP/files")" = "" ] || fail 'root wrote into the app folder'
 pass 'status/log follow the StatusModel schema from portable journals; private lines dropped; root-owned 755/644'
+envelope 'debug=on'; collect
+[ -f "$N/gen5wkr.debug-on" ] || fail 'debug switch did not enable'
+collect; expect sw_debug on 'debug status enabled'
+envelope 'debug=off'; collect
+[ ! -e "$N/gen5wkr.debug-on" ] || fail 'debug switch did not disable'
+collect; expect sw_debug off 'debug status disabled'
+rm -f "$REQ"
 
 # 2. Host marker identity, AP admission guards, host down and static mode.
 good=$(cat "$HOSTM")
@@ -210,6 +218,33 @@ echo '/dev/block/vold/8:1 /storage/usb0 vfat rw 0 0' > "$R/proc/mounts"; envelop
 echo private > "$t/elsewhere"; ln -s "$t/elsewhere" "$R/storage/usb0/gen5w-kr-diag/diag-73.txt.tmp"
 envelope save=73; collect; expect saved 73:fail 'planted link'
 [ "$(cat "$t/elsewhere")" = private ] || fail 'followed a planted link'
+# Real procfs exposes mounts through the fixed self/mounts link.
+mkdir -p "$R/proc/self"
+mv "$R/proc/mounts" "$R/proc/self/mounts"
+ln -s self/mounts "$R/proc/mounts"
+mkdir -p "$P/diagnostics/failure-$BOOT"
+echo retained-failure > "$P/diagnostics/failure-$BOOT/START"
+envelope save=74; collect; expect saved 74:usb 'normal procfs mounts link'
+[ -s "$UI/diagnostics/diag-$BOOT-70.txt" ] || fail 'first local diagnosis was overwritten'
+[ -s "$UI/diagnostics/diag-$BOOT-74.txt" ] || fail 'latest local diagnosis archive missing'
+grep -q retained-failure "$R/storage/usb0/gen5w-kr-diag/failure-$BOOT/START" || fail 'automatic failure evidence not exported'
+rm "$R/proc/mounts"; ln -s "$t/elsewhere" "$R/proc/mounts"
+envelope save=75; collect; expect saved 75:nousb 'foreign mounts link'
+rm "$R/proc/mounts"; mv "$R/proc/self/mounts" "$R/proc/mounts"
+
+# A persisted interrupted save must not block the next one. Evidence export
+# failure must remain visible and a fresh attempt must publish a complete copy.
+echo '75 working' > "$N/gen5wkr.ui-portable-saved"
+echo "$BOOT|99999999:1" > "$UI/save-worker"
+mkdir -p "$P/diagnostics/failure-copy-test"
+echo retry-evidence > "$P/diagnostics/failure-copy-test/START"
+mkdir "$R/storage/usb0/gen5w-kr-diag/failure-copy-test.part-76"
+envelope save=76; collect; expect saved 76:fail 'evidence export failure'
+[ ! -e "$R/storage/usb0/gen5w-kr-diag/failure-copy-test/USB-COMPLETE" ] || fail 'incomplete evidence published'
+envelope save=77; collect; expect saved 77:usb 'retry after interrupted save'
+grep -q retry-evidence "$R/storage/usb0/gen5w-kr-diag/failure-copy-test/START" || fail 'evidence retry absent'
+[ -f "$R/storage/usb0/gen5w-kr-diag/failure-copy-test/USB-COMPLETE" ] || fail 'completed export marker absent'
+
 pass 'diagnosis export: in-car copy, USB only on verified FAT mount, links refused, private lines dropped'
 
 # 9. Root-owned output only: a linked UI folder or marker stops all writes.

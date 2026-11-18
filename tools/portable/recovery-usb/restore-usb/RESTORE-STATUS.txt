@@ -1,0 +1,9 @@
+HOST-ONLY RESTORE ARCHIVE
+
+This archive has host fixture coverage only. Target-vehicle NEMESIS emergency
+dispatch, toolbox mount behavior, SELinux label tools, and exact restore have
+not been verified. Do not use this archive in the vehicle.
+
+The restore script requires a validated manifest and immutable originals at
+/data/local/gen5w-portable/persistent/recovery/. The persistent installer
+that creates those files is not implemented or enabled in this build.

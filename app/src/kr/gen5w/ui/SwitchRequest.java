@@ -40,6 +40,15 @@ public final class SwitchRequest {
         private boolean closed;
         public synchronized long issue() { return closed ? -1 : ++latest; }
         public synchronized void close() { closed = true; latest++; }
+        public synchronized boolean writeDebug(long sequence, File dir, long now, long expires, String boot, boolean on) {
+            if (closed || sequence <= 0 || sequence != latest || now < 0 || expires < now
+                    || expires-now > 30 || expires > 999999999L || !validBoot(boot)
+                    || dir == null || !dir.isDirectory()) return false;
+            synchronized (LOCK) {
+                return writeLocked(dir,null,null,null,null,null,null,
+                        "boot="+boot+"\nexpires="+expires+"\ndebug="+(on ? "on" : "off")+"\n");
+            }
+        }
         public synchronized boolean writeRecovery(long sequence, File dir, long now, long expires, String boot, String token) {
             if (closed || sequence <= 0 || sequence != latest || now < 0 || expires < now
                     || expires-now > 30 || expires > 999999999L || !validBoot(boot)

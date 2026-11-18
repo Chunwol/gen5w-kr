@@ -22,6 +22,8 @@ public final class StatusModel {
     private final String removed; // "<number>:<working|done|failed|none>[:<package id>]"
     private final String saved; // "<number>:<usb|nousb|fail|working|none>"
     private boolean portable, portableDisabled;
+    private String swDebug = UNKNOWN;
+    public String switchDebug() { return swDebug; }
     public boolean portable() { return portable; }
     public boolean portableRemovalDone() { return portable && portableDisabled && removed.matches("[0-9]+:done"); }
     private RecoveryStatus recovery = RecoveryStatus.parse(null);
@@ -76,6 +78,7 @@ public final class StatusModel {
         parsed.portableDisabled = "0".equals(value(statusLines, "portable_enabled"));
         parsed.portable = "0".equals(value(statusLines, "portable_enabled")) || "1".equals(value(statusLines, "portable_enabled"));
         parsed.recovery = RecoveryStatus.parse(statusLines);
+        parsed.swDebug = choice(value(statusLines, "sw_debug"), "on", "off");
         return parsed;
     }
 

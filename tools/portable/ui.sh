@@ -45,6 +45,7 @@ NETDIR=$ROOT/sys/class/net
 USB_MP=/storage/usb0
 USB=$ROOT$USB_MP
 WIRELESS_OFF=$NEMDIR/gen5wkr.ui-wireless-off
+DEBUG_ON=$NEMDIR/gen5wkr.debug-on
 SAVED=$NEMDIR/gen5wkr.ui-portable-saved
 REMOVED=$NEMDIR/gen5wkr.ui-portable-removed
 RECOVERY=$NEMDIR/gen5wkr.ui-portable-recovery
@@ -63,6 +64,7 @@ PRIV='([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}:\*\*|[Ss][Ss][Ii][Dd]
 op() {
     if [ -n "$ROOT" ]; then "$ADAPTER" "$@"; return $?; fi
     case "$1" in
+    snapshot) "$HELPER" supervise 25 /system/bin/true /system/bin/sh "$2" active "$3";;
     get) getprop "$2";;
     disable) /system/bin/sh "$2" disable;;
     sync) sync;;
@@ -249,6 +251,7 @@ collect_status() {
         print -r -- "relay=$relay"
         print -r -- "backend=builtin"
         print -r -- "version=$version"
+        if plain "$DEBUG_ON" && [ -f "$DEBUG_ON" ]; then print -r -- 'sw_debug=on'; else print -r -- 'sw_debug=off'; fi
         print -r -- "apguard=$apguard"
         print -r -- "wired=$wired"
         if [ -e "$WIRELESS_OFF" ]; then print -r -- "sw_wireless=off"; else print -r -- "sw_wireless=on"; fi
@@ -347,14 +350,14 @@ apply_requests() {
     rm -f "$UI_DIR/request.copy"
 }
 handle_request() {
-    local line key value boot= expires= wireless= timer= bluelink= adb= save= remove= recovery= up count=0
+    local line key value boot= expires= wireless= timer= bluelink= debug= adb= save= remove= recovery= up count=0
     while IFS= read -r line; do
         key=${line%%=*}; value=${line#*=}
         [ "$key" != "$line" ] || return 0
         case "$key" in
         boot) [ -z "$boot" ] && [ -n "$value" ] || return 0; boot=$value;;
         expires) [ -z "$expires" ] && [ -n "$value" ] || return 0; expires=$value;;
-        wireless|timer|bluelink)
+        wireless|timer|bluelink|debug)
             case "$value" in on|off) :;; *) return 0;; esac
             eval "[ -z \"\$$key\" ]" || return 0
             eval "$key=\$value";;
@@ -379,6 +382,11 @@ handle_request() {
     expires=$((10#$expires))
     [ "$expires" -ge "$up" ] && [ "$expires" -le "$((up + 30))" ] || return 0
     read_portable
+    if [ -n "$debug" ]; then
+        [ "$count" = 3 ] && plain "$DEBUG_ON" && { [ ! -e "$DEBUG_ON" ] || [ -f "$DEBUG_ON" ]; } || return 0
+        if [ "$debug" = on ]; then : > "$DEBUG_ON" && chmod 644 "$DEBUG_ON"; else rm -f "$DEBUG_ON"; fi
+        return 0
+    fi
     if [ -n "$recovery" ]; then
         [ "$count" = 3 ] || return 0
         start_restore recovery "$recovery"; return 0
@@ -438,7 +446,12 @@ restore_worker() {
 # ---- diagnosis: status + log only, to a verified FAT/fuse USB mount ----
 usb_ok() {
     local src mp fs rest
-    plain "$MOUNTS" && [ -f "$MOUNTS" ] || return 1
+    # /proc/mounts -> self/mounts is the kernel's normal trusted alias.
+    if [ -L "$MOUNTS" ]; then
+        [ "$(readlink "$MOUNTS")" = self/mounts ] || return 1
+        [ -z "$ROOT" ] || plain "$ROOT/proc/self/mounts" || return 1
+    else plain "$MOUNTS" || return 1; fi
+    [ -f "$MOUNTS" ] || return 1
     while IFS=' ' read -r src mp fs rest; do
         [ "$mp" = "$USB_MP" ] || continue
         case "$fs" in vfat|exfat|texfat|sdfat|fuse) plain "$USB" && [ -d "$USB" ]; return $?;; esac
@@ -450,11 +463,21 @@ start_save() {
     local n=$1 last rest
     [ -f "$SAVED" ] && IFS=' ' read -r last rest < "$SAVED"
     [ "$last" != "$n" ] || return 0
+    local owner_boot owner_key
+    if plain "$UI_DIR/save-worker" && [ -f "$UI_DIR/save-worker" ]; then
+        IFS='|' read -r owner_boot owner_key < "$UI_DIR/save-worker"
+        if [ "$owner_boot" = "$BOOT" ] && [ "$(process_key "${owner_key%%:*}")" = "$owner_key" ]; then return 0; fi
+    fi
     record "$SAVED" "$n working" || return 0
     do_save "$n" &
+    local worker=$! key
+    key=$(process_key "$worker") && record "$UI_DIR/save-worker" "$BOOT|$key"
 }
 do_save() {
     local n=$1 result=nousb dest tmp="$UI_DIR/diag.tmp" f
+    if plain "$BASE/diagnostics.sh" && [ -f "$BASE/diagnostics.sh" ]; then
+        op snapshot "$BASE/diagnostics.sh" "$n" || note 'active diagnosis incomplete; partial files retained'
+    fi
     {
         print -r -- "Gen5W KR portable diagnosis #$n"
         for f in status log; do
@@ -463,13 +486,47 @@ do_save() {
         done
     } > "$tmp" 2>/dev/null || { rm -f "$tmp"; record "$SAVED" "$n fail"; exit 0; }
     chmod 644 "$tmp" && mv "$tmp" "$UI_DIR/diag-latest.txt" || { record "$SAVED" "$n fail"; exit 0; }
+    # Keep the previous save attempts across reboots, bounded to 32 reports.
+    local archive="$UI_DIR/diagnostics" archived=0 item
+    if plain "$archive" && { [ -d "$archive" ] || mkdir "$archive"; }; then
+        for item in "$archive"/diag-*.txt; do [ ! -f "$item" ] || archived=$((archived+1)); done
+        if [ "$archived" -lt 32 ]; then
+            item="$archive/diag-$(cat "$BOOT_ID")-$n.txt"
+            plain "$item" && [ ! -e "$item" ] && ( set -C; cat "$UI_DIR/diag-latest.txt" > "$item" ) 2>/dev/null || :
+        fi
+    fi
     if usb_ok; then
         dest=$USB/gen5w-kr-diag
         if [ ! -L "$dest" ] && mkdir -p "$dest" 2>/dev/null && plain "$dest" &&
            [ ! -e "$dest/diag-$n.txt" ] && [ ! -L "$dest/diag-$n.txt" ] && [ ! -e "$dest/diag-$n.txt.tmp" ] && [ ! -L "$dest/diag-$n.txt.tmp" ] &&
            ( set -C; cat "$UI_DIR/diag-latest.txt" > "$dest/diag-$n.txt.tmp" ) 2>/dev/null &&
            [ ! -L "$dest/diag-$n.txt.tmp" ] && mv "$dest/diag-$n.txt.tmp" "$dest/diag-$n.txt" 2>/dev/null && op sync; then
-            result=usb
+            # Include automatically preserved failure evidence on the same USB.
+            local evidence target evidence_file staged export_ok=1
+            for evidence in "$PSTATE/diagnostics"/failure-* "$PSTATE/diagnostics"/active-*; do
+                plain "$evidence" && [ -d "$evidence" ] || continue
+                target="$dest/${evidence##*/}"
+                plain "$target" || { export_ok=0; continue; }
+                if [ -d "$target" ] && [ -f "$target/USB-COMPLETE" ]; then continue; fi
+                # Never bless an earlier incomplete directory. A fresh save uses
+                # a new staging name and publishes only a complete copy.
+                staged=$target.part-$n
+                plain "$staged" && [ ! -e "$staged" ] && mkdir "$staged" || { export_ok=0; continue; }
+                local copied=1
+                for evidence_file in "$evidence"/*; do
+                    plain "$evidence_file" && [ -f "$evidence_file" ] || continue
+                    ( set -C; cat "$evidence_file" > "$staged/${evidence_file##*/}" ) 2>/dev/null || copied=0
+                done
+                if [ "$copied" = 1 ] && print -r -- complete > "$staged/USB-COMPLETE" && op sync; then
+                    # Retain a preexisting incomplete copy under its old name;
+                    # publish this retry with a unique suffix if necessary.
+                    [ ! -e "$target" ] || target=$target.retry-$n
+                    if [ ! -e "$target" ] && mv "$staged" "$target" && op sync; then
+                        print -r -- "$n" > "$evidence/EXPORTED" || export_ok=0
+                    else export_ok=0; fi
+                else export_ok=0; fi
+            done
+            if op sync && [ "$export_ok" = 1 ]; then result=usb; else result=fail; fi
         else
             [ -L "$dest/diag-$n.txt.tmp" ] || rm -f "$dest/diag-$n.txt.tmp" 2>/dev/null
             result=fail

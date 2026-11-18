@@ -26,6 +26,10 @@ fail() {
         if plain "$journal" && [ -d "$journal" ] && plain "$journal/health-lost" && plain "$journal/health-lost.new"; then
             print -r -- "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)|$*" > "$journal/health-lost.new" && mv "$journal/health-lost.new" "$journal/health-lost"
             sync
+            if [ -z "$ROOT" ] && [ -f "$BASE/diagnostics.sh" ]; then
+                PORTABLE_DIAG_BROKER_PID=$broker PORTABLE_DIAG_OWNER_PID=$owner \
+                    "$BASE/bin/dex-patch" supervise 20 /system/bin/true /system/bin/sh "$BASE/diagnostics.sh" capture "$*" || :
+            fi
         fi
     fi
     echo "session: $*" >&2; exit 1
@@ -41,7 +45,7 @@ fi
 plain "$BASE" && plain "$ROOT$STATE" || fail 'unsafe path'
 STATE=$ROOT$STATE
 mkdir -p "$STATE" && chmod 700 "$STATE" || fail 'state unavailable'
-for file in stop owner epoch ready; do [ ! -L "$STATE/$file" ] || fail 'unsafe state'; done
+for file in stop owner epoch ready worker-broker.log worker-owner.log workers; do [ ! -L "$STATE/$file" ] || fail 'unsafe state'; done
 process_key() {
     local pid=$1 line rest count=0
     case "$pid" in ''|*[!0-9]*) return 1;; esac
@@ -51,6 +55,12 @@ process_key() {
     case "$1" in Z|X|x) return 1;; esac
     while [ "$count" -lt 19 ]; do shift; count=$((count+1)); done
     print -r -- "$pid:$1"
+}
+check_worker() {
+    local role=$1 pid=$2 result=0
+    process_key "$pid" >/dev/null 2>&1 && return 0
+    wait "$pid" || result=$?
+    fail "owned worker exited worker=$role pid=$pid exit=$result"
 }
 current_session() {
     local boot epoch
@@ -85,9 +95,14 @@ op() {
         [ "$(getprop sys.boot_completed)" = 1 ] && [ "$(getprop init.svc.zygote)" = running ] && dipo_ready;;
     ready)
         [ "$(getprop sys.boot_completed)" = 1 ] && [ "$(getprop init.svc.zygote)" = running ] || return 1
-        overlay=$(/system/bin/sh "$BASE/overlay.sh" status) && has_feature bt && has_feature projection || return 1
-        runtime=$(/system/bin/sh "$BASE/runtime.sh" status) || return 1
-        case "$runtime" in 'runtime|pending'|'runtime|committed') :;; *) return 1;; esac
+        if [ "${GEN5W_PERSISTENT:-0}" = 1 ]; then
+            plain /data/local/gen5w-portable/persistent/manifest && [ -f /data/local/gen5w-portable/persistent/manifest ] &&
+                plain /data/local/gen5w-portable/persistent/recovery/manifest && [ -f /data/local/gen5w-portable/persistent/recovery/manifest ] || return 1
+        else
+            overlay=$(/system/bin/sh "$BASE/overlay.sh" status) && has_feature bt && has_feature projection || return 1
+            runtime=$(/system/bin/sh "$BASE/runtime.sh" status) || return 1
+            case "$runtime" in 'runtime|pending'|'runtime|committed') :;; *) return 1;; esac
+        fi
         dipo_ready;;
     busy)
         grep -q 'gen5wkr.ap.broker.v1' /proc/net/unix 2>/dev/null && return 0
@@ -223,8 +238,9 @@ run)
         [ ! -f "$STATE/stop" ] && [ "$(process_key "$PPID" 2>/dev/null)" = "$parent_key" ] || fail 'startup cancelled'
     }
     startup_allowed
-    op broker & broker=$!
-    op owner & owner=$!
+    op broker > "$STATE/worker-broker.log" 2>&1 & broker=$!
+    op owner > "$STATE/worker-owner.log" 2>&1 & owner=$!
+    print -r -- "$(op boot)|broker=$broker|owner=$owner" > "$STATE/workers"
     startup_allowed
     core=1; op start-core || fail 'HUD start failed'
     startup_allowed
@@ -264,7 +280,8 @@ run)
             wireless_denied=0
             if [ "$host" = 1 ]; then op stop-host || fail 'host shutdown failed'; host=0; fi
         fi
-        kill -0 "$broker" 2>/dev/null && kill -0 "$owner" 2>/dev/null || fail 'owned worker exited'
+        check_worker broker "$broker"
+        check_worker owner "$owner"
         op pause
     done
     ;;

@@ -120,12 +120,14 @@ public final class StockOwner {
             cursor = source.query(STATE, new String[]{"State_Destination"});
             if (cursor == null) return '?';
             final Cursor rows = cursor;
-            return StockFlag.decode(new StockFlag.Rows() {
+            int result = StockFlag.decode(new StockFlag.Rows() {
                 public int columns() { return rows.getColumnCount(); }
                 public boolean next() { return rows.moveToNext(); }
                 public boolean isNull() { return rows.isNull(0); }
                 public String text() { return rows.getString(0); }
             });
+            kr.gen5w.diag.DebugTrace.event("hud.provider.result", result);
+            return result;
         } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("core.owner.query",e); return '?'; }
         finally {
             if (cursor != null) try { cursor.close(); } catch (RuntimeException ignored) { }

@@ -539,7 +539,27 @@ public final class MainActivity extends Activity {
         render();
     }
 
+    private void sendDebugRequest() {
+        if (!canRequest()) return;
+        final long seq = requests.issue();
+        final String boot = model.bootId();
+        final long expires = SystemClock.elapsedRealtime()/1000+30;
+        final boolean on = !"on".equals(model.switchDebug());
+        final File dir = getFilesDir();
+        new Thread(new Runnable() { public void run() {
+            requests.writeDebug(seq, dir, SystemClock.elapsedRealtime()/1000, expires, boot, on);
+            handler.post(new Runnable() { public void run() { if (!isFinishing() && !isDestroyed()) load(); } });
+        }}, "gen5w-debug-request").start();
+    }
+
     private void buildManage(LinearLayout page) {
+        if (model.portable()) {
+            section(page, "상세 디버깅");
+            switchRowView(page, "오디오·HUD·INFO 상세 기록", "로그는 용량을 제한해 보관합니다. 문제가 있으면 연결된 상태에서 진단을 저장하세요.",
+                    canRequest() ? null : "새 상태를 기다린 뒤 다시 시도하세요.", model.switchDebug(), new View.OnClickListener() {
+                public void onClick(View v) { sendDebugRequest(); }
+            });
+        }
         buildRecovery(page, true);
         section(page, "전체 제거");
         String removed = model.removedState();

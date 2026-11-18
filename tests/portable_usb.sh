@@ -27,6 +27,12 @@ install)
  [ "$(umask)" = 0022 ] || { echo "pkg: $2"; exit 1; }
  cmp -s "$2" "$ACTIONS/expected.zip" || { echo 'staged copy differs'; exit 3; }
  app=$PORTABLE_TEST_ROOT/data/nemesis/apps/gen5w.kr.portable
+ if [ -f "$ACTIONS/expect-retirement" ] && [ "$3" = --update ]; then
+   "$PORTABLE_TEST_SH" "$app/boot.sh" update-retire || exit 1
+   "$PORTABLE_TEST_SH" "$app/boot.sh" status > "$ACTIONS/retirement-status" || exit 1
+   grep -qx 'retirement|held' "$ACTIONS/retirement-status" || exit 1
+   echo update-retired-and-verified >> "$ACTIONS/log"
+ fi
  if [ -f "$ACTIONS/inplace-hook-fail" ]; then
    echo 'new package hook' > "$app/package-preun.sh"
    exit 1
@@ -37,12 +43,24 @@ install)
    exit 1
  fi
  [ ! -f "$ACTIONS/refuse" ] || { echo 'portable install: conflicting installation retained'; exit 1; }
+ [ ! -f "$ACTIONS/expect-retirement" ] || echo package-replace >> "$ACTIONS/log"
+ : > "$ACTIONS/new-package"
+  if [ -f "$ACTIONS/migration-fail" ]; then
+    echo migration-rollback >> "$ACTIONS/log"
+    rm -f "$ACTIONS/retirement-held"
+    exit 1
+  else
+   echo retirement-finalize >> "$ACTIONS/log"
+   rm -f "$ACTIONS/retirement-held"
+   : > "$ACTIONS/migration-ready"
+ fi
  app=$PORTABLE_TEST_ROOT/data/nemesis/apps/gen5w.kr.portable
  mkdir -p "$app"
  echo 'new package hook' > "$app/package-preun.sh.new"
  mv "$app/package-preun.sh.new" "$app/package-preun.sh"
  printf '#!/bin/sh\necho enabled\\|1\necho mode\\|auto\n' > "$app/boot.sh"
- printf '#!/bin/sh\necho "snapshot $2" >> "$ACTIONS/log"\n' > "$app/check.sh"
+  printf '#!/bin/sh\necho "snapshot $2" >> "$ACTIONS/log"\n' > "$app/check.sh"
+  printf '#!/bin/sh\necho persistent-verify >> "$ACTIONS/log"\necho persistent-payload-and-recovery-verified\n' > "$app/persistent-start.sh"
  echo 'portable install: guarded automatic wireless operation starts on next boot';;
 *) exit 2;;
 esac
@@ -54,17 +72,55 @@ printf '#!/bin/sh
 [ ! -f "$ACTIONS/ap-fail" ] || exit 1
 cat "$ACTIONS/ap" 2>/dev/null || echo 0
 ' > "$t/settings"
-chmod +x "$t/bin/md5" "$t/nemesis" "$t/am" "$t/settings"
+printf '#!/bin/sh
+echo reboot >> "$ACTIONS/log"
+[ ! -f "$ACTIONS/reboot-fail" ] || exit 1
+' > "$t/bin/reboot"
+chmod +x "$t/bin/md5" "$t/nemesis" "$t/am" "$t/settings" "$t/bin/reboot"
+cat > "$t/test-shell" <<'SH'
+#!/bin/sh
+case "$1" in
+  */boot.sh)
+    case "$2" in
+      status)
+        if [ -f "$ACTIONS/new-package" ]; then
+          printf 'enabled|1\nmode|persistent\n'
+          [ ! -f "$ACTIONS/migration-ready" ] || printf 'persistent-migration|ready\n'
+        elif [ -f "$ACTIONS/legacy-disabled" ]; then
+          printf 'enabled|0\nreason|disabled-restored\n'
+        elif [ -f "$ACTIONS/retirement-held" ]; then
+          printf 'enabled|0\nreason|update-held\nretirement|held\n'
+        else
+          printf 'enabled|1\n'
+          [ ! -f "$ACTIONS/retirement-held" ] || printf 'retirement|held\n'
+        fi;;
+      update-retire)
+        echo update-retire >> "$ACTIONS/log"
+        [ ! -f "$ACTIONS/legacy-no-handoff" ] || { echo 'boot: usage: boot.sh status' >&2; exit 2; }
+        [ ! -f "$ACTIONS/retire-fail" ] || exit 1
+        : > "$ACTIONS/retirement-held";;
+      disable)
+        echo legacy-disable >> "$ACTIONS/log"
+        : > "$ACTIONS/legacy-disabled";;
+      update-restore)
+        echo update-restore >> "$ACTIONS/log"
+        [ ! -f "$ACTIONS/retirement-held" ] || rm "$ACTIONS/retirement-held";;
+      *) exit 2;;
+    esac;;
+  *) exec /bin/sh "$@";;
+esac
+SH
+chmod +x "$t/test-shell"
 export PATH=$t/bin:$PATH ACTIONS=$t/actions PORTABLE_TEST_NEM=$t/nemesis PORTABLE_TEST_SH=/bin/sh
-export PORTABLE_TEST_AM=$t/am PORTABLE_TEST_SETTINGS=$t/settings
+export PORTABLE_TEST_AM=$t/am PORTABLE_TEST_SETTINGS=$t/settings PORTABLE_TEST_REBOOT=$t/bin/reboot
 new_case() {
     rm -rf "$t/usb" "$t/root"; mkdir -p "$t/usb" "$t/root/data"
     cp tools/portable/usb/NEMESIS.sh tools/portable/usb/NEMESIS.data "$t/usb/"
     head -c 4096 /dev/urandom > "$t/usb/gen5w.kr.portable.zip"
     cp "$t/usb/gen5w.kr.portable.zip" "$ACTIONS/expected.zip"
     printf '%s\r\n' "$(md5sum "$t/usb/gen5w.kr.portable.zip" | cut -d' ' -f1)" > "$t/usb/gen5w.kr.portable.zip.md5"
-    rm -f "$ACTIONS/log" "$ACTIONS/refuse" "$ACTIONS/pkg-list" "$ACTIONS/ap" "$ACTIONS/toast" "$ACTIONS/ap-fail" "$ACTIONS/new-hook-fail" "$ACTIONS/inplace-hook-fail"
-    export PORTABLE_TEST_ROOT=$t/root
+    rm -f "$ACTIONS/log" "$ACTIONS/refuse" "$ACTIONS/pkg-list" "$ACTIONS/ap" "$ACTIONS/toast" "$ACTIONS/ap-fail" "$ACTIONS/new-hook-fail" "$ACTIONS/inplace-hook-fail" "$ACTIONS/retirement-held" "$ACTIONS/retire-fail" "$ACTIONS/new-package" "$ACTIONS/migration-ready" "$ACTIONS/migration-fail" "$ACTIONS/expect-retirement" "$ACTIONS/retirement-status" "$ACTIONS/legacy-no-handoff" "$ACTIONS/legacy-disabled"
+export PORTABLE_TEST_ROOT=$t/root
 }
 run() { mksh "$t/usb/NEMESIS.sh"; }
 result() { head -n 1 "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"; }
@@ -72,10 +128,16 @@ result() { head -n 1 "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"; }
 new_case
 run
 [ "$(result)" = '결과: ok' ]
+grep -q '자동 재부팅' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+grep -q '화면이 한 번 꺼졌다가 다시 켜질 수 있습니다' "$ACTIONS/toast"
+if grep -Eq '시동을 완전히 끈 뒤|콜드 재시작|수동으로 재부팅' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt" "$ACTIONS/toast"; then
+    echo 'FAIL successful install instructs manual cold restart'; exit 1
+fi
 grep -qx "install $t/root/data/gen5w.kr.portable.zip" "$ACTIONS/log"
-grep -qx 'snapshot /data/g5p-before' "$ACTIONS/log"
+grep -qx 'persistent-verify' "$ACTIONS/log"
+grep -qx reboot "$ACTIONS/log"
 [ ! -e "$t/root/data/gen5w.kr.portable.zip" ]
-grep -q 'enabled|1' "$t/usb/GEN5W-PORTABLE-REPORT/status.txt"
+grep -q 'persistent-payload-and-recovery-verified' "$t/usb/GEN5W-PORTABLE-REPORT/status.txt"
 grep -q TOAST "$ACTIONS/toast"
 echo 'PASS verified ZIP staged, NEMESIS install, staged copy removed, status/baseline recorded'
 
@@ -178,3 +240,68 @@ for outcome in success postinstall-failure inplace-failure; do
     [ -z "$(find "$t/root/data" -maxdepth 1 -name 'gen5w-portable-usb-preun.*' -print)" ]
 done
 echo 'PASS successful update and failed new-package postinstall retain the new hook'
+
+# Active update retires the currently enabled package overlay before NEMESIS
+# can replace APKs/hooks. On NEMESIS failure the held overlay is restored; on
+# success package migration owns finalization and USB requests one reboot.
+new_case; old_package; touch "$ACTIONS/refuse" "$ACTIONS/expect-retirement"; export PORTABLE_TEST_SH=$t/test-shell
+if run; then echo 'FAIL hid active update refusal'; exit 1; fi
+[ "$(result)" = '결과: failed' ]
+grep -qx update-retire "$ACTIONS/log"
+grep -qx update-restore "$ACTIONS/log"
+retire_line=$(grep -n '^update-retire$' "$ACTIONS/log" | head -n 1 | cut -d: -f1)
+[ "$retire_line" -lt "$(grep -n '^update-retired-and-verified$' "$ACTIONS/log" | head -n 1 | cut -d: -f1)" ]
+! grep -q 'install ' "$ACTIONS/log"
+! grep -q '^package-replace$' "$ACTIONS/log"
+[ ! -e "$ACTIONS/retirement-held" ]
+[ "$(grep -c '^reboot$' "$ACTIONS/log" || : )" = 0 ]
+! grep -q 'zygote' "$ACTIONS/log"
+! grep -q 'zygote' "$ACTIONS/toast"
+
+new_case; old_package; touch "$ACTIONS/expect-retirement"; export PORTABLE_TEST_SH=$t/test-shell
+touch "$ACTIONS/retire-fail"
+if run; then echo 'FAIL continued after owned overlay retirement failed'; exit 1; fi
+[ "$(result)" = '결과: refused' ]
+! grep -q 'install ' "$ACTIONS/log"
+! grep -q update-restore "$ACTIONS/log"
+
+new_case; old_package; touch "$ACTIONS/expect-retirement"; export PORTABLE_TEST_SH=$t/test-shell
+run
+[ "$(result)" = '결과: ok' ]
+grep -qx update-retire "$ACTIONS/log"
+! grep -q update-restore "$ACTIONS/log"
+grep -q '^install .*gen5w.kr.portable.zip$' "$ACTIONS/log"
+[ "$(grep -n '^update-retire$' "$ACTIONS/log" | head -n 1 | cut -d: -f1)" -lt "$(grep -n '^package-replace$' "$ACTIONS/log" | cut -d: -f1)" ]
+[ "$(grep -c '^retirement-finalize$' "$ACTIONS/log")" = 1 ]
+[ -f "$ACTIONS/migration-ready" ]
+[ ! -f "$ACTIONS/retirement-held" ]
+[ "$(grep -c '^reboot$' "$ACTIONS/log")" = 1 ]
+! grep -q 'zygote' "$ACTIONS/log"
+! grep -q 'zygote' "$ACTIONS/toast"
+echo 'PASS enabled update holds owned retirement before replacement, restores on failure, and reboots once on success'
+
+# The deployed 0.3.70 package has no no-zygote update handoff. Its own disable
+# path is used only after read-only admission and the staged ZIP have passed.
+new_case; old_package; touch "$ACTIONS/legacy-no-handoff"; export PORTABLE_TEST_SH=$t/test-shell
+run
+[ "$(result)" = '결과: ok' ]
+grep -qx legacy-disable "$ACTIONS/log"
+grep -q '구버전 적용을 먼저 안전하게 해제합니다.' "$ACTIONS/toast"
+grep -q '정상 설치 후 자동 재부팅됩니다. 이때 화면이 한 번 꺼졌다가 다시 켜질 수 있습니다.' "$ACTIONS/toast"
+[ "$(grep -c '^reboot$' "$ACTIONS/log")" = 1 ]
+echo 'PASS legacy update warns about the transition, disables through its owning path, then reboots after install'
+
+new_case; old_package; touch "$ACTIONS/expect-retirement" "$ACTIONS/migration-fail"; export PORTABLE_TEST_SH=$t/test-shell
+if run; then echo 'FAIL accepted update without persistent migration readiness'; exit 1; fi
+[ "$(result)" = '결과: failed' ]
+[ ! -f "$ACTIONS/migration-ready" ]
+[ "$(grep -c '^reboot$' "$ACTIONS/log" || : )" = 0 ]
+grep -qx migration-rollback "$ACTIONS/log"
+echo 'PASS update without persistent migration readiness does not request reboot'
+
+new_case; touch "$ACTIONS/reboot-fail"
+if run; then echo 'FAIL hid automatic reboot request failure'; exit 1; fi
+[ "$(result)" = '결과: failed' ]
+grep -q '자동 재부팅 요청에 실패' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+grep -qx reboot "$ACTIONS/log"
+echo 'PASS successful install reports automatic reboot command failure for manual recovery'

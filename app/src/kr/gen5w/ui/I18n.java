@@ -32,6 +32,9 @@ public final class I18n {
     private static void add(String ko, String en) { EN.put(ko, en); }
 
     static {
+        add("상세 디버깅", "Detailed debugging");
+        add("오디오·HUD·INFO 상세 기록", "Detailed audio, HUD and INFO logs");
+        add("로그는 용량을 제한해 보관합니다. 문제가 있으면 연결된 상태에서 진단을 저장하세요.", "Log storage is bounded. Save a diagnosis while connected if a function fails.");
         add("상태가 오래되었거나 수집기가 응답하지 않아 조작을 잠갔습니다.", "Controls are locked because status is stale or the collector is not responding.");
         add("무선 호스트 준비", "Wireless host ready");
         add("호스트 실행은 Wi-Fi나 휴대폰 연결 성공을 뜻하지 않습니다.", "A running host does not confirm Wi-Fi or phone connection.");

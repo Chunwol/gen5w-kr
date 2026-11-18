@@ -27,7 +27,10 @@ def git_output(*arguments: str) -> str:
                 if translated.is_dir():
                     environment['GIT_DIR'] = str(translated)
                     environment['GIT_WORK_TREE'] = str(ROOT)
-    return subprocess.check_output(['git', *arguments], cwd=ROOT, env=environment, text=True).strip()
+    return subprocess.check_output(
+        ['git', *arguments], cwd=ROOT, env=environment,
+        text=True, encoding='utf-8', errors='replace'
+    ).strip()
 
 
 def no_symlink(path: Path) -> None:
@@ -64,8 +67,9 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
     if runtime:
         for name in ('engine.jar', 'adapter.jar', 'libgen5whook.so', 'abi.sha256', 'hook-vm-test.jar'):
             files['dalvik/' + name] = inputs / 'dalvik' / name
-        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
+        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
             files[name] = HERE / name
+        files['bootguard-restore.sh'] = HERE / 'recovery-usb/restore.sh'
         for name, source in (('bridge.dex', inputs / 'apps/bridge.dex'),
                              ('wireless-host.apk', inputs / 'apps/wireless-host.apk'),
                              ('gen5w-core.apk', inputs / 'apps/gen5w-core.apk')):
@@ -105,9 +109,12 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
                     shutil.copyfileobj(stream, destination)
             target.chmod(0o755 if name.endswith('.sh') or name.startswith('bin/') else 0o644)
         metadata = {
-            'format': 1, 'activation': 'automatic-next-boot-wireless' if runtime else 'manual', 'vehicle_verified': False,
+            'format': 1,
+            'activation': 'persistent-system-next-boot-wireless' if runtime else 'manual',
+            'system_changes': 'allowlisted-/system-with-immutable-stock-restore' if runtime else 'none-until-explicit-apply',
+            'vehicle_verified': False,
             'structural_patches': ['bt', 'route', 'dipo', 'gpm', 'hotspot'],
-            'runtime_hooks': 'automatic-after-local-probe-with-failure-latch' if runtime else 'separate-explicit-activation-required',
+            'runtime_hooks': 'persistent-verified-start-without-zygote-restart' if runtime else 'separate-explicit-activation-required',
             'source_revision': git_output('rev-parse', 'HEAD'),
             'source_dirty': bool(git_output('status', '--porcelain')),
             'audio_compatibility': 'reviewed-elf-regions' if 'bin/audio-region-patch' in files else 'legacy-exact-profiles',

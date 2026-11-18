@@ -277,6 +277,59 @@ disable)
     restore || { write_phase failed; fail 'foreign property or restore failure retained'; }
     write_phase disabled || fail 'disable failed'
     ;;
+update-disable)
+    [ "$#" = 0 ] || fail 'unexpected update-disable arguments'
+    # The updater has already stopped authored workers. Restore only this
+    # transaction's exact current-boot properties; never stop/restart Android.
+    if [ "$(phase)" = disabled ] || [ "$(phase)" = expired ]; then exit 0; fi
+    active || fail 'owned current-boot wrapper transaction is not provable'
+    while IFS='|' read -r key wanted before extra; do
+        key_ok "$key" && [ -z "$extra" ] || fail 'malformed update wrapper journal'
+        current=$(op get "$key") || fail 'update wrapper property read failed'
+        [ "$current" = "$wanted" ] || { write_phase failed; fail 'owned wrapper changed during update retirement'; }
+    done < "$STATE/journal"
+    while IFS='|' read -r key wanted before extra; do
+        current=$(op get "$key") || current=__unreadable__
+        [ "$current" = "$before" ] && continue
+        if [ "$current" != "$wanted" ] || ! op set "$key" "$before" || [ "$(op get "$key")" != "$before" ]; then
+            rollback_failed=0
+            while IFS='|' read -r rollback_key rollback_wanted rollback_before; do
+                rollback_current=$(op get "$rollback_key") || { rollback_failed=1; continue; }
+                if [ "$rollback_current" = "$rollback_before" ]; then op set "$rollback_key" "$rollback_wanted" && [ "$(op get "$rollback_key")" = "$rollback_wanted" ] || rollback_failed=1
+                elif [ "$rollback_current" != "$rollback_wanted" ]; then rollback_failed=1; fi
+            done < "$STATE/journal"
+            [ "$rollback_failed" = 0 ] || write_phase failed
+            fail 'update wrapper restore failed; owned values were rolled back when provable'
+        fi
+    done < "$STATE/journal"
+    write_phase disabled || fail 'update wrapper retirement failed'
+    echo 'runtime: current-boot wrappers retired for update without restarting Android'
+    ;;
+update-restore)
+    [ "$#" = 0 ] && [ "$(phase)" = disabled ] && same_boot || fail 'no same-boot update wrapper transaction to restore'
+    [ -s "$STATE/journal" ] || exit 0
+    # Re-enable only the exact owned property values retired for this update.
+    # Never overwrite a value changed by another component while installation
+    # was in progress; roll back only properties this command itself changed.
+    while IFS='|' read -r key wanted before extra; do
+        key_ok "$key" && [ -z "$extra" ] || fail 'malformed update wrapper journal'
+        current=$(op get "$key") || fail 'update wrapper property read failed'
+        [ "$current" = "$wanted" ] && continue
+        [ "$current" = "$before" ] || fail 'foreign wrapper value retained during update'
+        if ! op set "$key" "$wanted" || [ "$(op get "$key")" != "$wanted" ]; then
+            rollback_failed=0
+            while IFS='|' read -r rollback_key rollback_wanted rollback_before; do
+                rollback_current=$(op get "$rollback_key") || { rollback_failed=1; continue; }
+                if [ "$rollback_current" = "$rollback_wanted" ]; then op set "$rollback_key" "$rollback_before" && [ "$(op get "$rollback_key")" = "$rollback_before" ] || rollback_failed=1
+                elif [ "$rollback_current" != "$rollback_before" ]; then rollback_failed=1; fi
+            done < "$STATE/journal"
+            [ "$rollback_failed" = 0 ] || write_phase failed
+            fail 'update wrapper re-enable failed; changed values were rolled back when provable'
+        fi
+    done < "$STATE/journal"
+    write_phase committed || fail 'update wrapper state commit failed'
+    echo 'runtime: prior owned wrappers restored without restarting Android'
+    ;;
 status)
     [ "$#" = 0 ] || fail 'unexpected arguments'
     current=$(phase)
@@ -286,5 +339,5 @@ status)
     esac
     echo "runtime|$current"
     ;;
-*) fail 'usage: runtime.sh preflight | enable probe|dipo|gpm|both | status | commit | disable';;
+*) fail 'usage: runtime.sh preflight | enable probe|dipo|gpm|both | status | commit | disable | update-disable | update-restore';;
 esac

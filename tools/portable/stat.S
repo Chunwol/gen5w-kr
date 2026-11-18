@@ -39,6 +39,20 @@ primitive setsid,66
 primitive poll,168
 primitive clock_gettime,263
 primitive _exit,1
+primitive flock,143
+primitive dup2,63
+primitive fchmod,94
+primitive fchown,207
+primitive getxattr,229
+.global setxattr
+.type setxattr,%function
+setxattr:
+ ldr ip,[sp]
+ push {r4,r7,lr}
+ mov r4,ip
+ mov r7,#226
+ svc #0
+ pop {r4,r7,pc}
 .global waitpid
 .type waitpid,%function
 waitpid:

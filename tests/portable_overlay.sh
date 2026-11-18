@@ -11,24 +11,28 @@ chmod 644 "$t/data/out/a" "$t/system/app/Iap2ServerApp.odex"
 cat > "$t/adapter" <<'MOCK'
 #!/bin/sh
 set -eu
-case "$1" in
-boot) cat "$PORTABLE_TEST_ROOT/boot";;
-identity)
-    input=$2
+echo "$*" >> "$PORTABLE_TEST_ROOT/adapter-events"
+identity_for() {
+    input=$1
     if [ -f "$PORTABLE_TEST_ROOT/mapping" ]; then
         while IFS='|' read -r source target; do
             if [ "$target" = "$input" ] && grep -Fx "$target" "$PORTABLE_TEST_ROOT/mounts" >/dev/null; then input=$source; break; fi
         done < "$PORTABLE_TEST_ROOT/mapping"
     fi
-    if [ -n "${PORTABLE_ARM_HELPER:-}" ]; then qemu-arm "$PORTABLE_ARM_HELPER" identity "$input"; else stat -c '%d:%i' "$input"; fi;;
-bound) test ! -f "$PORTABLE_TEST_ROOT/bound.fail";;
+    if [ -n "${PORTABLE_ARM_HELPER:-}" ]; then qemu-arm "$PORTABLE_ARM_HELPER" identity "$input"; else stat -c '%d:%i' "$input"; fi
+}
+case "$1" in
+boot) cat "$PORTABLE_TEST_ROOT/boot";;
+identity) identity_for "$2";;
+bound) test ! -f "$PORTABLE_TEST_ROOT/bound.fail" && test "$(identity_for "$2")" = "$(identity_for "$3")";;
 healthy|namespace|ready) test ! -f "$PORTABLE_TEST_ROOT/$1.fail";;
 sha) if [ -n "${PORTABLE_ARM_HELPER:-}" ]; then qemu-arm "$PORTABLE_ARM_HELPER" sha256 "$2"; else sha256sum "$2" | cut -d ' ' -f1; fi;;
 meta) if [ -n "${PORTABLE_ARM_HELPER:-}" ]; then qemu-arm "$PORTABLE_ARM_HELPER" metadata "$2"; else stat -c '%u|%g|%a' "$2"; fi;;
 visible) grep -Fx "$2" "$PORTABLE_TEST_ROOT/mounts" >/dev/null;;
 bind) test ! -f "$PORTABLE_TEST_ROOT/bind.fail"; if [ -f "$PORTABLE_TEST_ROOT/failtarget" ]; then test "$3" != "$(cat "$PORTABLE_TEST_ROOT/failtarget")"; fi; if [ -d "$2" ]; then mv "$3" "$3.backup"; cp -a "$2" "$3"; fi; echo "$2|$3" >> "$PORTABLE_TEST_ROOT/mapping"; echo "$3" >> "$PORTABLE_TEST_ROOT/mounts";;
-unmount) if [ -d "$2.backup" ]; then mv "$2" "$2.overlay"; mv "$2.backup" "$2"; rm -r "$2.overlay"; fi; grep -Fxv "$2" "$PORTABLE_TEST_ROOT/mounts" > "$PORTABLE_TEST_ROOT/m.tmp" || :; mv "$PORTABLE_TEST_ROOT/m.tmp" "$PORTABLE_TEST_ROOT/mounts";;
+unmount) if [ -f "$PORTABLE_TEST_ROOT/fail-unmount-target" ] && [ "$2" = "$(cat "$PORTABLE_TEST_ROOT/fail-unmount-target")" ] && [ ! -f "$PORTABLE_TEST_ROOT/unmount-failed-once" ]; then touch "$PORTABLE_TEST_ROOT/unmount-failed-once"; exit 1; fi; if [ -d "$2.backup" ]; then mv "$2" "$2.overlay"; mv "$2.backup" "$2"; rm -r "$2.overlay"; fi; grep -Fxv "$2" "$PORTABLE_TEST_ROOT/mounts" > "$PORTABLE_TEST_ROOT/m.tmp" || :; mv "$PORTABLE_TEST_ROOT/m.tmp" "$PORTABLE_TEST_ROOT/mounts";;
 sync) :;;
+stop-android|start-android) exit 99;;
 esac
 MOCK
 chmod +x "$t/adapter"
@@ -161,6 +165,15 @@ printf new > "$t/data/out/a"
 printf second > "$t/data/out/b"
 printf oldsecond > "$t/system/app/HKMC_GPM.odex"
 chmod 644 "$t/data/out/b" "$t/system/app/HKMC_GPM.odex"
+# Retire rollback must prove each source's captured stock identity and static
+# metadata before rebinding it. Capture sidecars from the underlying targets
+# before any overlay prepare/apply in this two-file scenario.
+sha256sum "$t/system/app/Iap2ServerApp.odex" | cut -d ' ' -f1 > "$t/data/out/a.stock"
+sha256sum "$t/system/app/HKMC_GPM.odex" | cut -d ' ' -f1 > "$t/data/out/b.stock"
+test "$(cat "$t/data/out/a.stock")" = "$(sha256sum "$t/system/app/Iap2ServerApp.odex" | cut -d ' ' -f1)"
+test "$(cat "$t/data/out/b.stock")" = "$(sha256sum "$t/system/app/HKMC_GPM.odex" | cut -d ' ' -f1)"
+test "$(stat -c '%u|%g|%a' "$t/data/out/a")" = "$(stat -c '%u|%g|%a' "$t/system/app/Iap2ServerApp.odex")"
+test "$(stat -c '%u|%g|%a' "$t/data/out/b")" = "$(stat -c '%u|%g|%a' "$t/system/app/HKMC_GPM.odex")"
 printf 'bt|/data/out/a|/system/app/Iap2ServerApp.odex|%s|%s|static\nbt|/data/out/b|/system/app/HKMC_GPM.odex|%s|%s|static\n' "$hash" "$meta" "$(sha256sum "$t/data/out/b" | cut -d ' ' -f1)" "$meta" > "$t/multi"
 run prepare "$t/multi"
 printf '%s\n' "$t/system/app/HKMC_GPM.odex" > "$t/failtarget"
@@ -200,6 +213,43 @@ cp "$t/system/onebin/osah_kr/featurexml.cfg" "$t/system/onebin/osah_kr/extra/fea
 sed 's@onebin/osah_kr/featurexml.cfg@onebin/osah_kr/extra/featurexml.cfg@' "$t/onebin" > "$t/extra-region"
 fail prepare "$t/extra-region"
 echo 'portable onebin region tests passed'
+
+# Explicit retirement is allowed while Android is running, but only for a
+# same-boot committed set whose binds are all still owned and active.
+printf boot-retire > "$t/boot"
+run prepare "$t/multi"
+run apply
+run commit
+touch "$t/ready.fail"
+: > "$t/adapter-events"
+touch "$t/bound.fail"
+fail retire-live
+test "$(cat "$t/state/state")" = committed
+test "$(wc -l < "$t/mounts")" -eq 2
+rm "$t/bound.fail"
+# Missing one active target must be rejected before any unmount.
+cp "$t/mounts" "$t/mounts.saved"
+sed '$d' "$t/mounts" > "$t/mounts.tmp"
+mv "$t/mounts.tmp" "$t/mounts"
+fail retire-live
+test "$(cat "$t/state/state")" = committed
+test "$(wc -l < "$t/mounts")" -eq 1
+mv "$t/mounts.saved" "$t/mounts"
+# One successful unmount followed by an injected failure must restore all
+# owned binds and preserve committed state for a retry.
+printf '%s\n' "$t/system/app/HKMC_GPM.odex" > "$t/fail-unmount-target"
+fail retire-live
+test -f "$t/unmount-failed-once"
+test "$(cat "$t/state/state")" = committed
+test "$(wc -l < "$t/mounts")" -eq 2
+run status | grep 'state|committed' >/dev/null
+if grep -E '^(stop-android|start-android)( |$)' "$t/adapter-events" >/dev/null; then echo 'FAIL retire-live controlled Android service'; exit 1; fi
+rm "$t/fail-unmount-target" "$t/unmount-failed-once"
+run retire-live
+test ! -s "$t/mounts"
+test "$(cat "$t/state/state")" = retired
+if grep -E '^ready( |$)' "$t/adapter-events" >/dev/null; then echo 'FAIL retire-live queried stopped-zygote state'; exit 1; fi
+if grep -E '^(stop-android|start-android)( |$)' "$t/adapter-events" >/dev/null; then echo 'FAIL retire-live controlled Android service'; exit 1; fi
 
 LOCK_STATE=$t/state
 LOCK_BOOT_FILE=$t/boot

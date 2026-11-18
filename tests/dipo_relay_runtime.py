@@ -20,6 +20,7 @@ import com.daudio.app.dipo.telechips.CarPlayService;
 public class DipoRelayRuntimeTest {
  static void check(boolean ok,String m){if(!ok)throw new AssertionError(m);}
  static String address(String iap,String session){try{return (String)RelayBridge.class.getMethod("reconnectAddress",String.class,String.class).invoke(null,iap,session);}catch(Exception e){throw new AssertionError("missing safe reconnect address selection",e);}}
+ static boolean keepBluetooth(){try{return ((Boolean)RelayBridge.class.getMethod("keepBluetoothForWireless").invoke(null)).booleanValue();}catch(Exception e){throw new AssertionError("missing wireless Bluetooth preservation gate",e);}}
  static class Port implements com.tcc.iap2.IIap2Service {
   int init,reads;boolean failOnce,rejectOnce,connectInInit,rejectRead;byte first;
   Runnable onRead;String order="";
@@ -153,6 +154,15 @@ public class DipoRelayRuntimeTest {
    RelayBridge.fromCarPlay(owner,new byte[]{1},1);check(owner.requests==1,"handover is requested once");
    check(p.reads==0,"data waits for component 5");
    RelayBridge.connected(5,null);check(p.reads==1&&owner.connections==1,"component 5 is accepted after a session-start handover");
+  }else if(args[0].equals("bluetooth-disable")){
+   check(!keepBluetooth(),"no session does not suppress stock Bluetooth cleanup");
+   RelayBridge.sessionCreated(owner);check(!keepBluetooth(),"created session is not wireless yet");
+   RelayBridge.sessionStarted(owner,1);check(keepBluetooth(),"wireless CarPlay keeps the phone Bluetooth link");
+   RelayBridge.sessionFinalized(owner);check(!keepBluetooth(),"finalized session restores stock cleanup");
+   RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,0);
+   check(!keepBluetooth(),"wired CarPlay retains stock Bluetooth cleanup");
+   RelayBridge.connected(1,"usb");RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,1);
+   check(!keepBluetooth(),"an active USB projection never suppresses Bluetooth cleanup");
   }else if(args[0].equals("wireless-start-usb")){
    RelayBridge.connected(1,"usb");RelayBridge.sessionCreated(owner);RelayBridge.sessionStarted(owner,1);
    check(owner.requests==0,"a USB phone never hands over");
@@ -176,7 +186,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dipo-runtime-') as folder:
                 str(ROOT/'shared/src/kr/gen5w/diag/SafeDiagnostic.java')]
     subprocess.run(['javac', '-encoding', 'UTF-8', '-Xlint:-options', '--release', '8', '-d', str(work), *sources], check=True)
     failed = []
-    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized','listener-bt','listener-usb','listener-cp5','ignore-disconnect','ignore-during-handover','wired-disconnect','drop-notify','wireless-start','wireless-start-usb'):
+    for case in ('reconnect','register-exception','register-false','early','late-bind','connect-in-init','overflow','byte-overflow','read-false','read-binder-failure','replace-during-flush','reentrant-order','finalize-during-flush','rejected-listener','old-listener','wired-inbound','wired','usb-early','stale-owner','stale-start','finalized','listener-bt','listener-usb','listener-cp5','ignore-disconnect','ignore-during-handover','wired-disconnect','drop-notify','wireless-start','bluetooth-disable','wireless-start-usb'):
         result = subprocess.run(['java','-cp',str(work),'DipoRelayRuntimeTest',case], timeout=10)
         if result.returncode:
             failed.append(case)

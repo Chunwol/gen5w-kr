@@ -10,7 +10,15 @@ echo authored > "$t/package/payload"
 (cd "$t/package"; sha256sum payload package-pre.sh bin/dex-patch > SHA256SUMS)
 cat > "$t/adapter" <<'SH'
 #!/bin/bash
-case "$1" in version) cat "$ACTIONS/version";; packages) cat "$ACTIONS/packages";; healthy) [ ! -f "$ACTIONS/unhealthy" ];; installed) [ -f "$ACTIONS/existing" ];; *) exit 1;; esac
+case "$1" in
+ version) cat "$ACTIONS/version";;
+ packages) cat "$ACTIONS/packages";;
+ healthy) [ ! -f "$ACTIONS/unhealthy" ];;
+ installed) [ -f "$ACTIONS/existing" ];;
+ retirement) cat "$ACTIONS/retirement" 2>/dev/null || echo none;;
+ overlay-state) cat "$ACTIONS/overlay-state" 2>/dev/null || echo absent;;
+ *) exit 1;;
+esac
 SH
 chmod +x "$t/adapter"
 export PORTABLE_TEST_PACKAGE_ADAPTER=$t/adapter ACTIONS=$t/actions
@@ -33,6 +41,17 @@ for package in gen5w.kr.bridge gen5w.kr.core wireless.projection enhanced.projec
  if run >/dev/null 2>&1; then echo "FAIL ignored package conflict $package"; exit 1; fi
 done
 : > "$ACTIONS/packages"
+echo retired-pending > "$ACTIONS/overlay-state"
+echo held > "$ACTIONS/retirement"
+echo 'gen5w.kr.portable|0.3.72|installed' > "$ACTIONS/packages"
+run
+echo active > "$ACTIONS/overlay-state"
+if run >/dev/null 2>&1; then echo 'FAIL replaced portable package without a held retirement'; exit 1; fi
+echo retired-pending > "$ACTIONS/overlay-state"
+echo not-held > "$ACTIONS/retirement"
+if run >/dev/null 2>&1; then echo 'FAIL replaced portable package without confirmed held retirement'; exit 1; fi
+: > "$ACTIONS/packages"
+echo absent > "$ACTIONS/overlay-state"
 touch "$ACTIONS/unhealthy"
 if run >/dev/null 2>&1; then echo 'FAIL installed without healthy Android'; exit 1; fi
 rm "$ACTIONS/unhealthy"
@@ -42,4 +61,4 @@ echo authored > "$t/package/payload"
 ln -s payload "$t/package/link"
 (cd "$t/package"; sha256sum link > SHA256SUMS)
 if run >/dev/null 2>&1; then echo 'FAIL accepted symlink payload'; exit 1; fi
-echo 'PASS package preflight: version floor, healthy Android, app ownership, exact payload and symlink refusal'
+echo 'PASS package preflight: version floor, healthy Android, app ownership, retired-pending update gate, exact payload and symlink refusal'

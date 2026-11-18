@@ -337,9 +337,10 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         boolean up;
         try { up = manager.getRemoteService() != null; }
         catch (RuntimeException e) { up = false; }
-        // Read from the May 2025 V039 image; the car runs a later build. If this
-        // method is missing there, register as before rather than never.
-        catch (LinkageError e) { up = true; }
+        // The car's later BTCM build may not expose this probe. In that case,
+        // only the service-connected callback is proof that registration is safe;
+        // an early register can leave Broadcom's process listener permanently stale.
+        catch (LinkageError e) { up = renew; }
         if (!up) {
             android.util.Log.i("Gen5wWireless", "path=relay event=btcm result=waiting-service");
             return;

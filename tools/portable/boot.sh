@@ -480,6 +480,119 @@ case "$command" in
 reset-snapshot) reset_snapshot;;
 dropbox-names) dropbox_names;;
 dropbox-scan) dropbox_scan;;
+update-retire)
+    [ "$#" = 0 ] || fail arguments
+    lock || fail locked
+    if [ -f "$STATE/update-held" ]; then
+        IFS='|' read -r held_boot held_enabled held_overlay held_runtime held_extra < "$STATE/update-held" || fail update-state
+        [ -z "$held_extra" ] && [ "$held_boot" = "$(op boot)" ] || fail stale-update-state
+        overlay_status=$(/system/bin/sh "$BASE/overlay.sh" status) || fail overlay-status
+        case "$held_overlay" in
+            committed) case "$overlay_status" in *'state|retired-pending'*) echo 'boot: update retirement already held'; exit 0;; *) fail 'update state is held without its retirement journal';; esac;;
+            inactive) case "$overlay_status" in *'state|disabled'*|*'state|expired'*|*'state|prepared'*|*'state|retired'*) echo 'boot: update hold already recorded'; exit 0;; *) fail 'update state is held with an unexpected overlay';; esac;;
+            *) fail 'update state has an invalid prior overlay flag';;
+        esac
+    fi
+    prior_enabled=0; enabled && prior_enabled=1
+    runtime_status=$(/system/bin/sh "$BASE/runtime.sh" status) || fail runtime-status
+    case "$runtime_status" in 'runtime|committed') runtime_kind=committed;; 'runtime|disabled'|'runtime|expired') runtime_kind=inactive;; *) fail 'runtime wrapper state is not safe for update';; esac
+    overlay_status=$(/system/bin/sh "$BASE/overlay.sh" status) || fail overlay-status
+    case "$overlay_status" in
+        *'state|committed'*|*'state|retired-pending'*) overlay_kind=committed;;
+        *'state|disabled'*|*'state|expired'*|*'state|prepared'*|*'state|retired'*) overlay_kind=inactive;;
+        *) fail 'overlay state is not safe for update';;
+    esac
+    print -r -- "$(op boot)|$prior_enabled|$overlay_kind|$runtime_kind" > "$STATE/update-held.new" && mv "$STATE/update-held.new" "$STATE/update-held" || fail update-journal
+    stop_session || fail 'owned session could not stop for update'
+    if ! /system/bin/sh "$BASE/runtime.sh" update-disable; then
+        rm -f "$STATE/update-held" "$STATE/update-held.new"
+        fail 'owned wrappers could not be retired for update without restarting Android'
+    fi
+    if [ "$overlay_kind" = committed ] && ! echo "$overlay_status" | grep -q 'state|retired-pending'; then
+        if ! /system/bin/sh "$BASE/overlay.sh" retire-live hold; then
+            [ "$runtime_kind" != committed ] || /system/bin/sh "$BASE/runtime.sh" update-restore || :
+            rm -f "$STATE/update-held" "$STATE/update-held.new"
+            fail 'owned overlays could not be retired without restarting Android'
+        fi
+    fi
+    if ! put enabled 0 || ! put reason update-held || ! sync; then
+        if [ "$overlay_kind" = committed ]; then /system/bin/sh "$BASE/overlay.sh" retire-restore || :; fi
+        [ "$runtime_kind" != committed ] || /system/bin/sh "$BASE/runtime.sh" update-restore || :
+        rm -f "$STATE/update-held" "$STATE/update-held.new"
+        fail update-disable
+    fi
+    echo 'boot: owned overlays retired and auto-start held for package update; Android was not restarted'
+    ;;
+update-restore)
+    [ "$#" = 0 ] || fail arguments
+    recovery_state=$ROOT/data/local/gen5w-portable/persistent/recovery
+    [ ! -L "$recovery_state/transaction-needs-recovery" ] && [ ! -e "$recovery_state/transaction-needs-recovery" ] ||
+        fail 'persistent rollback is uncertain; keep the old view retired and use the independent restore USB'
+    # Once the persistent writer has committed and its exact live state
+    # verifies, an installer failure after that point must never rebind the
+    # previous transient view over the new /system payload.
+    commit_marker=$recovery_state/transaction-committed
+    if [ -e "$commit_marker" ] || [ -L "$commit_marker" ]; then
+        [ -f "$commit_marker" ] && [ ! -L "$commit_marker" ] || fail 'persistent commit marker is unsafe; leaving the old view retired'
+        lock || fail locked
+        /system/bin/sh "$BASE/persistent-start.sh" verify >/dev/null 2>&1 ||
+            fail 'persistent commit was recorded but cannot be verified; leaving the old view retired for recovery'
+        overlay_status=$(/system/bin/sh "$BASE/overlay.sh" status) || fail overlay-status
+        case "$overlay_status" in
+            *'state|retired-pending'*) /system/bin/sh "$BASE/overlay.sh" retire-finalize || fail 'committed persistent update could not finalize the held overlay journal';;
+            *) :;;
+        esac
+        stop_session || fail 'committed persistent update could not stop the retired session'
+        put enabled 1 && put reason persistent-update-committed &&
+            rm -f "$STATE/update-held" "$STATE/update-enabled" "$commit_marker" "$recovery_state/transaction-in-progress" &&
+            sync || fail persistent-update-state
+        echo 'boot: persistent /system update is verified; prior transient wrappers remain retired'
+        exit 0
+    fi
+    [ ! -L "$recovery_state/transaction-in-progress" ] && [ ! -e "$recovery_state/transaction-in-progress" ] ||
+        fail 'persistent write was interrupted; keep the old view retired and use the independent restore USB'
+    if [ -f "$STATE/update-held" ] && [ ! -L "$STATE/update-held" ] &&
+       /system/bin/sh "$BASE/persistent-start.sh" verify >/dev/null 2>&1; then
+        lock || fail locked
+        overlay_status=$(/system/bin/sh "$BASE/overlay.sh" status) || fail overlay-status
+        case "$overlay_status" in
+            *'state|retired-pending'*) /system/bin/sh "$BASE/overlay.sh" retire-finalize || fail 'committed persistent update could not finalize the held overlay journal';;
+            *) :;;
+        esac
+        stop_session || fail 'committed persistent update could not stop the retired session'
+        put enabled 1 && put reason persistent-update-committed &&
+            rm -f "$STATE/update-held" "$STATE/update-enabled" && sync || fail persistent-update-state
+        echo 'boot: persistent /system update is verified; prior transient wrappers remain retired'
+        exit 0
+    fi
+    lock || fail locked
+    if [ ! -e "$STATE/update-held" ] && [ ! -L "$STATE/update-held" ]; then
+        overlay_status=$(/system/bin/sh "$BASE/overlay.sh" status) || fail overlay-status
+        case "$overlay_status" in *'state|committed'*) echo 'boot: update handoff was already restored'; exit 0;; *'state|retired'*) /system/bin/sh "$BASE/persistent-start.sh" verify >/dev/null 2>&1 && { echo 'boot: persistent update is already committed'; exit 0; };; esac
+        fail update-not-held
+    fi
+    [ -f "$STATE/update-held" ] && [ ! -L "$STATE/update-held" ] || fail unsafe-update-state
+    IFS='|' read -r held_boot held_enabled held_overlay held_runtime held_extra < "$STATE/update-held" || fail update-state
+    [ -z "$held_extra" ] && [ "$held_boot" = "$(op boot)" ] || fail stale-update-state
+    stop_session || fail 'owned session could not stop before restoring the held update view'
+    if [ "$held_overlay" = committed ]; then
+        overlay_status=$(/system/bin/sh "$BASE/overlay.sh" status) || fail overlay-status
+        case "$overlay_status" in *'state|retired-pending'*) /system/bin/sh "$BASE/overlay.sh" retire-restore || fail 'held overlay could not be restored';; *'state|committed'*) :;; *) fail 'held overlay state is not safely restorable';; esac
+    fi
+    if [ "$held_runtime" = committed ]; then
+        runtime_status=$(/system/bin/sh "$BASE/runtime.sh" status) || fail runtime-status
+        case "$runtime_status" in 'runtime|disabled') /system/bin/sh "$BASE/runtime.sh" update-restore || fail 'held wrapper properties could not be restored';; 'runtime|committed') :;; *) fail 'held wrapper state is not safely restorable';; esac
+    fi
+    put enabled "$held_enabled" && put reason update-restored && rm -f "$STATE/update-held" "$STATE/update-enabled" && sync || fail update-state-cleanup
+    echo 'boot: prior overlay view restored without restarting Android; next cold boot resumes prior startup policy'
+    ;;
+persistent-commit)
+    [ "$#" = 0 ] || fail arguments
+    lock || fail locked
+    /system/bin/sh "$BASE/persistent-start.sh" verify >/dev/null || fail 'persistent payload and recovery manifest are not verified'
+    put enabled 1 && put reason persistent-start-ready && sync || fail persistent-state
+    echo 'boot: persistent startup enabled; no per-boot zygote restart is scheduled'
+    ;;
 transact|recover|recover-runtime)
     [ "${PORTABLE_BOOT_GUARDED:-}" = 1 ] || fail 'internal command requires native supervision'
     # The native supervisor has already armed its independent rescue process.
@@ -846,5 +959,5 @@ status)
     echo "runtime-policy|$(cat "$STATE/runtime-policy" 2>/dev/null)"
     [ ! -f "$STATE/skipped" ] || cat "$STATE/skipped"
     ;;
-*) fail 'usage: boot.sh arm [--trial] MANIFEST | probe MANIFEST | run | activate | disable | status';;
+*) fail 'usage: boot.sh arm [--trial] MANIFEST | probe MANIFEST | run | activate | update-retire | update-restore | persistent-commit | disable | status';;
 esac

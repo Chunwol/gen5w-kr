@@ -18,6 +18,29 @@ op() {
     packages) /system/xbin/nemesis pkg-list;;
     healthy) [ "$(getprop sys.boot_completed)" = 1 ] && [ "$(getprop init.svc.zygote)" = running ];;
     installed) pm path "$2" | grep -q '^package:';;
+    retirement)
+        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" retirement; return $?; fi
+        marker=/data/local/gen5w-portable/boot/update-held
+        [ -f "$marker" ] && [ ! -L "$marker" ] || { echo none; return 0; }
+        IFS='|' read -r held_boot held_enabled held_overlay held_runtime extra < "$marker" || return 1
+        [ -z "$extra" ] && [ "$held_boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] || return 1
+        echo held;;
+    overlay-state)
+        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" overlay-state; return $?; fi
+        status=$(/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/overlay.sh status) || return 1
+        case "$status" in *'state|retired-pending'*) echo retired-pending;; *'state|disabled'*) echo disabled;; *'state|expired'*) echo expired;; *'state|prepared'*) echo prepared;; *'state|retired'*) echo retired;; *'state|committed'*) echo active;; *) echo unknown; return 1;; esac;;
+    old-status)
+        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" status; return $?; fi
+        /system/bin/sh /data/nemesis/apps/gen5w.kr.portable/boot.sh status;;
+    legacy-quiescent)
+        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" legacy-quiescent; return $?; fi
+        grep -q '/data/local/gen5w-portable' /proc/mounts && return 1
+        for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do [ -z "$(getprop "$key")" ] || return 1; done
+        runtime=$(/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/runtime.sh status) || return 1
+        case "$runtime" in 'runtime|disabled'|'runtime|expired') :;; *) return 1;; esac;;
+    retire-update)
+        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" update-retire; return $?; fi
+        /system/bin/sh /data/nemesis/apps/gen5w.kr.portable/boot.sh update-retire;;
     *) return 1;;
     esac
 }
@@ -39,15 +62,42 @@ if [ "$major" -lt 1 ] || { [ "$major" = 1 ] && { [ "$minor" -lt 16 ] || { [ "$mi
     fail 'NEMESIS 1.16.7 or newer is required'
 fi
 packages=$(op packages) || fail 'installed package inventory unavailable'
+own_update=0
 while IFS='|' read -r package rest; do
+    [ "$package" != gen5w.kr.portable ] || own_update=1
     case "$package" in gen5w.kr.bridge|gen5w.kr.core|wireless.projection|enhanced.projection|projection.tbt)
         fail "conflicting installation retained: $package";; esac
 done <<EOF
 $packages
 EOF
 op healthy || fail 'healthy Android required for installation'
+if [ "$own_update" = 1 ]; then
+    retirement=$(op retirement) || fail 'existing update-handoff state is unreadable'
+    if [ "$retirement" != held ]; then
+        prior_status=$(op old-status) || fail 'existing package state is unreadable'
+        if grep -qx 'enabled|1' <<EOF
+$prior_status
+EOF
+        then
+            op retire-update || fail 'existing package could not safely retire its live view for update'
+            retirement=$(op retirement) || fail 'existing update-handoff state is unreadable'
+        else
+            grep -qx 'enabled|0' <<EOF
+$prior_status
+EOF
+            op legacy-quiescent || fail 'legacy package is not quiescent; disable it through its owning path before update'
+            retirement=inactive
+        fi
+    fi
+    if [ "$retirement" = held ]; then
+        overlay_state=$(op overlay-state) || fail 'existing overlay state is unreadable'
+        case "$overlay_state" in retired-pending|disabled|expired|prepared|retired) :;; *) fail 'existing overlays are not held or inactive';; esac
+    else [ "$retirement" = inactive ] || fail 'safe update handoff was not recorded'; fi
+fi
 for package in kr.gen5w.core kr.gen5w.wirelesshost; do
-    op installed "$package" && fail 'existing authored app retained; remove its owning installation first'
+    if op installed "$package"; then
+        [ "$own_update" = 1 ] || fail 'existing authored app retained; remove its owning installation first'
+    fi
 done
 plain "$BASE/SHA256SUMS" && [ -s "$BASE/SHA256SUMS" ] || fail hashes
 chmod 755 "$HELPER" || fail helper

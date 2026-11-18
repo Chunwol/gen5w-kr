@@ -226,6 +226,13 @@ public final class GuidanceSessionTest {
         long second = epoch.open();
         check("reconnect has a fresh generation", second != first && !epoch.isCurrent(first) && epoch.isCurrent(second));
         check("duplicate connected event keeps generation", epoch.open() == second);
+        NotificationEpoch handover = new NotificationEpoch();
+        long bluetooth = handover.open(4);
+        long wifi = handover.open(5);
+        check("transport handover invalidates old queued guidance", wifi != bluetooth && !handover.isCurrent(bluetooth));
+        check("duplicate wifi connect retains its subscription", handover.open(5) == wifi);
+        check("late bluetooth disconnect cannot close wifi guidance", handover.close(4) == -1 && handover.isCurrent(wifi));
+        check("current wifi disconnect closes guidance", handover.close(5) > wifi && handover.ticket() == -1);
         GuidanceRequest request = new GuidanceRequest();
         RequestBackend backend = new RequestBackend();
         check("guidance request waits for link", !request.ensure(-1,backend) && backend.starts == 0);

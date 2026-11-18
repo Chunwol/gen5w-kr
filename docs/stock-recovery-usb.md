@@ -1,5 +1,11 @@
 # 순정 복원 전용 USB
 
+## 실차 이력과 복구 범위
+
+2026-11-10~11-11 첫 복구 USB들은 실제 차량에서 차례로 실패했다. 원인은 NEMESIS 설치 자체가 아니라, 순정화 작업의 `/system` read-only remount 실패, 표준형 recovery stage의 `errors.sh` 누락, 이후 복구 캐시 사전검사 `unsafe-path`였다. 각 제작 결함을 수정한 `stock-recover` USB 뒤 사용자 차량 복구 성공 보고와 USB 실행 로그가 기록됐다. 이 성공은 Android가 실행 가능한 상태에서의 복구다. Android UI/zygote가 올라오지 않는 상태에서 USB가 자동 실행된 증거는 아니다. 근거는 KnowledgeHub 세션 `2026-11-10-220654-Gen5W-실차롤백재실패진단`, `2026-11-11-090927-Gen5W-복구키트동글검사의존성누락`, `2026-11-11-095504-Gen5W-복구캐시중단수정USB`, `2026-11-11-095726-Gen5W-복구성공공식NEM업데이트USB`다.
+
+현재 표준 설치/복구 USB는 `NEMESIS.emergency`를 넣지 않고 Android가 완전히 시작된 경우만 허용한다. 공식 NEMESIS 1.16 문서(2026-11-01, 차의 당시 버전 1.16.3)에는 Android down일 때 emergency marker가 있는 `type=execute` USB를 실행한다고 적혀 있다. `tools/portable/recovery-usb/probe/`에 system 변경 없는 탐침을 만들었지만 차량 실행은 아직 하지 않았다. 따라서 현재 USB가 Android down에서 작동하는지, persistent portable 대상 원복이 되는지는 미검증이다. [NEMESIS 1.16 run-script 문서](https://github.com/xwtk/hmg_nemesis/blob/a7dc770e7d92036239f24e0c327e78742162249b/05-Run-Scripts.md)
+
 `GEN5W-ACTION=stock-recover`는 이전 버전 패키지를 다시 설치하는 `rollback`과 다르다. 현재 등록된 우리 패키지를 제거하고, 검증된 번들의 제거 훅으로 원본 복원을 확인한다. 기존 트랜잭션의 `prior` 스냅샷은 보존하며 재설치하지 않는다.
 
 USB 순정 복원은 USB 매니페스트와 모듈 검사를 직접 수행한다. 사용하지 않는 차내 앱 복구 도구의 세대 교체가 선행 조건이 아니다. 일반 설치에서 도구 교체가 필요한 경우에는 검증된 루트 전용 캐시 부모 아래의 이전 세대·중단된 준비 폴더를 삭제 없이 격리하고, 검증한 새 도구를 비공개 권한으로 교체한다. 심볼릭 링크의 대상이나 원본 복원 스냅샷은 변경하지 않는다.
