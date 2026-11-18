@@ -29,7 +29,7 @@ for pair in "bootguard.sh guard.sh" "bootguard-restore.sh restore.sh" "bin/dex-p
     set -- $pair
     [ ! -L "$GUARD/$2" ] && cp "$BASE/$1" "$GUARD/$2.new" && chmod 700 "$GUARD/$2.new" && mv "$GUARD/$2.new" "$GUARD/$2" || exit 1
 done
-rm -f "$GUARD/tripped" && echo 0 > "$GUARD/count" && sync || exit 1
+rm -f "$GUARD/tripped" "$GUARD/GEN5W-RECOVERY-RESULT.txt" && echo 0 > "$GUARD/count" && sync || exit 1
 "$SH" "$BASE/boot.sh" persistent-commit || exit 1
 rm -f "$TEST_ROOT/data/local/gen5w-portable/persistent/recovery/transaction-committed" "$TEST_ROOT/data/local/gen5w-portable/persistent/recovery/transaction-in-progress" || exit 1
 # Clear the authored UI hold only after the persistent transaction and its

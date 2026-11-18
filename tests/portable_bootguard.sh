@@ -51,21 +51,41 @@ echo 3 > "$guard/count"
 run
 [ "$(cat "$guard/count")" = 4 ]
 [ ! -e "$guard/tripped" ] && [ ! -e "$guard/calls" ]
+echo 'result=failed' > "$guard/GEN5W-RECOVERY-RESULT.txt"
 TEST_RESTORE_RC=7 run && { echo 'FAIL restore failure accepted'; exit 1; }
-[ ! -e "$guard/tripped" ]
+# First attempt drops a stale result and records attempt 1.
+[ "$(cat "$guard/tripped")" = 1 ]
+[ ! -e "$guard/GEN5W-RECOVERY-RESULT.txt" ]
 [ "$(cat "$guard/count")" = 5 ]
-run
-[ -f "$guard/tripped" ]
 [ "$(cat "$state/enabled")" = 0 ]
 [ "$(cat "$state/reason")" = bootguard-restored ]
-[ "$(wc -l < "$guard/calls")" = 2 ]
-before=$(cat "$guard/count")
+# Failed or interrupted (no restored report): retried on the next boot without counting.
 run
-[ "$(cat "$guard/count")" = "$before" ]
+[ "$(cat "$guard/tripped")" = 2 ]
+[ "$(cat "$guard/count")" = 5 ]
 [ "$(wc -l < "$guard/calls")" = 2 ]
-echo 'PASS bootguard threshold, restore environment, failure retry, latch'
-rm "$guard/tripped"
-for name in count count.new tripped guard.log restore.sh bin bin/dex-patch; do
+echo 'result=failed' > "$guard/GEN5W-RECOVERY-RESULT.txt"
+run
+[ "$(cat "$guard/tripped")" = 3 ]
+[ "$(wc -l < "$guard/calls")" = 3 ]
+grep -q 'previous restore did not complete (attempt 2); retrying' "$guard/guard.log"
+# Only a restored report latches.
+printf 'result=restored
+system=rw-until-reboot
+reboot=requested
+' > "$guard/GEN5W-RECOVERY-RESULT.txt"
+run
+[ "$(cat "$guard/count")" = 5 ]
+[ "$(wc -l < "$guard/calls")" = 3 ]
+printf 'result=success
+already-restored=1
+' > "$guard/GEN5W-RECOVERY-RESULT.txt"
+run
+[ "$(wc -l < "$guard/calls")" = 3 ]
+grep -q 'latched: stock was already restored by the guard' "$guard/guard.log"
+echo 'PASS bootguard threshold, restore environment, interrupted/failed restore retry, restored-only latch'
+rm "$guard/tripped" "$guard/GEN5W-RECOVERY-RESULT.txt"
+for name in count count.new tripped tripped.new guard.log restore.sh bin bin/dex-patch GEN5W-RECOVERY-RESULT.txt; do
     path=$guard/$name
     if [ -e "$path" ]; then mv "$path" "$t/saved"; fi
     ln -s "$t/outside" "$path"

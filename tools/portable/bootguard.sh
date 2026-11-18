@@ -33,19 +33,38 @@ put() { print -r -- "$2" > "$1.new" && mv "$1.new" "$1"; }
 safe_dir() { [ -d "$1" ] && [ ! -L "$1" ]; }
 
 safe_dir "$GUARD" || exit 0
-for f in count count.new count.svc tripped guard.log restore.sh bin bin/dex-patch; do [ ! -L "$GUARD/$f" ] || exit 0; done
-if [ -e "$GUARD/tripped" ]; then log 'latched: stock was already restored by the guard'; exit 0; fi
+RESULT=$GUARD/GEN5W-RECOVERY-RESULT.txt
+for f in count count.new count.svc tripped tripped.new guard.log restore.sh bin bin/dex-patch GEN5W-RECOVERY-RESULT.txt; do [ ! -L "$GUARD/$f" ] || exit 0; done
 case "$LIMIT$STABLE$WAIT" in *[!0-9]*) exit 0;; esac
+# restore.sh writes result=restored before it reboots (result=success when it
+# finds the restore already complete). Anything else means it never finished.
+restored() {
+    [ -f "$RESULT" ] || return 1
+    while IFS= read -r line; do
+        case "$line" in result=restored|result=success) return 0;; esac
+    done < "$RESULT"
+    return 1
+}
 
-n=$(cat "$GUARD/count" 2>/dev/null)
-case "$n" in ''|*[!0-9]*) n=0;; esac
-n=$((n+1))
-put "$GUARD/count" "$n" || exit 0
-sync
-log "boot $n/$LIMIT"
+attempt=0
+if [ -e "$GUARD/tripped" ]; then
+    if restored; then log 'latched: stock was already restored by the guard'; exit 0; fi
+    # A restore cut off by power loss or a failed restore: retry on every boot.
+    attempt=$(cat "$GUARD/tripped" 2>/dev/null)
+    case "$attempt" in ''|*[!0-9]*) attempt=1;; esac
+    log "previous restore did not complete (attempt $attempt); retrying"
+    n=$((LIMIT+1))
+else
+    n=$(cat "$GUARD/count" 2>/dev/null)
+    case "$n" in ''|*[!0-9]*) n=0;; esac
+    n=$((n+1))
+    put "$GUARD/count" "$n" || exit 0
+    sync
+    log "boot $n/$LIMIT"
+fi
 
 if [ "$n" -gt "$LIMIT" ]; then
-    log "no stable Android for $LIMIT boots; restoring stock /system files"
+    [ "$attempt" != 0 ] || log "no stable Android for $LIMIT boots; restoring stock /system files"
     if safe_dir "$STATE"; then
         [ -L "$STATE/enabled" ] || put "$STATE/enabled" 0
         [ -L "$STATE/reason" ] || put "$STATE/reason" bootguard-restored
@@ -53,15 +72,16 @@ if [ "$n" -gt "$LIMIT" ]; then
     fi
     [ -f "$GUARD/restore.sh" ] && [ -x "$GUARD/bin/dex-patch" ] || { log 'restore tools missing'; exit 1; }
     # restore.sh uses $GUARD/bin/dex-patch, writes its result next to the guard and requests the reboot
-    # itself only after every target is restored and /system is read-only.
-    : > "$GUARD/tripped"; sync
+    # itself only after every target is restored and verified.
+    # tripped records the attempt; only a restored result report latches it.
+    [ "$attempt" != 0 ] || rm -f "$RESULT"
+    attempt=$((attempt+1))
+    put "$GUARD/tripped" "$attempt" || exit 1
+    sync
     GEN5W_RECOVERY_USB_ROOT=$GUARD "$SH" "$GUARD/restore.sh" >> "$LOG" 2>&1
     rc=$?
-    if [ "$rc" != 0 ]; then
-        # Keep counting on the next boot; restore.sh re-validates everything.
-        rm -f "$GUARD/tripped"; sync
-        log "restore failed rc=$rc"
-    fi
+    # restore.sh re-validates everything on the next attempt.
+    [ "$rc" = 0 ] || log "restore failed rc=$rc (attempt $attempt); retrying on the next boot"
     exit "$rc"
 fi
 

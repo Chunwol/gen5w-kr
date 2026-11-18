@@ -242,6 +242,14 @@ class RecoveryRestoreTest(unittest.TestCase):
         self.assertEqual((state / "reason").read_text(), "bootguard-restored\n")
         self.assertTrue((guard / "tripped").is_file())
         self.assertEqual(self.events().count("reboot"), 1)
+        self.assertIn("result=restored", (guard / "GEN5W-RECOVERY-RESULT.txt").read_text())
+        # Next boot: the restored report latches the guard; no second restore or reboot.
+        again = subprocess.run(["mksh", str(ROOT / "tools/portable/bootguard.sh")],
+                               env=env, text=True, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, timeout=15)
+        self.assertEqual(again.returncode, 0, again.stdout)
+        self.assertEqual(self.events().count("reboot"), 1)
+        self.assertIn("latched: stock was already restored", (guard / "guard.log").read_text())
 
     def test_v1_twelve_column_manifest_remains_compatible(self):
         manifest = (self.recovery / "manifest").read_text(encoding="ascii")
