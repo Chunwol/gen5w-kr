@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only
 """Assemble the GPL source package for the dongle edition's GPL-2.0 binaries.
 
-The dongle ZIP ships nine kernel modules built from Linux 3.18.24 plus the
+The dongle ZIP ships Linux 3.18.24 USB WLAN drivers and their module dependencies plus the
 Mobis Gen5W kernel source, our bcmdhd stand-in module, and the open ath9k_htc
 firmware. The package holds what only we can provide: the V039 kernel
 configuration, our build scripts and stand-in source, and a README with the
@@ -90,12 +90,14 @@ def readme(own):
         "    python3 build/experiment.py --upstream linux-3.18.24.tar.xz \\",
         "        --mobis <Mobis R7 zip> --toolchain <arm-eabi-4.8 tar.gz> \\",
         "        --config kernel-v039.config --output ~/gen5w-usb-repro",
-        "    # then strip each module with arm-eabi-strip --strip-debug",
+        "    # then strip the experimental modules with arm-eabi-strip --strip-debug",
         "    build/bcmdhd_shim/build.sh ~/gen5w-usb-repro   # stand-in module",
         "",
-        "Built in `~/gen5w-usb-repro` and stripped with `--strip-debug`, the nine modules are",
-        "byte-identical to the shipped ones (checked 2026-11-02). Elsewhere only the GNU",
-        "build-id note (and a source path string in gen5w-average.ko) differ.",
+        "`experiment.py` builds the pinned in-tree USB WLAN target matrix and reports each",
+        "module's vermagic and SHA-256. `assemble_payload.py` selects the compiled driver",
+        "profiles, dependency modules and USB aliases for the package. Its source is included",
+        "as `build/assemble_payload.py`. Firmware source archives and per-file notices are",
+        "identified by URL and SHA-256 in the dongle package.",
         "",
         "Kernel and modules: GPL-2.0 (some ath files Dual BSD/GPL), text in COPYING.",
         "Stand-in source: GPL-2.0-only. Build scripts: GPL-2.0-only OR GPL-3.0-only.",
@@ -121,8 +123,10 @@ def main():
         ap.error("config checksum mismatch")
     files["kernel-v039.config"] = config
     files["build/experiment.py"] = (HERE / "experiment.py").read_bytes()
+    files["build/targets.py"] = (HERE / "targets.py").read_bytes()
     for name in ("bcmdhd.c", "Makefile", "build.sh"):
         files["build/bcmdhd_shim/" + name] = (HERE / "bcmdhd_shim" / name).read_bytes()
+    files["build/assemble_payload.py"] = (HERE / "assemble_payload.py").read_bytes()
     files["README.md"] = readme({n: sha256(d) for n, d in files.items()})
 
     raw = io.BytesIO()

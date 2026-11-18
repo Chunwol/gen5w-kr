@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tarfile
 import zipfile
+from targets import TARGETS, config_options, in_tree_targets
 
 INPUTS = {
     "upstream": "ed54cf8c3ac6b95fc17b07b3a236bc42719c96fee08fe696cabfb5b8e07f8c1b",
@@ -24,7 +25,7 @@ INPUTS = {
 VENDOR_ROOT = "AVNT5W_DaudioKK_kerneltcc/"
 BASELINE_SHA256 = "c9a0fa793da65bb4b7eaf08f741dd99152cb707a870593151e50f576f8da3b36"
 VERMAGIC = "3.18.24-tcc SMP preempt mod_unload ARMv7 p2v8 "
-MODULES = [
+CORE_MODULES = [
     "net/mac80211/mac80211.ko", "drivers/net/wireless/ath/ath.ko",
     "drivers/net/wireless/ath/ath9k/ath9k_hw.ko",
     "drivers/net/wireless/ath/ath9k/ath9k_common.ko",
@@ -91,8 +92,7 @@ def main():
             subprocess.run(command, cwd=tree, stdout=f, stderr=subprocess.STDOUT,
                            check=True)
 
-    run(["scripts/config", "--module", "MAC80211", "--enable", "ATH_CARDS",
-         "--module", "ATH9K_HTC", "--disable", "RTL_CARDS"], "options.log")
+    run(["scripts/config"] + config_options(), "options.log")
     make = ["make", "-j4", "ARCH=arm", "CROSS_COMPILE=" + str(toolchain / "bin/arm-eabi-"),
             "HOSTCFLAGS=-fcommon"]
     run(make + ["olddefconfig"], "config.log")
@@ -105,9 +105,13 @@ def main():
     (average / "metadata.c").write_text('#include <linux/module.h>\nMODULE_LICENSE("GPL");\n')
     for directory, log in [(str(average), "average.log"), ("crypto", "crypto.log"),
                            ("net/mac80211", "mac80211.log"),
-                           ("drivers/net/wireless/ath", "ath.log")]:
+                           ("drivers/net/wireless/ath", "ath.log"),
+                           ("drivers/net/wireless", "wireless-usb.log"),
+                           ("drivers/staging/rtl8192u", "rtl8192u.log"),
+                           ("drivers/staging/rtl8712", "rtl8712.log")]:
         run(make + ["M=" + directory, "modules"], log)
-    paths = [tree / name for name in MODULES] + [average / "gen5w-average.ko"]
+
+    paths = [tree / name for name in CORE_MODULES] + [average / "gen5w-average.ko"]
     built = {}
     for path in paths:
         data = path.read_bytes()
@@ -118,14 +122,51 @@ def main():
             raise ValueError("unexpected vermagic: " + path.name)
         built[path.name] = {"sha256": digest(path), "vermagic": match[1].decode("ascii")}
     after = config(tree / ".config")
+    target_results = {}
+    for symbol, item in TARGETS.items():
+        if item["source"] != "in-tree-3.18":
+            target_results[symbol] = {
+                "status": "not-built-no-pinned-source",
+                "reason": "external source was not part of the Linux 3.18.24 build input",
+            }
+            continue
+        requested = item["config"].removeprefix("CONFIG_")
+        state = after.get("CONFIG_" + requested, "n")
+        if state not in ("m", "y"):
+            target_results[symbol] = {
+                "status": "disabled-by-v039-kernel-config",
+                "config": state,
+                "reason": "required by upstream Kconfig dependencies not enabled in the V039 baseline",
+            }
+            continue
+        matches = list(tree.rglob(item["module"] + ".ko"))
+        matches = [path for path in matches
+                   if "drivers/net/wireless" in path.as_posix()
+                   or "drivers/staging" in path.as_posix()]
+        if not matches:
+            raise ValueError(f"target did not produce {item['module']}.ko: {symbol}")
+        target_modules = []
+        for path in matches:
+            raw = path.read_bytes()
+            match = re.search(rb"vermagic=([^\0]+)", raw)
+            if not match or match[1].decode("ascii") != VERMAGIC:
+                raise ValueError("unexpected target vermagic: " + str(path))
+            target_modules.append({"path": path.relative_to(tree).as_posix(),
+                                   "sha256": digest(path), "vermagic": VERMAGIC})
+        target_results[symbol] = {"status": "compiled", "config": state,
+                                  "modules": target_modules}
     changed = {k: [baseline.get(k, "n"), after.get(k, "n")]
                for k in sorted(baseline.keys() | after.keys())
                if baseline.get(k, "n") != after.get(k, "n")}
     report = {"status": "experimental-build-only", "inputs": INPUTS,
               "baseline_sha256": digest(args.config), "config_changes": changed,
-              "modules": built, "runtime_validated": False, "oem_hal_integrated": False}
+              "modules": built, "targets": target_results,
+              "runtime_validated": False, "oem_hal_integrated": False}
     (out / "build-report.json").write_text(json.dumps(report, indent=2) + "\n")
-    print("Compiled 9 experimental modules; no loading, AP or OEM HAL validation.")
+    compiled = sum(item["status"] == "compiled" for item in target_results.values())
+    not_built = sum(item["status"] != "compiled" for item in target_results.values())
+    print(f"Compiled {compiled} in-tree USB WLAN targets; {not_built} targets not built. "
+          "No loading, AP or OEM HAL validation.")
 
 
 if __name__ == "__main__":

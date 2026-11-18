@@ -1,9 +1,9 @@
 [nemesis]
 version=1.0
 id=gen5w.kr.dongle
-name=Gen5W KR - USB Wi-Fi dongle support (ath9k_htc)
-package-version=0.3.65
-short-desc=USB Wi-Fi 동글로 무선 CarPlay·Android Auto
+name=Gen5W KR - USB Wi-Fi dongle support and test mode
+package-version=0.3.73
+short-desc=3.18 USB WLAN 드라이버 자동 탐지와 동글 검사
 depends=!wireless.projection,!enhanced.projection
 types=application,service
 preinstall=scripts/pre.sh
@@ -13,6 +13,11 @@ preuninstall=scripts/preun.sh
 [app.0]
 kind=sh
 path=bin/status.sh
+uid=root
+
+[app.1]
+kind=sh
+path=bin/dongle-test.sh
 uid=root
 
 [service.0]

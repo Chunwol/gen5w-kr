@@ -19,6 +19,11 @@ fi
     log "FAIL dongle: missing kernel modules payload"
     exit 1
 }
+[ -f "$SCRIPT_DIR/../files/modules/modules.alias" ] &&
+[ -f "$SCRIPT_DIR/../files/modules/modules.profile" ] || {
+    log "FAIL dongle: missing USB driver catalog"
+    exit 1
+}
 [ -f "$SCRIPT_DIR/../files/firmware/htc_9271.fw" ] || {
     log "FAIL dongle: missing firmware payload"
     exit 1

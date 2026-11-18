@@ -1,7 +1,7 @@
 # Gen5W pre-zygote activation and active portable update design
 
 Date: 2026-11-17
-Status: design for review; no product code or vehicle partition changed
+Status: superseded by user constraint on 2026-11-17; see 2026-11-17-portable-persistent-live-update-design.md
 Project: `kona-gen5w-research`, active checkout `gen5w-kr-stock-first`
 
 ## User outcome
@@ -101,3 +101,4 @@ The update will still perform one full reboot after installation. The requiremen
 4. Can boot image backup and staged candidate fit in available `/data` and USB space with power-loss-safe publication?
 
 No implementation should begin until this design is reviewed and the boot-partition/recovery gates are answered.
+

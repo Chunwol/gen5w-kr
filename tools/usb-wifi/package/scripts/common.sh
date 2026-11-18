@@ -62,27 +62,46 @@ sys_ro() {
     return 0
 }
 
+dongle_profile_ready() {
+    local wanted=$1 payload_mod=${DONGLE_TEST_MODULES_DIR:-"${SCRIPT_DIR%/scripts}/files/modules"} profiles="$MOD_DIR/modules.profile" profile_line driver modules firmware bands ap status item
+    [ -r "$payload_mod/modules.profile" ] && profiles="$payload_mod/modules.profile"
+    [ -r "$profiles" ] || return 1
+    while IFS='|' read -r driver modules firmware bands ap status; do
+        [ "$driver" = "$wanted" ] || continue
+        [ "$status" = ready ] || return 1
+        for item in $modules; do
+            { [ -f "$MOD_DIR/$item.ko" ] || [ -f "$payload_mod/$item.ko" ]; } || return 1
+        done
+        for item in $firmware; do
+            { [ -f "$FW_DIR/$item" ] || [ -f "${SCRIPT_DIR%/scripts}/files/firmware/$item" ]; } || return 1
+        done
+        return 0
+    done < "$profiles"
+    return 1
+}
+
 has_dongle_hw() {
     local dev_root=${DONGLE_TEST_SYS_BUS:-/sys/bus/usb/devices}
-    # Check for known Atheros USB IDs: 0cf3:9271, 0cf3:7010, 0cf3:7015, 0846:9030, etc.
-    if [ -d "$dev_root" ]; then
-        for v in "$dev_root"/*/idVendor; do
-            [ -f "$v" ] || continue
-            p="${v%idVendor}idProduct"
-            [ -f "$p" ] || continue
-            read -r vid < "$v"
-            read -r pid < "$p"
-            case "$vid:$pid" in
-                0cf3:9271|0cf3:7010|0cf3:7015|0cf3:1006|0846:9030|0846:9018|07d1:3a10)
-                    return 0
-                    ;;
+    local payload_dir=${DONGLE_TEST_MODULES_DIR:-"${SCRIPT_DIR%/scripts}/files/modules"} alias_file="$MOD_DIR/modules.alias" v p modalias kind pattern module
+    [ -r "$payload_dir/modules.alias" ] && alias_file="$payload_dir/modules.alias"
+    [ -d "$dev_root" ] && [ -r "$alias_file" ] || return 1
+    for v in "$dev_root"/*/idVendor; do
+        [ -r "$v" ] || continue
+        p=${v%idVendor}modalias
+        if [ -r "$p" ]; then read -r modalias < "$p"
+        else
+            p=${v%idVendor}idProduct; [ -r "$p" ] || continue
+            read -r vid < "$v"; read -r pid < "$p"
+            modalias="usb:v${vid}p${pid}d0000dc00dsc00dp00ic00isc00ip00in00"
+        fi
+        while read -r kind pattern module; do
+            [ "$kind" = alias ] || continue
+            case "$modalias" in $pattern)
+                dongle_profile_ready "$module" && return 0
+                ;;
             esac
-        done
-    fi
-    # Also accept if wlan0 already present with ath9k_htc
-    if [ -e "${DONGLE_TEST_SYS:-}/sys/class/net/wlan0" ] || [ -e /sys/class/net/wlan0 ]; then
-        grep -q "ath9k_htc" /proc/modules 2>/dev/null && return 0
-    fi
+        done < "$alias_file"
+    done
     return 1
 }
 
@@ -206,18 +225,19 @@ aux_payload_manifest() {
     local src name sum count=0
     for src in "$SCRIPT_DIR"/../files/modules/*.ko; do
         [ -f "$src" ] && [ ! -L "$src" ] || continue
-        name=${src##*/}; case "$name" in gen5w-average.ko|ccm.ko|ctr.ko|seqiv.ko|mac80211.ko|ath.ko|ath9k_hw.ko|ath9k_common.ko|ath9k_htc.ko) ;; *) return 1;; esac
+        name=${src##*/}; case "$name" in ''|*[!a-zA-Z0-9_.-]*) return 1;; esac
+        case "$name" in *.ko) ;; *) return 1;; esac
         sum=$(digest "$src") || return 1
         echo "$sum|wifi/dongle/$name"; count=$((count+1))
     done
     [ "$count" -gt 0 ] || return 1
-    count=0
-    for src in "$SCRIPT_DIR"/../files/firmware/*; do
-        [ -f "$src" ] && [ ! -L "$src" ] || continue
-        name=${src##*/}; case "$name" in htc_9271.fw|htc_7010.fw) ;; *) return 1;; esac
+    for name in modules.alias modules.profile; do
+        src="$SCRIPT_DIR/../files/modules/$name"
+        [ -f "$src" ] && [ ! -L "$src" ] || return 1
         sum=$(digest "$src") || return 1
-        echo "$sum|etc/firmware/$name"; count=$((count+1))
+        echo "$sum|wifi/dongle/$name"
     done
+    aux_firmware_manifest "$SCRIPT_DIR/../files/firmware" etc/firmware || return 1
     [ "$count" -gt 0 ] || return 1
     for src in "$SCRIPT_DIR/../bin/gen5w-dongle-load" "$SCRIPT_DIR/../files/bcmdhd.ko"; do
         [ -f "$src" ] && [ ! -L "$src" ] || return 1
@@ -225,6 +245,24 @@ aux_payload_manifest() {
         case "${src##*/}" in gen5w-dongle-load) name=bin/gen5w-dongle-load;; *) name=wifi/bcmdhd.ko;; esac
         echo "$sum|$name"
     done
+}
+aux_firmware_manifest() {
+    local dir=$1 rel=$2 src name sum found=0
+    for src in "$dir"/*; do
+        [ -e "$src" ] || continue
+        [ ! -L "$src" ] || return 1
+        name=${src##*/}; case "$name" in ''|*[!a-zA-Z0-9_.-]*) return 1;; esac
+        if [ -d "$src" ]; then
+            aux_firmware_manifest "$src" "$rel/$name" || return 1
+            found=1
+        elif [ -f "$src" ]; then
+            sum=$(digest "$src") || return 1
+            echo "$sum|$rel/$name"; found=1
+        else
+            return 1
+        fi
+    done
+    [ "$found" = 1 ]
 }
 aux_safe_dirs() {
     local dir
@@ -251,7 +289,7 @@ aux_manifest_valid() {
     while IFS='|' read -r sum rel extra; do
         case "$sum" in ''|*[!a-fA-F0-9]*) return 1;; esac
         [ ${#sum} -eq 32 ] && [ -z "$extra" ] || return 1
-        case "$rel" in wifi/dongle/gen5w-average.ko|wifi/dongle/ccm.ko|wifi/dongle/ctr.ko|wifi/dongle/seqiv.ko|wifi/dongle/mac80211.ko|wifi/dongle/ath.ko|wifi/dongle/ath9k_hw.ko|wifi/dongle/ath9k_common.ko|wifi/dongle/ath9k_htc.ko|etc/firmware/htc_9271.fw|etc/firmware/htc_7010.fw|bin/gen5w-dongle-load|wifi/bcmdhd.ko) ;; *) return 1;; esac
+        case "$rel" in wifi/dongle/*|etc/firmware/*|bin/gen5w-dongle-load|wifi/bcmdhd.ko) ;; *) return 1;; esac
         case "$rel" in *..*|*[!a-zA-Z0-9_./-]*) return 1;; esac
         case "$seen" in *"|$rel|"*) return 1;; esac
         seen="$seen$rel|"; path=$SYS/$rel

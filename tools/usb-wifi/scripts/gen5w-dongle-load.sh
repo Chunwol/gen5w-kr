@@ -43,7 +43,9 @@ fi
 load_mod() {
     local mod="$1"
     local name="${mod%.ko}"
-    if grep -q "^$name " /proc/modules 2>/dev/null; then
+    local proc_name="$name"
+    case "$proc_name" in *-*) proc_name=${proc_name%%-*}_${proc_name#*-};; esac
+    if grep -q "^$name " /proc/modules 2>/dev/null || grep -q "^$proc_name " /proc/modules 2>/dev/null; then
         return 0
     fi
     if [ -f "$MOD_DIR/$mod" ]; then
@@ -58,22 +60,39 @@ load_mod() {
     return 0
 }
 
-# 1. Crypto & helper modules
-load_mod gen5w-average.ko || true
-load_mod ccm.ko || true
-load_mod ctr.ko || true
-load_mod seqiv.ko || true
+find_driver() {
+    local v p modalias kind pattern module
+    for v in /sys/bus/usb/devices/*/idVendor; do
+        [ -r "$v" ] || continue
+        p=${v%idVendor}modalias
+        if [ -r "$p" ]; then read -r modalias < "$p"
+        else
+            p=${v%idVendor}idProduct; [ -r "$p" ] || continue
+            read -r vid < "$v"; read -r pid < "$p"
+            modalias="usb:v${vid}p${pid}d0000dc00dsc00dp00ic00isc00ip00in00"
+        fi
+        while read -r kind pattern module; do
+            [ "$kind" = alias ] || continue
+            case "$modalias" in $pattern) echo "$module"; return 0;; esac
+        done < "$MOD_DIR/modules.alias"
+    done
+    return 1
+}
 
-# 2. mac80211 stack
-load_mod mac80211.ko || true
-
-# 3. Atheros core & common
-load_mod ath.ko || true
-load_mod ath9k_hw.ko || true
-load_mod ath9k_common.ko || true
-
-# 4. USB transport driver (triggers firmware load)
-load_mod ath9k_htc.ko || true
+DRIVER=$(find_driver) || { log 'FAIL: attached USB device has no packaged driver alias'; exit 1; }
+PROFILE_MODULE=; MODULES=; FIRMWARES=; PROFILE_STATUS=
+while IFS='|' read -r candidate modules firmware bands ap status; do
+    [ "$candidate" = "$DRIVER" ] || continue
+    PROFILE_MODULE=$candidate; MODULES=$modules; FIRMWARES=$firmware; PROFILE_STATUS=$status; break
+done < "$MOD_DIR/modules.profile"
+[ "$PROFILE_MODULE" = "$DRIVER" ] && [ -n "$MODULES" ] && [ "$PROFILE_STATUS" = ready ] || { log "FAIL: no ready module profile for $DRIVER"; exit 1; }
+for fw in $FIRMWARES; do
+    [ -f "/system/etc/firmware/$fw" ] || { log "FAIL: $DRIVER firmware missing: $fw"; exit 1; }
+done
+log "USB modalias selected driver=$DRIVER"
+for mod in $MODULES; do
+    load_mod "$mod.ko" || { log "FAIL: could not load $mod for $DRIVER"; exit 1; }
+done
 
 # Wait for network interface creation
 timeout=5

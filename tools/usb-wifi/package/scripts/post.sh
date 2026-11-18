@@ -56,17 +56,34 @@ for m in "$SCRIPT_DIR/../files/modules"/*.ko; do
     module_count=$((module_count + 1))
 done
 [ "$module_count" -gt 0 ] || { log "FAIL dongle: zero kernel modules installed"; exit 1; }
+for meta in modules.alias modules.profile; do
+    [ -f "$SCRIPT_DIR/../files/modules/$meta" ] || { log "FAIL dongle: missing driver catalog $meta"; exit 1; }
+    install_owned_file "$SCRIPT_DIR/../files/modules/$meta" "$MOD_DIR/$meta" 644 || exit 1
+done
+
+install_firmware_tree() {
+    local srcdir=$1 relbase=$2 entry name
+    for entry in "$srcdir"/*; do
+        [ -e "$entry" ] || continue
+        [ ! -L "$entry" ] || return 1
+        name=${entry##*/}
+        case "$name" in ''|*[!a-zA-Z0-9_.-]*) return 1;; esac
+        if [ -d "$entry" ]; then
+            mkdir -p "$FW_DIR/$relbase/$name" || return 1
+            install_firmware_tree "$entry" "$relbase/$name" || return 1
+        elif [ -f "$entry" ]; then
+            mkdir -p "$FW_DIR/$relbase" || return 1
+            install_owned_file "$entry" "$FW_DIR/$relbase/$name" 644 || return 1
+        else
+            return 1
+        fi
+    done
+}
 
 # 5. Install firmware
 mkdir -p "$FW_DIR" || exit 1
 [ -d "$SCRIPT_DIR/../files/firmware" ] || { log "FAIL dongle: missing firmware directory"; exit 1; }
-fw_count=0
-for f in "$SCRIPT_DIR/../files/firmware"/*; do
-    [ -f "$f" ] || continue
-    install_owned_file "$f" "$FW_DIR/${f##*/}" 644 || exit 1
-    fw_count=$((fw_count + 1))
-done
-[ "$fw_count" -gt 0 ] || { log "FAIL dongle: zero firmware files installed"; exit 1; }
+install_firmware_tree "$SCRIPT_DIR/../files/firmware" '' || { log "FAIL dongle: firmware installation failed"; exit 1; }
 
 # 6. Install loader script
 LOADER_SRC="$SCRIPT_DIR/../bin/gen5w-dongle-load"

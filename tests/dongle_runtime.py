@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 passed = 0
@@ -57,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
         net.mkdir()
         usb = case/'usb/1-1'
         usb.mkdir(parents=True)
-        (usb/'idVendor').write_text('0cf3\n')
+        (usb/'idVendor').write_text('0CF3\n')
         (usb/'idProduct').write_text('9271\n')
         if ready:
             (net/'wlan0').mkdir()
@@ -65,6 +66,11 @@ with tempfile.TemporaryDirectory(prefix='gen5w-dongle-runtime-') as work:
         props.mkdir()
         (props/'persist.gen5w.wifi.backend').write_text(backend)
         (props/'wlan.driver.load.request').write_text('1' if request else '0')
+        modules = case/'modules'
+        modules.mkdir()
+        (modules/'modules.alias').write_text('alias usb:v0CF3p9271d*dc*dsc*dp*ic*isc*ip*in* ath9k_htc\n')
+        (modules/'modules.profile').write_text('ath9k_htc|ath9k_htc||2.4GHz,5GHz|yes|ready\n')
+        (modules/'ath9k_htc.ko').write_bytes(b'test module placeholder')
         bindir = case/'bin'
         bindir.mkdir()
         scripts = {
@@ -76,7 +82,6 @@ n=$((n+1)); echo "$n" > "$CASE/ticks"
 if [ "$RENEW" = 1 ] && [ "$n" = 5 ]; then echo 1 > "$CASE/props/wlan.driver.load.request"; fi
 if [ "$n" = "$UNPLUG_AT" ]; then mv "$CASE/usb/1-1" "$CASE/usb-off"; fi
 if [ "$n" = "$REPLUG_AT" ]; then mv "$CASE/usb-off" "$CASE/usb/1-1"; fi
-[ "$n" -lt 12 ] || kill -TERM "$PPID"
 ''',
             'gen5w-dongle-load': ('echo attempt >> "$CASE/attempts"; '
                                   '[ -f "$CASE/nemesis/gen5wkr.dongle-loading" ] && echo marked >> "$CASE/marked"; '
@@ -90,10 +95,34 @@ if [ "$n" = "$REPLUG_AT" ]; then mv "$CASE/usb-off" "$CASE/usb/1-1"; fi
             UNPLUG_AT=str(unplug_at), REPLUG_AT=str(replug_at), DONGLE_TEST_STABLE='6',
             PATH=str(bindir)+':'+os.environ['PATH'], DONGLE_TEST_SYS=str(case),
             DONGLE_TEST_DATA=str(case), DONGLE_TEST_SYS_BUS=str(usb.parent),
-            DONGLE_TEST_NET_ROOT=str(net))
+            DONGLE_TEST_NET_ROOT=str(net), DONGLE_TEST_MODULES_DIR=str(modules))
         # The production common script resolves the installed loader under SYS/bin.
-        subprocess.run(['mksh', str(ROOT/'tools/usb-wifi/package/scripts/service.sh')],
-                       env=env, capture_output=True, timeout=5)
+        proc = subprocess.Popen(['mksh', '-c', 'hash -r; . "$0"',
+                                 str(ROOT/'tools/usb-wifi/package/scripts/service.sh')],
+                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 5
+        ticks = case/'ticks'
+        while proc.poll() is None and time.monotonic() < deadline:
+            try:
+                count = int(ticks.read_text()) if ticks.exists() else 0
+            except ValueError:
+                count = 0
+            if count >= 12:
+                break
+            time.sleep(0.01)
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        try:
+            count = int(ticks.read_text()) if ticks.exists() else 0
+        except ValueError:
+            count = 0
+        if count < 12:
+            raise AssertionError(f'{name}: service did not reach the bounded observation window; ticks={count}')
         service_case.case = case
         return len((case/'attempts').read_text().splitlines()) if (case/'attempts').exists() else 0
 

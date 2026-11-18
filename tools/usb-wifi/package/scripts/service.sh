@@ -32,6 +32,9 @@ toast() {
 # again on every boot.
 try_load() {
     [ "$held" = 0 ] || return 1
+    # The explicit dongle test owns driver selection while active. Never let
+    # the stock ath9k auto-loader race it or bind the test interface first.
+    [ "$(getprop gen5w.dongle.test 2>/dev/null)" = 1 ] && return 1
     [ -x "$LOADER_BIN" ] || return 1
     [ ! -e "$LOAD_BLOCK" ] && [ ! -L "$LOAD_BLOCK" ] || return 1
     if [ ! -e "$NET_ROOT/wlan0" ]; then
@@ -80,6 +83,10 @@ fi
 # Background loop: watch for hotplug or HAL load requests from system_server
 # Bounded retries (max 3 per hardware attachment or explicit request) prevent infinite insmod loops.
 while true; do
+    if [ "$(getprop gen5w.dongle.test 2>/dev/null)" = 1 ]; then
+        sleep 2
+        continue
+    fi
     # Unplugging the dongle clears the block; the next attachment tries once more.
     if { [ -e "$LOAD_BLOCK" ] || [ "$held" = 1 ]; } && ! has_dongle_hw; then
         if [ "$held" = 1 ]; then rm -f "$LOAD_MARK" && held=0; fi

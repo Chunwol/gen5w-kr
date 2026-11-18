@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/pkg/scripts" "$W/pkg/bin" "$W/pkg/files/modules" "$W/pkg/files/firmware"
+mkdir -p "$W/pkg/files/firmware/rtlwifi"
 mkdir -p "$W/sys/lib" "$W/sys/etc/firmware" "$W/sys/wifi" "$W/sys/bin" "$W/data" "$W/bin" "$W/fixture"
 mkdir -p "$W/sys/bus/usb/devices/1-1"
 mkdir -p "$W/props"
@@ -18,8 +19,13 @@ chmod +x "$W/bin/getprop" "$W/bin/setprop"
 cp tools/usb-wifi/package/scripts/*.sh "$W/pkg/scripts/"
 cp tools/usb-wifi/package/bin/status.sh "$W/pkg/bin/"
 echo "mock_shim_module" > "$W/pkg/files/bcmdhd.ko"
-echo "mock_module" > "$W/pkg/files/modules/ath9k_htc.ko"
+for module in gen5w-average ccm ctr seqiv mac80211 ath ath9k_hw ath9k_common ath9k_htc; do echo "mock_module" > "$W/pkg/files/modules/$module.ko"; done
+cat > "$W/pkg/files/modules/modules.alias" <<'EOF'
+alias usb:v0CF3p9271d*dc*dsc*dp*ic*isc*ip*in* ath9k_htc
+EOF
+echo 'ath9k_htc|gen5w-average ccm ctr seqiv mac80211 ath ath9k_hw ath9k_common ath9k_htc|htc_9271.fw|2.4GHz,5GHz|yes|ready' > "$W/pkg/files/modules/modules.profile"
 echo "mock_firmware" > "$W/pkg/files/firmware/htc_9271.fw"
+echo "mock_nested_firmware" > "$W/pkg/files/firmware/rtlwifi/rtl8712u.bin"
 echo "mock_loader" > "$W/pkg/bin/gen5w-dongle-load"
 
 echo "stock_original_bcmdhd" > "$W/fixture/stock_hal"
@@ -55,6 +61,7 @@ fi
 # 2. Add supported USB dongle (0cf3:9271)
 echo "0cf3" > "$W/sys/bus/usb/devices/1-1/idVendor"
 echo "9271" > "$W/sys/bus/usb/devices/1-1/idProduct"
+echo 'usb:v0CF3p9271d0000dc00dsc00dp00ic00isc00ip00in00' > "$W/sys/bus/usb/devices/1-1/modalias"
 
 check 'dongle pre accepts 0cf3:9271 dongle' run pre
 
@@ -113,10 +120,11 @@ check 'dongle durable backup created' cmp -s "$PERSIST/original" "$W/fixture/sto
 check 'dongle runtime backup created' cmp -s "$MARK/original" "$W/fixture/stock_hal"
 check 'dongle module installed' test -f "$W/sys/wifi/dongle/ath9k_htc.ko"
 check 'dongle firmware installed' test -f "$W/sys/etc/firmware/htc_9271.fw"
+check 'nested dongle firmware installed at its requested path' cmp -s "$W/pkg/files/firmware/rtlwifi/rtl8712u.bin" "$W/sys/etc/firmware/rtlwifi/rtl8712u.bin"
 check 'dongle loader installed' test -f "$W/sys/bin/gen5w-dongle-load"
 
 # 4. Status script
-check 'dongle status executes' mksh "$W/pkg/bin/status.sh"
+check 'dongle status loads shared helpers without errors' eval 'mksh "$W/pkg/bin/status.sh" > "$W/status.out" 2> "$W/status.err" && test ! -s "$W/status.err" && grep -q "Dongle backend active: yes" "$W/status.out"'
 
 # 5. Idempotent reinstall
 check 'dongle reinstall succeeds' run post
@@ -176,6 +184,7 @@ check 'stock Wi-Fi HAL still untouched after uninstall' grep -qx stock_wifi_hal 
 check 'dongle uninstall removes own module' test ! -e "$W/sys/wifi/dongle/ath9k_htc.ko"
 check 'dongle uninstall preserves unrelated module directory content' grep -qx unrelated "$W/sys/wifi/dongle/other-owner.dat"
 check 'dongle uninstall removes firmware' test ! -f "$W/sys/etc/firmware/htc_9271.fw"
+check 'dongle uninstall removes nested firmware' test ! -f "$W/sys/etc/firmware/rtlwifi/rtl8712u.bin"
 check 'dongle uninstall removes loader' test ! -f "$W/sys/bin/gen5w-dongle-load"
 check 'dongle uninstall cleans durable backup' test ! -d "$PERSIST"
 check 'dongle uninstall cleans runtime backup' test ! -d "$MARK"
@@ -185,7 +194,12 @@ check 'dongle uninstall restores previous backend setting' grep -qx builtin "$W/
 # but the runtime copy and backend setting still in /data.
 reinstall_system() {
     cp "$W/fixture/stock_hal" "$TARGET"
-    /bin/rm -f "$W/sys/wifi/dongle/ath9k_htc.ko" "$W/sys/etc/firmware/htc_9271.fw" "$W/sys/bin/gen5w-dongle-load"
+    if [ -f "$PERSIST/files" ]; then
+        while IFS='|' read -r sum rel; do
+            [ -n "$rel" ] && [ "$rel" != wifi/bcmdhd.ko ] && /bin/rm -f "$W/sys/$rel"
+        done < "$PERSIST/files"
+    fi
+    /bin/rm -rf "$W/sys/wifi/dongle" "$W/sys/etc/firmware" "$W/sys/bin/gen5w-dongle-load"
     /bin/rm -rf "$PERSIST"
 }
 check 'install before system reinstall' run post
