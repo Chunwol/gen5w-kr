@@ -384,7 +384,7 @@ add_wrapper_property() {
 # Pre-zygote boot guard: one background line in the stock qb_runtime.sh, which
 # V039 init runs as root at post-fs-data (service qb_uid_check). Init does not
 # wait for it. The stock script must be recognized exactly; otherwise skip.
-BOOTGUARD_LINE='[ "$1" != check_fixed_uid ] || [ ! -f /data/local/gen5w-portable/persistent/bootguard/guard.sh ] || /system/bin/sh /data/local/gen5w-portable/persistent/bootguard/guard.sh </dev/null >/dev/null 2>&1 &'
+BOOTGUARD_LINE='[ "$1" != check_fixed_uid ] || [ ! -f /data/local/gen5w-portable/persistent/bootguard/guard.sh ] || ( trap "" HUP; exec /system/bin/sh /data/local/gen5w-portable/persistent/bootguard/guard.sh ) </dev/null >/dev/null 2>&1 &'
 add_boot_guard() {
     local target=/system/etc/qb_runtime.sh source=$WORK/files/qb_runtime.sh line first=1 shebang=0 dispatch=0
     plain "$ROOT$target" && [ -f "$ROOT$target" ] || { status bootguard skipped missing-stock; return 0; }

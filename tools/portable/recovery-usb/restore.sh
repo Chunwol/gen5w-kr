@@ -93,7 +93,9 @@ set_metadata() {
     "$HELPER" setmeta "$1" "$2" "$3" "$4"
 }
 set_label() {
-    "$HELPER" setlabel "$1" "$2"
+    # SELinux without a loaded policy refuses the write; accept only when the
+    # file already reads back the exact wanted label.
+    "$HELPER" setlabel "$1" "$2" || [ "$("$HELPER" label "$1" 2>/dev/null)" = "$2" ]
 }
 trap 'fail interrupted' HUP INT TERM
 is_link() { [ -L "$1" ]; }
@@ -261,12 +263,19 @@ while IFS='|' read -r target kind original_sha applied_sha orig_uid orig_gid ori
 done < "$MANIFEST"
 
 "$HELPER" sync || sync
-remount_system_ro || fail system-not-read-only
+SYSTEM_STATE=ro
+if ! remount_system_ro; then
+    # Running stock processes still map the replaced inodes, so Linux refuses
+    # MS_RDONLY (EBUSY). Every target was verified above; the reboot below
+    # mounts /system read-only again.
+    "$HELPER" sync || sync
+    SYSTEM_STATE=rw-until-reboot
+fi
 SYSTEM_RW=0
 "$HELPER" sync || sync
 print -r -- "result=restored
 restored=${seen#|}
-system=ro" > "$REPORT" || fail report-write
+system=$SYSTEM_STATE" > "$REPORT" || fail report-write
 MIGRATION_LOCK="$RECOVERY/migration.lock"
 if [ -e "$MIGRATION_LOCK" ] || [ -L "$MIGRATION_LOCK" ]; then
     [ -d "$MIGRATION_LOCK" ] && [ ! -L "$MIGRATION_LOCK" ] && no_link_components "$MIGRATION_LOCK" || fail unsafe-migration-lock
@@ -285,7 +294,7 @@ mv "$TMP" "$DONE" || fail completion-marker
 "$HELPER" sync || sync
 print -r -- "result=restored
 restored=${seen#|}
-system=ro
+system=$SYSTEM_STATE
 reboot=requested
 manifest_sha256=$MANIFEST_SHA" > "$REPORT" || fail report-write
 if [ -n "$ROOT" ]; then
@@ -295,7 +304,7 @@ else
 fi
 print -r -- "result=restored
 restored=${seen#|}
-system=ro
+system=$SYSTEM_STATE
 reboot=dispatched
 manifest_sha256=$MANIFEST_SHA" > "$REPORT" || fail report-write
 say 'result=restored reboot=dispatched'

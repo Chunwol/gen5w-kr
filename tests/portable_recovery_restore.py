@@ -426,12 +426,16 @@ class RecoveryRestoreTest(unittest.TestCase):
         self.assertEqual(self.live(TARGET).read_bytes(), b"patched-dipo")
         self.assertNotIn("remount-rw", self.events())
 
-    def test_ro_failure_never_reboots_or_reports_success(self):
+    def test_ro_busy_after_verified_restore_reboots_to_remount_ro(self):
+        # Running stock processes keep the replaced inodes mapped, so Linux
+        # refuses MS_RDONLY. All targets are verified first; the reboot then
+        # mounts /system read-only, and the report says so.
         result = self.run_restore(GEN5W_FAIL_RO="1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("reboot", self.events())
+        self.assertEqual(result.returncode, 0, str(result.stdout))
+        self.assertIn("reboot", self.events())
         report = (self.usb / "GEN5W-RECOVERY-RESULT.txt").read_text()
-        self.assertNotIn("result=success", report)
+        self.assertIn("result=restored", report)
+        self.assertIn("system=rw-until-reboot", report)
 
     def test_mid_restore_failure_attempts_to_remount_system_read_only(self):
         result = self.run_restore(GEN5W_FAIL_SETMETA="1")

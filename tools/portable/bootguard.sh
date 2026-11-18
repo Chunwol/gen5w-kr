@@ -9,6 +9,8 @@
 # manifest (same fixed-function restore.sh as the recovery USB), automatic
 # startup is disabled, and the unit reboots once into stock.
 umask 077
+# qb_uid_check is a console service: its shell's exit sends SIGHUP to this background job.
+trap '' HUP
 PATH=/system/bin:/system/xbin:/sbin:/bin; export PATH
 ROOT=${PORTABLE_TEST_ROOT:-}
 GUARD=$ROOT/data/local/gen5w-portable/persistent/bootguard

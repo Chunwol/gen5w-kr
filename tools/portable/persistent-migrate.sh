@@ -53,7 +53,10 @@ sha() { if [ -n "$ROOT" ]; then "$HELPER" sha "$(mapped "$1")"; else "$HELPER" s
 meta() { if [ -n "$ROOT" ]; then "$HELPER" meta "$(mapped "$1")"; else "$HELPER" metadata "$(mapped "$1")"; fi; }
 label() { "$HELPER" label "$(mapped "$1")"; }
 set_meta() { "$HELPER" setmeta "$(mapped "$1")" "$2" "$3" "$4"; }
-set_label() { "$HELPER" setlabel "$(mapped "$1")" "$2"; }
+# V039 kernels run SELinux without a loaded policy: every file reads back as
+# the same initial label and setxattr(security.selinux) is refused. Accept a
+# refused write only when the file already carries exactly the wanted label.
+set_label() { "$HELPER" setlabel "$(mapped "$1")" "$2" || [ "$("$HELPER" label "$(mapped "$1")" 2>/dev/null)" = "$2" ]; }
 check_sha() { case "$1" in *[!a-f0-9]*) return 1;; esac; [ "${#1}" -eq 64 ]; }
 check_meta() {
     local uid gid mode extra
@@ -92,6 +95,17 @@ remount_rw() {
     "$HELPER" remount-rw
 }
 remount_ro() { "$HELPER" remount-ro && is_ro; }
+# Linux refuses MS_RDONLY (EBUSY, sb s_remove_count) while a replaced file is
+# still mapped by a running stock process. Callers use this only after every
+# target was verified; init mounts /system read-only again on the reboot that
+# the install (or restore) requires.
+RO_DEFERRED=0
+remount_ro_or_defer() {
+    remount_ro && return 0
+    sync_all || return 1
+    RO_DEFERRED=1
+    echo 'persistent-migrate: /system stays writable until the required reboot (replaced files are still mapped)' >&2
+}
 sync_all() { if [ -n "$ROOT" ]; then "$HELPER" sync; else sync; fi; }
 copy_to_new() {
     copy_source=$1; copy_temp=$2
@@ -112,11 +126,24 @@ file_bytes() {
 free_bytes() {
     if [ -n "$ROOT" ]; then "$HELPER" free-bytes
     else
-        local filesystem blocks used available percent mountpoint extra
-        df /data | while IFS=' ' read -r filesystem blocks used available percent mountpoint extra; do
-            [ "$mountpoint" = /data ] || continue
-            case "$available" in ''|*[!0-9]*) return 1;; esac
-            print -r -- "$((available * 1024))"
+        # KitKat toolbox df prints "Filesystem Size Used Free Blksize" with
+        # human sizes (e.g. "/data 1.9G 46.5M 1.9G 4096"); there is no -k.
+        # Round down one displayed tenth and cap at 1 GiB so 32-bit mksh
+        # arithmetic cannot overflow (the plan needs only megabytes).
+        local filesystem size used free extra value int frac kib unit
+        df /data 2>/dev/null | while IFS=' ' read -r filesystem size used free extra; do
+            [ "$filesystem" = /data ] || continue
+            value=$free
+            case "$value" in *K) unit=1;; *M) unit=1024;; *G) unit=1048576;; *) exit 1;; esac
+            value=${value%?}
+            case "$value" in *.*) int=${value%%.*}; frac=${value#*.};; *) int=$value; frac=0;; esac
+            case "$int:$frac" in :*|*:|*[!0-9:]*) exit 1;; esac
+            [ "${#frac}" = 1 ] && [ "${#int}" -le 4 ] || exit 1
+            kib=$((int * 10 + frac)); [ "$kib" = 0 ] || kib=$((kib - 1))
+            if [ "$unit" = 1048576 ] && [ "$kib" -ge 10 ]; then print -r -- 1073741824; exit 0; fi
+            kib=$((kib * unit / 10))
+            print -r -- "$((kib * 1024))"
+            exit 0
         done
     fi
 }
@@ -312,7 +339,7 @@ EOF
             fi
         done
         IFS=$oldifs
-        remount_ro >/dev/null 2>&1 || { echo 'persistent-migrate: rollback could not verify /system ro' >&2; rollback_complete=0; }
+        remount_ro_or_defer || { echo 'persistent-migrate: rollback could not sync /system' >&2; rollback_complete=0; }
         rw=0
     fi
     if [ "$rc" -ne 0 ] && [ "$system_transaction_committed" = 0 ] && [ "$rollback_complete" = 1 ] && [ "$recovery_published" = 1 ]; then
@@ -705,7 +732,7 @@ EOF
     [ "$actual" = "$expected" ] && [ "$actual_meta" = "$staged_meta" ] && [ "$actual_label" = "$staged_label" ] || fail applied-state-mismatch
 done < "$TX"
 sync_all || fail system-sync
-remount_ro || fail system-remount-ro
+remount_ro_or_defer || fail system-remount-ro
 rw=0
 system_transaction_committed=1
 overlay_retired=0
@@ -720,5 +747,6 @@ if [ "$overlay_to_finalize" = 1 ]; then
 fi
 rm -f "$COMMITTED_MARKER" "$IN_PROGRESS_MARKER" || fail commit-marker-clear
 sync_all || fail commit-marker-clear-sync
-echo 'persistent-migrate: applied; /system verified read-only; normal reboot is required'
+if [ "$RO_DEFERRED" = 1 ]; then echo 'persistent-migrate: applied; /system read-only after the required reboot'
+else echo 'persistent-migrate: applied; /system verified read-only; normal reboot is required'; fi
 exit 0

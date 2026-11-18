@@ -663,13 +663,18 @@ class PersistentMigrationTest(unittest.TestCase):
         self.assertNotIn("stop-android", self.events())
         self.assertNotIn("start-android", self.events())
 
-    def test_remount_ro_failure_is_not_reported_as_success(self):
+    def test_remount_ro_busy_after_verified_apply_defers_ro_to_reboot(self):
+        # Linux refuses MS_RDONLY while replaced files are still mapped by
+        # running stock processes (seen in the V039 VM: EBUSY). Every target
+        # is verified before this point, so the install completes and the
+        # required reboot mounts /system read-only again.
         (self.root / ".fail-remount-ro").touch()
         result = self.run_migration()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, str(result.stdout))
+        self.assertIn("stays writable until the required reboot", result.stdout)
+        self.assertIn("read-only after the required reboot", result.stdout)
         self.assertEqual((self.root / ".mount-state").read_text(), "rw")
         self.assertNotIn("reboot", self.events())
-        self.assert_no_external_actions()
 
     def test_symlinked_live_new_temp_refuses_without_touching_sentinel(self):
         sentinel = self.root / "live-temp-sentinel"
