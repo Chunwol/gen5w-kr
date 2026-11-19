@@ -21,6 +21,9 @@
 #include <sys/file.h>
 #include <poll.h>
 #include <sys/xattr.h>
+#ifndef __arm__
+#include <errno.h>
+#endif
 #define O_BINARY 0
 #endif
 int portable_supervise(int argc, char **argv);
@@ -100,12 +103,25 @@ static int set_metadata(const char *path, const char *uid_text,
   close(fd);
   return rc ? 1 : 0;
 }
+/* The vehicle /system image carries no security.selinux xattrs and its kernel
+ * reports none (vehicle 2026-11-19), so "no label" is a real stock state. It is
+ * written as "-". The freestanding ARM build returns raw -errno. */
+static int label_absent(ssize_t n) {
+#ifdef __arm__
+  return n == -61 || n == -95; /* ENODATA, EOPNOTSUPP */
+#else
+  return n < 0 && (errno == ENODATA || errno == ENOTSUP || errno == EOPNOTSUPP);
+#endif
+}
 static int label(const char *path, int set, const char *value) {
   char buffer[256];
   ssize_t n;
+  if (set && !strcmp(value, "-"))
+    return label_absent(getxattr(path, "security.selinux", buffer, sizeof(buffer) - 1)) ? 0 : 1;
   if (set) return setxattr(path, "security.selinux", value,
                            strlen(value) + 1, 0) == 0 ? 0 : 1;
   n = getxattr(path, "security.selinux", buffer, sizeof(buffer) - 1);
+  if (label_absent(n)) return write(1, "-\n", 2) == 2 ? 0 : 1;
   if (n <= 0 || n >= (ssize_t)sizeof(buffer)) return 1;
   if (buffer[n - 1] == 0) n--;
   buffer[n] = 0;
