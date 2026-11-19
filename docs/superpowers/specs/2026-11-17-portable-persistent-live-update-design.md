@@ -98,3 +98,35 @@ Persistent `/system` changes have no per-boot zygote restart, so a bad change co
 - `persistent-start.sh` also clears the counter after Android starts. A counter that survives a guard death therefore cannot drift upward on healthy boots.
 - Replacing odex files that running processes still map makes `mount -o remount,ro /system` fail with EBUSY. After every target is written and verified, migrate and restore sync and leave `/system` writable until the reboot they require; on the vehicle the next boot mounts it read-only again. The VM mounts `/system` writable even before install, so this cannot be checked there.
 - The boot partition, LK and `init.rc` are never modified.
+
+## Earlier-generation state reset (0.3.76)
+
+Vehicle installs on 2026-11-19 failed four times in a row, each time on residue of
+earlier generations or of the previous failed attempt:
+
+| Version | Failure | Cause |
+|---|---|---|
+| 0.3.73 | preinstall `existing package state is unreadable` | NEMESIS `--update` removes the old app folder before the new preinstall; preinstall called the old `boot.sh` |
+| 0.3.74 | postinstall `cannot validate stock origin` | vehicle /system files carry no `security.selinux` xattr (VM kernel reported `unlabeled`) |
+| 0.3.75 | migrate `owned-overlay-retirement` | overlay journal of an earlier boot was treated as a live view |
+| (next) | prepare `persistent recovery manifest missing` | the rolled-back migration left its originals tree |
+
+Design now:
+
+- `package-pre.sh` has exactly two paths. A same-boot update handoff (`update-held`,
+  written by an enabled persistent package through its own code before NEMESIS)
+  is continued. Anything else goes through `state-reset.sh` from the verified
+  staged bundle. Preinstall never runs the old package's scripts.
+- `state-reset.sh` is the only place that judges earlier state. It refuses when
+  anything is live (enabled, owned mounts, wrap properties, same-boot runtime)
+  or when a persistent tree without a recovery manifest has a transaction
+  marker/lock/owner or an original that differs from live /system. Otherwise it
+  moves every entry except `debug/`, `ap/`, `retired/` and an installed
+  persistent tree (with manifest) to `retired/<boot-id>-<pid>/`. Nothing is
+  deleted. After it, the vehicle is in the same state as a VM fresh install.
+- The helper reports a missing SELinux label as `-`; `setlabel PATH -` only
+  verifies that no label exists. Manifests record `-` like any other label.
+- Migration does not retire overlays whose status is expired/disabled/prepared/
+  retired (bind mounts never survive a reboot).
+- The USB installer accepts a registration whose folder NEMESIS already removed,
+  when the recorded state is not enabled.

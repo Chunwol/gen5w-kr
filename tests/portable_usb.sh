@@ -141,6 +141,15 @@ grep -q 'persistent-payload-and-recovery-verified' "$t/usb/GEN5W-PORTABLE-REPORT
 grep -q TOAST "$ACTIONS/toast"
 echo 'PASS verified ZIP staged, NEMESIS install, staged copy removed, status/baseline recorded'
 
+# A hung system_server (am never returns) must not stall the installer.
+new_case
+printf '#!/bin/sh\nexec sleep 600\n' > "$t/am-hang"; chmod +x "$t/am-hang"
+start=$(date +%s)
+PORTABLE_TEST_AM=$t/am-hang run
+[ "$(result)" = '결과: ok' ]
+[ $(( $(date +%s) - start )) -lt 200 ] || { echo 'FAIL installer waited on a hung toast'; exit 1; }
+echo 'PASS hung toast broadcast is bounded; install still completes'
+
 for pkg in gen5w.kr.core gen5w.kr.bluelink wireless.projection; do
     new_case; echo "$pkg|1.0|installed" > "$ACTIONS/pkg-list"
     if run; then echo "FAIL installed alongside $pkg"; exit 1; fi

@@ -293,10 +293,14 @@ owner_tmp="$STAGE/owner"; cp "$(mapped "$MANIFEST")" "$owner_tmp" || fail stage-
 # An updater may have retired active bind mounts before NEMESIS replaced the
 # old package. Adopt that held journal so this transaction either rebinds it on
 # a verified rollback or finalizes it after /system commits.
+overlay_live=1
 overlay_status=$(overlay_cmd status) || fail overlay-status-unavailable
 case "$overlay_status" in
     *'state|retired-pending'*) overlay_retired=1; overlay_to_finalize=1;;
     *'state|retiring'*) fail interrupted-overlay-retirement;;
+    # Bind mounts never survive a reboot: a journal from an earlier boot (or of
+    # an inactive overlay) has nothing live to retire (vehicle 2026-11-19).
+    *'state|expired'*|*'state|disabled'*|*'state|prepared'*|*'state|retired'*) overlay_live=0;;
 esac
 
 cleanup() {
@@ -694,7 +698,7 @@ sync_all || fail recovery-sync
 # Retire only after all source/origin rows, immutable backups, rollback data,
 # and the new emergency restore manifest have been fully staged and published.
 # The live transaction keeps a durable rebind plan until /system is committed.
-if [ "$overlay_retired" = 0 ] && [ -s "$OVERLAY_STATE_PATH/journal" ]; then
+if [ "$overlay_retired" = 0 ] && [ "$overlay_live" = 1 ] && [ -s "$OVERLAY_STATE_PATH/journal" ]; then
     overlay_cmd retire-live hold || fail owned-overlay-retirement
     overlay_retired=1; overlay_to_finalize=1
 fi

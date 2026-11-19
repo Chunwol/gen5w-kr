@@ -17,6 +17,7 @@ case "$1" in
  installed) [ -f "$ACTIONS/existing" ];;
  retirement) cat "$ACTIONS/retirement" 2>/dev/null || echo none;;
  overlay-state) cat "$ACTIONS/overlay-state" 2>/dev/null || echo absent;;
+ state-reset) echo state-reset >> "$ACTIONS/log"; [ ! -f "$ACTIONS/reset-fail" ];;
  *) exit 1;;
 esac
 SH
@@ -48,8 +49,9 @@ run
 echo active > "$ACTIONS/overlay-state"
 if run >/dev/null 2>&1; then echo 'FAIL replaced portable package without a held retirement'; exit 1; fi
 echo retired-pending > "$ACTIONS/overlay-state"
-echo not-held > "$ACTIONS/retirement"
-if run >/dev/null 2>&1; then echo 'FAIL replaced portable package without confirmed held retirement'; exit 1; fi
+echo none > "$ACTIONS/retirement"; touch "$ACTIONS/reset-fail"
+if run >/dev/null 2>&1; then echo 'FAIL replaced portable package without held retirement or verified state reset'; exit 1; fi
+rm -f "$ACTIONS/reset-fail"
 : > "$ACTIONS/packages"
 echo absent > "$ACTIONS/overlay-state"
 touch "$ACTIONS/unhealthy"
@@ -62,12 +64,23 @@ ln -s payload "$t/package/link"
 (cd "$t/package"; sha256sum link > SHA256SUMS)
 if run >/dev/null 2>&1; then echo 'FAIL accepted symlink payload'; exit 1; fi
 # Vehicle 2026-11-19: NEMESIS --update removes the old app folder before this
-# preinstall, so the old package state must be read with the staged scripts.
+# preinstall. Without a same-boot handoff, earlier state goes through the
+# verified staged state-reset.sh, never through the old package's scripts.
+rm -f "$t/package/link"; (cd "$t/package"; sha256sum payload package-pre.sh bin/dex-patch > SHA256SUMS)
+echo 'gen5w.kr.portable|0.3.72|installed' > "$ACTIONS/packages"; echo none > "$ACTIONS/retirement"; rm -f "$ACTIONS/log"
+run; grep -qx state-reset "$ACTIONS/log"
+touch "$ACTIONS/reset-fail"
+if run >/dev/null 2>&1; then echo 'FAIL installed although earlier state could not be retired'; exit 1; fi
+rm -f "$ACTIONS/reset-fail" "$ACTIONS/log"; echo held > "$ACTIONS/retirement"; echo retired-pending > "$ACTIONS/overlay-state"
+run; [ ! -f "$ACTIONS/log" ] || ! grep -q state-reset "$ACTIONS/log"
+: > "$ACTIONS/packages"
+if run >/dev/null 2>&1; then echo 'FAIL accepted a handoff without an installed package'; exit 1; fi
+echo none > "$ACTIONS/retirement"; rm -f "$ACTIONS/log"
 r=$t/root; stage=$r/data/local/tmp/nemesis/stage/gen5w.kr.portable
 mkdir -p "$stage/bin" "$r/data/local/gen5w-portable/boot"
-cp tools/portable/package-pre.sh tools/portable/boot.sh tools/portable/runtime.sh tools/portable/overlay.sh "$stage/"
+cp tools/portable/package-pre.sh tools/portable/state-reset.sh tools/portable/overlay.sh "$stage/"
 cp .build/portable/dex-patch-host "$stage/bin/dex-patch"
-(cd "$stage"; sha256sum package-pre.sh boot.sh runtime.sh overlay.sh bin/dex-patch > SHA256SUMS)
+(cd "$stage"; sha256sum package-pre.sh state-reset.sh overlay.sh bin/dex-patch > SHA256SUMS)
 chmod 644 "$stage"/*.sh "$stage/bin/dex-patch"
 cat > "$t/adapter2" <<'SH'
 #!/bin/bash
@@ -77,27 +90,20 @@ case "$1" in
  healthy) :;;
  installed) exit 1;;
  retirement) echo none;;
- boot) echo staged-test-boot;;
- old-status|legacy-quiescent|retire-update) exit 99;;
+ state-reset) exit 99;;
  *) exit 1;;
 esac
 SH
-chmod +x "$t/adapter2"; : > "$t/mounts"
+chmod +x "$t/adapter2"; : > "$t/mounts"; echo staged-boot > "$t/boot_id"
 run_staged() {
  PORTABLE_TEST_PACKAGE_ADAPTER=$t/adapter2 PORTABLE_TEST_SH=mksh PORTABLE_TEST_MOUNTS=$t/mounts \
- PORTABLE_TEST_OLD_APP=$r/data/nemesis/apps/gen5w.kr.portable PORTABLE_TEST_ROOT=$r \
- PORTABLE_TEST_BOOT_ADAPTER=$t/adapter2 PORTABLE_TEST_RUNTIME_ADAPTER=$t/adapter2 \
- PORTABLE_TEST_HELPER=$stage/bin/dex-patch PORTABLE_TEST_SUPERVISOR=$stage/bin/dex-patch \
+ PORTABLE_TEST_ROOT=$r PORTABLE_TEST_BOOT_ID_FILE=$t/boot_id PORTABLE_TEST_GETPROP=true \
  mksh "$stage/package-pre.sh"
 }
 echo 0 > "$r/data/local/gen5w-portable/boot/enabled"
-run_staged || { echo 'FAIL removed old folder: disabled state not read through staged scripts'; exit 1; }
-echo 1 > "$r/data/local/gen5w-portable/boot/enabled"
-if run_staged >/dev/null 2>&1; then echo 'FAIL removed old folder: enabled state admitted without owned retirement'; exit 1; fi
-echo 0 > "$r/data/local/gen5w-portable/boot/enabled"
-echo 'tmpfs /data/local/gen5w-portable/x tmpfs rw 0 0' > "$t/mounts"
-if run_staged >/dev/null 2>&1; then echo 'FAIL removed old folder: live mount admitted'; exit 1; fi
-: > "$t/mounts"; mkdir -p "$r/data/local/gen5w-portable/runtime"; echo failed > "$r/data/local/gen5w-portable/runtime/phase"
-if run_staged >/dev/null 2>&1; then echo 'FAIL removed old folder: failed runtime admitted'; exit 1; fi
-echo 'PASS NEMESIS-removed old folder: state read through verified staged scripts; enabled, mounted or failed runtime refused'
+run_staged || { echo 'FAIL staged state-reset did not retire disabled earlier state'; exit 1; }
+[ ! -e "$r/data/local/gen5w-portable/boot" ] && ls -d "$r/data/local/gen5w-portable/retired"/staged-boot-* >/dev/null
+mkdir -p "$r/data/local/gen5w-portable/boot"; echo 1 > "$r/data/local/gen5w-portable/boot/enabled"
+if run_staged >/dev/null 2>&1; then echo 'FAIL staged state-reset accepted an enabled earlier package'; exit 1; fi
+echo 'PASS earlier state: handoff continued, otherwise retired by the verified staged state-reset (enabled refused)'
 echo 'PASS package preflight: version floor, healthy Android, app ownership, retired-pending update gate, exact payload and symlink refusal'

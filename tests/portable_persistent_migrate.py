@@ -688,6 +688,19 @@ class PersistentMigrationTest(unittest.TestCase):
         self.assert_no_external_actions()
 
 
+    def test_stale_overlay_journal_from_earlier_boot_is_not_retired(self):
+        # Vehicle 2026-11-19: a journal of an earlier boot reports expired;
+        # nothing is bound, so migration must not demand a same-boot retirement.
+        self.seed_held_overlay()
+        (self.overlay / "state").write_text("expired\n")
+        (self.root / "mounts").write_text("")
+
+        result = self.run_migration()
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.system / "app/HKMC_DiPO.odex").read_bytes(), self.static_applied)
+        self.assertEqual(self.overlay_events(), [])
+
 def overlay_adapter_main(args):
     import sys
 

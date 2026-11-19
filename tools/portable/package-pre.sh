@@ -11,18 +11,10 @@ plain() {
     local part=$1
     while [ "$part" != / ]; do [ ! -L "$part" ] || return 1; part=${part%/*}; [ -n "$part" ] || part=/; done
 }
-# NEMESIS --update runs the old preuninstall/postuninstall, uninstalls the old
-# APKs and removes the old app directory BEFORE this preinstall (pkg.c
-# cmd_install: rm_rf(oldroot); "update replacing"). The old scripts are then
-# gone (vehicle 2026-11-19: boot.sh: No such file). Their status commands only
-# read /data/local/gen5w-portable, so the staged copies read the same state.
-OLD_APP=${PORTABLE_TEST_OLD_APP:-/data/nemesis/apps/gen5w.kr.portable}
+# NEMESIS --update removes the old app folder, hooks and APKs BEFORE this
+# preinstall (pkg.c cmd_install). Never call the old package's scripts here;
+# its state is judged by the verified staged state-reset.sh instead.
 SH=${PORTABLE_TEST_SH:-/system/bin/sh}
-owned() {
-    if [ -f "$OLD_APP/$1" ] && [ ! -L "$OLD_APP/$1" ]; then print -r -- "$OLD_APP/$1"
-    else print -r -- "$BASE/$1"; fi
-}
-old_removed() { [ ! -e "$OLD_APP/boot.sh" ] && [ ! -L "$OLD_APP/boot.sh" ]; }
 op() {
     if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then
         # 99 = not mocked: run the real implementation below.
@@ -41,19 +33,9 @@ op() {
         [ -z "$extra" ] && [ "$held_boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] || return 1
         echo held;;
     overlay-state)
-        status=$(PORTABLE_HELPER=$HELPER "$SH" "$(owned overlay.sh)" status) || return 1
+        status=$(PORTABLE_HELPER=$HELPER "$SH" "$BASE/overlay.sh" status) || return 1
         case "$status" in *'state|retired-pending'*) echo retired-pending;; *'state|disabled'*) echo disabled;; *'state|expired'*) echo expired;; *'state|prepared'*) echo prepared;; *'state|retired'*) echo retired;; *'state|committed'*) echo active;; *) echo unknown; return 1;; esac;;
-    old-status)
-        "$SH" "$(owned boot.sh)" status;;
-    legacy-quiescent)
-        grep -q '/data/local/gen5w-portable' "${PORTABLE_TEST_MOUNTS:-/proc/mounts}" && return 1
-        for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do [ -z "$(getprop "$key" 2>/dev/null)" ] || return 1; done
-        runtime=$(PORTABLE_HELPER=$HELPER "$SH" "$(owned runtime.sh)" status) || return 1
-        case "$runtime" in 'runtime|disabled'|'runtime|expired') :;; *) return 1;; esac;;
-    retire-update)
-        # Retiring a live view needs the owning (old) code; never improvise it.
-        old_removed && return 1
-        "$SH" "$OLD_APP/boot.sh" update-retire;;
+    state-reset) PORTABLE_HELPER=$HELPER "$SH" "$BASE/state-reset.sh";;
     *) return 1;;
     esac
 }
@@ -98,32 +80,21 @@ done <<EOF
 $packages
 EOF
 op healthy || fail 'healthy Android required for installation'
-if [ "$own_update" = 1 ]; then
-    retirement=$(op retirement) || fail 'existing update-handoff state is unreadable'
-    if [ "$retirement" != held ]; then
-        prior_status=$(op old-status) || fail 'existing package state is unreadable'
-        if grep -qx 'enabled|1' <<EOF
-$prior_status
-EOF
-        then
-            op retire-update || fail 'existing package could not safely retire its live view for update'
-            retirement=$(op retirement) || fail 'existing update-handoff state is unreadable'
-        else
-            grep -qx 'enabled|0' <<EOF
-$prior_status
-EOF
-            op legacy-quiescent || fail 'legacy package is not quiescent; disable it through its owning path before update'
-            retirement=inactive
-        fi
-    fi
-    if [ "$retirement" = held ]; then
-        overlay_state=$(op overlay-state) || fail 'existing overlay state is unreadable'
-        case "$overlay_state" in retired-pending|disabled|expired|prepared|retired) :;; *) fail 'existing overlays are not held or inactive';; esac
-    else [ "$retirement" = inactive ] || fail 'safe update handoff was not recorded'; fi
-fi
 for package in kr.gen5w.core kr.gen5w.wirelesshost; do
     if op installed "$package"; then
         [ "$own_update" = 1 ] || fail 'existing authored app retained; remove its owning installation first'
     fi
 done
+# Read-only admissions end here; the retirement below is the only change.
+# Two paths only. A same-boot update handoff (an enabled persistent package
+# retired its live view through its own code, before NEMESIS) is continued;
+# anything else must be inactive and is retired by state-reset.sh.
+retirement=$(op retirement) || fail 'existing update-handoff state is unreadable'
+if [ "$retirement" = held ]; then
+    [ "$own_update" = 1 ] || fail 'update handoff recorded without an installed package'
+    overlay_state=$(op overlay-state) || fail 'existing overlay state is unreadable'
+    case "$overlay_state" in retired-pending|disabled|expired|prepared|retired) :;; *) fail 'existing overlays are not held or inactive';; esac
+else
+    op state-reset || fail 'earlier portable state is not inactive or could not be retired'
+fi
 echo 'portable install: package and NEMESIS verified; no system files changed'

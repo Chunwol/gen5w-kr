@@ -67,7 +67,7 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
     if runtime:
         for name in ('engine.jar', 'adapter.jar', 'libgen5whook.so', 'abi.sha256', 'hook-vm-test.jar'):
             files['dalvik/' + name] = inputs / 'dalvik' / name
-        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
+        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'state-reset.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
             files[name] = HERE / name
         files['bootguard-restore.sh'] = HERE / 'recovery-usb/restore.sh'
         for name, source in (('bridge.dex', inputs / 'apps/bridge.dex'),

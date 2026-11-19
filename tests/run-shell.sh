@@ -47,7 +47,7 @@ python3 tests/portable_preflight_retry.py || exit 1
 echo "== shell package tests (parallel)"
 bash tests/par.sh bash \
     tests/portable_rescue.sh tests/portable_usb.sh tests/portable_ap.sh tests/portable_framework.sh tests/portable_boot.sh tests/portable_package.sh tests/portable_persistent_start.sh tests/portable_overlay.sh tests/portable_runtime.sh tests/portable_session.sh tests/portable_check.sh \
-    tests/portable_bootguard.sh tests/portable_prepare.sh tests/portable_package_post.sh tests/portable_service.sh \
+    tests/portable_bootguard.sh tests/portable_state_reset.sh tests/portable_prepare.sh tests/portable_package_post.sh tests/portable_service.sh \
     tests/integrated.sh#3 tests/integrated.sh#1 tests/integrated-edge.sh tests/bridge.sh tests/gpm-relay.sh tests/timer.sh tests/dongle.sh tests/check.sh \
     tests/drivelog.sh tests/wireless.sh tests/audio.sh tests/bootguard.sh tests/system-reinstall.sh \
     tests/recovery.sh tests/installation-recovery.sh tests/integrated.sh#2 tests/integrated-build.sh tests/bootguard-runtime.sh tests/wireless-preserve.sh \

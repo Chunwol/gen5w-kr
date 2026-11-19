@@ -71,7 +71,7 @@ def audit(files):
                'app/wireless-host.apk', 'app/gen5w-core.apk', 'dalvik/engine.jar',
                'dalvik/adapter.jar', 'dalvik/hook-vm-test.jar', 'dalvik/libgen5whook.so', 'dalvik/abi.sha256'}
     allowed.update(n+'.sh' for n in ('prepare', 'overlay', 'portable', 'check', 'runtime', 'ap', 'framework', 'persistent-migrate', 'persistent-start', 'wrap-dipo',
-                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'diagnostics', 'debug', 'ui', 'boot', 'rescue', 'rescue-watch', 'bootguard', 'bootguard-restore',
+                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'diagnostics', 'debug', 'ui', 'boot', 'rescue', 'rescue-watch', 'bootguard', 'bootguard-restore', 'state-reset',
                    'package-pre', 'package-post', 'package-preun', 'service'))
     allowed.update('permissions/'+n+'.xml' for n in ('com.hkmc.software.connectivity.carplay_wireless',
                    'com.hkmc.software.connectivity.androidauto_wireless', 'com.hkmc.software.wifihotspot'))

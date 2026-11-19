@@ -26,7 +26,13 @@ say() { local up rest; read -r up rest < /proc/uptime; print -r -- "${up:-?} $*"
 alert() {
     say "alert: $1"
     [ -x "$AM" ] || return 0
-    "$AM" broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W 범용판: $1"         --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true >/dev/null 2>&1 || :
+    # A toast is advisory: never let a busy or absent system_server stall the install.
+    "$AM" broadcast -a com.hkmc.intent.action.TOAST -e com.hkmc.intent.extra.TOAST_MESSAGE "Gen5W 범용판: $1" \
+        --ez com.hkmc.intent.extra.TOAST_POPUPSHOWING true </dev/null >/dev/null 2>&1 &
+    local toast=$! waited=0
+    while kill -0 "$toast" 2>/dev/null && [ "$waited" -lt 10 ]; do sleep 1; waited=$((waited + 1)); done
+    kill "$toast" 2>/dev/null
+    wait "$toast" 2>/dev/null || :
 }
 # Restore only the hook we published, including on signals and early failures.
 # NEMESIS may replace the entire app or overwrite the hook in place, so compare

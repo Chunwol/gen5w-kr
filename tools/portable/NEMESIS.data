@@ -2,7 +2,7 @@
 version=1.0
 id=gen5w.kr.portable
 name=Gen5W KR - CarPlay HUD
-package-version=0.3.75
+package-version=0.3.76
 short-desc=Guarded automatic wireless operation; independent USB disable
 depends=!gen5w.kr.bridge,!gen5w.kr.core,!wireless.projection,!enhanced.projection,!projection.tbt
 types=application,service
