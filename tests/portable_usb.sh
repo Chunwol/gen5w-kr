@@ -141,7 +141,7 @@ grep -q 'persistent-payload-and-recovery-verified' "$t/usb/GEN5W-PORTABLE-REPORT
 grep -q TOAST "$ACTIONS/toast"
 echo 'PASS verified ZIP staged, NEMESIS install, staged copy removed, status/baseline recorded'
 
-for pkg in gen5w.kr.core gen5w.kr.bluelink wireless.projection gen5w.kr.portable; do
+for pkg in gen5w.kr.core gen5w.kr.bluelink wireless.projection; do
     new_case; echo "$pkg|1.0|installed" > "$ACTIONS/pkg-list"
     if run; then echo "FAIL installed alongside $pkg"; exit 1; fi
     [ "$(result)" = '결과: refused' ]
@@ -153,7 +153,20 @@ if run; then echo 'FAIL installed alongside on-disk gen5w.kr.timer'; exit 1; fi
 [ "$(result)" = '결과: refused' ] && [ ! -f "$ACTIONS/log" ]
 new_case; mkdir -p "$t/root/data/nemesis/apps/other.vendor"; : > "$t/root/data/nemesis/apps/other.vendor/NEMESIS.data"
 run; [ "$(result)" = '결과: ok' ]
-echo 'PASS existing integrated/portable packages refuse before staging'
+echo 'PASS existing integrated packages refuse before staging'
+# Vehicle 2026-11-19: a failed NEMESIS --update preinstall leaves the portable
+# registration without its folder. Disabled state reinstalls with --update.
+new_case; echo 'gen5w.kr.portable|0.3.72|installed' > "$ACTIONS/pkg-list"
+mkdir -p "$t/root/data/local/gen5w-portable/boot"; echo 0 > "$t/root/data/local/gen5w-portable/boot/enabled"
+run; [ "$(result)" = '결과: ok' ]; grep -qx update "$ACTIONS/log"
+grep -qx 'registered-without-folder|1' "$t/usb/GEN5W-PORTABLE-REPORT/status-before.txt"
+[ -z "$(find "$t/root/data" -maxdepth 1 -name 'gen5w-portable-usb-preun.*' -print)" ]
+new_case; echo 'gen5w.kr.portable|0.3.72|installed' > "$ACTIONS/pkg-list"
+mkdir -p "$t/root/data/local/gen5w-portable/boot"; echo 1 > "$t/root/data/local/gen5w-portable/boot/enabled"
+if run; then echo 'FAIL reinstalled a stale registration recorded as enabled'; exit 1; fi
+[ "$(result)" = '결과: refused' ] && [ ! -f "$ACTIONS/log" ]
+echo 'PASS stale portable registration without folder: disabled reinstalls with --update, enabled refuses'
+
 
 new_case; printf x >> "$t/usb/gen5w.kr.portable.zip"
 if run; then echo 'FAIL corrupted ZIP accepted'; exit 1; fi

@@ -11,36 +11,49 @@ plain() {
     local part=$1
     while [ "$part" != / ]; do [ ! -L "$part" ] || return 1; part=${part%/*}; [ -n "$part" ] || part=/; done
 }
+# NEMESIS --update runs the old preuninstall/postuninstall, uninstalls the old
+# APKs and removes the old app directory BEFORE this preinstall (pkg.c
+# cmd_install: rm_rf(oldroot); "update replacing"). The old scripts are then
+# gone (vehicle 2026-11-19: boot.sh: No such file). Their status commands only
+# read /data/local/gen5w-portable, so the staged copies read the same state.
+OLD_APP=${PORTABLE_TEST_OLD_APP:-/data/nemesis/apps/gen5w.kr.portable}
+SH=${PORTABLE_TEST_SH:-/system/bin/sh}
+owned() {
+    if [ -f "$OLD_APP/$1" ] && [ ! -L "$OLD_APP/$1" ]; then print -r -- "$OLD_APP/$1"
+    else print -r -- "$BASE/$1"; fi
+}
+old_removed() { [ ! -e "$OLD_APP/boot.sh" ] && [ ! -L "$OLD_APP/boot.sh" ]; }
 op() {
-    if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" "$@"; return $?; fi
+    if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then
+        # 99 = not mocked: run the real implementation below.
+        "$PORTABLE_TEST_PACKAGE_ADAPTER" "$@"; rc=$?
+        [ "$rc" = 99 ] || return "$rc"
+    fi
     case "$1" in
     version) /system/xbin/nemesis version;;
     packages) /system/xbin/nemesis pkg-list;;
     healthy) [ "$(getprop sys.boot_completed)" = 1 ] && [ "$(getprop init.svc.zygote)" = running ];;
     installed) pm path "$2" | grep -q '^package:';;
     retirement)
-        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" retirement; return $?; fi
         marker=/data/local/gen5w-portable/boot/update-held
         [ -f "$marker" ] && [ ! -L "$marker" ] || { echo none; return 0; }
         IFS='|' read -r held_boot held_enabled held_overlay held_runtime extra < "$marker" || return 1
         [ -z "$extra" ] && [ "$held_boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] || return 1
         echo held;;
     overlay-state)
-        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" overlay-state; return $?; fi
-        status=$(/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/overlay.sh status) || return 1
+        status=$(PORTABLE_HELPER=$HELPER "$SH" "$(owned overlay.sh)" status) || return 1
         case "$status" in *'state|retired-pending'*) echo retired-pending;; *'state|disabled'*) echo disabled;; *'state|expired'*) echo expired;; *'state|prepared'*) echo prepared;; *'state|retired'*) echo retired;; *'state|committed'*) echo active;; *) echo unknown; return 1;; esac;;
     old-status)
-        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" status; return $?; fi
-        /system/bin/sh /data/nemesis/apps/gen5w.kr.portable/boot.sh status;;
+        "$SH" "$(owned boot.sh)" status;;
     legacy-quiescent)
-        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" legacy-quiescent; return $?; fi
-        grep -q '/data/local/gen5w-portable' /proc/mounts && return 1
-        for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do [ -z "$(getprop "$key")" ] || return 1; done
-        runtime=$(/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/runtime.sh status) || return 1
+        grep -q '/data/local/gen5w-portable' "${PORTABLE_TEST_MOUNTS:-/proc/mounts}" && return 1
+        for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do [ -z "$(getprop "$key" 2>/dev/null)" ] || return 1; done
+        runtime=$(PORTABLE_HELPER=$HELPER "$SH" "$(owned runtime.sh)" status) || return 1
         case "$runtime" in 'runtime|disabled'|'runtime|expired') :;; *) return 1;; esac;;
     retire-update)
-        if [ -n "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then "$PORTABLE_TEST_PACKAGE_ADAPTER" update-retire; return $?; fi
-        /system/bin/sh /data/nemesis/apps/gen5w.kr.portable/boot.sh update-retire;;
+        # Retiring a live view needs the owning (old) code; never improvise it.
+        old_removed && return 1
+        "$SH" "$OLD_APP/boot.sh" update-retire;;
     *) return 1;;
     esac
 }
@@ -49,6 +62,20 @@ if [ -z "${PORTABLE_TEST_PACKAGE_ADAPTER:-}" ]; then
     case "$(id)" in uid=0\(*) :;; *) fail 'root required';; esac
     case "$BASE" in /data/*) :;; *) fail 'package must be staged in data';; esac
 fi
+# Verify and arm the staged bundle first: the old package's state is read with
+# these staged scripts when NEMESIS has already removed the old folder.
+plain "$BASE/SHA256SUMS" && [ -s "$BASE/SHA256SUMS" ] || fail hashes
+chmod 755 "$HELPER" || fail helper
+while read -r digest name extra; do
+    [ -z "$extra" ] || fail hashes
+    case "$digest" in ''|*[!a-f0-9]*) fail hashes;; esac
+    [ "${#digest}" = 64 ] || fail hashes
+    case "$name" in ''|/*|*[!a-zA-Z0-9_./-]*|*/../*|../*|*/./*|*//*) fail 'unsafe hash path';; esac
+    plain "$BASE/$name" && [ -f "$BASE/$name" ] && [ "$("$HELPER" sha256 "$BASE/$name")" = "$digest" ] || fail 'bundle checksum differs'
+    # NEMESIS's native extractor writes every member as 0644. copy_tree then
+    # preserves these modes, so arm the verified worker scripts/helpers here.
+    case "$name" in *.sh|bin/*) chmod 755 "$BASE/$name" || fail 'executable mode failed';; esac
+done < "$BASE/SHA256SUMS"
 version=$(op version) || fail 'NEMESIS version unavailable'
 case "$version" in ''|*[!0-9.]*|.*|*.|*..*) fail 'unrecognized NEMESIS version';; esac
 major=${version%%.*}; [ "$major" != "$version" ] || fail version
@@ -99,16 +126,4 @@ for package in kr.gen5w.core kr.gen5w.wirelesshost; do
         [ "$own_update" = 1 ] || fail 'existing authored app retained; remove its owning installation first'
     fi
 done
-plain "$BASE/SHA256SUMS" && [ -s "$BASE/SHA256SUMS" ] || fail hashes
-chmod 755 "$HELPER" || fail helper
-while read -r digest name extra; do
-    [ -z "$extra" ] || fail hashes
-    case "$digest" in ''|*[!a-f0-9]*) fail hashes;; esac
-    [ "${#digest}" = 64 ] || fail hashes
-    case "$name" in ''|/*|*[!a-zA-Z0-9_./-]*|*/../*|../*|*/./*|*//*) fail 'unsafe hash path';; esac
-    plain "$BASE/$name" && [ -f "$BASE/$name" ] && [ "$("$HELPER" sha256 "$BASE/$name")" = "$digest" ] || fail 'bundle checksum differs'
-    # NEMESIS's native extractor writes every member as 0644. copy_tree then
-    # preserves these modes, so arm the verified worker scripts/helpers here.
-    case "$name" in *.sh|bin/*) chmod 755 "$BASE/$name" || fail 'executable mode failed';; esac
-done < "$BASE/SHA256SUMS"
 echo 'portable install: package and NEMESIS verified; no system files changed'

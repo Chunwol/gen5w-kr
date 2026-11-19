@@ -141,10 +141,23 @@ for meta in "$ROOT"/data/nemesis/apps/*/NEMESIS.data; do
         finish refused "기존 패키지($package)가 남아 있습니다. 1단계(통합판 제거)를 먼저 끝내세요.";;
     esac
 done
-if [ "$update" = 1 ]; then
+orphan=0
+if [ "$update" = 1 ] && [ ! -e "$APP" ] && [ ! -L "$APP" ]; then
+    # NEMESIS --update removes the old folder, hooks and APKs before the new
+    # preinstall and keeps the registration if that preinstall fails (vehicle
+    # 2026-11-19). Nothing of the old package can run any more; admit only a
+    # recorded disabled state, then let --update replace the stale record.
+    orphan=1
+    old_state=$ROOT/data/local/gen5w-portable/boot
+    [ ! -L "$old_state" ] && [ ! -L "$old_state/enabled" ] || finish refused '기존 범용판 상태 경로가 안전하지 않습니다. 설치하지 않았습니다.'
+    old_enabled=$(cat "$old_state/enabled" 2>/dev/null)
+    { print -r -- "enabled|$old_enabled"; print -r -- "reason|$(cat "$old_state/reason" 2>/dev/null)"; print -r -- 'registered-without-folder|1'; } > "$REPORT/status-before.txt" ||
+        finish refused '기존 범용판 상태를 기록하지 못했습니다. 설치하지 않았습니다.'
+    [ "$old_enabled" != 1 ] || finish refused '범용판 폴더가 없는데 자동 적용이 켜진 기록이 있습니다. 설치하지 않았습니다. 보고서를 PC로 가져오세요.'
+elif [ "$update" = 1 ]; then
     # Read-only admission first. No old package state is changed until the
     # staged ZIP and stock hotspot condition have both been verified.
-    [ -f "$APP/boot.sh" ] || finish refused '범용판 등록은 있지만 설치 폴더가 없습니다. 보고서를 PC로 가져오세요.'
+    [ -f "$APP/boot.sh" ] || finish refused '범용판 등록은 있지만 설치 폴더가 불완전합니다. 보고서를 PC로 가져오세요.'
     "$SH" "$APP/boot.sh" status > "$REPORT/status-before.txt" 2>&1 || finish refused '기존 범용판 상태를 읽지 못했습니다. 설치하지 않았습니다.'
     this_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
     [ -n "$this_boot" ] && grep -qx "attempt|$this_boot|pending" "$REPORT/status-before.txt" &&
@@ -205,12 +218,13 @@ if [ "$update" = 1 ]; then
     fi
     preun=$APP/package-preun.sh
     [ ! -L "$preun" ] && { [ ! -e "$preun" ] || [ -f "$preun" ]; } || finish refused '기존 해제 스크립트 경로가 안전하지 않습니다.'
-    say 'portable present but not armed; replacing with --update'
+    if [ "$orphan" = 1 ]; then say 'stale registration without folder (interrupted update); replacing with --update'
+    else say 'portable present but not armed; replacing with --update'; fi
 fi
 # Only after every read-only admission and staged-ZIP check may the old package
 # be touched. Hard links preserve its original inode, metadata and bytes. A
 # second link identifies only our temporary hook; a new NEMESIS hook is retained.
-if [ "$update" = 1 ]; then
+if [ "$update" = 1 ] && [ "$orphan" = 0 ]; then
     claim=$ROOT/data/gen5w-portable-usb-preun.$$
     [ ! -e "$claim" ] && [ ! -L "$claim" ] && mkdir "$claim" || finish failed '기존 해제 스크립트 보관 폴더를 만들지 못했습니다.'
     transaction=$claim
