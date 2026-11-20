@@ -49,6 +49,7 @@ static jmethodID static_method(JNIEnv *env, jclass type, const char *name, const
     printf("vm GetStaticMethodID %s%s\n", name, signature);
     if (step("GetStaticMethodID")) return 0;
     if (!strcmp(name, "getSystemClassLoader")) return (jmethodID)3;
+    if (!strcmp(name, "getBootClassPathSize")) return !strcmp(signature, "()I") ? (jmethodID)6 : 0;
     return strcmp(signature, "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V") ? 0 : (jmethodID)1;
 }
 static jstring new_string(JNIEnv *env, const char *text) { (void)env; return step("NewStringUTF") ? 0 : (jstring)strdup(text); }
@@ -68,6 +69,12 @@ static jmethodID method(JNIEnv *env, jclass type, const char *name, const char *
 }
 static jobject call_static_object(JNIEnv *env, jclass type, jmethodID id, ...) {
     (void)env; (void)type; (void)id; printf("vm getSystemClassLoader\n"); return step("CallStaticObjectMethod") ? 0 : (jobject)3;
+}
+/* Live bootclasspath size; FAKEVM_BOOT_SIZE stands for a VM that differs. */
+static jint call_static_int(JNIEnv *env, jclass type, jmethodID id, ...) {
+    const char *size = getenv("FAKEVM_BOOT_SIZE");
+    (void)env; (void)type; (void)id; printf("vm getBootClassPathSize\n");
+    return step("CallStaticIntMethod") ? 0 : (size ? atoi(size) : 2);
 }
 static jobject call_object(JNIEnv *env, jobject self, jmethodID id, ...) {
     va_list arguments; (void)env; (void)id;
@@ -96,11 +103,13 @@ static struct JNINativeInterface table;
 static JNIEnv fake = &table;
 jint JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arguments) {
     JavaVMInitArgs *init = arguments;
-    fail_at = getenv("FAKEVM_FAIL") ? atoi(getenv("FAKEVM_FAIL")) : 0;
+    /* The hook may end the process with _exit(); keep every line already printed. */
+    setvbuf(stdout, 0, _IOLBF, 0);
+    fail_at =getenv("FAKEVM_FAIL") ? atoi(getenv("FAKEVM_FAIL")) : 0;
     for (int i = 0; i < init->nOptions; i++) printf("vm option %s\n", init->options[i].optionString);
     table.FindClass = find_class; table.GetStaticMethodID = static_method; table.NewStringUTF = new_string;
     table.CallStaticVoidMethod = call_static_void; table.ExceptionCheck = exception_check;
-    table.GetMethodID = method; table.CallStaticObjectMethod = call_static_object; table.CallObjectMethod = call_object; table.NewObject = new_object;
+    table.GetMethodID = method; table.CallStaticObjectMethod = call_static_object; table.CallStaticIntMethod = call_static_int; table.CallObjectMethod = call_object; table.NewObject = new_object;
     table.PushLocalFrame = push_frame; table.PopLocalFrame = pop_frame;
     table.ExceptionDescribe = describe; table.ExceptionClear = clear; table.DeleteLocalRef = delete_local;
     *vm = 0; *env_out = &fake;
@@ -185,6 +194,8 @@ gcc -O1 -I"$w/include" "$w/driver.c" -o "$w/driver" -L"$w" -lfakevm -Wl,-rpath,/
 unshare -rm bash -s "$w" <<'NS'
 set -euo pipefail
 w=$1 r=$1/root
+# Two entries, matching the fake VM's live count unless FAKEVM_BOOT_SIZE says otherwise.
+bcp=BOOTCLASSPATH=/system/framework/core.jar:/system/framework/framework.jar
 mkdir "$r"
 mount -t tmpfs none "$r"
 mkdir -p "$r/usr" "$r/proc" "$r/dev" "$r/w" "$r/data/data/com.daudio.app.dipo/files"
@@ -194,42 +205,48 @@ for name in lib lib32 lib64 libx32 bin sbin; do
     elif [ -d "/$name" ]; then mkdir "$r/$name"; mount --rbind "/$name" "$r/$name"; fi
 done
 echo '== hook'
-chroot "$r" /usr/bin/env -i PATH=/usr/bin LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
     GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
     GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_ENGINE_CACHE=/w/engine-cache GEN5W_EXTRA=kept /w/driver hook-parent
 [ -d "$w/engine-cache" ] && echo 'engine cache created'
 echo '== no-cache'
-chroot "$r" /usr/bin/env -i PATH=/usr/bin LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
     GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
     GEN5W_HOOK_LIBRARY=/w/libgen5whook.so /w/driver hook-parent
 # A cache directory open to others (or not a real directory) leaves the VM stock.
 mkdir -m 0777 "$w/open-cache"; chmod 0777 "$w/open-cache"; ln -s /w/open-cache "$w/link-cache"; mkdir "$w/ro-cache"; chmod 0500 "$w/ro-cache"
 for cache in open-cache link-cache ro-cache; do
     echo "== cache-$cache"
-    chroot "$r" /usr/bin/env -i PATH=/usr/bin LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
+    chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
         GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
         GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_ENGINE_CACHE=/w/$cache /w/driver hook-parent
 done
 # Each JNI failure is followed by no further JNI call and is cleared.
-for call in $(seq 1 24); do
+for call in $(seq 1 32); do
     echo "== fail-$call"
-    chroot "$r" /usr/bin/env -i PATH=/usr/bin LD_PRELOAD=/w/libgen5whook.so:/w/libother.so FAKEVM_FAIL=$call \
+    chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so FAKEVM_FAIL=$call \
         GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
-        GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_ENGINE_CACHE=/w/engine-cache /w/driver hook-parent
+        GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_ENGINE_CACHE=/w/engine-cache /w/driver hook-parent || echo "driver exit $?"
 done
+# A live bootclasspath that differs from BOOTCLASSPATH ends the process before any engine work.
+echo '== bootpath-mismatch'
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so FAKEVM_BOOT_SIZE=3 \
+    GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
+    GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_ENGINE_CACHE=/w/engine-cache /w/driver hook-parent || echo "driver exit $?"
+cat "$r/data/data/com.daudio.app.dipo/files/gen5w-portable-bootpath-guard" 2>/dev/null | sed 's/^/guard /' || :
 echo '== overflow'
-chroot "$r" /usr/bin/env -i PATH=/usr/bin LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
     GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
     GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_A=a GEN5W_B=b GEN5W_C=c GEN5W_D=d GEN5W_E=e /w/driver hook-parent
 echo '== long-input'
 long=$(printf '%0600d' 0)
-chroot "$r" /usr/bin/env -i PATH=/usr/bin LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" LD_PRELOAD=/w/libgen5whook.so:/w/libother.so \
     GEN5W_PACKAGE=com.daudio.app.dipo GEN5W_ENGINE_JAR=/w/engine.jar GEN5W_ADAPTER_JAR=/w/adapter.jar \
     GEN5W_HOOK_LIBRARY=/w/libgen5whook.so GEN5W_EXTRA="$long" /w/driver hook-parent
 echo '== probe1'
-chroot "$r" /usr/bin/env -i PATH=/usr/bin /w/driver launch-probe
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" /w/driver launch-probe
 echo '== probe2'
-chroot "$r" /usr/bin/env -i PATH=/usr/bin /w/driver launch-probe
+chroot "$r" /usr/bin/env -i PATH=/usr/bin "$bcp" /w/driver launch-probe
 NS
 '''
 
@@ -311,7 +328,7 @@ class HookProcessEnvironment(unittest.TestCase):
         # loader; the bootclasspath is never changed (V039 dex cache deps).
         self.assertFalse(any("-Xbootclasspath" in line for line in hook), hook)
         self.assertIn("engine cache created", hook)
-        for line in ("vm option -Xstock", "vm option -Xint", "vm status 0",
+        for line in ("vm option -Xstock", "vm option -Xint", "vm status 0", "vm getBootClassPathSize",
                      "vm getSystemClassLoader", "vm getParent",
                      "vm DexClassLoader jar=/w/engine.jar cache=/w/engine-cache library=(null) parent=4",
                      "vm loadClass kr.gen5w.portable.Bootstrap",
@@ -341,22 +358,41 @@ class HookProcessEnvironment(unittest.TestCase):
         # A failure is injected at every JNI call in turn, until a run makes
         # fewer calls than the injection point (every call was covered).
         thrown = []
-        for index in range(1, 25):
+        for index in range(1, 33):
             lines = _section(self.output, f"fail-{index}")
-            self.assertIn("vm status 0", lines)
-            self.assertIn("child exit 0", lines)
             throw = [line for line in lines if line.startswith("vm throw at ")]
+            if "driver exit 78" in lines:
+                # A failed bootclasspath check counts as a mismatch and ends the
+                # process: before the engine at the first check ("vm"), right
+                # after Bootstrap.start at the second ("engine").
+                self.assertTrue(throw, lines)
+                self.assertIn(throw[0].split()[-1], ("FindClass", "GetStaticMethodID", "CallStaticIntMethod"), lines)
+                if "vm PushLocalFrame 16" not in lines:
+                    self.assertFalse(any("DexClassLoader" in line or line.startswith("vm start library=") for line in lines), lines)
+                else:
+                    self.assertLess(lines.index(next(line for line in lines if line.startswith("vm start library="))),
+                                    lines.index(throw[0]), lines)
+            else:
+                self.assertIn("vm status 0", lines)
+                self.assertIn("child exit 0", lines)
             if not throw: break
             thrown.append(throw[0].split()[-1])
             self.assertFalse(any(line.startswith("vm JNI-while-pending") for line in lines), lines)
             self.assertIn("vm ExceptionClear", lines)
-            if not throw[0].endswith("CallStaticVoidMethod"):
+            if "driver exit 78" not in lines and not throw[0].endswith("CallStaticVoidMethod"):
                 self.assertFalse(any(line.startswith("vm start library=") for line in lines), lines)
         else:
             self.fail("injection range does not cover every JNI call")
         for call in ("PushLocalFrame", "FindClass", "GetStaticMethodID", "GetMethodID", "CallStaticObjectMethod",
-                     "CallObjectMethod", "NewStringUTF", "NewObject", "CallStaticVoidMethod"):
+                     "CallObjectMethod", "NewStringUTF", "NewObject", "CallStaticVoidMethod", "CallStaticIntMethod"):
             self.assertIn(call, thrown)
+
+    def test_bootpath_mismatch_ends_process_before_engine(self):
+        lines = _section(self.output, "bootpath-mismatch")
+        self.assertIn("vm getBootClassPathSize", lines)
+        self.assertIn("driver exit 78", lines)
+        self.assertFalse(any("DexClassLoader" in line or line.startswith("vm start library=") or line == "vm status 0" for line in lines), lines)
+        self.assertTrue(any(line.startswith("guard ") for line in lines), lines)
 
     def test_inherited_environment_is_cleared_for_children(self):
         hook = _section(self.output, "hook")

@@ -425,7 +425,7 @@ EOF
     if [ "$rollback_complete" = 1 ] || [ "$rc" = 0 ]; then rm -rf "$STAGE" "$TX"
     else echo "persistent-migrate: preserving uncertain transaction evidence at $STAGE and $TX" >&2; fi
     if [ -d "${LOCK:-}" ] && [ ! -L "$LOCK" ] && [ ! -L "$LOCK/owner" ]; then
-        IFS='|' read -r lock_tag lock_pid < "$LOCK/owner" 2>/dev/null || :
+        IFS='|' read -r lock_tag lock_pid 2>/dev/null < "$LOCK/owner" || :
         if [ "$lock_tag" = pid ] && [ "$lock_pid" = "$$" ]; then rm -f "$LOCK/owner" && rmdir "$LOCK" 2>/dev/null || :; fi
     fi
     exit "$rc"

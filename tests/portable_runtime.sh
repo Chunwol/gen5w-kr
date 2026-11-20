@@ -134,6 +134,29 @@ rm -f "$t/stock-ran"
 mksh -c 'W=/data/nemesis/apps/gen5w.kr.portable-absent/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W} '"$t/stock"' --application' || { echo 'FAIL property fallback'; exit 1; }
 [ "$(cat "$t/stock-ran")" = 'stock preload=none args=--application' ] || { echo 'FAIL property fallback changed the command'; exit 1; }
 echo 'PASS wrapper refuses unsafe sourced path and falls back to the stock start'
+# Zygote blocks all app starts until a wrapped child reports its pid; the wrapper
+# reports it before anything slow and hands WrapperInit fd 0 (VM 2026-11-20).
+for w in wrap-dipo.sh wrap-gpm.sh; do
+    rm -f "$t/pid-pipe" "$t/pid-bytes" "$t/stock-ran"; mkfifo "$t/pid-pipe"
+    ( od -An -tu1 < "$t/pid-pipe" | tr -s ' ' ' ' > "$t/pid-bytes" ) & reader=$!
+    printf '#!/bin/sh\necho "pid=$$ args=$*" > "%s"\n' "$t/stock-ran" > "$t/stock-pid"; chmod +x "$t/stock-pid"
+    mksh "tools/portable/$w" /bin/sh "$t/stock-pid" --application '--nice-name=a b' com.android.internal.os.WrapperInit 7 19 x 7> "$t/pid-pipe" ||
+        { echo "FAIL $w early pid: command failed"; exit 1; }
+    wait "$reader"
+    ran=$(cat "$t/stock-ran"); pid=${ran#pid=}; pid=${pid%% *}
+    set -- $(cat "$t/pid-bytes")
+    [ "$#" = 4 ] && [ $(( ($1 << 24) + ($2 << 16) + ($3 << 8) + $4 )) = "$pid" ] || { echo "FAIL $w reported pid bytes '$*' for $ran"; exit 1; }
+    [ "${ran#* }" = 'args=--application --nice-name=a b com.android.internal.os.WrapperInit 0 19 x' ] || { echo "FAIL $w did not hand WrapperInit fd 0: $ran"; exit 1; }
+done
+# Without a usable pipe the command is unchanged (WrapperInit reports as stock).
+mksh tools/portable/wrap-dipo.sh "$t/stock-pid" com.android.internal.os.WrapperInit 9 19 9>/dev/null
+case "$(cat "$t/stock-ran")" in *'args=com.android.internal.os.WrapperInit 9 19') :;; *) echo 'FAIL non-pipe fd changed the command'; exit 1;; esac
+echo 'PASS wrappers report the app pid to zygote before the slow VM start'
+# No priority change in the wrapped app: Dalvik nukes a thread (SIGSTKFLT) that
+# cannot reach a GC suspend point in time, and low-priority preload threads on a
+# busy unit did not (VM 2026-11-21).
+! grep -q renice tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh || { echo 'FAIL wrapper changes app priority'; exit 1; }
+echo 'PASS wrappers leave the app at stock priority'
 
 # The no-hook startup probe bypasses engine discovery and never writes persist.*.
 run enable probe

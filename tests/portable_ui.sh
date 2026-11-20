@@ -81,7 +81,7 @@ echo "touch $A/OLD-RECOVERY-RAN" > "$N/gen5wkr.recovery/current/recovery.sh"
 
 # 1. Status/log schema from portable journals and the live host.
 collect
-for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.81 apguard=on wired=no sw_wireless=on \
+for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.82 apguard=on wired=no sw_wireless=on \
           sw_timer=on sw_bluelink=on sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
           wlan=present recovery_state=none recovery_available=no recovery_request=0 recovery_result=none \
           portable_enabled=1 portable_phase=healthy portable_mode=full portable_overlay=committed portable_runtime=committed portable_session=running; do
@@ -260,4 +260,9 @@ rm "$UI"; ln -s "$t/target" "$M"; envelope wireless=off; collect; [ ! -e "$t/tar
 [ ! -e "$UI/status" ] || fail 'status written while a marker is a link'
 rm "$M"; collect; [ -f "$UI/status" ] || fail 'did not recover'
 pass 'symlinked UI folder or marker: nothing written'
+# 10. A missing session epoch (no session yet) must not write a shell error every round (VM 2026-11-20).
+rm -f "$P/session/epoch" "$P/session/ready"; collect
+! grep -q "can't open\|open: No such" "$t/out" || fail "missing session file reported as a shell error: $(cat "$t/out")"
+expect portable_session stopped 'no session'
+pass 'missing session files read quietly'
 [ -z "${PORTABLE_UI_EXPORT:-}" ] || cp "$UI/status" "$UI/log" "$PORTABLE_UI_EXPORT/"

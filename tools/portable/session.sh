@@ -85,12 +85,19 @@ dipo_ready() {
 }
 service_command() {
     local seconds=$1; shift
-    "$BASE/bin/dex-patch" supervise "$seconds" /system/bin/true /system/bin/am "$@"
+    # `am` boots a Dalvik VM: run it at normal priority, not the services' nice 10.
+    ( normal_priority; exec "$BASE/bin/dex-patch" supervise "$seconds" /system/bin/true /system/bin/am "$@" )
+}
+normal_priority() { # this (sub)shell: /proc/self is opened by the builtin read
+    local me rest
+    IFS=' ' read -r me rest < /proc/self/stat 2>/dev/null && renice 0 "$me" >/dev/null 2>&1
+    return 0
 }
 op() {
     if [ -n "$ROOT" ]; then "$ADAPTER" "$@"; return $?; fi
     case "$1" in
-    boot) cat /proc/sys/kernel/random/boot_id;;
+    # Builtin read: the supervisor checks this every second (no exec per check).
+    boot) local id; IFS= read -r id < /proc/sys/kernel/random/boot_id && print -r -- "$id";;
     adapter-ready)
         [ "$(getprop sys.boot_completed)" = 1 ] && [ "$(getprop init.svc.zygote)" = running ] && dipo_ready;;
     ready)
@@ -121,8 +128,10 @@ op() {
     wireless-admit) /system/bin/sh "$BASE/ap.sh" check;;
     installed) pm path "$2" | grep -q '^package:';;
     install) pm install -r "$2";;
-    broker) exec "$NEM" root 1000 -c "CLASSPATH=$BASE/app/bridge.dex:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $SUPERVISOR";;
-    owner) exec "$NEM" root 1000 -c "CLASSPATH=$BASE/app/gen5w-core.apk:$BASE/dalvik/engine.jar exec /system/bin/app_process /system/bin kr.gen5w.portable.OwnerSupervisor $SUPERVISOR";;
+    # The service scripts run at nice 10; the AP broker and owner VMs serve the
+    # live phone connection, so they get normal priority back (root may raise).
+    broker) normal_priority; exec "$NEM" root 1000 -c "CLASSPATH=$BASE/app/bridge.dex:/system/framework/com.tcc.iap2.jar exec /system/bin/app_process /system/bin kr.gen5w.hotspot.ApBroker $SUPERVISOR";;
+    owner) normal_priority; exec "$NEM" root 1000 -c "CLASSPATH=$BASE/app/gen5w-core.apk:$BASE/dalvik/engine.jar exec /system/bin/app_process /system/bin kr.gen5w.portable.OwnerSupervisor $SUPERVISOR";;
     start-host) service_command 30 startservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService --ez relay_v039 true;;
     start-core) service_command 30 startservice -n kr.gen5w.core/.CoreService;;
     stop-host) service_command 10 stopservice -n kr.gen5w.wirelesshost/kr.gen5w.wireless.BridgeHostService
@@ -140,7 +149,8 @@ op() {
         case "$start" in ''|*[!0-9]*) return 1;; esac
         [ "$(process_key "$pid" 2>/dev/null)" = "$pid:$start" ] || return 1
         case "$pid" in ''|*[!0-9]*) return 1;; esac
-        grep -aq '^kr.gen5w.wirelesshost' "/proc/$pid/cmdline" 2>/dev/null;;
+        IFS= read -r -d '' extra 2>/dev/null < "/proc/$pid/cmdline" || return 1
+        case "$extra" in kr.gen5w.wirelesshost*) return 0;; *) return 1;; esac;;
     pause) sleep 1;;
     *) return 1;;
     esac

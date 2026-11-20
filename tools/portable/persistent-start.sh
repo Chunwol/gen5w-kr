@@ -132,11 +132,37 @@ verify() {
     echo "persistent-start: verified $rows applied target(s) and immutable restore originals"
     return 0
 }
+# Boot-time polling and hashing compete with zygote and system_server. On the
+# V039 VM (2026-11-20) all services together kept boot from ever completing;
+# with them idle it completed in stock time. Poll every 5 s for up to 15 min.
+# Right after boot_completed every stock app is still starting (BOOT_COMPLETED
+# receivers). Starting our VMs and apps on top of that storm saturated a 1-CPU
+# VM until zygote stalled with the AMS lock held and the watchdog reset Android
+# (VM 2026-11-21: reset ~2-4 min after our start; none while we stayed idle).
+# Wait until the 1-minute load is below 2 per CPU, at most 3 minutes.
+settle_android() {
+    local n=0 line l1 rest waited=0
+    while IFS= read -r line; do case "$line" in processor*) n=$((n+1));; esac; done < /proc/cpuinfo 2>/dev/null
+    [ "$n" -gt 0 ] || n=1
+    while [ "$waited" -lt 180 ]; do
+        IFS=' ' read -r l1 rest < /proc/loadavg 2>/dev/null || break
+        l1=${l1%%.*}
+        case "$l1" in ''|*[!0-9]*) break;; esac
+        [ "$l1" -ge $((n * 2)) ] || break
+        sleep 5; waited=$((waited + 5))
+    done
+    echo "persistent-start: settled after ${waited}s (load ${l1:-?}, cpus $n)"
+}
+normal_priority() { # this (sub)shell: /proc/self is opened by the builtin read
+    local me rest
+    IFS=' ' read -r me rest < /proc/self/stat 2>/dev/null && renice 0 "$me" >/dev/null 2>&1
+    return 0
+}
 wait_android() {
     count=0
     while [ "$(getprop sys.boot_completed 2>/dev/null)" != 1 ] || [ "$(getprop init.svc.zygote 2>/dev/null)" != running ]; do
-        count=$((count+1)); [ "$count" -lt 300 ] || return 1
-        sleep 1
+        count=$((count+1)); [ "$count" -lt 180 ] || return 1
+        sleep 5
     done
 }
 case "${1:-}" in
@@ -147,16 +173,33 @@ case "${1:-}" in
         verify; exit $?;;
     run)
         [ "$#" = 1 ] || exit 2
-        verify || exit $?
-        [ -z "$ROOT" ] || fail fixture-cannot-start-android
+        # No manifest: hand over to the stock-first path at once (exit 3).
+        if [ ! -e "$MANIFEST" ] && [ ! -L "$MANIFEST" ]; then exit 3; fi
+        [ -z "$ROOT" ] || { verify || exit $?; fail fixture-cannot-start-android; }
+        # Hash the 97 targets only after Android is up; nothing starts before
+        # this check passes, as before.
         wait_android || fail android-readiness-timeout
+        settle_android
+        verify || exit $?
         # Second clear path for the pre-zygote boot guard, in case its
         # background child did not survive: Android reached boot_completed.
         GUARD=/data/local/gen5w-portable/persistent/bootguard
         if [ -d "$GUARD" ] && [ ! -L "$GUARD" ] && [ ! -L "$GUARD/count" ] && [ ! -L "$GUARD/count.svc" ] && [ ! -e "$GUARD/tripped" ]; then
             echo 0 > "$GUARD/count.svc" && mv "$GUARD/count.svc" "$GUARD/count" || :
         fi
-        "$HELPER" supervise 15 /system/bin/true /system/bin/am startservice -n com.daudio.app.dipo/.service.DipoService || fail dipo-start-request-failed
+        # `am` boots a Dalvik VM; right after boot on a slow unit that alone can
+        # take over 15 s (VM 2026-11-21: every start request timed out, so no
+        # feature ever started). Run it at normal priority, allow 30 s, and
+        # retry; startservice is idempotent. Bounded to 4 attempts.
+        # Only when DiPO is not already running with the hook: Android starts it at
+        # boot, and a redundant onStartCommand on its busy main thread ran past the
+        # service timeout, so Android killed and restarted it (VM 2026-11-21).
+        count=0
+        /system/bin/sh "$BASE/session.sh" adapter-ready ||
+        until ( normal_priority; exec "$HELPER" supervise 30 /system/bin/true /system/bin/am startservice -n com.daudio.app.dipo/.service.DipoService ); do
+            count=$((count+1)); [ "$count" -lt 4 ] || fail dipo-start-request-failed
+            sleep 5
+        done
         count=0
         until /system/bin/sh "$BASE/session.sh" adapter-ready; do
             count=$((count+1)); [ "$count" -lt 180 ] || fail dipo-adapter-not-ready

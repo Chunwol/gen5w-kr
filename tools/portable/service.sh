@@ -1,4 +1,8 @@
 #!/system/bin/sh
+# Background work yields the CPU to Android (zygote, system_server, stock apps);
+# children inherit it. VM 2026-11-21: polling at normal priority starved a stock
+# provider until the system_server watchdog reset the unit.
+renice 10 $$ >/dev/null 2>&1
 # Registered background mode: no NEMESIS restart loop after a startup failure.
 BASE=${0%/*}; [ "$BASE" != "$0" ] || BASE=.
 TEST_ROOT=${PORTABLE_TEST_ROOT:-}

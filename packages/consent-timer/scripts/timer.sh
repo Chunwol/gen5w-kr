@@ -1,4 +1,8 @@
 #!/system/bin/sh
+# Background work yields the CPU to Android (zygote, system_server, stock apps);
+# children inherit it. VM 2026-11-21: polling at normal priority starved a stock
+# provider until the system_server watchdog reset the unit.
+renice 10 $$ >/dev/null 2>&1
 HOLD_SCRIPT=${0%/*}/install-hold.sh
 . "$HOLD_SCRIPT"
 install_hold && exit 0
@@ -23,6 +27,13 @@ AM=${TIMER_TEST_AM:-am}
 GETPROP=${TIMER_TEST_GETPROP:-getprop}
 RUN=$PKG/run
 GEN=$RUN/generation
+# Production does nothing until boot completes: the SystemUI hash check and a
+# logcat reader during boot compete with zygote and system_server. Without -T a
+# later reader still replays the whole buffer, so no consent line is missed.
+# Tests drive boot state themselves.
+if [ -z "${TIMER_TEST_GETPROP:-}" ]; then
+    until [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; do sleep 5; done
+fi
 stock_systemui || { log 'timer: SystemUI.odex is not a recognised stock file; stock 10 second timer kept'; exit 0; }
 [ ! -L "$RUN" ] || exit 1
 mkdir -p "$RUN" || exit 1

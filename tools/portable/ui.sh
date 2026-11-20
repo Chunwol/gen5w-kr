@@ -1,4 +1,8 @@
 #!/system/bin/sh
+# Background work yields the CPU to Android (zygote, system_server, stock apps);
+# children inherit it. VM 2026-11-21: polling at normal priority starved a stock
+# provider until the system_server watchdog reset the unit.
+renice 10 $$ >/dev/null 2>&1
 # In-car screen collector for the portable install (core app MainActivity,
 # StatusModel, SwitchRequest). Root only writes the root-owned
 # /data/nemesis/gen5wkr.ui (status, log) and root-owned markers in
@@ -103,7 +107,7 @@ boot_id() {
 }
 uptime_s() {
     local up rest
-    IFS=' ' read -r up rest < "$UPTIME" 2>/dev/null || return 1
+    IFS=' ' read -r up rest 2>/dev/null < "$UPTIME" || return 1
     up=${up%%.*}
     case "$up" in ''|*[!0-9]*) return 1;; esac
     [ "${#up}" -le 9 ] || return 1
@@ -112,7 +116,7 @@ uptime_s() {
 process_key() {
     local pid=$1 line rest count=0
     case "$pid" in ''|*[!0-9]*) return 1;; esac
-    IFS= read -r line < "/proc/$pid/stat" 2>/dev/null || return 1
+    IFS= read -r line 2>/dev/null < "/proc/$pid/stat" || return 1
     rest=${line##*) }; [ "$rest" != "$line" ] || return 1
     set -- $rest; [ "$#" -ge 20 ] || return 1
     case "$1" in Z|X|x) return 1;; esac
@@ -168,7 +172,7 @@ read_portable() {
     case "$P_RUNTIME" in enabling|pending|committed|failed)
         [ -z "$BOOT" ] || [ "$(small "$PSTATE/runtime/boot")" != "$BOOT" ] || RUNTIME_LIVE=1;; esac
     P_SESSION=stopped
-    if IFS='|' read -r epoch_boot epoch_key < "$PSTATE/session/epoch" 2>/dev/null && ready=$(small "$PSTATE/session/ready") &&
+    if IFS='|' read -r epoch_boot epoch_key 2>/dev/null < "$PSTATE/session/epoch" && ready=$(small "$PSTATE/session/ready") &&
        [ -n "$BOOT" ] && [ "$epoch_boot" = "$BOOT" ] && [ "$ready" = "$epoch_boot|$epoch_key" ] &&
        [ "$(process_key "${epoch_key%%:*}")" = "$epoch_key" ] && plain "$PSTATE/session/epoch"; then P_SESSION=running; fi
 }
@@ -198,7 +202,7 @@ ap_blocked() { # what session.sh/ap.sh would refuse before starting the host
 restore_live() { # worker lock: "<boot>|<pid:starttime>"
     local owner_boot owner_key
     [ -d "$RLOCK" ] && [ ! -L "$RLOCK" ] || return 1
-    IFS='|' read -r owner_boot owner_key < "$RLOCK/owner" 2>/dev/null || return 0
+    IFS='|' read -r owner_boot owner_key 2>/dev/null < "$RLOCK/owner" || return 0
     [ "$owner_boot" = "$BOOT" ] && [ "$(process_key "${owner_key%%:*}")" = "$owner_key" ]
 }
 pair() { # "<number>:<result>[:detail]" from a record file, or 0:none
@@ -331,6 +335,9 @@ copy_request() { # background: at most 10 lines, each re-bounded
 }
 apply_requests() {
     local meta app size before after rpid waited=0 uid mode
+    # Nothing to do without a request: skip the checks below on idle polls
+    # (helper and chmod calls every 2 s kept a slow unit busy).
+    [ -f "$REQUEST" ] || return 0
     # Every root-owned output (UI folder, markers, records) is checked first.
     prepare && plain "$REQUEST" && [ -f "$REQUEST" ] || return 0
     # Only the core app may author it: same owner as its data folder, not root,
@@ -548,6 +555,11 @@ round() {
     collect_log || :
 }
 trap 'exit 0' HUP INT TERM
+# The in-car screen cannot ask anything before Android is up, and this loop's
+# helper calls compete with zygote and system_server during boot.
+if [ -z "$ROOT" ]; then
+    until [ "$(getprop sys.boot_completed 2>/dev/null)" = 1 ]; do sleep 10; done
+fi
 prepare || :
 while :; do
     BOOT=$(boot_id) || BOOT=
@@ -557,7 +569,9 @@ while :; do
     waited=0
     while [ "$waited" -lt "$INTERVAL" ]; do
         sleep "$REQ_STEP"; waited=$((waited + REQ_STEP))
-        BOOT=$(boot_id) || BOOT=
+        # The boot id cannot change while this process runs; read it again
+        # only if the last read failed.
+        [ -n "$BOOT" ] || BOOT=$(boot_id) || BOOT=
         apply_requests
     done
 done

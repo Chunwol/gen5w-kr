@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.BufferedReader;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 /** Invoked explicitly by the opt-in VM interposer, before application startup. */
 public final class Bootstrap {
@@ -30,6 +31,23 @@ public final class Bootstrap {
         Method attach = application.getDeclaredMethod("attach", context);
         Hook.install(attach, Bootstrap.class.getMethod("attach", Object.class, Object.class, Integer.TYPE));
         installed = true;
+        // WrapperInit repeats the full (OEM: three-thread) ZygoteInit.preload() in
+        // this process instead of sharing zygote's. On a busy unit a preloader thread
+        // missed Dalvik's GC suspend deadline and the app was killed (SIGSTKFLT);
+        // restarting it, AMS held its lock waiting on zygote until the watchdog reset
+        // Android (VM 2026-11-21). Skip only that warm-up: classes and resources load
+        // on first use as in any non-zygote VM. Optional: if absent, stock is kept.
+        try {
+            Method preload = Class.forName("com.android.internal.os.ZygoteInit").getDeclaredMethod("preload");
+            if (Modifier.isStatic(preload.getModifiers()) && preload.getReturnType() == Void.TYPE)
+                Hook.install(preload, Bootstrap.class.getMethod("skipPreload", Integer.TYPE));
+        } catch (Throwable keep) {
+            System.err.println("Gen5wPortable: wrapper preload kept: " + keep);
+        }
+    }
+    /** Replacement for ZygoteInit.preload() in the wrapped app only. */
+    public static void skipPreload(int handle) {
+        System.err.println("Gen5wPortable: wrapper preload skipped");
     }
     public static void attach(Object application, Object context, int handle) throws Throwable {
         Hook.original(handle, application, new Object[]{context});

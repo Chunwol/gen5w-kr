@@ -1,4 +1,8 @@
 #!/system/bin/sh
+# Background work yields the CPU to Android (zygote, system_server, stock apps);
+# children inherit it. VM 2026-11-21: polling at normal priority starved a stock
+# provider until the system_server watchdog reset the unit.
+renice 10 $$ >/dev/null 2>&1
 HOLD_SCRIPT=${0%/*}/install-hold.sh
 . "$HOLD_SCRIPT"
 install_hold && exit 0
@@ -9,9 +13,10 @@ SCRIPT_DIR=${0%/*}
 [ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
 . "$SCRIPT_DIR/common.sh"
 GETPROP=${BL_TEST_GETPROP:-getprop}
+# Nothing to do before boot; hashing during boot competes with system_server.
+until [ "$($GETPROP sys.boot_completed)" = 1 ]; do sleep 5; done
 stock_apps || { log 'bluelink: apps are not the checked stock build; reminder left stock'; exit 0; }
 [ -f "$ORIG" ] || { log 'bluelink: original values not saved; reminder left stock'; exit 0; }
-until [ "$($GETPROP sys.boot_completed)" = 1 ]; do sleep 5; done
 failed=
 while [ ! -e "$STOPPING" ]; do
     if [ -d "$PREFS_DIR" ]; then
