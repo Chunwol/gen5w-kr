@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-rescue.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/root/data/bundle" "$t/root/storage/usb0" "$t/root/data/local/gen5w-portable/boot" "$t/actions"
 cp tools/portable/rescue-watch.sh "$t/root/data/bundle/"
 cat > "$t/adapter" <<'SH'

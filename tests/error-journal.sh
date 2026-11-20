@@ -3,7 +3,7 @@ set -eu
 cd "${0%/*}/.."
 fail() { echo "FAIL $1"; exit 1; }
 W=$(mktemp -d)
-trap 'rm -rf "$W"' EXIT
+trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 export ERR_DIR=$W/private ERR_ATTEMPT=boot-test-1 ERR_REVISION=abcdef01
 helper=$PWD/tools/diagnostics/errors.sh
 if [ ! -f "$helper" ]; then echo 'FAIL missing diagnostic boundary'; exit 1; fi

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 COMMON=$ROOT/packages/drive-log/scripts/common.sh
 W=$(mktemp -d)
-trap 'rm -rf "$W"' EXIT
+trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 fail() { echo "FAIL $1"; exit 1; }
 ok() { echo "PASS $1"; }
 

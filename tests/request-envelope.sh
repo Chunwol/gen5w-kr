@@ -1,7 +1,7 @@
 #!/bin/bash
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/data/nemesis/logs" "$W/ui" "$W/bin"
 printf '%s\n' '12345678-1234-1234-1234-123456789abc' > "$W/boot"
 printf '100 0\n' > "$W/uptime"

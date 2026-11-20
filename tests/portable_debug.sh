@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5debug.XXXXXX)
 runner=
-trap '[ -z "$runner" ] || { kill "$runner" 2>/dev/null || :; wait "$runner" 2>/dev/null || :; }; rm -rf "$t"' EXIT
+trap 'rc=$?; [ -z "$runner" ] || { kill "$runner" 2>/dev/null || :; wait "$runner" 2>/dev/null || :; }; rm -rf "$t"; exit $rc' EXIT
 R=$t/root; B=$R/data/bundle
 mkdir -p "$B/bin" "$R/data/nemesis" "$R/data/local/gen5w-portable" "$t/props"
 cp tools/portable/debug.sh "$B/"

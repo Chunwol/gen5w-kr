@@ -2,7 +2,7 @@
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d)
-trap 'rm -rf "$W"' EXIT
+trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/data/nemesis/backup/gen5w.kr.wireless" "$W/data/nemesis/gen5w-kr-integrated/prior" "$W/system"
 printf 'legacy\n' > "$W/data/nemesis/backup/gen5w.kr.wireless/saved"
 run_check() { (cd "$ROOT/tools/integrated" && IT_DATA="$W/data" IT_SYSTEM="$W/system" mksh -c '. ./common.sh; "$@"' _ "$@"); }

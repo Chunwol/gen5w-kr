@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-framework.XXXXXX)
 child=
-trap '[ -z "$child" ] || { kill "$child" 2>/dev/null || :; wait "$child" 2>/dev/null || :; }; rm -rf "$t"' EXIT
+trap 'rc=$?; [ -z "$child" ] || { kill "$child" 2>/dev/null || :; wait "$child" 2>/dev/null || :; }; rm -rf "$t"; exit $rc' EXIT
 mkdir "$t/bin"
 cat > "$t/bin/getprop" <<'SH'
 #!/bin/sh

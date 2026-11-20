@@ -2,7 +2,7 @@
 # Removing bundle validation or touching prior on prepare must fail these tests.
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 stubs
 mkdir -p "$W/usb" "$W/data/nemesis/gen5w-kr-integrated/prior"
 cp "$ROOT/tools/integrated/"*.sh "$W/usb/"

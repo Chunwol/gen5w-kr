@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-reset.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 helper=$PWD/.build/portable/dex-patch-host
 r=$t/root; S=$r/data/local/gen5w-portable
 printf 'this-boot\n' > "$t/boot_id"

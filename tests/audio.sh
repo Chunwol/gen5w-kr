@@ -3,7 +3,7 @@
 set -u
 cd "$(dirname "$0")/.."
 . tests/lib.sh
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/pkg/scripts" "$W/pkg/bin" "$W/sys/lib" "$W/data" "$W/bin" "$W/fixture"
 cp packages/audio-format/scripts/*.sh "$W/pkg/scripts/" 2>/dev/null || true
 cp packages/audio-format/bin/status.sh "$W/pkg/bin/status.sh"

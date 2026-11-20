@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/gen5w-session.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/root/data/bundle/app" "$t/root/data/bundle/dalvik" "$t/actions"
 cp tools/portable/session.sh "$t/root/data/bundle/"
 for file in bridge.dex wireless-host.apk gen5w-core.apk; do echo authored > "$t/root/data/bundle/app/$file"; done

@@ -2,7 +2,7 @@
 set -u
 cd "$(dirname "$0")/.."
 . tests/lib.sh
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/bin" "$W/data/nemesis" "$W/mods" "$W/firmware" "$W/sys/class/net/wlan0/device" \
     "$W/sys/bus/usb/devices/1-1" "$W/sys/class/ieee80211/phy0" "$W/props"
 echo dongle > "$W/props/persist.gen5w.wifi.backend"

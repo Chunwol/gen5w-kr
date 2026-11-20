@@ -3,7 +3,7 @@
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PKG=$ROOT/packages/core
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/bin" "$W/data/nemesis/logs" "$W/data/nemesis/apps/gen5w.kr.bridge" "$W/app" "$W/proc"
 cat > "$W/bin/getprop" <<FAKE
 #!/bin/sh

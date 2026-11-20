@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v mksh >/dev/null || exit 78
 t=$(mktemp -d /tmp/gen5w-bootguard.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 root=$t/root
 guard=$root/data/local/gen5w-portable/persistent/bootguard
 state=$root/data/local/gen5w-portable/boot

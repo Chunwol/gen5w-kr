@@ -2,7 +2,7 @@
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d)
-trap 'rm -rf "$W"' EXIT
+trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/usb" "$W/data/nemesis/gen5w-kr-integrated/prior" "$W/system/etc/gen5w-kr-backup/dongle"
 cp "$ROOT/tools/integrated/common.sh" "$ROOT/tools/integrated/report.sh" "$ROOT/tools/integrated/services.sh" "$W/usb/"
 export IT_DATA="$W/data" IT_SYSTEM="$W/system"

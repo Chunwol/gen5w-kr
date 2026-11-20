@@ -24,7 +24,7 @@ cleanup() {
     umount -l "$MNT" 2>/dev/null || true
     rm -rf "$MNT" "$W" "$IMG" 2>/dev/null || true
 }
-trap cleanup EXIT
+trap 'rc=$?; cleanup; exit $rc' EXIT
 
 # 64MB FAT32 image matching real vehicle USB filesystem
 truncate -s 64M "$IMG"

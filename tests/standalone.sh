@@ -4,7 +4,7 @@
 # reboot-suppression file before running any package check.
 cd "$(dirname "$0")/.." || exit 1
 ROOT=$(pwd)
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 fail=0; pass=0
 ok()  { echo "PASS $1"; pass=$((pass+1)); }
 bad() { echo "FAIL $1"; fail=$((fail+1)); }

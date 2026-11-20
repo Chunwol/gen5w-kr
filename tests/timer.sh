@@ -5,7 +5,7 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 pass=0; fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL $name"; fi; }
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 PKG=$W/pkg; mkdir -p "$PKG/bin" "$W/sys/priv-app"
 cp -r "$ROOT/packages/consent-timer/scripts" "$ROOT/packages/consent-timer/NEMESIS.data" "$PKG/"
 printf '#!/bin/sh\n[ "$1" = verify ] && grep -qx stock "$2" && [ "$3" = 97e7e258df34d76ed61a714f83de4bf0fbc3d6b6188055c941ad2689f72595af ]\n' > "$PKG/bin/sha256-check"

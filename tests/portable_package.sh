@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-package.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/package/bin" "$t/actions"
 cp tools/portable/package-pre.sh "$t/package/"
 cp .build/portable/dex-patch-host "$t/package/bin/dex-patch"

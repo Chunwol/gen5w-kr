@@ -2,7 +2,7 @@
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d)
-trap 'rm -rf "$W"' EXIT
+trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/work/packages" "$W/data/nemesis/apps" "$W/system" "$W/data/nemesis/gen5w-kr-integrated"
 mkdir -p "$W/data/nemesis/gen5w-kr-integrated/lock"
 echo "$$" > "$W/data/nemesis/gen5w-kr-integrated/lock/pid"

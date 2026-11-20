@@ -8,7 +8,7 @@ if ! command -v javac >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then
 fi
 mkdir -p .build
 work=$(mktemp -d "$PWD/.build/java-tests.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+trap 'rc=$?; rm -rf "$work"; exit $rc' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     shared/src/kr/gen5w/diag/*.java app/src/kr/gen5w/ui/RecoveryStatus.java \
     app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/core/HudSwitch.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/I18n.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/src/kr/gen5w/ui/SwitchRequest.java app/test/*Test.java \

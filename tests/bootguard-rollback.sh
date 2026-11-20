@@ -2,7 +2,7 @@
 . "$(dirname "$0")/lib.sh"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d)
-trap 'rm -rf "$W"' EXIT
+trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 cp "$ROOT/tools/integrated/rollback.sh" "$W/rollback.sh"
 cat > "$W/common.sh" <<'SH'
 TX=$CASE_DIR/transaction

@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/gen5w-check.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/bundle" "$t/root/system/app" "$t/root/system/etc/permissions" "$t/root/data/misc/wifi" "$t/props" \
     "$t/root/proc" "$t/root/sys/class/net/lo" "$t/root/sys/class/net/eth0"
 cp tools/portable/check.sh "$t/bundle/"

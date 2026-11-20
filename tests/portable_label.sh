@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d "${TMPDIR:-/tmp}/g5p-label.XXXXXX")
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 cat > "$t/getxattr.c" <<'C'
 #define _GNU_SOURCE
 #include <errno.h>

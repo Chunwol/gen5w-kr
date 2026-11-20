@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fixture=$(mktemp -d /tmp/gen5w-hotspot-remount.XXXXXX)
-trap 'rm -rf "$fixture"' EXIT
+trap 'rc=$?; rm -rf "$fixture"; exit $rc' EXIT
 mkdir -p "$fixture/system/app" "$fixture/system/etc" "$fixture/data" "$fixture/bin"
 cat > "$fixture/patch" <<'EOF'
 #!/bin/sh

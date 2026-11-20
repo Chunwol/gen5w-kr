@@ -3,7 +3,7 @@ set -eu
 SHELL_UNDER_TEST=${SHELL_UNDER_TEST:-bash}
 REPO=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 t=$(mktemp -d)
-trap 'rm -rf "$t"' EXIT HUP INT TERM
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT HUP INT TERM
 mkdir -p "$t/data/out" "$t/system/app" "$t/state"
 printf old > "$t/system/app/Iap2ServerApp.odex"
 printf new > "$t/data/out/a"

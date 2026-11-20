@@ -4,7 +4,7 @@ set -u
 cd "$(dirname "$0")/.."
 . tests/lib.sh
 
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; exit $rc' EXIT
 mkdir -p "$W/pkg/scripts" "$W/pkg/bin" "$W/pkg/files/modules" "$W/pkg/files/firmware"
 mkdir -p "$W/pkg/files/firmware/rtlwifi"
 mkdir -p "$W/sys/lib" "$W/sys/etc/firmware" "$W/sys/wifi" "$W/sys/bin" "$W/data" "$W/bin" "$W/fixture"

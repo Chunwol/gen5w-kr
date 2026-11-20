@@ -10,7 +10,7 @@ cleanup() {
     wait 2>/dev/null || :
     rm -rf "$t"
 }
-trap cleanup EXIT
+trap 'rc=$?; cleanup; exit $rc' EXIT
 if [ "${PORTABLE_BOOT_DEBUG:-0}" = 1 ]; then
  trap 'rc=$?; if [ "$rc" != 0 ]; then find "$t/actions" -name "*.log" -exec tail -n 20 {} \;; [ ! -f "$t/root/data/local/gen5w-portable/boot/timeline" ] || tail -n 30 "$t/root/data/local/gen5w-portable/boot/timeline"; fi; cleanup' EXIT
 fi

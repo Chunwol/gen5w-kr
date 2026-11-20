@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-ap.XXXXXX)
-trap 'chmod -R u+rwx "$t" 2>/dev/null || :; rm -rf "$t"' EXIT
+trap 'rc=$?; chmod -R u+rwx "$t" 2>/dev/null || :; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/root/data/bundle/bin" "$t/act"
 cp tools/portable/ap.sh "$t/root/data/bundle/"
 cp .build/portable/dex-patch-host "$t/root/data/bundle/bin/dex-patch"

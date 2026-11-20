@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
 work=$(mktemp -d /tmp/gen5w-report-history.XXXXXX)
-trap 'rm -rf "$work"' EXIT
+trap 'rc=$?; rm -rf "$work"; exit $rc' EXIT
 if [ ! -f tools/integrated/history.sh ]; then echo 'FAIL missing report preservation';exit 1;fi
 mkdir -p "$work/usb" "$work/errors"
 cp tools/integrated/{history.sh,errors.sh} "$work/usb/"

@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 SH=${MOCK_SH:-mksh}
 . tests/unit/shim.sh
 unit_shim_setup || exit 1
-W=$(mktemp -d); trap 'rm -rf "$W"; unit_shim_cleanup' EXIT
+W=$(mktemp -d); trap 'rc=$?; rm -rf "$W"; unit_shim_cleanup; exit $rc' EXIT
 pass=0; fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else echo "FAIL $name"; fail=$((fail+1)); fi; }
 

@@ -3,7 +3,7 @@ set -eu
 cd "$(dirname "$0")/.."
 command -v mksh >/dev/null 2>&1 || { echo 'mksh not found'; exit 78; }
 t=$(mktemp -d)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 pkg=$t/package; root=$t/root; actions=$t/actions
 mkdir -p "$pkg" "$root/data/local/gen5w-portable/boot" "$actions"
 cp tools/portable/service.sh "$pkg/service.sh"

@@ -20,7 +20,7 @@ cleanup() {
     [ -z "$runner" ] || kill -9 -- "-$runner" 2>/dev/null || :
     rm -rf "$t"
 }
-trap cleanup EXIT
+trap 'rc=$?; cleanup; exit $rc' EXIT
 export PORTABLE_TEST_STABLE_SECONDS=0
 R=$t/root; A=$t/actions; B=$R/data/bundle
 P=$R/data/local/gen5w-portable

@@ -7,7 +7,7 @@ if [ -z "${GEN5W_HOTSPOT_STOCK_DIR:-}" ]; then
     exit 0
 fi
 fixture=$(mktemp -d /tmp/gen5w-local-hotspot.XXXXXX)
-trap 'rm -rf "$fixture"' EXIT
+trap 'rc=$?; rm -rf "$fixture"; exit $rc' EXIT
 mkdir -p "$fixture/system/app" "$fixture/system/etc" "$fixture/data/dalvik-cache"
 cp "$GEN5W_HOTSPOT_STOCK_DIR/HKMC_WifiSettings.odex" "$fixture/system/app/"
 cp "$GEN5W_HOTSPOT_STOCK_DIR/HKMC_WifiSettings.apk" "$fixture/system/app/"

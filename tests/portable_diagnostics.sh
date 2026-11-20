@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-t=$(mktemp -d /tmp/g5diag.XXXXXX); trap 'rm -rf "$t"' EXIT
+t=$(mktemp -d /tmp/g5diag.XXXXXX); trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 R=$t/root; B=$R/data/bundle
 mkdir -p "$B/bin" "$R/data/local/gen5w-portable/boot" "$R/proc/sys/kernel/random" "$R/data/nemesis/gen5wkr.ui" "$t/bin"
 cp tools/portable/diagnostics.sh "$B/"

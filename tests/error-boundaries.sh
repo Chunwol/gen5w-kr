@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 work=$(mktemp -d /tmp/gen5w-error-boundaries.XXXXXX)
-trap 'rm -rf "$work"' EXIT
+trap 'rc=$?; rm -rf "$work"; exit $rc' EXIT
 cat > "$work/nemesis" <<'EOF'
 #!/bin/sh
 echo 'remount: Permission denied SSID=secret-network' >&2
