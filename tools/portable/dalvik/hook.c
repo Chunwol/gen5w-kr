@@ -264,6 +264,47 @@ done:
 }
 #undef NEED
 
+/* Bootclasspath guard (2026-11-19 vehicle: a stale engine build appended
+ * engine.jar, the live list grew to 17, and the shared com.broadcom.bt cache was
+ * rebuilt under every app). Expected = entries of the inherited BOOTCLASSPATH,
+ * live = dvm's own count (the same walk its deps check uses). Any difference
+ * ends this process before a single application dex is opened, so a shared
+ * cache can never be rewritten from here: only this app fails to start. */
+static int boot_entries_expected(void) {
+    const char *path = environment_value("BOOTCLASSPATH");
+    int count = 0, inside = 0;
+    if (!path) return -1;
+    for (const char *p = path; *p; p++) {
+        if (*p == ':') inside = 0;
+        else if (!inside) { inside = 1; count++; }
+    }
+    return count;
+}
+static int boot_entries_live(JNIEnv *env) {
+    jint count = -1;
+    if ((*env)->ExceptionCheck(env)) return -1;
+    jclass type = (*env)->FindClass(env, "java/lang/VMClassLoader");
+    if (!type || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return -1; }
+    jmethodID size = (*env)->GetStaticMethodID(env, type, "getBootClassPathSize", "()I");
+    if (size && !(*env)->ExceptionCheck(env)) count = (*env)->CallStaticIntMethod(env, type, size);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); count = -1; }
+    (*env)->DeleteLocalRef(env, type);
+    return count;
+}
+static void bootpath_abort(const char *stage, int expected, int live) {
+    const char *package = input_value("GEN5W_PACKAGE");
+    char path[192], text[128];
+    if (package && strlen(package) < 96 && !strchr(package, '/') && package[0] != '.') {
+        snprintf(path, sizeof(path), "/data/data/%s/files/gen5w-portable-bootpath-guard", package);
+        int fd = open(path, O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW|O_CLOEXEC, 0600);
+        if (fd >= 0) {
+            int count = snprintf(text, sizeof(text), "stage=%s\nexpected=%d\nlive=%d\n", stage, expected, live);
+            if (count > 0 && (size_t)count < sizeof(text)) { ssize_t ignored = write(fd, text, (size_t)count); (void)ignored; }
+            close(fd);
+        }
+    }
+    _exit(78);
+}
 /* Process wrapper opt-in only. Preserve every caller VM option and its
  * bootclasspath unchanged; only force the interpreter. */
 JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arguments) {
@@ -288,6 +329,8 @@ JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arg
     free(options);
     if (status != JNI_OK) return status;
     JNIEnv *env = (JNIEnv *)*env_out;
+    int expected = boot_entries_expected(), live = boot_entries_live(env);
+    if (expected <= 0 || live != expected) bootpath_abort("vm", expected, live);
     jclass bootstrap = load_engine(env, engine, cache);
     if (bootstrap && !(*env)->ExceptionCheck(env)) {
         jmethodID start = (*env)->GetStaticMethodID(env, bootstrap, "start",
@@ -307,6 +350,8 @@ JNIEXPORT jint JNICALL JNI_CreateJavaVM(JavaVM **vm, JNIEnv **env_out, void *arg
         (*env)->ExceptionDescribe(env);
         (*env)->ExceptionClear(env);
     }
+    live = boot_entries_live(env);
+    if (live != expected) bootpath_abort("engine", expected, live);
     return status;
 }
 

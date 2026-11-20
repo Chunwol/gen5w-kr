@@ -15,7 +15,7 @@ cleanup() {
     wait 2>/dev/null || :
     rm -rf "$t"
 }
-trap cleanup EXIT
+trap 'rc=$?; cleanup; exit $rc' EXIT
 fail() { echo "FAIL $*" >&2; [ ! -f "$UI/status" ] || sed 's/^/  status: /' "$UI/status" >&2; exit 1; }
 pass() { echo "PASS $*"; }
 R=$t/root; B=$R/data/nemesis/apps/gen5w.kr.portable; A=$t/actions
@@ -81,8 +81,8 @@ echo "touch $A/OLD-RECOVERY-RAN" > "$N/gen5wkr.recovery/current/recovery.sh"
 
 # 1. Status/log schema from portable journals and the live host.
 collect
-for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.76 apguard=on wired=no sw_wireless=on \
-          sw_timer=unknown sw_bluelink=unknown sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
+for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.81 apguard=on wired=no sw_wireless=on \
+          sw_timer=on sw_bluelink=on sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
           wlan=present recovery_state=none recovery_available=no recovery_request=0 recovery_result=none \
           portable_enabled=1 portable_phase=healthy portable_mode=full portable_overlay=committed portable_runtime=committed portable_session=running; do
     expect "${kv%%=*}" "${kv#*=}" schema
@@ -160,13 +160,19 @@ envelope wireless=on; collect; [ ! -e "$M" ] || fail 'wireless on ignored'; expe
 [ "$(disables)" = 0 ] || fail 'envelope tests invoked disable'
 pass 'stale/forged/duplicate/oversized/symlink/fifo/group-writable requests rejected; fresh one manages only gen5wkr.ui-wireless-off'
 
-# 4. Unsupported modules are reported, never acted on or claimed.
+# 4. Bundled timer/Bluelink switches manage only their markers; adb stays unsupported.
 envelope timer=off bluelink=off adb=on:5; collect
-for m in timer bluelink; do [ ! -e "$N/gen5wkr.ui-$m-off" ] || fail "$m marker written"; done
-expect adb_result 5:unsupported adb; expect sw_timer unknown timer; expect sw_adb unknown adb
-grep -q '^ui|UNSUPPORTED timer' "$UI/log" && grep -q '^ui|UNSUPPORTED Wi-Fi adb' "$UI/log" || fail 'unsupported not logged'
+for m in timer bluelink; do [ -f "$N/gen5wkr.ui-$m-off" ] || fail "$m marker not written"; done
+expect sw_timer off timer; expect sw_bluelink off bluelink
+expect adb_result 5:unsupported adb; expect sw_adb unknown adb
+grep -q '^ui|UNSUPPORTED Wi-Fi adb' "$UI/log" || fail 'unsupported adb not logged'
+envelope timer=on bluelink=on; collect
+for m in timer bluelink; do [ ! -e "$N/gen5wkr.ui-$m-off" ] || fail "$m marker kept"; done
+expect sw_timer on timer; expect sw_bluelink on bluelink
+ln -s "$t/elsewhere" "$N/gen5wkr.ui-timer-off"; envelope timer=off; collect
+[ -L "$N/gen5wkr.ui-timer-off" ] && [ ! -e "$t/elsewhere" ] || fail 'symlinked timer marker followed'; rm "$N/gen5wkr.ui-timer-off"
 ! grep -qv '^disable ' "$A/calls" || fail "unexpected boundary call: $(cat "$A/calls")"
-pass 'timer/bluelink/adb requests change nothing and are reported unsupported'
+pass 'timer/bluelink switches set only their own markers; adb reported unsupported'
 
 # 5. Removal routes only to this package's boot.sh disable, exactly once per token.
 envelope remove=42 wireless=off; collect

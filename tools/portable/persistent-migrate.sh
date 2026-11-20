@@ -49,6 +49,78 @@ allowed_target() {
 no_links() { p=$1; while [ "$p" != / ]; do [ ! -L "$p" ] || return 1; p=${p%/*}; [ -n "$p" ] || p=/; done; }
 mapped() { if [ -n "$ROOT" ]; then case "$1" in "$ROOT"/*) print -r -- "$1";; /*) print -r -- "$ROOT$1";; *) print -r -- "$1";; esac; else print -r -- "$1"; fi; }
 OVERLAY_STATE_PATH=$(mapped "$OVERLAY_STATE")
+# Cost model: each helper call is a process start (about 1 s in the emulator).
+# Facts (sha256|uid|gid|mode|label) are fetched for many files per helper run
+# and remembered by physical path. Read-only inputs use fact; anything this
+# script writes is re-read with facts/fresh after the write.
+NL='
+'
+SLASH=/
+mp() { MP=$1; [ -n "$ROOT" ] || return 0; case "$1" in "$ROOT"/*) :;; /*) MP=$ROOT$1;; esac; }
+key() { KEY=${1//_/_U}; KEY=${KEY//$SLASH/_S}; KEY=${KEY//./_D}; KEY=${KEY//-/_H}; }
+split_fact() {
+    local rest=$1 pipes
+    FACT_HASH=${rest%%'|'*}; rest=${rest#*'|'}
+    FACT_LABEL=${rest##*'|'}; FACT_META=${rest%'|'*}
+    case "$FACT_HASH" in *[!a-f0-9]*) return 1;; esac
+    [ "${#FACT_HASH}" = 64 ] || return 1
+    case "$FACT_META" in *[!0-9\|]*|\|*|*\||*\|\|*) return 1;; esac
+    pipes=${FACT_META//[0-9]/}; [ "$pipes" = '||' ] || return 1
+    case "$FACT_LABEL" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac
+}
+facts() {
+    local out line path list=''
+    [ "$#" -gt 0 ] || return 0
+    for path in "$@"; do mp "$path"; case "$MP" in ''|*[!A-Za-z0-9_./-]*) return 1;; esac; list="$list $MP"; done
+    set -f; set -- $list; set +f
+    out=$("$HELPER" ident "$@") || return 1
+    out="$out$NL"
+    for path in "$@"; do
+        case "$out" in *"$NL"*) :;; *) return 1;; esac
+        line=${out%%"$NL"*}; out=${out#*"$NL"}
+        split_fact "$line" || return 1
+        key "$path"; eval "FACT_$KEY=\$line"
+    done
+    [ -z "$out" ]
+}
+fact() {
+    local line
+    mp "$1"; key "$MP"; eval "line=\${FACT_$KEY-}"
+    if [ -z "$line" ]; then
+        facts "$1" || return 1
+        mp "$1"; key "$MP"; eval "line=\${FACT_$KEY}"
+    fi
+    split_fact "$line"
+}
+fresh() { facts "$1" && fact "$1"; }
+# settle_all FILE: apply "path|uid|gid|mode|label" lines in one helper run, then
+# re-read every path and require exactly those values.
+settle_all() {
+    local queue=$1 path uid gid mode wanted list='' paths=''
+    [ -s "$queue" ] || return 0
+    while IFS='|' read -r path uid gid mode wanted; do
+        mp "$path"; list="$list $MP $uid $gid $mode $wanted"; paths="$paths $path"
+    done < "$queue"
+    set -f; set -- $list; set +f
+    "$HELPER" settle "$@" || return 1
+    set -f; set -- $paths; set +f
+    facts "$@" || return 1
+    while IFS='|' read -r path uid gid mode wanted; do
+        fact "$path" && [ "$FACT_META" = "$uid|$gid|$mode" ] && [ "$FACT_LABEL" = "$wanted" ] || return 1
+    done < "$queue"
+}
+SIZE_LIST=
+count_size() { mp "$1"; SIZE_LIST="$SIZE_LIST $MP"; }
+split_row() {
+    local rest=$1 n=0
+    while :; do
+        n=$((n+1))
+        case "$rest" in *'|'*) eval "F$n=\${rest%%'|'*}"; rest=${rest#*'|'};; *) eval "F$n=\$rest"; break;; esac
+        [ "$n" -lt 20 ] || return 1
+    done
+    FIELDS=$n
+    while [ "$n" -lt 14 ]; do n=$((n+1)); eval "F$n="; done
+}
 sha() { if [ -n "$ROOT" ]; then "$HELPER" sha "$(mapped "$1")"; else "$HELPER" sha256 "$(mapped "$1")"; fi; }
 meta() { if [ -n "$ROOT" ]; then "$HELPER" meta "$(mapped "$1")"; else "$HELPER" metadata "$(mapped "$1")"; fi; }
 label() { "$HELPER" label "$(mapped "$1")"; }
@@ -59,14 +131,10 @@ set_meta() { "$HELPER" setmeta "$(mapped "$1")" "$2" "$3" "$4"; }
 set_label() { "$HELPER" setlabel "$(mapped "$1")" "$2" || [ "$("$HELPER" label "$(mapped "$1")" 2>/dev/null)" = "$2" ]; }
 check_sha() { case "$1" in *[!a-f0-9]*) return 1;; esac; [ "${#1}" -eq 64 ]; }
 check_meta() {
-    local uid gid mode extra
-    IFS='|' read -r uid gid mode extra <<EOF
-$1
-EOF
-    [ -z "$extra" ] || return 1
-    case "$uid" in ''|*[!0-9]*) return 1;; esac
-    case "$gid" in ''|*[!0-9]*) return 1;; esac
-    case "$mode" in ''|*[!0-7]*) return 1;; esac
+    local digits mode
+    case "$1" in *[!0-9\|]*|\|*|*\||*\|\|*) return 1;; esac
+    digits=${1//[0-9]/}; [ "$digits" = '||' ] || return 1
+    mode=${1##*'|'}; case "$mode" in *[!0-7]*) return 1;; esac
 }
 check_label() { case "$1" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac; }
 field_count() {
@@ -156,6 +224,13 @@ ORIGIN_INDEX="$ORIGINS/index.tsv"
 plain "$ORIGIN_INDEX" && [ -f "$(mapped "$ORIGIN_INDEX")" ] || fail missing-stock-origin-index
 plain "$HELPER" && [ -x "$(mapped "$HELPER")" ] || fail missing-helper
 origin_targets='|'
+origin_list=''
+while IFS='|' read -r origin_target origin_rest || [ -n "$origin_target" ]; do
+    mp "$ORIGINS/${origin_target#/}"
+    plain "$ORIGINS/${origin_target#/}" && [ -f "$MP" ] && origin_list="$origin_list $ORIGINS/${origin_target#/}"
+done < "$(mapped "$ORIGIN_INDEX")"
+set -f; set -- $origin_list; set +f
+facts "$@" || :
 while IFS='|' read -r origin_target origin_hash origin_uid origin_gid origin_mode origin_label origin_extra || [ -n "$origin_target" ]; do
     [ -n "$origin_target" ] && [ -z "$origin_extra" ] || fail malformed-stock-origin-row
     allowed_target "$origin_target" || fail unsupported-stock-origin-target
@@ -164,32 +239,20 @@ while IFS='|' read -r origin_target origin_hash origin_uid origin_gid origin_mod
     check_label "$origin_label" || fail invalid-stock-origin-label
     case "$origin_targets" in *"|$origin_target|"*) fail duplicate-stock-origin-target;; esac
     origin_targets="$origin_targets$origin_target|"
-    origin_file="$ORIGINS/${origin_target#/}"
-    plain "$origin_file" && [ -f "$(mapped "$origin_file")" ] && [ "$(sha "$origin_file")" = "$origin_hash" ] || fail stock-origin-file-mismatch
+    origin_file="$ORIGINS/${origin_target#/}"; mp "$origin_file"
+    plain "$origin_file" && [ -f "$MP" ] && fact "$origin_file" && [ "$FACT_HASH" = "$origin_hash" ] || fail stock-origin-file-mismatch
+    key "$origin_target"; eval "ORIGINREC_$KEY=\"\$origin_hash|\$origin_uid|\$origin_gid|\$origin_mode|\$origin_label\""
 done < "$(mapped "$ORIGIN_INDEX")"
 origin_record() {
-    local requested=$1 line target hash uid gid mode origin_label extra origin_file count=0
-    while IFS= read -r line || [ -n "$line" ]; do
-        IFS='|' read -r target hash uid gid mode origin_label extra <<EOF
-$line
-EOF
-        [ "$target" = "$requested" ] || continue
-        count=$((count+1))
-        [ "$count" = 1 ] || return 1
-        origin_hash=$hash; origin_uid=$uid; origin_gid=$gid; origin_mode=$mode
-        origin_meta="$uid|$gid|$mode"; origin_selabel=$origin_label
-    done < "$(mapped "$ORIGIN_INDEX")"
-    [ "$count" = 1 ] || return 1
-    line="$requested|$origin_hash|$origin_uid|$origin_gid|$origin_mode|$origin_selabel"
-    IFS='|' read -r target hash uid gid mode origin_label extra <<EOF
-$line
-EOF
-    [ "$target" = "$requested" ] && [ -z "$extra" ] || return 1
-    check_sha "$hash" && check_meta "$uid|$gid|$mode" && check_label "$origin_label" || return 1
-    origin_file="$ORIGINS/${target#/}"
-    [ -f "$(mapped "$origin_file")" ] && [ ! -L "$(mapped "$origin_file")" ] && [ "$(sha "$origin_file")" = "$hash" ] || return 1
-    origin_hash=$hash; origin_uid=$uid; origin_gid=$gid; origin_mode=$mode
-    origin_meta="$uid|$gid|$mode"; origin_selabel=$origin_label
+    local rec origin_file
+    key "$1"; eval "rec=\${ORIGINREC_$KEY-}"
+    [ -n "$rec" ] || return 1
+    split_row "$rec" || return 1
+    origin_hash=$F1; origin_uid=$F2; origin_gid=$F3; origin_mode=$F4; origin_selabel=$F5
+    origin_meta="$F2|$F3|$F4"
+    origin_file="$ORIGINS/${1#/}"
+    mp "$origin_file"
+    [ -f "$MP" ] && [ ! -L "$MP" ] && fact "$origin_file" && [ "$FACT_HASH" = "$origin_hash" ]
 }
 is_ro || fail system-not-read-only
 RECOVERY=/data/local/gen5w-portable/persistent/recovery
@@ -204,36 +267,16 @@ IN_PROGRESS_MARKER="$R/transaction-in-progress"
 [ ! -L "$R" ] && [ ! -L "$O" ] || fail linked-persistent-state
 no_links "$R" && no_links "${O%/*}" || fail linked-persistent-state
 OLD_RECOVERY="$R/manifest"
-old_row() {
-    [ -f "$OLD_RECOVERY" ] || return 1
-    local wanted=$1 record target kind original applied ou og om ol au ag am al prior extra found=0
-    while IFS= read -r record || [ -n "$record" ]; do
-        IFS='|' read -r target kind original applied ou og om ol au ag am al prior extra <<EOF
-$record
-EOF
-        [ "$target" = "$wanted" ] || continue
-        [ "$found" = 0 ] || return 1
-        found=1
-        print -r -- "$record"
-    done < "$OLD_RECOVERY"
-    [ "$found" = 1 ]
-}
+# old_lookup TARGET: PREV_RECORD is that target's row in the previous manifest.
+old_lookup() { key "$1"; eval "PREV_RECORD=\${OLDROW_$KEY-}"; }
 parse_previous() {
-    local record=$1
-    IFS='|' read -r prev_target prev_kind prev_original prev_applied prev_ou prev_og prev_om prev_ol prev_au prev_ag prev_am prev_al prev_prior prev_extra <<EOF
-$record
-EOF
+    split_row "$1"
+    prev_target=$F1; prev_kind=$F2; prev_original=$F3; prev_applied=$F4; prev_ou=$F5; prev_og=$F6; prev_om=$F7; prev_ol=$F8
+    prev_au=$F9; prev_ag=$F10; prev_am=$F11; prev_al=$F12; prev_prior=$F13
     previous_meta="$prev_au|$prev_ag|$prev_am"
     original_meta="$prev_ou|$prev_og|$prev_om"
     previous_label=$prev_al
     original_label=$prev_ol
-}
-contains_target() {
-    local wanted=$1 file=$2 line
-    while IFS= read -r line || [ -n "$line" ]; do
-        case "$line" in "$wanted|"*) return 0;; esac
-    done < "$file"
-    return 1
 }
 old_header=''
 if [ -e "$OLD_RECOVERY" ]; then
@@ -242,12 +285,19 @@ if [ -e "$OLD_RECOVERY" ]; then
     case "$old_header" in GEN5W-RECOVERY-MANIFEST\|1|GEN5W-RECOVERY-MANIFEST\|2) :;; *) fail invalid-existing-recovery;; esac
     old_version=${old_header##*'|'}
     old_targets='|'; old_rows=0; old_line=0
+    backup_list=''
+    while IFS='|' read -r old_target old_kind old_rest || [ -n "$old_target" ]; do
+        [ "$old_kind" = file ] && plain "$R/originals/${old_target#/}" && [ -f "$R/originals/${old_target#/}" ] && backup_list="$backup_list $R/originals/${old_target#/}"
+    done < "$OLD_RECOVERY"
+    set -f; set -- $backup_list; set +f
+    facts "$@" || :
     while IFS= read -r old_record || [ -n "$old_record" ]; do
         old_line=$((old_line+1))
         if [ "$old_line" = 1 ]; then [ "$old_record" = "$old_header" ] || fail invalid-existing-recovery-header; continue; fi
-        IFS='|' read -r old_target old_kind old_original old_applied old_ou old_og old_om old_ol old_au old_ag old_am old_al old_prior old_extra <<EOF
-$old_record
-EOF
+        split_row "$old_record" || fail invalid-existing-recovery-row
+        old_target=$F1; old_kind=$F2; old_original=$F3; old_applied=$F4; old_ou=$F5; old_og=$F6; old_om=$F7; old_ol=$F8
+        old_au=$F9; old_ag=$F10; old_am=$F11; old_al=$F12; old_prior=$F13; old_extra=$F14
+        [ "$FIELDS" -le 14 ] || fail invalid-existing-recovery-row
         [ -n "$old_target" ] || fail invalid-existing-recovery-row
         case "$old_version" in
             1) [ -z "$old_prior$old_extra" ] || fail invalid-existing-recovery-row;;
@@ -256,6 +306,7 @@ EOF
         allowed_target "$old_target" || fail invalid-existing-recovery-target
         case "$old_targets" in *"|$old_target|"*) fail duplicate-existing-recovery-target;; esac
         old_targets="$old_targets$old_target|"
+        key "$old_target"; eval "OLDROW_$KEY=\$old_record"
         check_sha "$old_applied" || fail invalid-existing-recovery-applied-hash
         check_meta "$old_au|$old_ag|$old_am" || fail invalid-existing-recovery-applied-metadata
         check_label "$old_al" || fail invalid-existing-recovery-applied-label
@@ -271,7 +322,7 @@ EOF
                 check_meta "$old_ou|$old_og|$old_om" || fail invalid-existing-recovery-original-metadata
                 check_label "$old_ol" || fail invalid-existing-recovery-original-label
                 old_backup="$R/originals/${old_target#/}"
-                plain "$old_backup" && [ -f "$(mapped "$old_backup")" ] && [ ! -L "$(mapped "$old_backup")" ] && [ "$(sha "$old_backup")" = "$old_original" ] || fail invalid-existing-recovery-backup
+                plain "$old_backup" && [ -f "$old_backup" ] && [ ! -L "$old_backup" ] && fact "$old_backup" && [ "$FACT_HASH" = "$old_original" ] || fail invalid-existing-recovery-backup
                 ;;
             absent)
                 [ "$old_original|$old_ou|$old_og|$old_om|$old_ol" = '-|-|-|-|-' ] || fail invalid-existing-recovery-absent-row
@@ -386,6 +437,21 @@ LOCK="$R/migration.lock"
 [ ! -L "$LOCK/owner" ] && (set -C; print -r -- "pid|$$" > "$LOCK/owner") || fail migration-lock-owner
 plain "$OVERLAY_STATE_PATH" && [ ! -L "$OVERLAY_STATE_PATH/journal" ] || fail linked-overlay-journal
 
+# Fetch every read-only input in one helper run (an optimisation only: a file
+# it cannot read is looked up, and refused, individually below).
+prefetch=''
+while IFS='|' read -r feature source target digest rest || [ -n "$feature" ]; do
+    plain "$source" && plain "$target" || continue
+    case "$rest" in
+        *'|directory')
+            for f in "$(mapped "$source")"/*.xml "$(mapped "$target")"/*.xml; do [ -f "$f" ] && [ ! -L "$f" ] && prefetch="$prefetch $f"; done;;
+        *)
+            for f in "$(mapped "$source")" "$(mapped "$target")"; do [ -f "$f" ] && [ ! -L "$f" ] && prefetch="$prefetch $f"; done;;
+    esac
+done < "$(mapped "$MANIFEST")"
+set -f; set -- $prefetch; set +f
+facts "$@" || :
+
 # Validate all rows and build a complete exact recovery set before /system rw.
 while IFS='|' read -r feature source target digest recorded_uid recorded_gid recorded_mode kind extra || [ -n "$feature" ]; do
     recorded_meta="$recorded_uid|$recorded_gid|$recorded_mode"
@@ -402,17 +468,15 @@ while IFS='|' read -r feature source target digest recorded_uid recorded_gid rec
     targets="$targets$target|"
     case "$kind" in
       static|runtime)
-        [ "$(sha "$source")" = "$digest" ] || fail source-hash-mismatch
+        fact "$source" && [ "$FACT_HASH" = "$digest" ] || fail source-hash-mismatch
         stock="$ORIGINS/${target#/}"
         plain "$stock" && [ -f "$(mapped "$stock")" ] || fail missing-stock-origin
         origin_record "$target" || fail invalid-stock-origin-record
         stock_sha=$origin_hash; stock_meta=$origin_meta; stock_label=$origin_selabel
-        live_sha=$(sha "$target"); live_meta=$(meta "$target"); live_label=$(label "$target")
-        src_size=$(file_bytes "$source"); orig_size=$(file_bytes "$stock")
-        case "$src_size:$orig_size" in *[!0-9:]*|:*|*:) fail invalid-size;; esac
-        required_bytes=$((required_bytes + src_size + orig_size))
+        if fact "$target"; then live_sha=$FACT_HASH; live_meta=$FACT_META; live_label=$FACT_LABEL; else live_sha=; live_meta=; live_label=; fi
+        count_size "$source"; count_size "$stock"
         if [ -n "$old_header" ]; then
-            previous=$(old_row "$target" 2>/dev/null || :)
+            old_lookup "$target"; previous=$PREV_RECORD
             if [ -n "$previous" ]; then
                 parse_previous "$previous"
                 previous_applied=$prev_applied; previous_kind=$prev_kind
@@ -446,14 +510,14 @@ while IFS='|' read -r feature source target digest recorded_uid recorded_gid rec
     case "$target" in /system/etc/permissions) :;; *) fail unsupported-directory-target;; esac
     # Recompute the candidate and stock inventories exactly as prepare.sh does.
     src_inv="$STAGE/source.inventory"; orig_inv="$STAGE/original.inventory"
-    ( for f in "$(mapped "$source")"/*.xml; do [ -f "$f" ] || continue; n=${f##*/}; print -r -- "$n|$(sha "$f")|$(meta "$f")"; done ) > "$src_inv" || fail source-inventory
+    ( for f in "$(mapped "$source")"/*.xml; do [ -f "$f" ] || continue; n=${f##*/}; fact "$f" || exit 1; print -r -- "$n|$FACT_HASH|$FACT_META"; done ) > "$src_inv" || fail source-inventory
     if [ -n "$old_header" ]; then
         : > "$orig_inv" || fail original-inventory
         origin_dir="$ORIGINS/${target#/}"
         for origin_file in "$(mapped "$origin_dir")"/*.xml; do
             [ -f "$origin_file" ] || continue
             origin_name=${origin_file##*/}; origin_target="$target/$origin_name"
-            previous=$(old_row "$origin_target" 2>/dev/null || :)
+            old_lookup "$origin_target"; previous=$PREV_RECORD
             [ -n "$previous" ] || :
             if [ -n "$previous" ]; then parse_previous "$previous"; [ "$prev_kind" = absent ] && continue; fi
             if [ -n "$previous" ]; then
@@ -464,21 +528,23 @@ while IFS='|' read -r feature source target digest recorded_uid recorded_gid rec
             fi
         done
     else
-        ( for f in "$(mapped "$target")"/*.xml; do [ -f "$f" ] || continue; n=${f##*/}; print -r -- "$n|$(sha "$target/$n")|$(meta "$target/$n")"; done ) > "$orig_inv" || fail original-inventory
+        ( for f in "$(mapped "$target")"/*.xml; do [ -f "$f" ] || continue; n=${f##*/}; fact "$target/$n" || exit 1; print -r -- "$n|$FACT_HASH|$FACT_META"; done ) > "$orig_inv" || fail original-inventory
     fi
     cat "$src_inv" "$orig_inv" > "$STAGE/directory.digest" || fail directory-inventory
-    [ "$(sha "$STAGE/directory.digest")" = "$digest" ] || fail directory-hash-mismatch
+    fresh "$STAGE/directory.digest" && [ "$FACT_HASH" = "$digest" ] || fail directory-hash-mismatch
+    dir_label=$(label "$target") || fail target-directory-label
+    : > "$STAGE/dir-pending" || fail stage-entry
     for f in "$(mapped "$source")"/*.xml; do
         [ -f "$f" ] || continue
-        src_size=$(file_bytes "$f"); case "$src_size" in ''|*[!0-9]*) fail invalid-size;; esac
-        required_bytes=$((required_bytes + src_size))
+        count_size "$f"
         name=${f##*/}; case "$name" in *[!A-Za-z0-9_.-]*|.*) fail unsafe-directory-entry;; esac
         target_file="$target/$name"; allowed_target "$target_file" || fail unsupported-expanded-target
-        live=$(mapped "$target_file"); staged="$STAGE/new-$name"
+        mp "$target_file"; live=$MP; staged="$STAGE/new-$name"
+        origin="$ORIGINS/${target_file#/}"; mp "$origin"; MO=$MP
         case "$targets" in *"|$target_file|"*) fail duplicate-expanded-target;; esac
         targets="$targets$target_file|"
         if [ -n "$old_header" ]; then
-            previous=$(old_row "$target_file" 2>/dev/null || :)
+            old_lookup "$target_file"; previous=$PREV_RECORD
             if [ -z "$previous" ]; then
                 previous_kind=new
             else
@@ -488,87 +554,90 @@ while IFS='|' read -r feature source target digest recorded_uid recorded_gid rec
             if [ "$previous_kind" = new ]; then
                 if [ -e "$live" ]; then
                     origin="$ORIGINS/${target_file#/}"
-                    plain "$origin" && [ -f "$(mapped "$origin")" ] || fail new-target-not-stock
+                    plain "$origin" && [ -f "$MO" ] || fail new-target-not-stock
                     origin_record "$target_file" || fail original-label
                     original_sha=$origin_hash; original_meta=$origin_meta; original_label=$origin_selabel
-                    [ "$(sha "$live")" = "$original_sha" ] && [ "$(meta "$live")" = "$original_meta" ] && [ "$(label "$live")" = "$original_label" ] || fail new-target-not-stock
+                    fact "$live" && [ "$FACT_HASH" = "$original_sha" ] && [ "$FACT_META" = "$original_meta" ] && [ "$FACT_LABEL" = "$original_label" ] || fail new-target-not-stock
                     original_uid=${original_meta%%'|'*}; original_rest=${original_meta#*'|'}; original_gid=${original_rest%%'|'*}; original_mode=${original_rest#*'|'}; kind_row=file
                     staged_original="$STAGE/originals/${target_file#/}"; mkdir -p "${staged_original%/*}" || fail backup-directory
-                    cp "$(mapped "$origin")" "$staged_original" || fail backup-stage
+                    cp "$MO" "$staged_original" || fail backup-stage
                 else
                     origin="$ORIGINS/${target_file#/}"
-                    if [ -e "$(mapped "$origin")" ]; then
-                        [ -f "$(mapped "$origin")" ] && [ "$(file_bytes "$origin")" = 0 ] || fail new-target-missing-from-live
+                    if [ -e "$MO" ]; then
+                        [ -f "$MO" ] && [ "$(file_bytes "$origin")" = 0 ] || fail new-target-missing-from-live
                     fi
                     original_sha=-; original_meta='-:-:-'; original_label=-; original_uid=-; original_gid=-; original_mode=-; kind_row=absent
                 fi
             elif [ "$previous_kind" = file ]; then
                 origin="$ORIGINS/${target_file#/}"
-                plain "$origin" && [ -f "$(mapped "$origin")" ] || fail missing-directory-origin
+                plain "$origin" && [ -f "$MO" ] || fail missing-directory-origin
                 origin_record "$target_file" || fail original-label
                 original_sha=$origin_hash; original_meta=$origin_meta; original_label=$origin_selabel
                 parse_previous "$previous"
                 [ "$original_sha" = "$prev_original" ] || fail original-changed-since-install
-                orig_size=$(file_bytes "$origin"); case "$orig_size" in ''|*[!0-9]*) fail invalid-size;; esac
-                required_bytes=$((required_bytes + orig_size))
+                count_size "$origin"
                 original_uid=${original_meta%%'|'*}; original_rest=${original_meta#*'|'}; original_gid=${original_rest%%'|'*}; original_mode=${original_rest#*'|'}
                 if [ -e "$live" ]; then
                     [ -f "$live" ] && [ ! -L "$live" ] || fail nonregular-existing-entry
-                    { [ "$(sha "$live")" = "$previous_applied" ] && [ "$(meta "$live")" = "$previous_meta" ] && [ "$(label "$live")" = "$previous_label" ]; } ||
-                    { [ "$(sha "$live")" = "$original_sha" ] && [ "$(meta "$live")" = "$original_meta" ] && [ "$(label "$live")" = "$original_label" ]; } || fail current-applied-state-mismatch
+                    fact "$live" || fail current-applied-state-mismatch
+                    { [ "$FACT_HASH" = "$previous_applied" ] && [ "$FACT_META" = "$previous_meta" ] && [ "$FACT_LABEL" = "$previous_label" ]; } ||
+                    { [ "$FACT_HASH" = "$original_sha" ] && [ "$FACT_META" = "$original_meta" ] && [ "$FACT_LABEL" = "$original_label" ]; } || fail current-applied-state-mismatch
                 else fail current-applied-state-mismatch; fi
                 staged_original="$STAGE/originals/${target_file#/}"
                 mkdir -p "${staged_original%/*}" || fail backup-directory
-                cp "$(mapped "$origin")" "$staged_original" || fail backup-stage
+                cp "$MO" "$staged_original" || fail backup-stage
                 kind_row=file
             elif [ "$previous_kind" = absent ]; then
                 original_sha=-; original_meta='-:-:-'; original_label=-; original_uid=-; original_gid=-; original_mode=-; kind_row=absent
                 if [ -e "$live" ]; then
-                    [ -f "$live" ] && [ ! -L "$live" ] && [ "$(sha "$live")" = "$previous_applied" ] && [ "$(meta "$live")" = "$previous_meta" ] && [ "$(label "$live")" = "$previous_label" ] || fail current-applied-state-mismatch
+                    [ -f "$live" ] && [ ! -L "$live" ] && fact "$live" && [ "$FACT_HASH" = "$previous_applied" ] && [ "$FACT_META" = "$previous_meta" ] && [ "$FACT_LABEL" = "$previous_label" ] || fail current-applied-state-mismatch
                 fi
             else fail malformed-old-kind; fi
         elif [ -e "$live" ]; then
             [ -f "$live" ] && [ ! -L "$live" ] || fail nonregular-existing-entry
             origin="$ORIGINS/${target_file#/}"
-            plain "$origin" && [ -f "$(mapped "$origin")" ] || fail missing-directory-origin
+            plain "$origin" && [ -f "$MO" ] || fail missing-directory-origin
             origin_record "$target_file" || fail original-label
             original_sha=$origin_hash; original_meta=$origin_meta; original_label=$origin_selabel
-            orig_size=$(file_bytes "$origin"); case "$orig_size" in ''|*[!0-9]*) fail invalid-size;; esac
-            required_bytes=$((required_bytes + orig_size))
-            [ "$original_sha" = "$(sha "$live")" ] && [ "$original_meta" = "$(meta "$live")" ] && [ "$original_label" = "$(label "$live")" ] || fail changed-directory-origin
+            count_size "$origin"
+            fact "$live" && [ "$original_sha" = "$FACT_HASH" ] && [ "$original_meta" = "$FACT_META" ] && [ "$original_label" = "$FACT_LABEL" ] || fail changed-directory-origin
             original_uid=${original_meta%%'|'*}; original_rest=${original_meta#*'|'}; original_gid=${original_rest%%'|'*}; original_mode=${original_rest#*'|'}
             staged_original="$STAGE/originals/${target_file#/}"
             mkdir -p "${staged_original%/*}" || fail backup-directory
-            cp "$(mapped "$origin")" "$staged_original" || fail backup-stage
+            cp "$MO" "$staged_original" || fail backup-stage
             kind_row=file
         else
             origin="$ORIGINS/${target_file#/}"
-            if [ -e "$(mapped "$origin")" ]; then
-                [ -f "$(mapped "$origin")" ] && [ "$(file_bytes "$origin")" = 0 ] || fail target-missing-from-stock
+            if [ -e "$MO" ]; then
+                [ -f "$MO" ] && [ "$(file_bytes "$origin")" = 0 ] || fail target-missing-from-stock
             fi
             original_sha=-; original_meta='-:-:-'; original_label=-; original_uid=-; original_gid=-; original_mode=-; kind_row=absent
         fi
-        source_sha=$(sha "$f") || fail source-entry-hash
-        source_meta=$(meta "$f") || fail source-entry-meta
+        fact "$f" || fail source-entry-hash
+        source_sha=$FACT_HASH; source_meta=$FACT_META
         if [ "$kind_row" = file ]; then
             [ "$source_meta" = "$original_meta" ] || fail staged-metadata-mismatch
             source_label=$original_label
         else
-            source_label=$(label "$target") || fail target-directory-label
+            source_label=$dir_label
         fi
         cp "$f" "$staged" || fail stage-entry
-        IFS='|' read -r source_uid source_gid source_mode <<EOF
-$source_meta
-EOF
-        set_meta "$staged" "$source_uid" "$source_gid" "$source_mode" || fail stage-entry-metadata
-        set_label "$staged" "$source_label" || fail stage-entry-label
-        applied_sha=$(sha "$staged"); applied_meta=$(meta "$staged"); applied_label=$(label "$staged")
-        IFS='|' read -r applied_uid applied_gid applied_mode <<EOF
-$applied_meta
-EOF
-        print -r -- "$target_file|$kind_row|$original_sha|$applied_sha|$original_uid|$original_gid|$original_mode|$original_label|$applied_uid|$applied_gid|$applied_mode|$applied_label" >> "$newrows" || fail row-write
-        print -r -- "$target_file|$live|$staged|$kind_row|$original_sha" >> "$TXDIR" || fail transaction-row
+        print -r -- "$staged|$source_meta|$source_label" >> "$STAGE/dir-settle" || fail stage-entry
+        print -r -- "$staged|$target_file|$kind_row|$original_sha|$original_uid|$original_gid|$original_mode|$original_label|$live" >> "$STAGE/dir-pending" || fail stage-entry
     done
+    # Every staged entry gets its metadata and label in one helper run, then
+    # its recovery row from the re-read applied state.
+    settle_all "$STAGE/dir-settle" || fail stage-entry-metadata
+    rm -f "$STAGE/dir-settle"
+    while IFS='|' read -r staged target_file kind_row original_sha original_uid original_gid original_mode original_label live; do
+        fact "$staged" || fail stage-entry-metadata
+        applied_sha=$FACT_HASH; applied_label=$FACT_LABEL; applied_meta=$FACT_META
+        applied_uid=${applied_meta%%'|'*}; applied_mode=${applied_meta##*'|'}; applied_gid=${applied_meta#*'|'}; applied_gid=${applied_gid%'|'*}
+        print -r -- "$target_file|$kind_row|$original_sha|$applied_sha|$original_uid|$original_gid|$original_mode|$original_label|$applied_uid|$applied_gid|$applied_mode|$applied_label" >> "$newrows" || fail row-write
+        key "$target_file"; eval "NEWROW_$KEY=1"
+        print -r -- "$target_file|$live|$staged|$kind_row|$original_sha" >> "$TXDIR" || fail transaction-row
+    done < "$STAGE/dir-pending"
+    rm -f "$STAGE/dir-pending"
 done < "$(mapped "$MANIFEST")"
 
 # Publish expanded originals immutably before arming the recovery manifest.
@@ -579,11 +648,18 @@ while IFS='|' read -r backup_target backup_kind backup_original backup_applied b
     [ -f "$staged_backup" ] && [ ! -L "$staged_backup" ] || continue
     print -r -- "$staged_backup" >> "$STAGE/backup-list" || fail backup-inventory
 done < "$newrows"
+compare=''
+while IFS= read -r staged_backup; do
+    rel=${staged_backup#"$STAGE/originals/"}; backup="$R/originals/$rel"
+    [ -f "$backup" ] && [ ! -L "$backup" ] && [ -f "$staged_backup" ] && compare="$compare $backup $staged_backup"
+done < "$STAGE/backup-list"
+set -f; set -- $compare; set +f
+facts "$@" || fail immutable-backup-mismatch
 while IFS= read -r staged_backup; do
     [ -f "$staged_backup" ] && [ ! -L "$staged_backup" ] || fail unsafe-staged-backup
     rel=${staged_backup#"$STAGE/originals/"}; backup="$R/originals/$rel"
     if [ -e "$backup" ]; then
-        [ -f "$backup" ] && [ ! -L "$backup" ] && [ "$(sha "$backup")" = "$(sha "$staged_backup")" ] || fail immutable-backup-mismatch
+        [ -f "$backup" ] && [ ! -L "$backup" ] && fact "$staged_backup" && staged_hash=$FACT_HASH && fact "$backup" && [ "$FACT_HASH" = "$staged_hash" ] || fail immutable-backup-mismatch
     else
         mkdir -p "${backup%/*}" || fail backup-directory
         no_links "${backup%/*}" || fail linked-backup-directory
@@ -595,34 +671,33 @@ done < "$STAGE/backup-list"
 while IFS='|' read -r feature source target digest recorded_uid recorded_gid recorded_mode kind extra || [ -n "$feature" ]; do
     recorded_meta="$recorded_uid|$recorded_gid|$recorded_mode"
     case "$kind" in static|runtime) :;; *) continue;; esac
-    live=$(mapped "$target"); origin="$ORIGINS/${target#/}"
-    source_sha=$(sha "$source"); source_meta=$(meta "$source"); source_label=$(label "$target") || fail applied-label
+    mp "$target"; live=$MP; origin="$ORIGINS/${target#/}"
+    fact "$source" || fail source-hash-mismatch
+    source_sha=$FACT_HASH; source_meta=$FACT_META
     origin_record "$target" || fail original-label
     original_sha=$origin_hash; original_meta=$origin_meta; original_label=$origin_selabel
     [ "$source_meta" = "$recorded_meta" ] && [ "$source_meta" = "$original_meta" ] || fail staged-metadata-mismatch
     source_label=$original_label
     bstage="$STAGE/originals/${target#/}"; mkdir -p "${bstage%/*}" || fail backup-directory
-    cp "$(mapped "$origin")" "$bstage" || fail backup-stage
+    mp "$origin"; cp "$MP" "$bstage" || fail backup-stage
     backup="$R/originals/${target#/}"
     if [ -e "$backup" ]; then
-        [ -f "$backup" ] && [ ! -L "$backup" ] && [ "$(sha "$backup")" = "$original_sha" ] || fail immutable-backup-mismatch
+        [ -f "$backup" ] && [ ! -L "$backup" ] && fact "$backup" && [ "$FACT_HASH" = "$original_sha" ] || fail immutable-backup-mismatch
     else
         mkdir -p "${backup%/*}" || fail backup-directory
         no_links "${backup%/*}" || fail linked-backup-directory
         publish_copy "$bstage" "$backup.new.$$" "$backup" || fail backup-publish
     fi
-    IFS='|' read -r original_uid original_gid original_mode <<EOF
-$original_meta
-EOF
-    IFS='|' read -r applied_uid applied_gid applied_mode <<EOF
-$source_meta
-EOF
+    original_uid=${original_meta%%'|'*}; original_mode=${original_meta##*'|'}; original_gid=${original_meta#*'|'}; original_gid=${original_gid%'|'*}
+    applied_uid=${source_meta%%'|'*}; applied_mode=${source_meta##*'|'}; applied_gid=${source_meta#*'|'}; applied_gid=${applied_gid%'|'*}
     print -r -- "$target|file|$original_sha|$source_sha|$original_uid|$original_gid|$original_mode|$original_label|$applied_uid|$applied_gid|$applied_mode|$source_label" >> "$newrows" || fail row-write
+    key "$target"; eval "NEWROW_$KEY=1"
     cp "$(mapped "$source")" "$STAGE/new-${target##*/}" || fail stage-payload
-    set_meta "$STAGE/new-${target##*/}" "$applied_uid" "$applied_gid" "$applied_mode" || fail stage-payload-metadata
-    set_label "$STAGE/new-${target##*/}" "$source_label" || fail stage-payload-label
+    print -r -- "$STAGE/new-${target##*/}|$applied_uid|$applied_gid|$applied_mode|$source_label" >> "$STAGE/static-settle" || fail stage-payload
     print -r -- "$target|$live|$STAGE/new-${target##*/}|file|$original_sha" >> "$TX" || fail transaction-row
 done < "$(mapped "$MANIFEST")"
+settle_all "$STAGE/static-settle" || fail stage-payload-metadata
+rm -f "$STAGE/static-settle"
 cat "$TXDIR" >> "$TX" || fail transaction-order
 rm -f "$TXDIR" || fail transaction-order-cleanup
 
@@ -632,25 +707,34 @@ snapshot_tx="$STAGE/transaction-with-snapshots"
 : > "$snapshot_tx" || fail rollback-snapshot-index
 while IFS='|' read -r target live staged rowkind orig extra || [ -n "$target" ]; do
     [ -n "$target" ] || continue
-    live_mapped=$(mapped "$target")
+    mp "$target"; live_mapped=$MP
     if [ -e "$live_mapped" ] || [ -L "$live_mapped" ]; then
         [ -f "$live_mapped" ] && [ ! -L "$live_mapped" ] || fail nonregular-preupdate-target
-        rbsha=$(sha "$target") || fail snapshot-hash
-        rbmeta=$(meta "$target") || fail snapshot-metadata
-        rblabel=$(label "$target") || fail snapshot-label
+        fact "$target" || fail snapshot-hash
+        rbsha=$FACT_HASH; rbmeta=$FACT_META; rblabel=$FACT_LABEL
         rbu=${rbmeta%%'|'*}; rbrest=${rbmeta#*'|'}; rbg=${rbrest%%'|'*}; rbm=${rbrest#*'|'}
         rbfile="$STAGE/rollback/${target#/}"
         mkdir -p "${rbfile%/*}" && no_links "${rbfile%/*}" && cp "$live_mapped" "$rbfile" || fail snapshot-copy
-        set_meta "$rbfile" "$rbu" "$rbg" "$rbm" && set_label "$rbfile" "$rblabel" || fail snapshot-metadata-copy
-        [ "$(sha "$rbfile")" = "$rbsha" ] && [ "$(meta "$rbfile")" = "$rbmeta" ] && [ "$(label "$rbfile")" = "$rblabel" ] || fail snapshot-verification
-        rbsize=$(file_bytes "$rbfile"); case "$rbsize" in ''|*[!0-9]*) fail snapshot-size;; esac
-        required_bytes=$((required_bytes + rbsize))
+        print -r -- "$rbfile|$rbu|$rbg|$rbm|$rblabel" >> "$STAGE/snapshot-settle" || fail snapshot-metadata-copy
+        count_size "$rbfile"
         print -r -- "$target|$live|$staged|$rowkind|$orig|file|$rbfile|$rbsha|$rbu|$rbg|$rbm|$rblabel" >> "$snapshot_tx" || fail snapshot-index
     else
         print -r -- "$target|$live|$staged|$rowkind|$orig|absent|-|-|-|-|-|-" >> "$snapshot_tx" || fail snapshot-index
     fi
 done < "$TX"
+settle_all "$STAGE/snapshot-settle" || fail snapshot-metadata-copy
+while IFS='|' read -r target live staged rowkind orig rbkind rbfile rbsha rbu rbg rbm rblabel; do
+    [ "$rbkind" = file ] || continue
+    fact "$rbfile" && [ "$FACT_HASH" = "$rbsha" ] && [ "$FACT_META" = "$rbu|$rbg|$rbm" ] && [ "$FACT_LABEL" = "$rblabel" ] || fail snapshot-verification
+done < "$snapshot_tx"
+rm -f "$STAGE/snapshot-settle"
 mv "$snapshot_tx" "$TX" || fail snapshot-index-publish
+if [ -n "$SIZE_LIST" ]; then
+    set -f; set -- $SIZE_LIST; set +f
+    counted=$("$HELPER" size-sum "$@") || fail invalid-size
+    case "$counted" in ''|*[!0-9]*) fail invalid-size;; esac
+    required_bytes=$((required_bytes + counted))
+fi
 
 available_bytes=$(free_bytes) || fail storage-query
 case "$available_bytes" in ''|*[!0-9]*) fail invalid-storage-size;; esac
@@ -666,17 +750,24 @@ if [ -z "$old_header" ]; then
     print -r -- 'GEN5W-RECOVERY-MANIFEST|1' > "$recovery_new" || fail recovery-header
     cat "$newrows" >> "$recovery_new" || fail recovery-rows
 else
+    recheck=''
+    while IFS='|' read -r t k rest || [ -n "$t" ]; do
+        [ "$k" = file ] && [ -f "$R/originals/${t#/}" ] && [ ! -L "$R/originals/${t#/}" ] && recheck="$recheck $R/originals/${t#/}"
+    done < "$OLD_RECOVERY"
+    set -f; set -- $recheck; set +f
+    facts "$@" || fail existing-recovery-corrupt
     while IFS='|' read -r t k orig applied ou og om ol au ag am al || [ -n "$t" ]; do
         [ "$t" = GEN5W-RECOVERY-MANIFEST ] && continue; [ -n "$t" ] || continue
-        contains_target "$t" "$newrows" || { cat "$newrows" >&2; fail "update-target-removed target=$t"; }
+        key "$t"; eval "listed=\${NEWROW_$KEY-}"
+        [ -n "$listed" ] || { cat "$newrows" >&2; fail "update-target-removed target=$t"; }
         if [ "$k" = file ]; then
-            b="$R/originals/${t#/}"; [ -f "$b" ] && [ ! -L "$b" ] && [ "$(sha "$b")" = "$orig" ] || fail existing-recovery-corrupt
+            b="$R/originals/${t#/}"; [ -f "$b" ] && [ ! -L "$b" ] && fact "$b" && [ "$FACT_HASH" = "$orig" ] || fail existing-recovery-corrupt
         fi
     done < "$OLD_RECOVERY"
     print -r -- 'GEN5W-RECOVERY-MANIFEST|2' > "$recovery_new" || fail recovery-header
     while IFS='|' read -r t k orig applied ou og om ol au ag am al || [ -n "$t" ]; do
         [ -n "$t" ] || continue
-        previous=$(old_row "$t" 2>/dev/null || :); prior=-
+        old_lookup "$t"; previous=$PREV_RECORD; prior=-
         if [ -n "$previous" ]; then
             parse_previous "$previous"
             [ "$prev_original" = "$orig" ] || fail original-changed-since-install
@@ -712,6 +803,7 @@ done < "$TX"
 (set -C; print -r -- "system-write-started|$(date +%s 2>/dev/null || echo unknown)" > "$IN_PROGRESS_MARKER") 2>/dev/null || fail write-progress-marker
 sync_all || fail progress-marker-sync
 rw=1
+published=''
 remount_rw || fail remount-rw
 while IFS='|' read -r target live staged rowkind original_sha || [ -n "$target" ]; do
     [ -n "$target" ] || continue
@@ -722,18 +814,25 @@ while IFS='|' read -r target live staged rowkind original_sha || [ -n "$target" 
     [ ! -e "$live_tmp" ] && [ ! -L "$live_tmp" ] || fail unsafe-target-temp
     copy_to_new "$staged" "$live_tmp" || fail unsafe-target-temp
     live_tmp_created=1
-    staged_meta=$(meta "$staged"); staged_label=$(label "$staged") || fail staged-label
-    IFS='|' read -r staged_uid staged_gid staged_mode <<EOF
-$staged_meta
-EOF
-    set_meta "$live_tmp" "$staged_uid" "$staged_gid" "$staged_mode" || fail live-metadata
-    set_label "$live_tmp" "$staged_label" || fail live-label
+    fact "$staged" || fail staged-label
+    staged_meta=$FACT_META; staged_label=$FACT_LABEL
+    staged_uid=${staged_meta%%'|'*}; staged_mode=${staged_meta##*'|'}; staged_gid=${staged_meta#*'|'}; staged_gid=${staged_gid%'|'*}
+    mp "$live_tmp"; "$HELPER" settle "$MP" "$staged_uid" "$staged_gid" "$staged_mode" "$staged_label" || fail live-metadata
     touched="$target,$rowkind $touched"
     no_links "$live" || fail linked-live-target
     mv "$live_tmp" "$live" || fail publish-target
     live_tmp_created=0
-    actual=$(sha "$target"); expected=$(sha "$staged"); actual_meta=$(meta "$target"); actual_label=$(label "$target")
-    [ "$actual" = "$expected" ] && [ "$actual_meta" = "$staged_meta" ] && [ "$actual_label" = "$staged_label" ] || fail applied-state-mismatch
+    published="$published $target"
+done < "$TX"
+# Verify every published target against its staged bytes in one helper run;
+# a mismatch fails here and the EXIT trap rolls back every touched target.
+set -f; set -- $published; set +f
+facts "$@" || fail applied-state-mismatch
+while IFS='|' read -r target live staged rowkind original_sha || [ -n "$target" ]; do
+    [ -n "$target" ] || continue
+    fact "$staged" || fail applied-state-mismatch
+    expected=$FACT_HASH; staged_meta=$FACT_META; staged_label=$FACT_LABEL
+    fact "$target" && [ "$FACT_HASH" = "$expected" ] && [ "$FACT_META" = "$staged_meta" ] && [ "$FACT_LABEL" = "$staged_label" ] || fail applied-state-mismatch
 done < "$TX"
 sync_all || fail system-sync
 remount_ro_or_defer || fail system-remount-ro

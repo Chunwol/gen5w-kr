@@ -37,31 +37,71 @@ allowed_target() {
 }
 valid_sha() { case "$1" in ''|*[!a-f0-9]*) return 1;; esac; [ "${#1}" = 64 ]; }
 valid_meta() {
-    local uid gid mode extra
-    IFS='|' read -r uid gid mode extra <<EOF
-$1
-EOF
-    [ -z "$extra" ] || return 1
-    case "$uid:$gid:$mode" in *[!0-9:]*|:*|*:) return 1;; esac
-    [ -n "$uid" ] && [ -n "$gid" ] && [ -n "$mode" ]
+    local digits
+    case "$1" in *[!0-9\|]*|\|*|*\||*\|\|*) return 1;; esac
+    digits=${1//[0-9]/}; [ "$digits" = '||' ]
+}
+# One helper process reports sha256|uid|gid|mode|label for every checked file
+# (a process start costs about 1 s in the emulator); results are kept by path.
+NL='
+'
+SLASH=/
+key() { KEY=${1//_/_U}; KEY=${KEY//$SLASH/_S}; KEY=${KEY//./_D}; KEY=${KEY//-/_H}; }
+split_fact() {
+    local rest=$1
+    FACT_HASH=${rest%%'|'*}; rest=${rest#*'|'}
+    FACT_LABEL=${rest##*'|'}; FACT_META=${rest%'|'*}
+    valid_sha "$FACT_HASH" && valid_meta "$FACT_META" && valid_label "$FACT_LABEL"
+}
+facts() {
+    local out line path
+    [ "$#" -gt 0 ] || return 0
+    for path in "$@"; do case "$path" in ''|*[!A-Za-z0-9_./-]*) return 1;; esac; done
+    out=$("$HELPER" ident "$@") || return 1
+    out="$out$NL"
+    for path in "$@"; do
+        case "$out" in *"$NL"*) :;; *) return 1;; esac
+        line=${out%%"$NL"*}; out=${out#*"$NL"}
+        split_fact "$line" || return 1
+        key "$path"; eval "FACT_$KEY=\$line"
+    done
+    [ -z "$out" ]
+}
+fact() {
+    local line
+    key "$1"; eval "line=\${FACT_$KEY-}"
+    if [ -z "$line" ]; then
+        facts "$1" || return 1
+        key "$1"; eval "line=\${FACT_$KEY}"
+    fi
+    split_fact "$line"
 }
 valid_label() { case "$1" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac; }
 verify() {
-    if [ ! -e "$(mapped "$MANIFEST")" ] && [ ! -L "$(mapped "$MANIFEST")" ]; then return 3; fi
-    plain "$MANIFEST" && [ -f "$(mapped "$MANIFEST")" ] || fail unsafe-recovery-manifest
-    plain "$ORIGINALS" && [ -d "$(mapped "$ORIGINALS")" ] || fail unsafe-recovery-originals
-    plain "$OWNER" && [ -f "$(mapped "$OWNER")" ] || fail missing-persistent-owner-manifest
+    local saved_ifs=$IFS
+    if [ ! -e "$MANIFEST" ] && [ ! -L "$MANIFEST" ]; then return 3; fi
+    plain "$MANIFEST" && [ -f "$MANIFEST" ] || fail unsafe-recovery-manifest
+    plain "$ORIGINALS" && [ -d "$ORIGINALS" ] || fail unsafe-recovery-originals
+    plain "$OWNER" && [ -f "$OWNER" ] || fail missing-persistent-owner-manifest
     plain "$HELPER" && [ -x "$HELPER" ] || fail missing-helper
-    header=; IFS= read -r header < "$(mapped "$MANIFEST")" || fail empty-recovery-manifest
+    header=; IFS= read -r header < "$MANIFEST" || fail empty-recovery-manifest
     case "$header" in 'GEN5W-RECOVERY-MANIFEST|1') version=1;; 'GEN5W-RECOVERY-MANIFEST|2') version=2;; *) fail unsupported-recovery-manifest;; esac
     seen='|'; rows=0; line_number=0
+    list=''
+    while IFS='|' read -r target kind rest || [ -n "$target" ]; do
+        allowed_target "$target" || continue
+        [ -f "$SYSTEM$target" ] && list="$list $SYSTEM$target"
+        [ "$kind" = file ] && [ -f "$ORIGINALS$target" ] && list="$list $ORIGINALS$target"
+    done < "$MANIFEST"
+    set -f; set -- $list; set +f
+    facts "$@" || :
     while IFS= read -r line || [ -n "$line" ]; do
         line_number=$((line_number+1))
         [ "$line_number" != 1 ] || { [ "$line" = "$header" ] || fail recovery-header-changed; continue; }
         [ -n "$line" ] || fail empty-recovery-row
-        IFS='|' read -r target kind original applied uid gid mode original_label applied_uid applied_gid applied_mode applied_label prior extra <<EOF
-$line
-EOF
+        IFS='|'; set -f; set -- $line; set +f; IFS=$saved_ifs
+        target=$1 kind=$2 original=$3 applied=$4 uid=$5 gid=$6 mode=$7 original_label=$8 applied_uid=$9 applied_gid=${10} applied_mode=${11} applied_label=${12} prior=${13} extra=${14}
+        [ "$#" -le 14 ] || extra=overflow
         if [ "$version" = 1 ]; then
             [ -z "$prior$extra" ] || fail malformed-recovery-row
         else
@@ -74,20 +114,20 @@ EOF
         if [ "$version" = 2 ]; then case "$prior" in -) :;; *) valid_sha "$prior" || fail malformed-prior-state;; esac; fi
         live="$SYSTEM$target"
         plain "$live" || fail unsafe-live-target
-        [ -f "$(mapped "$live")" ] && [ ! -L "$(mapped "$live")" ] || fail missing-applied-target
-        [ "$(sha "$live")" = "$applied" ] && [ "$(meta "$live")" = "$applied_uid|$applied_gid|$applied_mode" ] && [ "$(label "$live")" = "$applied_label" ] || fail unapplied-or-unknown-target
+        [ -f "$live" ] && [ ! -L "$live" ] || fail missing-applied-target
+        fact "$live" && [ "$FACT_HASH" = "$applied" ] && [ "$FACT_META" = "$applied_uid|$applied_gid|$applied_mode" ] && [ "$FACT_LABEL" = "$applied_label" ] || fail unapplied-or-unknown-target
         case "$kind" in
             file)
                 valid_sha "$original" && valid_meta "$uid|$gid|$mode" && valid_label "$original_label" || fail malformed-original-state
                 backup="$ORIGINALS${target}"
-                plain "$backup" && [ -f "$(mapped "$backup")" ] && [ ! -L "$(mapped "$backup")" ] && [ "$(sha "$backup")" = "$original" ] || fail missing-or-corrupt-original-backup
+                plain "$backup" && [ -f "$backup" ] && [ ! -L "$backup" ] && fact "$backup" && [ "$FACT_HASH" = "$original" ] || fail missing-or-corrupt-original-backup
                 ;;
             absent)
                 [ "$original|$uid|$gid|$mode|$original_label" = '-|-|-|-|-' ] || fail malformed-absent-state
                 ;;
             *) fail malformed-recovery-kind;;
         esac
-    done < "$(mapped "$MANIFEST")"
+    done < "$MANIFEST"
     [ "$rows" -gt 0 ] || fail empty-recovery-manifest
     echo "persistent-start: verified $rows applied target(s) and immutable restore originals"
     return 0

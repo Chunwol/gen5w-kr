@@ -38,4 +38,7 @@ rm -f "$TEST_ROOT/data/local/gen5w-portable/persistent/recovery/transaction-comm
 [ ! -e "$NEMESIS_STATE/gen5wkr.ui-wireless-off" ] || [ -f "$NEMESIS_STATE/gen5wkr.ui-wireless-off" ] || exit 1
 rm -f "$NEMESIS_STATE/gen5wkr.ui-wireless-off" || exit 1
 rm -f "$BOOT_STATE/update-held" "$BOOT_STATE/update-enabled" || exit 1
+# Bundled Bluelink reminder service: keep the car's own reminder values for removal.
+# It changes only that app's settings file; a failure leaves the reminder stock.
+BL_TEST_DATA=${TEST_ROOT:+$TEST_ROOT/data} "$SH" "$BASE/bluelink/post.sh" || echo "portable install: Bluelink reminder values not saved; reminder left stock"
 echo "portable install: persistent payload and immutable recovery manifest verified; one reboot is required; later starts do not restart Android"

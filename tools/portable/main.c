@@ -76,6 +76,25 @@ static int metadata(const char *path, int identity) {
   }
   return write(1, out, n) == (int)n ? 0 : 1;
 }
+static void append_number(char *out, size_t *n, uint64_t v, unsigned radix) {
+  char digits[24];
+  unsigned k = 0;
+  do {
+    unsigned bit, rem = 0;
+    uint64_t q = 0;
+    for (bit = 64; bit > 0; bit--) {
+      rem = rem * 2 + ((v >> (bit - 1)) & 1);
+      if (rem >= radix) {
+        rem -= radix;
+        q |= (uint64_t)1 << (bit - 1);
+      }
+    }
+    digits[k++] = '0' + rem;
+    v = q;
+  } while (v);
+  while (k)
+    out[(*n)++] = digits[--k];
+}
 #ifndef _WIN32
 static int number(const char *text, unsigned base, unsigned *value) {
   unsigned result = 0;
@@ -126,6 +145,71 @@ static int label(const char *path, int set, const char *value) {
   if (buffer[n - 1] == 0) n--;
   buffer[n] = 0;
   return write(1, buffer, (size_t)n) == n && write(1, "\n", 1) == 1 ? 0 : 1;
+}
+/* One line per regular file: sha256|uid|gid|mode(octal)|label ("-" when the
+ * file carries no label). One process replaces three helper calls per file. */
+static int ident(const char *path) {
+  struct stat st;
+  unsigned char *data;
+  char line[400], value[256];
+  size_t size, i, n = 0;
+  ssize_t got;
+  int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  if (fd < 0) return 1;
+  if (fstat(fd, &st) || (st.st_mode & S_IFMT) != S_IFREG ||
+      st.st_size < 0 || st.st_size > 32 * 1024 * 1024) {
+    close(fd);
+    return 1;
+  }
+  size = (size_t)st.st_size;
+  data = malloc(size ? size : 1);
+  if (!data) { close(fd); return 1; }
+  for (i = 0; i < size;) {
+    int k = read(fd, data + i, size - i);
+    if (k <= 0) break;
+    i += k;
+  }
+  close(fd);
+  if (i != size) { free(data); return 1; }
+  sha256(data, size, line);
+  free(data);
+  n = 64;
+  line[n++] = '|';
+  append_number(line, &n, (uint64_t)st.st_uid, 10);
+  line[n++] = '|';
+  append_number(line, &n, (uint64_t)st.st_gid, 10);
+  line[n++] = '|';
+  append_number(line, &n, (uint64_t)(st.st_mode & 07777), 8);
+  line[n++] = '|';
+  got = getxattr(path, "security.selinux", value, sizeof(value) - 1);
+  if (label_absent(got)) {
+    line[n++] = '-';
+  } else {
+    if (got <= 0 || got >= (ssize_t)sizeof(value)) return 1;
+    if (value[got - 1] == 0) got--;
+    if (got <= 0) return 1;
+    memcpy(line + n, value, (size_t)got);
+    n += (size_t)got;
+  }
+  line[n++] = '\n';
+  return write(1, line, n) == (int)n ? 0 : 1;
+}
+/* settle PATH UID GID MODE LABEL [...]: metadata, then the label. A refused
+ * label write is accepted only when the file already reads back that label
+ * (V039 runs SELinux without a policy; "-" means no label). */
+static int settle(const char *path, const char *uid, const char *gid,
+                  const char *mode, const char *wanted) {
+  char value[256];
+  ssize_t got;
+  int r = set_metadata(path, uid, gid, mode);
+  if (r) return r;
+  if (!label(path, 1, wanted)) return 0;
+  got = getxattr(path, "security.selinux", value, sizeof(value) - 1);
+  if (label_absent(got)) return strcmp(wanted, "-") ? 1 : 0;
+  if (got <= 0 || got >= (ssize_t)sizeof(value)) return 1;
+  if (value[got - 1] == 0) got--;
+  value[got] = 0;
+  return strcmp(value, wanted) ? 1 : 0;
 }
 static int system_mount_state(void) {
   char line[2048], token[512];
@@ -211,19 +295,54 @@ int main(int argc, char **argv) {
   if (argc == 3 && !strcmp(argv[1], "identity"))
     return metadata(argv[2], 1);
 #ifndef _WIN32
+  if (argc >= 3 && !strcmp(argv[1], "ident")) {
+    int k;
+    for (k = 2; k < argc; k++)
+      if (ident(argv[k])) return 1;
+    return 0;
+  }
   if (argc == 3 && !strcmp(argv[1], "label")) return label(argv[2], 0, 0);
   if (argc == 4 && !strcmp(argv[1], "setlabel")) return label(argv[2], 1, argv[3]);
-  if (argc == 6 && !strcmp(argv[1], "setmeta"))
-    return set_metadata(argv[2], argv[3], argv[4], argv[5]);
+  /* setmeta PATH UID GID MODE [PATH UID GID MODE ...] */
+  if (argc >= 6 && (argc - 2) % 4 == 0 && !strcmp(argv[1], "setmeta")) {
+    int k, r;
+    for (k = 2; k < argc; k += 4)
+      if ((r = set_metadata(argv[k], argv[k + 1], argv[k + 2], argv[k + 3]))) return r;
+    return 0;
+  }
+  if (argc >= 7 && (argc - 2) % 5 == 0 && !strcmp(argv[1], "settle")) {
+    int k, r;
+    for (k = 2; k < argc; k += 5)
+      if ((r = settle(argv[k], argv[k + 1], argv[k + 2], argv[k + 3], argv[k + 4]))) return r;
+    return 0;
+  }
   if (argc == 2 && !strcmp(argv[1], "is-ro")) return system_mount_state();
   if (argc == 2 && (!strcmp(argv[1], "remount-ro") || !strcmp(argv[1], "remount-rw"))) {
     unsigned long flags = MS_REMOUNT;
     if (!strcmp(argv[1], "remount-ro")) flags |= MS_RDONLY;
     return mount(0, "/system", 0, flags, 0) == 0 ? 0 : 1;
   }
-  if (argc == 6 && !strcmp(argv[1], "setmeta"))
-    return set_metadata(argv[2], argv[3], argv[4], argv[5]);
 #endif
+  if (argc >= 3 && !strcmp(argv[1], "size-sum")) {
+    uint64_t total = 0;
+    char output[26];
+    size_t n = 0;
+    int k;
+    for (k = 2; k < argc; k++) {
+      struct stat st;
+#ifdef _WIN32
+      int fd = open(argv[k], O_RDONLY | O_BINARY);
+#else
+      int fd = open(argv[k], O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+#endif
+      if (fd < 0 || fstat(fd, &st)) { if (fd >= 0) close(fd); return 1; }
+      close(fd);
+      total += (uint64_t)st.st_size;
+    }
+    append_number(output, &n, total, 10);
+    output[n++] = '\n';
+    return write(1, output, n) == (int)n ? 0 : 1;
+  }
   if (argc == 3 && !strcmp(argv[1], "size")) {
     struct stat st;
 #ifdef _WIN32

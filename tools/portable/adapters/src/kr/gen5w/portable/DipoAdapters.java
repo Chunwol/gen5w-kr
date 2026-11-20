@@ -234,7 +234,9 @@ public final class DipoAdapters {
         method(service, "onSessionFinalized", Void.TYPE, Integer.TYPE),
         "sessionFinalized", Object.class, Integer.TYPE, Integer.TYPE));
     // V039 asks DiPO to disable the phone's Bluetooth link after wireless
-    // CarPlay starts. Keep A2DP/BT available for the active wireless session.
+    // CarPlay starts; the OEM handler marks the phone as CarPlay-owned in BTCM so
+    // HFP/A2DP do not compete with CarPlay. Observe it and keep the OEM handling
+    // (0.3.70-0.3.78 suppressed it: car BT and CarPlay stayed connected together).
     try {
       plan.add(new Entry(method(service, "onDisableBluetooth", Void.TYPE,
                                 String.class),
@@ -469,10 +471,7 @@ public final class DipoAdapters {
 
   public static void disableBluetooth(Object receiver, String reason,
                                       int handle) throws Throwable {
-    if (RelayBridge.keepBluetoothForWireless()) {
-      kr.gen5w.diag.DebugTrace.event("cp.bluetooth.disable-suppressed", 1);
-      return;
-    }
+    kr.gen5w.diag.DebugTrace.event("cp.bluetooth.disable", RelayBridge.keepBluetoothForWireless() ? 1 : 0);
     Hook.original(handle, receiver, new Object[] {reason});
   }
 }

@@ -64,50 +64,101 @@ REPORT=$ROOT$WORK/features.txt
 MANIFEST=$ROOT$WORK/manifest
 : > "$REPORT"; : > "$MANIFEST"
 status() { echo "$1|$2|$3" >> "$REPORT" || fail 'cannot record feature result'; }
-digest() { "$HELPER" sha256 "$1"; }
-metadata() { "$HELPER" metadata "$1"; }
-selabel() { "$HELPER" label "$1"; }
-field_count() {
-    field_total=1; field_rest=$1
-    while case "$field_rest" in *'|'*) :;; *) false;; esac; do
-        field_total=$((field_total+1)); field_rest=${field_rest#*'|'}
-    done
+# Cost model: every helper call is a process start (about 1 s in the emulator,
+# tens of ms on the unit). Facts about read-only inputs are fetched in batches
+# and remembered by path; files this script writes are re-read when used.
+NL='
+'
+SLASH=/
+# safe() paths use [A-Za-z0-9_./-] only; map one to a unique variable suffix.
+key() { KEY=${1//_/_U}; KEY=${KEY//$SLASH/_S}; KEY=${KEY//./_D}; KEY=${KEY//-/_H}; }
+split_fact() {
+    local rest=$1 pipes
+    FACT_HASH=${rest%%'|'*}; rest=${rest#*'|'}
+    FACT_LABEL=${rest##*'|'}; FACT_META=${rest%'|'*}
+    case "$FACT_HASH" in *[!a-f0-9]*) return 1;; esac
+    [ "${#FACT_HASH}" = 64 ] || return 1
+    case "$FACT_META" in *[!0-9\|]*|\|*|*\||*\|\|*) return 1;; esac
+    pipes=${FACT_META//[0-9]/}; [ "$pipes" = '||' ] || return 1
+    case "$FACT_LABEL" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac
 }
-find_row() {
-    local file=$1 requested=$2 record first rest found=0
-    FOUND_ROW=
-    while IFS= read -r record || [ -n "$record" ]; do
-        IFS='|' read -r first rest <<EOF
-$record
-EOF
-        [ "$first" = "$requested" ] || continue
-        found=$((found+1)); FOUND_ROW=$record
-    done < "$file"
-    [ "$found" -le 1 ]
+# facts PATH... : one helper process; remembers sha256|uid|gid|mode|label per path.
+facts() {
+    local out line path
+    [ "$#" -gt 0 ] || return 0
+    for path in "$@"; do safe "$path" || return 1; done
+    out=$("$HELPER" ident "$@") || return 1
+    out="$out$NL"
+    for path in "$@"; do
+        case "$out" in *"$NL"*) :;; *) return 1;; esac
+        line=${out%%"$NL"*}; out=${out#*"$NL"}
+        split_fact "$line" || return 1
+        key "$path"; eval "FACT_$KEY=\$line"
+    done
+    [ -z "$out" ]
+}
+# fact PATH : FACT_HASH FACT_META FACT_LABEL, from memory when already known.
+fact() {
+    local line
+    key "$1"; eval "line=\${FACT_$KEY-}"
+    if [ -z "$line" ]; then
+        facts "$1" || return 1
+        key "$1"; eval "line=\${FACT_$KEY}"
+    fi
+    split_fact "$line"
+}
+fresh() { facts "$1" && fact "$1"; }
+digest() { fresh "$1" && print -r -- "$FACT_HASH"; }
+metadata() { "$HELPER" metadata "$1"; }
+# split_row ROW : F1..F14 and FIELDS, without a temporary file per row.
+split_row() {
+    local rest=$1 n=0
+    while :; do
+        n=$((n+1))
+        case "$rest" in *'|'*) eval "F$n=\${rest%%'|'*}"; rest=${rest#*'|'};; *) eval "F$n=\$rest"; break;; esac
+        [ "$n" -lt 20 ] || return 1
+    done
+    FIELDS=$n
+    while [ "$n" -lt 14 ]; do n=$((n+1)); eval "F$n="; done
 }
 has_feature() {
     local wanted=$1 feature rest
     while IFS='|' read -r feature rest; do [ "$feature" = "$wanted" ] && return 0; done < "$MANIFEST"
     return 1
 }
-load_stock_origin() {
-    local target=$1 row header version fields extra current current_meta current_label
+OLD_VERSION=
+if [ "$UPDATE_MODE" = 1 ]; then
+    # Read the previous recovery manifest once and index its rows by target.
+    # A target listed twice is ambiguous and never resolves.
+    IFS= read -r OLD_HEADER < "$OLD_RECOVERY" || fail 'unreadable persistent recovery manifest'
+    case "$OLD_HEADER" in GEN5W-RECOVERY-MANIFEST\|1) OLD_VERSION=1;; GEN5W-RECOVERY-MANIFEST\|2) OLD_VERSION=2;; *) OLD_VERSION=bad;; esac
+    first=1
+    while IFS= read -r record || [ -n "$record" ]; do
+        [ "$first" = 0 ] || { first=0; continue; }
+        old_target=${record%%'|'*}
+        safe "$old_target" || continue
+        key "$old_target"; eval "old_seen=\${OLD_$KEY-}"
+        if [ -n "$old_seen" ]; then eval "OLD_$KEY=duplicate"; else eval "OLD_$KEY=\$record"; fi
+    done < "$OLD_RECOVERY"
+fi
+resolve_origin() {
+    local target=$1 row version original_sha applied_sha orig_meta applied_meta orig_label applied_label prior_sha old_kind
     STOCK_PATH=$ROOT$target; STOCK_HASH=; STOCK_META=; STOCK_LABEL=; STOCK_KIND=file
     if [ "$UPDATE_MODE" = 1 ]; then
-        IFS= read -r header < "$OLD_RECOVERY" || return 1
-        case "$header" in GEN5W-RECOVERY-MANIFEST\|1) version=1;; GEN5W-RECOVERY-MANIFEST\|2) version=2;; *) return 1;; esac
-        find_row "$OLD_RECOVERY" "$target" || return 1
-        row=$FOUND_ROW
+        version=$OLD_VERSION
+        case "$version" in 1|2) :;; *) return 1;; esac
+        key "$target"; eval "row=\${OLD_$KEY-}"
+        [ "$row" != duplicate ] || return 1
         if [ -n "$row" ]; then
-            IFS='|' read -r old_target old_kind original_sha applied_sha orig_uid orig_gid orig_mode orig_label applied_uid applied_gid applied_mode applied_label prior_sha extra <<EOF
-$row
-EOF
-            [ "$old_target" = "$target" ] && [ -z "$extra" ] || return 1
-            field_count "$row"
-            if [ "$version" = 1 ]; then [ "$field_total" = 12 ] || return 1; else [ "$field_total" = 13 ] || return 1; fi
+            split_row "$row" || return 1
+            [ "$F1" = "$target" ] || return 1
+            if [ "$version" = 1 ]; then [ "$FIELDS" = 12 ] || return 1; else [ "$FIELDS" = 13 ] || return 1; fi
+            old_kind=$F2; original_sha=$F3; applied_sha=$F4
+            orig_meta="$F5|$F6|$F7"; orig_label=$F8
+            applied_meta="$F9|$F10|$F11"; applied_label=$F12; prior_sha=$F13
             case "$applied_sha" in *[!a-f0-9]*) return 1;; esac
             [ "${#applied_sha}" = 64 ] || return 1
-            case "$applied_uid:$applied_gid:$applied_mode" in *[!0-9:]*|:*|*:) return 1;; esac
+            case "$F9:$F10:$F11" in *[!0-9:]*|:*|*:|*::*) return 1;; esac
             case "$applied_label" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac
             case "$version:$prior_sha" in
                 1:) :;;
@@ -119,33 +170,32 @@ EOF
                 file)
                     case "$original_sha" in *[!a-f0-9]*) return 1;; esac
                     [ "${#original_sha}" = 64 ] || return 1
-                    case "$orig_uid:$orig_gid:$orig_mode" in *[!0-9:]*|:*|*:) return 1;; esac
+                    case "$F5:$F6:$F7" in *[!0-9:]*|:*|*:|*::*) return 1;; esac
                     case "$orig_label" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac
                     STOCK_PATH=$RECOVERY/originals$target
                     plain "$STOCK_PATH" && [ -f "$STOCK_PATH" ] && [ ! -L "$STOCK_PATH" ] || return 1
-                    STOCK_HASH=$("$HELPER" sha256 "$STOCK_PATH") || return 1
-                    [ "$STOCK_HASH" = "$original_sha" ] || return 1
-                    STOCK_META="$orig_uid|$orig_gid|$orig_mode"; STOCK_LABEL=$orig_label
+                    fact "$STOCK_PATH" && [ "$FACT_HASH" = "$original_sha" ] || return 1
+                    STOCK_HASH=$original_sha; STOCK_META=$orig_meta; STOCK_LABEL=$orig_label
                     ;;
                 absent)
-                    [ "$original_sha:$orig_uid:$orig_gid:$orig_mode:$orig_label" = '-:-:-:-:-' ] || return 1
+                    [ "$original_sha:$orig_meta:$orig_label" = '-:-|-|-:-' ] || return 1
                     STOCK_KIND=absent
                     ;;
                 *) return 1;;
             esac
             if [ -e "$ROOT$target" ]; then
                 [ -f "$ROOT$target" ] && [ ! -L "$ROOT$target" ] || return 1
-                current=$(digest "$ROOT$target") && current_meta=$(metadata "$ROOT$target") && current_label=$(selabel "$ROOT$target") || return 1
+                fact "$ROOT$target" || return 1
                 case "$old_kind" in
                     file)
-                        if [ "$current" = "$original_sha" ]; then
-                            [ "$current_meta" = "$STOCK_META" ] && [ "$current_label" = "$STOCK_LABEL" ] || return 1
-                        elif [ "$current" = "$applied_sha" ] || { [ "$version" = 2 ] && [ "$prior_sha" != - ] && [ "$current" = "$prior_sha" ]; }; then
-                            [ "$current_meta" = "$applied_uid|$applied_gid|$applied_mode" ] && [ "$current_label" = "$applied_label" ] || return 1
+                        if [ "$FACT_HASH" = "$original_sha" ]; then
+                            [ "$FACT_META" = "$STOCK_META" ] && [ "$FACT_LABEL" = "$STOCK_LABEL" ] || return 1
+                        elif [ "$FACT_HASH" = "$applied_sha" ] || { [ "$version" = 2 ] && [ "$prior_sha" != - ] && [ "$FACT_HASH" = "$prior_sha" ]; }; then
+                            [ "$FACT_META" = "$applied_meta" ] && [ "$FACT_LABEL" = "$applied_label" ] || return 1
                         else return 1; fi
                         ;;
                     absent)
-                        [ "$current" = "$applied_sha" ] && [ "$current_meta" = "$applied_uid|$applied_gid|$applied_mode" ] && [ "$current_label" = "$applied_label" ] || return 1
+                        [ "$FACT_HASH" = "$applied_sha" ] && [ "$FACT_META" = "$applied_meta" ] && [ "$FACT_LABEL" = "$applied_label" ] || return 1
                         ;;
                 esac
             elif [ "$old_kind" = file ]; then return 1; fi
@@ -153,57 +203,106 @@ EOF
         fi
     fi
     plain "$ROOT$target" && [ -f "$ROOT$target" ] && [ ! -L "$ROOT$target" ] || return 1
-    STOCK_HASH=$(digest "$ROOT$target") && STOCK_META=$(metadata "$ROOT$target") && STOCK_LABEL=$(selabel "$ROOT$target") || return 1
-    return 0
+    fact "$ROOT$target" || return 1
+    STOCK_HASH=$FACT_HASH; STOCK_META=$FACT_META; STOCK_LABEL=$FACT_LABEL
+}
+# Each target's stock origin is resolved once per run and then reused.
+load_stock_origin() {
+    local known
+    key "$1"; eval "known=\${ORIGIN_$KEY-}"
+    if [ -z "$known" ]; then
+        resolve_origin "$1" || return 1
+        key "$1"; eval "ORIGIN_$KEY=\"\$STOCK_KIND|\$STOCK_PATH|\$STOCK_HASH|\$STOCK_META|\$STOCK_LABEL\""
+        return 0
+    fi
+    split_row "$known" || return 1
+    STOCK_KIND=$F1; STOCK_PATH=$F2; STOCK_HASH=$F3; STOCK_META="$F4|$F5|$F6"; STOCK_LABEL=$F7
+    [ "$STOCK_KIND" = file ] || STOCK_META=
+}
+# Fetch every candidate input in one helper run. Purely an optimisation:
+# anything it cannot read is looked up (and refused) individually later.
+prefetch_inputs() {
+    local list='' p f
+    for p in /system/app/Iap2ServerApp.odex /system/app/HKMC_DiPO.odex /system/app/HKMC_GPM.odex \
+             /system/app/HKMC_WifiSettings.odex /system/lib/libCarPlayAudio.so /system/build.prop \
+             /system/etc/qb_runtime.sh /system/etc/featurexml.cfg "$ROOT"/system/etc/permissions/*.xml; do
+        case "$p" in "$ROOT"/*) f=$p; p=${p#"$ROOT"};; *) f=$ROOT$p;; esac
+        safe "$f" && [ -f "$f" ] && [ ! -L "$f" ] && list="$list $f"
+        f=$RECOVERY/originals$p
+        [ "$UPDATE_MODE" = 1 ] && safe "$f" && [ -f "$f" ] && [ ! -L "$f" ] && list="$list $f"
+    done
+    set -f; set -- $list; set +f
+    facts "$@" || :
 }
 capture_origin() {
-    local target=$1 origin="$ROOT$WORK/stock-origins/${1#/}" hash meta label uid gid mode
+    local target=$1 origin="$ROOT$WORK/stock-origins/${1#/}" seen uid gid mode
     [ "$ORIGIN_MODE" = on ] || return 0
     load_stock_origin "$target" || return $?
     [ "$STOCK_KIND" = file ] || return 0
-    hash=$STOCK_HASH; meta=$STOCK_META; label=$STOCK_LABEL
-    find_row "$ROOT$WORK/stock-origins/index.tsv" "$target" || return 1
-    if [ -n "$FOUND_ROW" ]; then
-        local existing etarget ehash euid egid emode elabel eextra
-        existing=$FOUND_ROW
-        IFS='|' read -r etarget ehash euid egid emode elabel eextra <<EOF
-$existing
-EOF
-        [ "$etarget" = "$target" ] && [ -z "$eextra" ] &&
-            [ "$hash" = "$ehash" ] && [ "$meta" = "$euid|$egid|$emode" ] && [ "$label" = "$elabel" ] &&
-            [ -f "$origin" ] && [ ! -L "$origin" ] && [ "$(digest "$origin")" = "$ehash" ]
-        return $?
-    fi
-    IFS='|' read -r uid gid mode <<EOF
-$meta
-EOF
-    case "$uid:$gid:$mode" in *[!0-9:]*|:*|*:) return 1;; esac
-    case "$label" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac
+    key "$target"; eval "seen=\${CAPTURED_$KEY-}"
+    [ -z "$seen" ] || return 0
+    uid=${STOCK_META%%'|'*}; mode=${STOCK_META##*'|'}; gid=${STOCK_META#*'|'}; gid=${gid%'|'*}
+    case "$uid:$gid:$mode" in *[!0-9:]*|:*|*:|*::*) return 1;; esac
+    case "$STOCK_LABEL" in ''|*[!A-Za-z0-9_:.,+-]*) return 1;; esac
     mkdir -p "${origin%/*}" || return 1
-    plain "$origin" || return 1
+    plain "$origin" && [ ! -e "$origin" ] && [ ! -L "$origin" ] || return 1
     cp "$STOCK_PATH" "$origin" || return 1
-    [ "$(digest "$origin")" = "$hash" ] || return 1
-    echo "$target|$hash|$uid|$gid|$mode|$label" >> "$ROOT$WORK/stock-origins/index.tsv"
+    # The copy is verified with every other origin in verify_origins.
+    echo "$target|$STOCK_HASH|$uid|$gid|$mode|$STOCK_LABEL" >> "$ROOT$WORK/stock-origins/index.tsv" || return 1
+    key "$target"; eval "CAPTURED_$KEY=1"
 }
+verify_origins() {
+    local target hash rest list=''
+    [ "$ORIGIN_MODE" = on ] || return 0
+    while IFS='|' read -r target hash rest; do list="$list $ROOT$WORK/stock-origins$target"; done < "$ROOT$WORK/stock-origins/index.tsv"
+    set -f; set -- $list; set +f
+    facts "$@" || return 1
+    while IFS='|' read -r target hash rest; do
+        fact "$ROOT$WORK/stock-origins$target" && [ "$FACT_HASH" = "$hash" ] || return 1
+    done < "$ROOT$WORK/stock-origins/index.tsv"
+}
+# match_meta SOURCE COPY [META]: the copy must end with META (default: the
+# source's). Copies made with cp -p usually already match, so the check is
+# queued and settled for all queued files at once by settle_meta.
+META_QUEUE=
 match_meta() {
-    local meta uid gid mode
+    local meta
     if [ "$#" -gt 2 ]; then meta=$3; else meta=$(metadata "$1") || return 1; fi
-    IFS='|' read -r uid gid mode <<EOF
-$meta
-EOF
-    case "$uid:$gid:$mode" in *[!0-9:]*|:*|*:) return 1;; esac
-    "$HELPER" setmeta "$2" "$uid" "$gid" "$mode" && [ "$(metadata "$2")" = "$meta" ]
+    case "$meta" in *[!0-9\|]*|\|*|*\||*\|\|*) return 1;; esac
+    print -r -- "$2|$meta" >> "$ROOT$WORK/meta-queue" || return 1
+}
+settle_meta() {
+    local path uid gid mode list='' fix='' recheck=''
+    [ -f "$ROOT$WORK/meta-queue" ] || return 0
+    while IFS='|' read -r path uid gid mode; do list="$list $path"; done < "$ROOT$WORK/meta-queue"
+    set -f; set -- $list; set +f
+    facts "$@" || return 1
+    while IFS='|' read -r path uid gid mode; do
+        fact "$path" || return 1
+        [ "$FACT_META" = "$uid|$gid|$mode" ] && continue
+        fix="$fix $path $uid $gid $mode"; recheck="$recheck $path"
+    done < "$ROOT$WORK/meta-queue"
+    if [ -n "$fix" ]; then
+        set -f; set -- $fix; set +f
+        "$HELPER" setmeta "$@" || return 1
+        set -f; set -- $recheck; set +f
+        facts "$@" || return 1
+        while IFS='|' read -r path uid gid mode; do
+            fact "$path" && [ "$FACT_META" = "$uid|$gid|$mode" ] || return 1
+        done < "$ROOT$WORK/meta-queue"
+    fi
+    rm -f "$ROOT$WORK/meta-queue"
 }
 row() {
     local feature=$1 source=$2 target=$3 kind=${4:-static} hash meta
-    hash=$(digest "$ROOT$source") || return 1
-    meta=$(metadata "$ROOT$target") || return 1
+    fresh "$ROOT$source" || return 1; hash=$FACT_HASH
+    fact "$ROOT$target" || return 1; meta=$FACT_META
     if [ "$kind" = static ]; then
         capture_origin "$target" || return 1
         if [ "$ORIGIN_MODE" = on ]; then
             load_stock_origin "$target" || return 1
-            digest "$STOCK_PATH" > "$ROOT$source.stock" || return 1
-        else digest "$ROOT$target" > "$ROOT$source.stock" || return 1; fi
+            print -r -- "$STOCK_HASH" > "$ROOT$source.stock" || return 1
+        else fact "$ROOT$target" && print -r -- "$FACT_HASH" > "$ROOT$source.stock" || return 1; fi
     fi
     echo "$feature|$source|$target|$hash|$meta|$kind" >> "$MANIFEST"
 }
@@ -212,9 +311,10 @@ patch() {
     if ! plain "$ROOT$target" || [ ! -f "$ROOT$target" ]; then status "$feature" skipped missing-stock; return 0; fi
     base=$ROOT$target
     if [ "$ORIGIN_MODE" = on ]; then load_stock_origin "$target" || fail 'cannot validate stock origin'; [ "$STOCK_KIND" = file ] || fail 'structural target has no stock file origin'; base=$STOCK_PATH; fi
-    original_hash=$(digest "$base") || fail 'cannot identify stock'
+    fact "$base" || fail 'cannot identify stock'
+    original_hash=$FACT_HASH
     if "$HELPER" "$feature" "$base" "$ROOT$source"; then
-        plain "$ROOT$source" && [ -f "$ROOT$source" ] && [ "$(digest "$base")" = "$original_hash" ] || fail 'stock changed or unsafe patch output'
+        plain "$ROOT$source" && [ -f "$ROOT$source" ] && fresh "$base" && [ "$FACT_HASH" = "$original_hash" ] || fail 'stock changed or unsafe patch output'
         if [ "$ORIGIN_MODE" = on ]; then
             match_meta "$base" "$ROOT$source" "$STOCK_META" || fail 'patch metadata/manifest failure'
         else
@@ -228,14 +328,19 @@ patch() {
     fi
 }
 inventory() (
-    local path=$1 file name hash meta
+    local path=$1 file name list='' names=''
     for file in "$path"/* "$path"/.[!.]* "$path"/..?*; do
         [ -e "$file" ] || { [ ! -L "$file" ] || exit 1; continue; }
         name=${file##*/}
         case "$name" in .*) exit 1;; *.xml) :;; *) exit 1;; esac
         safe "$name" && plain "$file" && [ -f "$file" ] || exit 1
-        hash=$(digest "$file") && meta=$(metadata "$file") || exit 1
-        echo "$name|$hash|$meta" || exit 1
+        list="$list $file"
+    done
+    set -f; set -- $list; set +f
+    facts "$@" || exit 1
+    for file in "$@"; do
+        fact "$file" || exit 1
+        echo "${file##*/}|$FACT_HASH|$FACT_META" || exit 1
     done
 )
 stock_inventory() (
@@ -248,8 +353,9 @@ stock_inventory() (
         print -r -- "$name|$STOCK_HASH|$STOCK_META" || exit 1
     done
 )
+same_bytes() { local h; facts "$1" "$2" && fact "$1" && h=$FACT_HASH && fact "$2" && [ "$FACT_HASH" = "$h" ]; }
 projection() {
-    local dir=$ROOT/system/etc/permissions source=$WORK/files/permissions file name hash meta fx target
+    local dir=$ROOT/system/etc/permissions source=$WORK/files/permissions file name hash meta fx target uid gid mode
     if ! plain "$dir" || [ ! -d "$dir" ]; then status projection skipped missing-permissions; return; fi
     stock_inventory /system/etc/permissions > "$ROOT$source.stock-inventory" || { status projection skipped unsupported-permissions-tree; return; }
     [ -s "$ROOT$source.stock-inventory" ] || { status projection skipped empty-permissions-tree; return; }
@@ -263,20 +369,24 @@ projection() {
         cp -p "$STOCK_PATH" "$ROOT$source/$name" || fail 'permissions copy failed'
         match_meta "$STOCK_PATH" "$ROOT$source/$name" "$STOCK_META" || fail 'permissions metadata failed'
     done
-    stock_inventory /system/etc/permissions > "$ROOT$WORK/stock-recheck" || fail 'stock permissions changed'
-    [ "$(digest "$ROOT$WORK/stock-recheck")" = "$(digest "$ROOT$source.stock-inventory")" ] || fail 'stock permissions changed'
+    settle_meta || fail 'permissions metadata failed'
+    # persistent-migrate recomputes the stock and copy inventories against the
+    # manifest digest before it touches /system, so stock is not re-read here.
     inventory "$ROOT$source" > "$ROOT$WORK/copy-recheck" || fail 'permissions copy changed'
-    [ "$(digest "$ROOT$WORK/copy-recheck")" = "$(digest "$ROOT$source.stock-inventory")" ] || fail 'permissions copy identity differs'
+    same_bytes "$ROOT$WORK/copy-recheck" "$ROOT$source.stock-inventory" || fail 'permissions copy identity differs'
     for name in com.hkmc.software.connectivity.carplay_wireless.xml com.hkmc.software.connectivity.androidauto_wireless.xml com.hkmc.software.wifihotspot.xml; do
         if [ ! -e "$ROOT$source/$name" ]; then
             plain "$BASE/permissions/$name" && [ -f "$BASE/permissions/$name" ] || fail 'unsafe authored declaration'
             cp "$BASE/permissions/$name" "$ROOT$source/$name" && "$HELPER" setmeta "$ROOT$source/$name" 0 0 644 || fail 'feature declaration failed'
         fi
     done
-    match_meta "$dir" "$ROOT$source" || fail 'permissions directory metadata failed'
+    meta=$(metadata "$dir") || fail 'permissions directory metadata failed'
+    uid=${meta%%'|'*}; mode=${meta##*'|'}; gid=${meta#*'|'}; gid=${gid%'|'*}
+    case "$uid:$gid:$mode" in *[!0-9:]*|:*|*:|*::*) fail 'permissions directory metadata failed';; esac
+    "$HELPER" setmeta "$ROOT$source" "$uid" "$gid" "$mode" && [ "$(metadata "$ROOT$source")" = "$meta" ] || fail 'permissions directory metadata failed'
     inventory "$ROOT$source" > "$ROOT$source.inventory" || fail 'permissions inventory failed'
     cat "$ROOT$source.inventory" "$ROOT$source.stock-inventory" > "$ROOT$WORK/permissions.digest" || fail 'permissions digest failed'
-    hash=$(digest "$ROOT$WORK/permissions.digest") && meta=$(metadata "$dir") || fail 'permissions identity failed'
+    hash=$(digest "$ROOT$WORK/permissions.digest") || fail 'permissions identity failed'
     # The stock PhoneProjection application owns its persistent UI selection.
     # This candidate never writes persist.ium.support.
     echo "projection|$source|/system/etc/permissions|$hash|$meta|directory" >> "$MANIFEST" || fail 'manifest failed'
@@ -416,6 +526,7 @@ add_boot_guard() {
     match_meta "$STOCK_PATH" "$ROOT$source" "$STOCK_META" && row bootguard "$source" "$target" || fail 'boot guard staging failed'
     status bootguard prepared prezygote-qb-runtime
 }
+prefetch_inputs
 for feature in "$@"; do
     case "$feature" in
     bt|route) patch "$feature" /system/app/Iap2ServerApp.odex;;
@@ -427,18 +538,23 @@ for feature in "$@"; do
     esac
 done
 if [ "$ORIGIN_MODE" = on ]; then
+    # The value is a shell prefix (WrapperInit runs "VALUE /system/bin/app_process
+    # ..." through sh -c). When the package was removed while these properties
+    # remain in build.prop, the app still starts on its stock command.
     wrapper_properties=0
     if has_feature dipo; then
-        add_wrapper_property wrap.com.daudio.app.dipo '/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh'
+        add_wrapper_property wrap.com.daudio.app.dipo 'W=/data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
         wrapper_properties=1
     fi
     if has_feature gpm; then
-        add_wrapper_property wrap.com.google.android.project '/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/wrap-gpm.sh'
+        add_wrapper_property wrap.com.google.android.project 'W=/data/nemesis/apps/gen5w.kr.portable/wrap-gpm.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
         wrapper_properties=1
     fi
     [ "$wrapper_properties" = 0 ] || row runtime "$WORK/files/build.prop" /system/build.prop || fail 'wrapper property manifest failure'
     [ "$wrapper_properties" = 0 ] || add_boot_guard
 fi
+settle_meta || fail 'staged metadata could not be applied'
+verify_origins || fail 'stock origin copy differs'
 echo 'carplay-relay|not-active|requires-explicit-runtime-hooks' >> "$REPORT"
 sync
 cat "$REPORT"

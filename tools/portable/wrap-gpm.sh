@@ -1,12 +1,16 @@
 #!/system/bin/sh
+# Never fail the app start: any problem, or hooks switched off (marker written
+# whenever automatic operation is disabled), runs the stock command unchanged.
 BASE=${0%/*}
+[ "$#" -gt 0 ] || exit 1
+[ ! -e /data/nemesis/gen5w-hooks-off ] || exec "$@"
 # Validate before sourcing the authored common wrapper.
-case "$BASE" in /data/*) :;; *) exit 1;; esac
-case "$BASE" in *[!a-zA-Z0-9_./-]*|*/../*|*/./*|*/..|*/.|*//*) exit 1;; esac
+case "$BASE" in /data/*) :;; *) exec "$@";; esac
+case "$BASE" in *[!a-zA-Z0-9_./-]*|*/../*|*/./*|*/..|*/.|*//*) exec "$@";; esac
 path=$BASE/wrap-common.sh
-[ -f "$path" ] || exit 1
+[ -f "$path" ] || exec "$@"
 while [ "$path" != / ]; do
-    [ ! -L "$path" ] || exit 1
+    [ ! -L "$path" ] || exec "$@"
     path=${path%/*}; [ -n "$path" ] || path=/
 done
 GEN5W_PACKAGE=com.google.android.projection.sink

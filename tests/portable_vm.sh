@@ -12,7 +12,7 @@ root=$(realpath "$PORTABLE_VM_ROOT")
 [ -d "$root/system" ] && [ -x "$PORTABLE_VM_RUNNER" ] || exit 1
 mount -t proc proc "$root/proc"
 mkdir "$root/tmp/portable-vm.lock" || { echo 'another private VM test is active' >&2; exit 1; }
-trap 'rmdir "$root/tmp/portable-vm.lock"' EXIT
+trap 'rc=$?; rmdir "$root/tmp/portable-vm.lock"; exit $rc' EXIT
 work=$(mktemp -d "$root/tmp/portable-vm.XXXXXX")
 guest=${work#"$root"}
 build=${PORTABLE_VM_BUILD:-$PWD/.build/portable/dalvik}
@@ -37,6 +37,13 @@ after=$(snapshot)
 [ "$before" = "$after" ] || { echo 'hooked VM changed /data/dalvik-cache:' >&2; diff <(echo "$before") <(echo "$after") >&2; exit 1; }
 ls "$work/application/app_gen5w-engine/" | grep -q . || { echo 'engine optimized DEX not app-private' >&2; exit 1; }
 echo 'PASS hooked VM leaves every /data/dalvik-cache file untouched; engine DEX app-private (dexopt runs with -Xdexopt:none here)'
+# -Xdexopt:none hides the cache rewrite itself, so check its cause directly: the
+# hooked VM's live bootclasspath must equal BOOTCLASSPATH, also after opening a
+# shared framework jar (2026-11-19 vehicle: a stale hook build made it 17).
+DVM_PRELOAD=$guest/libgen5whook.so DVM_ENV="GEN5W_ENGINE_JAR=$guest/engine.jar GEN5W_ENGINE_CACHE=$guest/application/app_gen5w-engine GEN5W_HOOK_LIBRARY=$guest/libgen5whook.so GEN5W_ADAPTER_JAR=$guest/bootstrap-fixture.jar GEN5W_PACKAGE=fixture" \
+    run BootPathVmTest /system/framework/com.tcc.iap2.jar com.tcc.iap2.IIap2Service > "$work/bootpath.out" 2>&1 || :
+grep -q '^PASS bootclasspath unchanged' "$work/bootpath.out" || { echo 'hooked VM changed the bootclasspath:' >&2; cat "$work/bootpath.out" >&2; exit 1; }
+echo 'PASS hooked VM keeps the stock bootclasspath and opens a shared framework jar'
 mkdir -p "$root/data/data/com.daudio.app.dipo/files"
 marker=$root/data/data/com.daudio.app.dipo/files/gen5w-portable-probe
 [ ! -L "$marker" ] || exit 1

@@ -3,13 +3,17 @@ set -eu
 cd "$(dirname "$0")/.."
 command -v mksh >/dev/null 2>&1 || { echo 'mksh not found'; exit 78; }
 t=$(mktemp -d)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 pkg=$t/package; root=$t/root; actions=$t/actions
 mkdir -p "$pkg" "$root/data/nemesis" "$root/data/local/gen5w-portable/boot" "$actions"
 cp tools/portable/package-post.sh "$pkg/package-post.sh"
 cp tools/portable/bootguard.sh "$pkg/bootguard.sh"
 cp tools/portable/recovery-usb/restore.sh "$pkg/bootguard-restore.sh"
-mkdir -p "$pkg/bin"
+mkdir -p "$pkg/bin" "$pkg/bluelink"
+cp packages/bluelink-quiet/scripts/*.sh "$pkg/bluelink/"
+mkdir -p "$root/data/data/com.hkmc.telematics.service/shared_prefs"
+printf '%s\n' "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>" '<map>' '    <long name="extra_remind_time" value="1700000000000" />' '</map>' \
+    > "$root/data/data/com.hkmc.telematics.service/shared_prefs/shard_service_activation_start_setting.xml"
 printf 'fixture helper\n' > "$pkg/bin/dex-patch"
 touch "$root/data/nemesis/gen5wkr.ui-wireless-off"
 cat > "$t/adapter" <<'EOF'
@@ -39,6 +43,10 @@ persistent-start.sh:verify)
 boot.sh:persistent-commit)
     echo persistent-commit >> "$actions/log"
     printf '1\n' > "$root/data/local/gen5w-portable/boot/enabled";;
+post.sh:)
+    echo bluelink-save >> "$actions/log"
+    [ "$BL_TEST_DATA" = "$root/data" ] || exit 43
+    mksh "$script";;
 boot.sh:update-restore)
     echo update-restore >> "$actions/log";;
 *) echo "unexpected call: $name $*" >&2; exit 42;;
@@ -59,7 +67,8 @@ cmp "$pkg/bin/dex-patch" "$guard/bin/dex-patch"
 [ -x "$guard/guard.sh" ] && [ -x "$guard/restore.sh" ] && [ -x "$guard/bin/dex-patch" ]
 [ "$(cat "$guard/count")" = 0 ]
 [ ! -e "$guard/tripped" ]
-[ "$(cat "$actions/log")" = "$(printf 'prepare\nmigrate\nverify\npersistent-commit')" ]
+[ "$(cat "$actions/log")" = "$(printf 'prepare\nmigrate\nverify\npersistent-commit\nbluelink-save')" ]
+grep -qx '    <long name="extra_remind_time" value="1700000000000" />' "$root/data/nemesis/gen5wkr.bluelink/orig-lines"
 [ "$(cat "$root/data/local/gen5w-portable/boot/enabled")" = 1 ]
 [ -f "$root/data/nemesis/gen5wkr.debug-on" ]
 [ ! -e "$root/data/nemesis/gen5wkr.ui-wireless-off" ]

@@ -67,6 +67,7 @@ if [ "$n" -gt "$LIMIT" ]; then
     [ "$attempt" != 0 ] || log "no stable Android for $LIMIT boots; restoring stock /system files"
     if safe_dir "$STATE"; then
         [ -L "$STATE/enabled" ] || put "$STATE/enabled" 0
+        [ -L "$ROOT/data/nemesis/gen5w-hooks-off" ] || ( : > "$ROOT/data/nemesis/gen5w-hooks-off" ) 2>/dev/null
         [ -L "$STATE/reason" ] || put "$STATE/reason" bootguard-restored
         sync
     fi

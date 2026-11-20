@@ -10,6 +10,28 @@ import os
 
 ROOT = Path(__file__).resolve().parents[3]
 
+# Every input of the Dalvik artifacts. candidate.py refuses dalvik inputs whose
+# recorded digest differs: the 2026-11-19 vehicle run shipped a stale
+# libgen5whook.so (pre-fix -Xbootclasspath/a) for six releases.
+SOURCE_ROOTS = ("tools/portable/dalvik/hook.c", "tools/portable/dalvik/build.py", "tools/portable/dalvik/src",
+                "tests/portable_dalvik", "tools/portable/adapters/src", "tools/v039-relay/dipo-src",
+                "tools/v039-relay/gpm-src", "shared/src", "probe/stubs", "tools/v039-relay/dipo-stubs")
+
+def source_digest(root=ROOT):
+    digest = hashlib.sha256()
+    for relative in SOURCE_ROOTS:
+        base = root / relative
+        if base.is_file():
+            files = [base]
+        elif base.is_dir():
+            files = sorted(p for p in base.rglob("*") if p.is_file() and p.suffix in (".c", ".h", ".java", ".py"))
+        else:
+            raise FileNotFoundError(base)
+        for path in files:
+            digest.update(path.relative_to(root).as_posix().encode() + bytes(1))
+            digest.update(path.read_bytes().replace(bytes([13, 10]), bytes([10])) + bytes(1))
+    return digest.hexdigest()
+
 def build(java_home, ndk, d8, stock_system, output, android_jar=None):
     java_home, ndk, d8, stock_system, output = map(Path, (java_home, ndk, d8, stock_system, output))
     output.mkdir(parents=True, exist_ok=True)
@@ -54,6 +76,9 @@ def build(java_home, ndk, d8, stock_system, output, android_jar=None):
             "-d", str(fixture), str(ROOT / "tests/portable_dalvik/fixture/kr/gen5w/portable/ProjectionAdapters.java")], check=True)
         dex_jar("bootstrap-fixture.jar", list(fixture.rglob("*.class")))
     (output / "abi.sha256").write_text(hashlib.sha256((stock_system / "lib/libdvm.so").read_bytes()).hexdigest() + "\n", encoding="ascii", newline="\n")
+    if b"-Xbootclasspath" in (output / "libgen5whook.so").read_bytes():
+        raise SystemExit("libgen5whook.so must never change the bootclasspath")
+    (output / "source.sha256").write_text(source_digest() + "\n", encoding="ascii", newline="\n")
     (output / "engine.sha256").write_text(hashlib.sha256((output / "engine.jar").read_bytes()).hexdigest() + "\n", encoding="ascii", newline="\n")
     return output
 

@@ -17,6 +17,12 @@ class CandidateTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def load(self, relative):
+        spec = importlib.util.spec_from_file_location('portable_' + Path(relative).stem, ROOT / relative)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def test_bundle_requires_all_inputs_before_creating_output(self):
         module = self.module()
         with tempfile.TemporaryDirectory() as temp:
@@ -86,6 +92,20 @@ class CandidateTests(unittest.TestCase):
             for name in ('engine.jar', 'adapter.jar', 'libgen5whook.so', 'abi.sha256', 'hook-vm-test.jar'):
                 (inputs / 'dalvik' / name).write_bytes(b'authored-fixture')
             output = base / 'candidate'
+            # Dalvik inputs must carry the digest of the current sources (2026-11-19:
+            # a stale pre-fix hook library shipped in six releases).
+            with self.assertRaises(ValueError):
+                module.assemble(output, inputs, runtime=True)
+            (inputs / 'dalvik/source.sha256').write_text('0' * 64 + '\n', encoding='ascii')
+            with self.assertRaises(ValueError):
+                module.assemble(output, inputs, runtime=True)
+            build = self.load('tools/portable/dalvik/build.py')
+            (inputs / 'dalvik/source.sha256').write_text(build.source_digest() + '\n', encoding='ascii')
+            (inputs / 'dalvik/libgen5whook.so').write_bytes(b'fixture -Xbootclasspath/a: fixture')
+            with self.assertRaises(ValueError):
+                module.assemble(output, inputs, runtime=True)
+            self.assertFalse(output.exists())
+            (inputs / 'dalvik/libgen5whook.so').write_bytes(b'authored-fixture')
             module.assemble(output, inputs, runtime=True)
             self.assertFalse((output / 'enabled').exists())
             self.assertTrue((output / 'app/gen5w-core.apk').read_bytes() == b'portable-core-no-autostart', 'wrong core APK variant')

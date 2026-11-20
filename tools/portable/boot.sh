@@ -111,7 +111,16 @@ op() {
     *) return 1;;
     esac
 }
-put() { print -r -- "$2" > "$STATE/$1.new" && mv "$STATE/$1.new" "$STATE/$1"; }
+# App wrappers cannot read $STATE (root 0700): a world-visible marker mirrors
+# enabled!=1 so that every disable also returns DiPO/GPM to their stock start.
+hooks_marker() {
+    local marker=$ROOT/data/nemesis/gen5w-hooks-off
+    if [ "$1" = 1 ]; then rm -f "$marker" 2>/dev/null
+    elif [ ! -L "$marker" ] && [ -d "$ROOT/data/nemesis" ]; then ( : > "$marker" && chmod 644 "$marker" ) 2>/dev/null
+    fi
+    return 0
+}
+put() { print -r -- "$2" > "$STATE/$1.new" && mv "$STATE/$1.new" "$STATE/$1" || return 1; [ "$1" != enabled ] || hooks_marker "$2"; }
 enabled() { [ -f "$STATE/enabled" ] && [ "$(cat "$STATE/enabled")" = 1 ]; }
 backoff() { put enabled 0; put reason "$1"; sync; echo "boot: disabled: $1" >&2; }
 # Durable, monotonic stage evidence. No wall-clock assumption after RTC changes.

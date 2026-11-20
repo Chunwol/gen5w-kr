@@ -13,6 +13,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
+TIMER_SCRIPTS = ('common.sh', 'errors.sh', 'install-hold.sh', 'timer.sh')
+BLUELINK_SCRIPTS = ('common.sh', 'errors.sh', 'install-hold.sh', 'quiet.sh', 'post.sh', 'preun.sh')
 
 
 def git_output(*arguments: str) -> str:
@@ -37,6 +39,22 @@ def no_symlink(path: Path) -> None:
     for part in (path, *path.parents):
         if part.is_symlink():
             raise ValueError('symlink path component is not permitted: ' + str(part))
+
+
+def check_dalvik_inputs(directory: Path) -> None:
+    """Dalvik artifacts must be built from this exact source (build.py records
+    the digest) and the hook must never touch the bootclasspath."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('gen5w_dalvik_build', HERE / 'dalvik' / 'build.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    recorded = directory / 'source.sha256'
+    if not recorded.is_file():
+        raise ValueError('dalvik inputs carry no source.sha256; rebuild them with tools/portable/dalvik/build.py')
+    if recorded.read_text(encoding='ascii').strip() != module.source_digest():
+        raise ValueError('dalvik inputs were built from different sources; rebuild them with tools/portable/dalvik/build.py')
+    if b'-Xbootclasspath' in (directory / 'libgen5whook.so').read_bytes():
+        raise ValueError('libgen5whook.so changes the bootclasspath (shared dex cache rewrite)')
 
 
 def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
@@ -70,6 +88,11 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
         for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'state-reset.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
             files[name] = HERE / name
         files['bootguard-restore.sh'] = HERE / 'recovery-usb/restore.sh'
+        # The stock-warning timer and Bluelink reminder packages, unchanged, as services.
+        for name in TIMER_SCRIPTS:
+            files['timer/' + name] = ROOT / 'packages/consent-timer/scripts' / name
+        for name in BLUELINK_SCRIPTS:
+            files['bluelink/' + name] = ROOT / 'packages/bluelink-quiet/scripts' / name
         for name, source in (('bridge.dex', inputs / 'apps/bridge.dex'),
                              ('wireless-host.apk', inputs / 'apps/wireless-host.apk'),
                              ('gen5w-core.apk', inputs / 'apps/gen5w-core.apk')):
@@ -83,6 +106,9 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
         helper = ROOT / 'packages/audio-format/bin' / ('audio-patch' + suffix)
         if helper.is_file():
             files['bin/audio-patch' + suffix] = helper
+            if runtime and not suffix:
+                # timer/common.sh verifies SystemUI.odex with $PKG/bin/sha256-check.
+                files['bin/sha256-check'] = helper
             files['audio/recipe' + suffix + '.sh'] = ROOT / 'packages/audio-format/scripts' / ('recipe' + suffix + '.sh')
     regional_audio = inputs / 'audio/audio-region-patch'
     if regional_audio.is_file():
@@ -93,6 +119,8 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
         no_symlink(source.absolute())
         if not source.is_file():
             raise FileNotFoundError(source)
+    if runtime:
+        check_dalvik_inputs(inputs / 'dalvik')
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix='.portable-candidate-', dir=output.parent))
     try:

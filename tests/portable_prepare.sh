@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/gen5w-prepare.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/bundle/permissions" "$t/bundle/dalvik" "$t/root/system/app" "$t/root/system/etc/permissions" "$t/root/data"
 cp tools/portable/prepare.sh "$t/bundle/"
 cp tools/portable/wrap-common.sh tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh "$t/bundle/"
@@ -16,15 +16,23 @@ cat > "$t/helper" <<'PY'
 #!/usr/bin/python3
 import hashlib,os,stat,sys
 cmd,path=sys.argv[1:3]
+def lab(p): return 'u:object_r:system_app_file:s0' if '/system/app/' in p else 'u:object_r:system_file:s0'
 if cmd=='sha256': print(hashlib.sha256(open(path,'rb').read()).hexdigest())
 elif cmd=='metadata':
  s=os.stat(path); print(f'{s.st_uid}|{s.st_gid}|{stat.S_IMODE(s.st_mode):o}')
-elif cmd=='label': print('u:object_r:system_app_file:s0' if '/system/app/' in path else 'u:object_r:system_file:s0')
+elif cmd=='label': print(lab(path))
+elif cmd=='ident':
+ for p in sys.argv[2:]:
+  s=os.stat(p,follow_symlinks=False)
+  if not stat.S_ISREG(s.st_mode): sys.exit(1)
+  print(f'{hashlib.sha256(open(p,"rb").read()).hexdigest()}|{s.st_uid}|{s.st_gid}|{stat.S_IMODE(s.st_mode):o}|{lab(p)}')
 elif cmd=='setmeta':
- try: os.chown(path,int(sys.argv[3]),int(sys.argv[4]))
- except PermissionError:
-  if (int(sys.argv[3]),int(sys.argv[4])) not in ((os.getuid(),os.getgid()),(0,0)): raise
- os.chmod(path,int(sys.argv[5],8))
+ a=sys.argv[2:]
+ for k in range(0,len(a),4):
+  try: os.chown(a[k],int(a[k+1]),int(a[k+2]))
+  except PermissionError:
+   if (int(a[k+1]),int(a[k+2])) not in ((os.getuid(),os.getgid()),(0,0)): raise
+  os.chmod(a[k],int(a[k+3],8))
 else:
  data=open(path,'rb').read()
  if data not in (b'supported',b'stock-dipo-bytes\x00\xff'):sys.exit(1)
@@ -110,8 +118,8 @@ awk -F'|' -v uid="$(id -u)" -v gid="$(id -g)" '$1=="projection" && $3=="/system/
 # for features whose structural patch actually succeeded. Preserve the exact
 # original bytes and metadata, including unrelated lines and duplicate owned
 # entries, in the immutable stock-origin snapshot.
-DIPO_WRAP='/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh'
-GPM_WRAP='/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/wrap-gpm.sh'
+DIPO_WRAP='W=/data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
+GPM_WRAP='W=/data/nemesis/apps/gen5w.kr.portable/wrap-gpm.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
 cat > "$t/root/system/build.prop" <<EOF
 # keep this comment
 persist.ium.support=stock

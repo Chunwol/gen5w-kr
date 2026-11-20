@@ -26,7 +26,7 @@ def dex(data, fixtures=False):
     for i in range(count):
         name = types[struct.unpack_from('<I', data, off+i*32)[0]]
         assert name.startswith('Lkr/gen5w/') or (fixtures and re.fullmatch(
-            r'L(?:Hook|Loader|Bootstrap|AdapterDiscovery)VmTest(?:\$[^/;]+)?;', name)), 'foreign class: '+name
+            r'L(?:Hook|Loader|Bootstrap|AdapterDiscovery|BootPath)VmTest(?:\$[^/;]+)?;', name)), 'foreign class: '+name
 
 
 def elf(data, shared=False):
@@ -75,7 +75,10 @@ def audit(files):
                    'package-pre', 'package-post', 'package-preun', 'service'))
     allowed.update('permissions/'+n+'.xml' for n in ('com.hkmc.software.connectivity.carplay_wireless',
                    'com.hkmc.software.connectivity.androidauto_wireless', 'com.hkmc.software.wifihotspot'))
-    required = allowed - {'bin/audio-patch', 'bin/audio-patch-v035', 'bin/audio-region-patch', 'audio/recipe.sh', 'audio/recipe-v035.sh'}
+    allowed.update('timer/'+n+'.sh' for n in ('common', 'errors', 'install-hold', 'timer'))
+    allowed.update('bluelink/'+n+'.sh' for n in ('common', 'errors', 'install-hold', 'quiet', 'post', 'preun'))
+    allowed.add('bin/sha256-check')
+    required = allowed - {'bin/audio-patch', 'bin/audio-patch-v035', 'bin/audio-region-patch', 'audio/recipe.sh', 'audio/recipe-v035.sh', 'bin/sha256-check'}
     assert required <= set(files), 'missing package member: '+str(required-set(files))
     assert set(files) <= allowed, 'unexpected shipped files: '+str(set(files)-allowed)
     meta = configparser.ConfigParser(interpolation=None)
@@ -91,6 +94,9 @@ def audit(files):
     assert info['runtime_hooks'] == 'persistent-verified-start-without-zygote-restart'
     assert meta['service.2']['path'] == 'rescue-watch.sh' and meta['service.2']['mode'] == 'restart'
     assert meta['service.3']['path'] == 'debug.sh' and meta['service.3']['uid'] == 'root'
+    assert meta['service.4']['path'] == 'timer/timer.sh' and meta['service.4']['uid'] == 'root'
+    assert meta['service.5']['path'] == 'bluelink/quiet.sh' and meta['service.5']['uid'] == 'system'
+    assert files.get('bin/sha256-check', b'') == files.get('bin/audio-patch', b''), 'timer helper differs from the audio helper'
     for name, data in files.items():
         if name.endswith(('.sh', '.data', '.xml')): assert b'\r' not in data, 'CRLF: '+name
         if name.startswith('bin/') or name.endswith('.so'): elf(data, shared=name.endswith('.so'))

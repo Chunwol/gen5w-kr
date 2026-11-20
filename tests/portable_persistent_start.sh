@@ -5,15 +5,24 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/g5p-pstart.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/bin/bin" "$t/root/system/app" "$t/root/data/local/gen5w-portable/persistent/recovery/originals/system/app" "$t/root/data/local/gen5w-portable/persistent" "$t/binmock"
 cp tools/portable/persistent-start.sh "$t/bin/persistent-start.sh"
 cp .build/portable/dex-patch-host "$t/bin/bin/dex-patch.real"
 cat > "$t/bin/bin/dex-patch" <<'SH'
 #!/bin/sh
-if [ "$1" = label ]; then
-    if [ -f "$PORTABLE_TEST_LABEL_FAULT" ] && [ "${2##*/}" = HKMC_DiPO.odex ]; then echo wrong_label
+fixture_label() {
+    if [ -f "$PORTABLE_TEST_LABEL_FAULT" ] && [ "${1##*/}" = HKMC_DiPO.odex ]; then echo wrong_label
     else echo system_file; fi
+}
+if [ "$1" = label ]; then
+    fixture_label "$2"
+elif [ "$1" = ident ]; then
+    shift
+    for p in "$@"; do
+        line=$("$0.real" ident "$p") || exit 1
+        echo "${line%|*}|$(fixture_label "$p")"
+    done
 else exec "$0.real" "$@"; fi
 SH
 chmod 755 "$t/bin/bin/dex-patch"

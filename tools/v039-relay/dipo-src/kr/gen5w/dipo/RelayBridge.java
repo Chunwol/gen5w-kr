@@ -46,6 +46,8 @@ public final class RelayBridge {
     private static int pendingBytes;
     private static boolean draining;
     private static long generation;
+    /** Relay counters (diagnostics only): car->iAP2 queued/delivered/dropped, iAP2->car sent/dropped. */
+    private static long carIn, carDelivered, carDropped, iapOut, iapDropped;
 
     private RelayBridge() {}
 
@@ -144,6 +146,17 @@ public final class RelayBridge {
         try { Log.i(TAG, message); } catch (RuntimeException ignored) { }
     }
 
+    /** First frames and then every 50th, so a live session stays readable in logcat. */
+    private static void count(String kind, long n, int length, String state) {
+        if (n <= 8 || n % 50 == 0) log("path=cp5 event=" + kind + " n=" + n + " len=" + length + " " + state);
+    }
+
+    private static String state() {
+        return "present=" + present + " wireless=" + wireless + " wired=" + wired + " usb=" + usb
+                + " requested=" + requested + " connected=" + connected + " service=" + (service != null)
+                + " pending=" + PENDING.size();
+    }
+
     /** Preserve the component-4 peer identity and consume only component 5. */
     public static boolean connected(int component, String value) {
         return connected(component, value, 0);
@@ -153,6 +166,7 @@ public final class RelayBridge {
         IIap2Service target;
         CarPlayService owner;
         long token;
+        if (sequence != 0) log("path=cp5 event=iap2-connected component=" + component);
         synchronized (LOCK) {
             if (sequence != 0 && sequence != bindingSequence) return true;
         // Component 4 remains owned by the host-side adapter. The original
@@ -192,6 +206,9 @@ public final class RelayBridge {
                 // even after passing the data on; only an exception means it was lost.
                 try {
                     target.Iap2SvcTransportReadDone(frame, frame.length);
+                    long n; String st;
+                    synchronized (LOCK) { n = ++carDelivered; st = state(); }
+                    count("car-to-iap2.delivered", n, frame.length, st);
                 } catch (RemoteException failure) { abort(token, "cp5.transport", failure); return; }
                 catch (RuntimeException failure) { abort(token, "cp5.transport", failure); return; }
             }
@@ -223,6 +240,7 @@ public final class RelayBridge {
     private static boolean disconnected(int component, long sequence) {
         CarPlayService owner;
         long token;
+        if (sequence != 0) log("path=cp5 event=iap2-disconnected component=" + component);
         synchronized (LOCK) {
             if (sequence != 0 && sequence != bindingSequence) return true;
             if (component == 1) usb = false;
@@ -246,6 +264,7 @@ public final class RelayBridge {
             wireless = false;
             requested = false;
             connected = false;
+            carIn = carDelivered = carDropped = iapOut = iapDropped = 0;
             clearPending();
         }
     }
@@ -302,8 +321,14 @@ public final class RelayBridge {
         boolean requestNow = false;
         boolean overflow;
         long token;
+        long n; String st;
         synchronized (LOCK) {
-            if (!present || carPlay != owner || wired || usb) return;
+            if (!present || carPlay != owner || wired || usb) {
+                n = ++carDropped; st = state();
+                count("car-to-iap2.dropped", n, length, st);
+                return;
+            }
+            n = ++carIn;
             token = generation;
             overflow = PENDING.size() >= MAX_PENDING || length > MAX_PENDING_BYTES - pendingBytes;
             if (!requested) {
@@ -314,6 +339,8 @@ public final class RelayBridge {
             sendNow = connected && target != null;
             if (!overflow) { PENDING.addLast(Arrays.copyOf(data, length)); pendingBytes += length; }
         }
+        synchronized (LOCK) { st = state(); }
+        count("car-to-iap2.queued", n, length, st);
         if (overflow) { abort(token, "cp5.buffer.limit", null); return; }
         if (requestNow) notifySession(owner, token, HANDOVER_REQUESTED);
         if (!sendNow) return;
@@ -330,7 +357,13 @@ public final class RelayBridge {
         CarPlayService target;
         long token;
         synchronized (LOCK) {
-            if ((sequence != 0 && sequence != bindingSequence) || service == null || !present || wired || usb || !connected) return true;
+            // Notification 81 exists only for component 5, which only our handover starts.
+            // The V039 server's onStartMain runs Iap2Main (it sends the link-detect
+            // packet at once) before onSendConnected, so do not wait for connected(5).
+            if ((sequence != 0 && sequence != bindingSequence) || service == null || !present || wired || usb || !(connected || requested)) {
+                count("iap2-to-car.dropped", ++iapDropped, -1, state());
+                return true;
+            }
             target = carPlay;
             token = generation;
         }
@@ -339,14 +372,19 @@ public final class RelayBridge {
         if (group == null) return true;
         for (int i = 0; i < group.getItemCnt(); i++) {
             synchronized (LOCK) {
-                if (token != generation || !present || wired || usb || !connected || (sequence != 0 && sequence != bindingSequence)) return true;
+                if (token != generation || !present || wired || usb || !(connected || requested) || (sequence != 0 && sequence != bindingSequence)) return true;
             }
             Iap2NotiMsg.Iap2ObjItem item = group.getObjItem(i);
             if (item == null || item.getItemParamType() != Iap2NotiMsg.OBJ_BLOB) continue;
             byte[] frame = item.getItemByteArray();
             if (frame != null && frame.length > 0) {
-                try { target.iAPSendMessage(frame, frame.length); }
-                catch (RuntimeException ignored) { }
+                try {
+                    target.iAPSendMessage(frame, frame.length);
+                    long n; String st;
+                    synchronized (LOCK) { n = ++iapOut; st = state(); }
+                    count("iap2-to-car.sent", n, frame.length, st);
+                }
+                catch (RuntimeException failure) { log("path=cp5 event=iap2-to-car.failed " + failure); }
             }
         }
         return true;

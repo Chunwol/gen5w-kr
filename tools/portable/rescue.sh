@@ -41,6 +41,7 @@ op() {
     esac
 }
 print -r -- 0 > "$STATE/enabled.new" && mv "$STATE/enabled.new" "$STATE/enabled" || exit 1
+[ -L "$ROOT/data/nemesis/gen5w-hooks-off" ] || ( : > "$ROOT/data/nemesis/gen5w-hooks-off" ) 2>/dev/null
 print -r -- maintenance-recovery > "$STATE/reason.new" && mv "$STATE/reason.new" "$STATE/reason" || exit 1
 [ -f "$STATE/maintenance" ] && [ "$(cat "$STATE/maintenance")" = "$(op boot)" ] || exit 0
 # Stop any partially restarted framework before changing its active view.

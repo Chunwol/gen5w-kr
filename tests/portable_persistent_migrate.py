@@ -49,6 +49,26 @@ def adapter_main(args):
     elif cmd == "label":
         labels = json.loads((root / ".labels.json").read_text())
         print(labels.get(str(mapped(args[0])), "system_file"))
+    elif cmd == "ident":
+        labels = json.loads((root / ".labels.json").read_text())
+        for path in args:
+            target = mapped(path)
+            if target.is_symlink() or not target.is_file():
+                return 1
+            st = target.stat()
+            print(f"{hashlib.sha256(target.read_bytes()).hexdigest()}|0|0|{st.st_mode & 0o777:o}|"
+                  + labels.get(str(target), "system_file"))
+    elif cmd == "size-sum":
+        print(sum(mapped(path).stat().st_size for path in args))
+    elif cmd == "settle":
+        for k in range(0, len(args), 5):
+            path, uid, gid, mode, wanted = args[k:k + 5]
+            rc = adapter_main(["setmeta", path, uid, gid, mode])
+            if rc:
+                return rc
+            rc = adapter_main(["setlabel", path, wanted])
+            if rc:
+                return rc
     elif cmd == "setmeta":
         path, uid, gid, mode = args
         target = mapped(path)
@@ -293,9 +313,9 @@ class PersistentMigrationTest(unittest.TestCase):
         env = self.env.copy()
         env.update(dict(extra_env))
         return subprocess.run(
-            ["mksh", str(MIGRATE), "apply", "/data/verified-overlay-manifest", "/data/stock-origins"],
+            [os.environ.get("MIGRATE_SHELL","mksh"), *os.environ.get("MIGRATE_SHELL_ARGS","").split(), str(MIGRATE), "apply", "/data/verified-overlay-manifest", "/data/stock-origins"],
             env=env, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, timeout=35,
+            stderr=subprocess.STDOUT, timeout=35, errors="replace",
         )
 
     def events(self):

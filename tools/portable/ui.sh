@@ -45,6 +45,9 @@ NETDIR=$ROOT/sys/class/net
 USB_MP=/storage/usb0
 USB=$ROOT$USB_MP
 WIRELESS_OFF=$NEMDIR/gen5wkr.ui-wireless-off
+# Read by the bundled stock-warning timer and Bluelink reminder services.
+TIMER_OFF=$NEMDIR/gen5wkr.ui-timer-off
+BLUELINK_OFF=$NEMDIR/gen5wkr.ui-bluelink-off
 DEBUG_ON=$NEMDIR/gen5wkr.debug-on
 SAVED=$NEMDIR/gen5wkr.ui-portable-saved
 REMOVED=$NEMDIR/gen5wkr.ui-portable-removed
@@ -255,9 +258,9 @@ collect_status() {
         print -r -- "apguard=$apguard"
         print -r -- "wired=$wired"
         if [ -e "$WIRELESS_OFF" ]; then print -r -- "sw_wireless=off"; else print -r -- "sw_wireless=on"; fi
+        if [ -e "$TIMER_OFF" ]; then print -r -- "sw_timer=off"; else print -r -- "sw_timer=on"; fi
+        if [ -e "$BLUELINK_OFF" ]; then print -r -- "sw_bluelink=off"; else print -r -- "sw_bluelink=on"; fi
         # Not managed by the portable install: reported as unknown, never as a state.
-        print -r -- "sw_timer=unknown"
-        print -r -- "sw_bluelink=unknown"
         print -r -- "sw_adb=unknown"
         print -r -- "adb_health=unknown"
         print -r -- "adb_result=$(pair "$ADBTOK")"
@@ -396,8 +399,12 @@ handle_request() {
     if [ -n "$wireless" ] && ! restore_live && [ ! -L "$WIRELESS_OFF" ]; then
         if [ "$wireless" = off ]; then [ -f "$WIRELESS_OFF" ] || : > "$WIRELESS_OFF"; else rm -f "$WIRELESS_OFF"; fi
     fi
-    [ -z "$timer" ] || note 'UNSUPPORTED timer switch request ignored: the portable install does not manage it'
-    [ -z "$bluelink" ] || note 'UNSUPPORTED bluelink switch request ignored: the portable install does not manage it'
+    if [ -n "$timer" ] && [ ! -L "$TIMER_OFF" ]; then
+        if [ "$timer" = off ]; then [ -f "$TIMER_OFF" ] || : > "$TIMER_OFF"; else rm -f "$TIMER_OFF"; fi
+    fi
+    if [ -n "$bluelink" ] && [ ! -L "$BLUELINK_OFF" ]; then
+        if [ "$bluelink" = off ]; then [ -f "$BLUELINK_OFF" ] || : > "$BLUELINK_OFF"; else rm -f "$BLUELINK_OFF"; fi
+    fi
     if [ -n "$adb" ]; then
         local last rest
         [ -f "$ADBTOK" ] && IFS=' ' read -r last rest < "$ADBTOK"

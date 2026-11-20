@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t=$(mktemp -d /tmp/gen5w-runtime.XXXXXX)
-trap 'rm -rf "$t"' EXIT
+trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/root/data/bundle/dalvik" "$t/root/data/bundle/bin" "$t/root/system/lib" "$t/props"
 cp tools/portable/runtime.sh tools/portable/wrap-*.sh "$t/root/data/bundle/"
 for file in engine.jar adapter.jar libgen5whook.so hook-vm-test.jar; do echo authored > "$t/root/data/bundle/dalvik/$file"; done
@@ -122,9 +122,18 @@ mkdir "$t/attack"
 cp tools/portable/wrap-dipo.sh "$t/attack/"
 printf 'echo compromised > "%s"\n' "$t/compromised" > "$t/malicious"
 ln -s "$t/malicious" "$t/attack/wrap-common.sh"
-if mksh "$t/attack/wrap-dipo.sh" /system/bin/app_process >/dev/null 2>&1; then echo 'FAIL wrapper accepted unsafe source'; exit 1; fi
+# It never blocks the app: the stock command runs unchanged, without the hook.
+printf '#!/bin/sh
+echo "stock preload=${LD_PRELOAD:-none} args=$*" > "%s"
+' "$t/stock-ran" > "$t/stock"; chmod +x "$t/stock"
+mksh "$t/attack/wrap-dipo.sh" "$t/stock" --application >/dev/null 2>&1 || { echo 'FAIL wrapper did not run the stock command'; exit 1; }
 [ ! -e "$t/compromised" ]
-echo 'PASS wrapper refuses unsafe sourced path'
+[ "$(cat "$t/stock-ran")" = 'stock preload=none args=--application' ] || { echo 'FAIL stock command changed'; cat "$t/stock-ran"; exit 1; }
+# A missing package (wrapper file gone, build.prop property kept) still starts the app.
+rm -f "$t/stock-ran"
+mksh -c 'W=/data/nemesis/apps/gen5w.kr.portable-absent/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W} '"$t/stock"' --application' || { echo 'FAIL property fallback'; exit 1; }
+[ "$(cat "$t/stock-ran")" = 'stock preload=none args=--application' ] || { echo 'FAIL property fallback changed the command'; exit 1; }
+echo 'PASS wrapper refuses unsafe sourced path and falls back to the stock start'
 
 # The no-hook startup probe bypasses engine discovery and never writes persist.*.
 run enable probe
