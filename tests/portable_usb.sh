@@ -340,35 +340,10 @@ leftover() {
     printf '#!/bin/sh\necho guard-restore >> "$ACTIONS/log"\nprintf "%%s\n" "$(cat "$ACTIONS/restore-result")" > "$GEN5W_RECOVERY_USB_ROOT/GEN5W-RECOVERY-RESULT.txt"\n' > "$g/bootguard/restore.sh"
     echo '/system/bin/sh /data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh' > "$ACTIONS/wrap"
 }
-new_case; leftover; printf 'result=restored\nreboot=dispatched' > "$ACTIONS/restore-result"
-run || { echo "FAIL leftover run rc=$?"; cat "$t/usb/GEN5W-PORTABLE-REPORT/LOG.txt" "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"; exit 1; }
-[ "$(result)" = '결과: restored' ] || { echo 'FAIL leftover install not restored first'; cat "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"; exit 1; }
-grep -qx guard-restore "$ACTIONS/log" && grep -qx reboot "$ACTIONS/log"
-if grep -q '^install ' "$ACTIONS/log"; then echo 'FAIL installed over a leftover /system install'; exit 1; fi
-[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 0 ]
-grep -q '다시 꽂으면 설치' "$ACTIONS/toast"
-echo 'PASS leftover /system install without package: guard restore, reboot, install on next plug'
-
-new_case; leftover; printf 'result=failed\nreason=reboot-not-confirmed' > "$ACTIONS/restore-result"
-run; [ "$(result)" = '결과: restored' ] && grep -qx reboot "$ACTIONS/log"
-echo 'PASS already restored in this boot: reboot before install'
-
-new_case; leftover; printf 'result=failed\nreason=hash-mismatch' > "$ACTIONS/restore-result"
-if run; then echo 'FAIL accepted a failed leftover restore'; exit 1; fi
-[ "$(result)" = '결과: failed' ]
-if grep -Eq '^reboot$|^install ' "$ACTIONS/log"; then echo 'FAIL rebooted or installed after a failed restore'; exit 1; fi
-echo 'PASS failed leftover restore: no reboot, no install, report kept'
-
-new_case; leftover; printf 'result=success
-already-restored=1' > "$ACTIONS/restore-result"
-if run; then echo 'FAIL accepted an already-restored unit that still has a wrapper'; exit 1; fi
-[ "$(result)" = '결과: failed' ]
-if grep -Eq '^reboot$|^install ' "$ACTIONS/log"; then echo 'FAIL reboot loop risk: rebooted on already-restored leftover'; exit 1; fi
-echo 'PASS already-restored unit with a wrapper left: stops, no reboot loop'
-
-new_case; leftover; rm "$t/root/data/local/gen5w-portable/persistent/bootguard/restore.sh"
-if run; then echo 'FAIL accepted leftover without restore tools'; exit 1; fi
-[ "$(result)" = '결과: refused' ]
-if grep -Eq 'guard-restore|^reboot$|^install ' "$ACTIONS/log" 2>/dev/null; then echo 'FAIL changed state without restore tools'; exit 1; fi
-rm -f "$ACTIONS/wrap"; unset PORTABLE_TEST_GETPROP
-echo 'PASS leftover without restore tools: refused, nothing changed'
+new_case; leftover
+if run; then echo 'FAIL installed over a leftover /system install'; exit 1; fi
+[ "$(result)" = '결과: refused' ] || { echo 'FAIL leftover not refused'; cat "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"; exit 1; }
+grep -q '업데이트하거나 삭제' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt" || { echo 'FAIL refusal does not say what to do'; exit 1; }
+if grep -sEq '^guard-restore$|^reboot$|^install ' "$ACTIONS/log"; then echo 'FAIL leftover refusal changed something'; cat "$ACTIONS/log"; exit 1; fi
+[ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ] || { echo 'FAIL leftover refusal changed boot state'; exit 1; }
+echo 'PASS leftover /system install without package: refused with update/remove guidance, nothing changed'

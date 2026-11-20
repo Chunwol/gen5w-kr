@@ -1,9 +1,8 @@
 #!/system/bin/sh
 # Portable USB installer. It only copies the verified package ZIP into /data and
 # asks NEMESIS to install it; the package's own pre/post hooks perform every
-# compatibility, conflict, NEMESIS-version and checksum check. It never removes
-# or replaces other packages or boot images; the one /system change it starts is
-# the on-device guard restore of an earlier install whose package was deleted.
+# compatibility, conflict, NEMESIS-version and checksum check. It never removes,
+# replaces or changes other packages, /system, or boot images.
 umask 077
 case "$0" in */*) cd "${0%/*}" || exit 1;; esac
 USB=$(pwd) || exit 1
@@ -138,61 +137,15 @@ while IFS='|' read -r package rest; do
 done <<EOF
 $packages
 EOF
-# A persistent install whose NEMESIS package was deleted (2026-11-19 car) keeps
-# every /system change, and its build.prop wrapper then points at a missing
-# script. Restore stock with the on-device guard first; restore.sh reboots
-# itself after verifying. The next plug of this USB then installs normally.
-restore_leftover() {
-    local guard=$ROOT/data/local/gen5w-portable/persistent/bootguard
-    local rec=$ROOT/data/local/gen5w-portable/persistent/recovery
-    local boot=$ROOT/data/local/gen5w-portable/boot
-    local result= reason= line rc
-    say "leftover persistent install without package: $1"
-    { [ -f "$guard/restore.sh" ] && [ ! -L "$guard/restore.sh" ] &&
-      [ -x "$guard/bin/dex-patch" ] && [ ! -L "$guard/bin/dex-patch" ] &&
-      [ -f "$rec/manifest" ] && [ ! -L "$rec/manifest" ]; } ||
-        finish refused "이전 설치의 /system 변경($1)이 남아 있지만 복구 도구가 없습니다. 설치하지 않았습니다. 보고서를 PC로 가져오세요."
-    alert '이전 설치가 남아 있어 먼저 순정으로 복구합니다. 끝나면 자동 재부팅됩니다. 재부팅 후 USB를 다시 꽂으면 설치됩니다.'
-    # Evidence of the leftover boot before it is replaced (bounded: never holds the restore).
-    if [ -z "$ROOT" ]; then
-        ( logcat -d -v time -t 20000 > "$REPORT/logcat-before-restore.txt" 2>&1 & r=$!
-          ( sleep 10; kill -TERM "$r" ) >/dev/null 2>&1 & k=$!; wait "$r"; kill "$k" 2>/dev/null )
-        getprop > "$REPORT/getprop-before-restore.txt" 2>&1
-        sync
-    fi
-    if [ -d "$boot" ] && [ ! -L "$boot" ] && [ ! -L "$boot/enabled" ]; then
-        print 0 > "$boot/enabled.new" && mv "$boot/enabled.new" "$boot/enabled"
-    fi
-    { print -r -- '결과: restoring'; print -r -- '이전 설치를 순정으로 복구하는 중입니다. 자동 재부팅 후 USB를 다시 꽂으면 설치됩니다.'; } > "$REPORT/RESULT.txt"
-    sync
-    GEN5W_RECOVERY_USB_ROOT=$guard "$SH" "$guard/restore.sh" > "$REPORT/restore.txt" 2>&1
-    rc=$?
-    if [ -f "$guard/GEN5W-RECOVERY-RESULT.txt" ] && [ ! -L "$guard/GEN5W-RECOVERY-RESULT.txt" ]; then
-        cp "$guard/GEN5W-RECOVERY-RESULT.txt" "$REPORT/" 2>/dev/null
-        while IFS= read -r line; do
-            case "$line" in result=*) result=${line#result=};; reason=*) reason=${line#reason=};; esac
-        done < "$guard/GEN5W-RECOVERY-RESULT.txt"
-    fi
-    say "leftover restore rc=$rc result=$result reason=$reason"
-    case "$result:$reason" in
-    restored:*|failed:reboot-not-confirmed) ;;
-    success:*)
-        # Every recorded file is already stock in a new boot, yet a wrapper
-        # property is still set: another reboot cannot change that. Never loop.
-        finish failed "순정 파일은 이미 복구돼 있지만 래퍼 속성($1)이 남아 있습니다. 재부팅해도 바뀌지 않아 멈췄습니다. 보고서를 PC로 가져오세요.";;
-    *) finish failed "이전 설치 복구가 완료되지 않았습니다(rc=$rc, ${result:-?} ${reason}). 재시동하지 말고 보고서를 PC로 가져오세요.";;
-    esac
-    { print -r -- '결과: restored'; print -r -- '순정 복구 완료. 자동 재부팅 후 USB를 다시 꽂으면 설치됩니다.'; } > "$REPORT/RESULT.txt"
-    say 'leftover restored; reboot before install'
-    sync
-    alert '순정 복구 완료. 재부팅합니다. 재부팅 후 USB를 다시 꽂으면 설치됩니다.'
-    sleep 3
-    "$REBOOT" >> "$LOG" 2>&1 || finish failed '순정 복구는 끝났지만 재부팅 요청에 실패했습니다. 수동으로 재부팅한 뒤 USB를 다시 꽂으세요.'
-    exit 0
-}
+# An earlier persistent install whose NEMESIS package was deleted keeps its
+# /system changes (build.prop wrapper and patched files). Installing over it is
+# refused; restoring it is a separate recovery step, never part of installing.
 if [ "$update" = 0 ]; then
     for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do
-        [ -z "$("$GETPROP" "$key" 2>/dev/null)" ] || restore_leftover "$key"
+        if [ -n "$("$GETPROP" "$key" 2>/dev/null)" ]; then
+            say "leftover persistent install without package: $key"
+            finish refused '이전 설치가 차에 남아 있습니다. 기존 설치를 업데이트하거나 삭제(순정 복구)한 뒤 다시 꽂아 주세요. 아무것도 바꾸지 않았습니다.'
+        fi
     done
 fi
 # Same on-disk evidence the integrated installer uses on this vehicle; does not

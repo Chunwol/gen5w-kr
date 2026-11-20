@@ -428,20 +428,12 @@ transaction deadline is extended by these read-only retries.
   The hook also exits 78 with a marker if the live bootclasspath entry count
   changes. `tests/portable_vm.sh` checks that a hooked VM opening a shared
   framework jar keeps the stock bootclasspath (`BootPathVmTest`).
-- **Leftover install recovery in the USB installer.** If a wrapper property is
+- **Leftover install refusal in the USB installer.** If a wrapper property is
   set but no package is installed (for example after removing only the NEMESIS
-  app), the installer does not install. Instead it:
-  1. saves bounded logcat and getprop output to the report;
-  2. sets `boot/enabled=0`;
-  3. runs the on-device boot-guard `restore.sh`;
-  4. reboots only when the restore result is `restored` or
-     `reboot-not-confirmed`.
-
-  `success` (every file already stock in a new boot) while a wrapper property
-  is still set stops without rebooting, so the installer cannot loop.
-
-  Any other result, or missing or symlinked restore tools, changes nothing and
-  leaves a report. Inserting the USB again after the reboot installs.
+  app), the installer changes nothing. It finishes `refused` and asks the user
+  to update or remove (stock-restore) the existing install, then plug the USB
+  in again. Restoring such a leftover is a separate recovery step and never
+  part of installing.
 - **OEM Bluetooth handover restored.** `DipoAdapters.disableBluetooth` always
   calls the stock `onDisableBluetooth`. That call marks the phone as
   CarPlay-owned in BTCM so that car HFP/A2DP yield. 0.3.70-0.3.78 suppressed it

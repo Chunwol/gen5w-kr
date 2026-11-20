@@ -15,13 +15,10 @@ V039 커널에는 last_kmsg·ramoops·bootreason이 없어 panic 흔적 검사�
 
 ## 0.3.81 설치와 기능 확인
 
-USB 설치는 상황에 따라 두 번 꽂아야 할 수 있다.
-
-1. **첫 번째 꽂기.** 이전 설치의 `/system` 변경이 패키지 없이 남아 있으면(앱만 지운 경우) 설치하지 않는다.
-   - 대신 logcat·getprop을 저장하고, 자동 적용을 끈 뒤 기기 안의 부트 가드로 순정 복구를 확인하고 재부팅한다.
-   - 결과는 USB의 `GEN5W-PORTABLE-REPORT/RESULT.txt`에 `결과: restored`로 남는다. 복구 직전 로그는 같은 폴더의 `logcat-before-restore.txt`, `getprop-before-restore.txt`, `restore.txt`에 남는다.
-   - 남은 설치가 없으면 이 단계 없이 바로 설치한다.
-2. **두 번째 꽂기.** 설치한 뒤 자동 재부팅한다.
+1. **설치.** USB를 꽂으면 설치하고 자동 재부팅한다.
+2. **이전 설치가 남아 있을 때.** NEMESIS에서 앱만 지워 `/system` 변경이 남은 경우에는 설치하지 않는다.
+   - USB의 `GEN5W-PORTABLE-REPORT/RESULT.txt`에 `결과: refused`와 함께 "기존 설치를 업데이트하거나 삭제(순정 복구)한 뒤 다시 꽂아 달라"는 안내가 남는다.
+   - 아무것도 바꾸지 않는다. 순정 복구는 설치와 별개인 복구 절차로 먼저 끝낸다.
 3. **5분이 지나도 재부팅이 없을 때.** 실패로 보고 USB를 그대로 회수한다. `failed`·`refused` 결과는 아무것도 바꾸지 않았다는 뜻이다.
 
 설치 뒤 확인 항목:
