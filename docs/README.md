@@ -11,6 +11,9 @@
 | [설치 전 복구 준비](pre-install-recovery-checklist.md) | 설치 전에 마칠 복구 준비 체크리스트 |
 | [블루링크 안내 숨기기](bluelink.md) | 월간 가입 안내를 다시 띄우지 않는 방식과 제거 |
 | [연결 복구](wireless-recovery.md) | 기존 설치 이관과 자동 복구 |
+| [차 안 화면](in-car-ui.md) | 정보·켜기/끄기·기록·관리 화면 |
+| [순정 복원 USB](stock-recovery-usb.md) | 설치를 걷어내고 순정으로 되돌리는 USB |
+| [주행 진단 기록](drive-log.md) | USB에 남기는 진단 기록 형식 |
 | [이슈로 참여하기](../CONTRIBUTING.md) | 오류·개선 의견과 진단 로그 첨부 |
 | [보안 제보](../SECURITY.md) | 민감한 문제를 제보할 때 |
 
@@ -26,19 +29,22 @@
 | [초기화·재설치 후 복구](recovery.md) | 원본 보관, 공장초기화·시스템 재설치 뒤 제거·재설치 |
 | [부트 안전장치 비교](boot-safety.md) | NEMESIS·Leafia 및 다른 5W 프로그램의 검증·복구 기준 |
 | [부트로더 복구 경로](bootloader-recovery.md) | fastboot 읽기 확인과 외부 순정 이미지 복구 도구 |
-| [HUD](hud.md) · [iAP2](iap2-fields.md) · [지도 앱 변환 계층](navigation-app-evidence.md) | 길안내 수신·변환·출력과 앱별 정적 근거 |
+| [HUD](hud.md) · [iAP2](iap2-fields.md) | 길안내 수신·변환·출력 |
 | [순정 내비와 HUD 우선순위](hud-ownership.md) | 순정 내비 경로 안내와 HUD 출력 상태 제어 |
 | [Bluetooth](bt-wireless-start.md) · [설치 제어부](bridge-install.md) · [DiPO](dipo-control.md) | 무선 시작과 순정 서비스 연결 |
 | [오디오](audio.md) | 압축 오디오 형식과 원본 검사 |
 | [통화 버튼](wireless-call-button.md) | CarPlay 핸들 통화 버튼 보완 |
 | [USB Wi-Fi 동글](usb-wifi-experiment.md) | 동글형 드라이버 빌드와 대리 모듈 |
 | [버전 전환 기준](edition-transitions.md) | 하드웨어 및 버전 전환과 복구 기준 |
+| [화면 스킨](ui-stock-skin.md) | 순정 화면에 맞춘 앱 스킨과 확인 방법 |
 | [라이선스](licensing.md) | 소스 제공과 라이선스 |
 
-## 개발 기록
+## 범용판 (V039 실차 시험 중)
 
-작업 당시의 분석과 계획입니다. 현재 동작은 위 문서와 [CHANGELOG](../CHANGELOG.md)를 기준으로 합니다.
+차량의 순정 파일을 그 자리에서 읽어 준비하는 설치판(`gen5w.kr.portable`)입니다. 실차 검증이 끝나지 않았습니다.
 
 | 문서 | 내용 |
 |---|---|
-| [V039 HUD 코드 대조](v039-cluster-review.md) | 순정 클러스터·내비 수신 코드 대조 |
+| [시험 후보 검토](portable-release-review.ko.md) | 기능 목록, 이번 수정의 근거, 확인 결과 |
+| [실차 확인 목록](portable-vehicle-checklist.ko.md) | 설치 순서(남은 설치 복구 포함)와 기능별 확인 |
+| [구조와 빌드](portable-candidate.md) | 빌드, 지원 범위, 설치·복구 계약, 버전별 변경 |

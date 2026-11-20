@@ -153,7 +153,8 @@ flush deadline prevents the request. An unfinished attempt blocks subsequent
 wireless activation. AP prepare requires `wifi_ap_on` to read exactly 0; an on,
 unknown, null or failed value is a STOP, not permission to guess. OEM boot-time
 AP restoration and local hotspot UI are outside those authored request guards.
-Do not exercise the separate local-hotspot menu during CarPlay validation.
+The bundled hotspot patch lets the stock hotspot switch skip its CCS (Bluelink)
+check; exercise that switch only after CarPlay validation, never during it.
 
 ## One vehicle visit: exact admission sequence
 
@@ -417,3 +418,51 @@ framework maintenance. The final individual readiness/ABI call has its own
 15/20-second bounds, so this is not a30-second total boot deadline. ABI rejection
 still returns77; seal and other failures remain fatal. No stopped-framework
 transaction deadline is extended by these read-only retries.
+
+## Changes 0.3.78-0.3.81 (2026-11-19/20, vehicle-unverified)
+
+- **Dalvik inputs are digest-gated.** `candidate.py --runtime` refuses Dalvik
+  inputs without a non-zero `source.sha256`, and a hook library containing
+  `-Xbootclasspath/a:`. The 0.3.72-0.3.77 bundles shipped such a stale hook; on
+  the vehicle it rewrote shared dex caches and the launcher died with SIGBUS.
+  The hook also exits 78 with a marker if the live bootclasspath entry count
+  changes. `tests/portable_vm.sh` checks that a hooked VM opening a shared
+  framework jar keeps the stock bootclasspath (`BootPathVmTest`).
+- **Leftover install recovery in the USB installer.** If a wrapper property is
+  set but no package is installed (for example after removing only the NEMESIS
+  app), the installer does not install. Instead it:
+  1. saves bounded logcat and getprop output to the report;
+  2. sets `boot/enabled=0`;
+  3. runs the on-device boot-guard `restore.sh`;
+  4. reboots only when the restore result is `restored` or
+     `reboot-not-confirmed`.
+
+  `success` (every file already stock in a new boot) while a wrapper property
+  is still set stops without rebooting, so the installer cannot loop.
+
+  Any other result, or missing or symlinked restore tools, changes nothing and
+  leaves a report. Inserting the USB again after the reboot installs.
+- **OEM Bluetooth handover restored.** `DipoAdapters.disableBluetooth` always
+  calls the stock `onDisableBluetooth`. That call marks the phone as
+  CarPlay-owned in BTCM so that car HFP/A2DP yield. 0.3.70-0.3.78 suppressed it
+  during wireless sessions. RelayBridge still ignores Bluetooth-side end events
+  once the wireless session is owned.
+- **iAP2 link-detect forwarding.** The stock V039 Iap2ServerApp runs `Iap2Main`,
+  which sends the link-detect frame, before it reports `connected(5)`.
+  RelayBridge now forwards component-5 output (notify 81) once our handover is
+  requested, instead of only after `connected`. It also logs `path=cp5` frame
+  counters for both directions (queued, delivered, dropped, sent, failed) and
+  the connected and disconnected order.
+- **Bundled timer and Bluelink services.** The unchanged
+  `packages/consent-timer` and `packages/bluelink-quiet` scripts ship as
+  `timer/` and `bluelink/`:
+  - `service.4` runs `timer/timer.sh` as root.
+  - `service.5` runs `bluelink/quiet.sh` as system.
+  - `bin/sha256-check` is the same audio helper binary used to verify
+    `SystemUI.odex`.
+  - `package-post.sh` saves the original Bluelink reminder values, and
+    `package-preun.sh` restores them.
+  - `ui.sh` manages `gen5wkr.ui-timer-off` and `gen5wkr.ui-bluelink-off`
+    (symlinks refused) and reports `sw_timer` and `sw_bluelink` as on or off.
+
+  Neither service writes `/system`.
