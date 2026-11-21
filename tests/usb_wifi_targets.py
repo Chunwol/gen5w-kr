@@ -106,6 +106,65 @@ class UsbWifiTargetTests(unittest.TestCase):
                     self.assertIn(extra.removeprefix("CONFIG_"), enabled)
         self.assertNotIn("8812AU", enabled)
 
+    def test_vendor_drivers_are_pinned_and_packaged_as_ap_profiles(self):
+        modules = ROOT / "tools/usb-wifi/package/files/modules"
+        profiles = {line.split("|")[0]: line.split("|")
+                    for line in (modules / "modules.profile").read_text().splitlines()}
+        aliases = (modules / "modules.alias").read_text().splitlines()
+        vendor = targets.vendor_targets()
+        self.assertGreaterEqual(len(vendor), 9)
+        for symbol, item in vendor.items():
+            with self.subTest(symbol=symbol):
+                self.assertRegex(item["commit"], r"^[0-9a-f]{40}$")
+                self.assertTrue(item["repo"].startswith("https://github.com/"))
+                self.assertTrue((modules / (item["module"] + ".ko")).is_file())
+                self.assertEqual(profiles[item["module"]][1], item["module"])
+                self.assertEqual(profiles[item["module"]][4:], [targets.profile_ap(item), "ready"])
+                self.assertTrue(any(line.endswith(" " + item["module"]) for line in aliases))
+                patch = item["build"]["patch"]
+                if patch:
+                    self.assertTrue((ROOT / "tools/usb-wifi/patches" / patch).is_file())
+
+    def test_vendor_driver_usb_ids_are_not_claimed_twice(self):
+        # Linux itself lists a few old IDs under several in-tree drivers; vendor IDs must be unique.
+        modules = ROOT / "tools/usb-wifi/package/files/modules"
+        vendor = {item["module"] for item in targets.vendor_targets().values()}
+        owners = {}
+        for line in (modules / "modules.alias").read_text().splitlines():
+            _, pattern, module = line.split()
+            owners.setdefault(pattern.split("d*", 1)[0], set()).add(module)
+        shared = {key: value for key, value in owners.items() if len(value) > 1 and value & vendor}
+        self.assertEqual(shared, {})
+
+    def test_only_drivers_with_a_korean_5ghz_plan_can_host_the_stock_ap(self):
+        stock = {item["module"]: item for item in targets.TARGETS.values()
+                 if item["ap"] and targets.profile_ap(item) == "yes"}
+        self.assertEqual(set(stock), {"8812au", "8821au", "8821cu", "88x2bu", "8851bu"})
+        for module, item in stock.items():
+            with self.subTest(module=module):
+                plan = "0x4B" if module == "8851bu" else "0x28"
+                self.assertIn(f"-DCONFIG_RTW_CHPLAN={plan}", item["build"]["flags"])
+        self.assertIn("-DCONFIG_RTW_REGD_SRC=0", stock["8821au"]["build"]["flags"])
+        for symbol in ("ATH9K_HTC", "RT2800USB", "RTL8188EU", "RTL8192EU"):
+            self.assertEqual(targets.profile_ap(targets.TARGETS[symbol]), "2g")
+        self.assertEqual(targets.profile_ap(targets.TARGETS["RTL8187"]), "no")
+
+    def test_drivers_that_need_wireless_ext_are_never_built(self):
+        blocked = {symbol for symbol, item in targets.TARGETS.items() if "blocked" in item}
+        self.assertEqual(blocked, {"LIBERTAS_USB", "ORINOCO_USB", "RTL8192U", "R8712U", "ZD1201"})
+        self.assertFalse(blocked & set(targets.in_tree_targets()))
+        options = set(targets.config_options())
+        for symbol in blocked:
+            self.assertNotIn(targets.TARGETS[symbol]["config"].removeprefix("CONFIG_"), options)
+        self.assertFalse(options & {name.removeprefix("CONFIG_") for name in targets.LAYOUT_OPTIONS})
+
+    def test_rt2800_chip_tables_are_enabled_as_bool_options(self):
+        options = targets.config_options()
+        pairs = set(zip(options, options[1:]))
+        for name in ("RT33XX", "RT35XX", "RT3573", "RT53XX", "RT55XX"):
+            self.assertIn(("--enable", "RT2800USB_" + name), pairs)
+            self.assertNotIn(("--module", "RT2800USB_" + name), pairs)
+
 
 if __name__ == "__main__":
     unittest.main()

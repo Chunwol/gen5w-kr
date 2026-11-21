@@ -39,6 +39,10 @@ dongle() { # vendor product: a plugged-in USB device
     mkdir -p "$R/sys/bus/usb/devices/1-1"
     echo "$1" > "$R/sys/bus/usb/devices/1-1/idVendor"; echo "$2" > "$R/sys/bus/usb/devices/1-1/idProduct"
 }
+dongle5g() { # a plugged-in RTL8812BU: matched on its vendor-class interface
+    mkdir -p "$R/sys/bus/usb/devices/1-1:1.0"
+    echo 'usb:v0BDApB812d0210dc00dsc00dp00icFFiscFFipFFin00' > "$R/sys/bus/usb/devices/1-1:1.0/modalias"
+}
 detect() { mksh "$B/wifi-backend.sh" detect; }
 expect() { # what expected-output
     local out
@@ -53,7 +57,7 @@ reset; mkdir -p "$R/sys/bus/sdio/devices/mmc1:0001:1"; echo 0x07 > "$R/sys/bus/s
 expect 'SDIO Wi-Fi function' 'builtin|observed'; never_enabled 'SDIO Wi-Fi function'
 echo 'PASS built-in Wi-Fi seen on SDIO is used without turning Wi-Fi on'
 
-reset; echo 0 > "$A/wifi_on"; touch "$A/chip"; dongle 0cf3 9271
+reset; echo 0 > "$A/wifi_on"; touch "$A/chip"; dongle5g
 expect 'probe finds built-in chip' 'builtin|probe'; left_off 'probe finds built-in chip'
 grep -qx enable "$A/calls" && grep -qx disable "$A/calls" || fail 'probe did not toggle Wi-Fi'
 echo 'PASS Wi-Fi off: turned on for the check, built-in wins over a plugged dongle, turned off again'
@@ -62,13 +66,17 @@ reset; echo 0 > "$A/wifi_on"
 expect 'no chip, no dongle' 'none|probe-none'; left_off 'no chip, no dongle'
 echo 'PASS no built-in Wi-Fi and no dongle: none, Wi-Fi off again'
 
+reset; echo 0 > "$A/wifi_on"; dongle5g
+expect 'no chip, RTL8812BU dongle' 'dongle|probe-none'; left_off 'no chip, RTL8812BU dongle'
+echo 'PASS no built-in Wi-Fi and a dongle that can host the 5GHz hotspot: dongle'
+
 reset; echo 0 > "$A/wifi_on"; dongle 0cf3 9271
-expect 'no chip, AR9271 dongle' 'dongle|probe-none'; left_off 'no chip, AR9271 dongle'
-echo 'PASS no built-in Wi-Fi and a supported dongle: dongle'
+expect 'no chip, 2.4GHz-only AR9271' 'none|probe-none-2g-only-dongle'; left_off 'no chip, 2.4GHz-only AR9271'
+echo 'PASS a 2.4GHz-only dongle is not chosen and the reason is reported'
 
 reset; echo 0 > "$A/wifi_on"; mkdir -p "$R/sys/bus/usb/devices/1-1:1.0"
-echo 'usb:v148Fp3070d0101dc00dsc00dp00icFFiscFFipFFin00' > "$R/sys/bus/usb/devices/1-1:1.0/modalias"
-expect 'interface modalias (RT3070)' 'dongle|probe-none'
+echo 'usb:v0BDApB812d0210dc00dsc00dp00icFFiscFFipFFin00' > "$R/sys/bus/usb/devices/1-1:1.0/modalias"
+expect 'interface modalias (RTL8812BU)' 'dongle|probe-none'
 echo 'PASS a dongle is matched on the kernel interface modalias'
 
 reset; echo 0 > "$A/wifi_on"; dongle 0cf3 1002
@@ -81,7 +89,7 @@ grep -q '^rtl8187|.*|no|ready$' "$B/dongle/modules/modules.profile" || fail 'fix
 expect 'ready dongle without AP mode' 'none|probe-none'
 echo 'PASS a dongle that cannot run an access point (wireless CarPlay needs one) is not chosen'
 
-reset; echo 0 > "$A/wifi_on"; touch "$A/stuck"; dongle 0cf3 9271
+reset; echo 0 > "$A/wifi_on"; touch "$A/stuck"; dongle5g
 if out=$(detect); then fail "Wi-Fi stuck on was accepted ($out)"; fi
 [ "$out" = 'error|wifi-still-on' ] || fail "stuck Wi-Fi reported '$out'"
 echo 'PASS Wi-Fi that does not turn off again stops the install'
@@ -95,11 +103,11 @@ printf 'GEN5W-RECOVERY-MANIFEST|2\n/system/wifi/bcmdhd.ko|file|x\n' > "$R/data/l
 expect 'installed stand-in' 'dongle|installed'; never_enabled 'installed stand-in'
 echo 'PASS an update keeps the installed dongle stand-in without probing it'
 
-reset; dongle 0cf3 9271
+reset; dongle5g
 expect 'settings unreadable' 'none|settings-unreadable'; never_enabled 'settings unreadable'
 echo 'PASS unknown Wi-Fi state never swaps the driver, even with a dongle'
 
-reset; echo 1 > "$A/wifi_on"; mkdir -p "$R/sys/class/net/wlan0"; echo 'ath9k_htc 61000 0 - Live 0x0' > "$A/modules"; dongle 0cf3 9271
+reset; echo 1 > "$A/wifi_on"; mkdir -p "$R/sys/class/net/wlan0"; echo '88x2bu 61000 0 - Live 0x0' > "$A/modules"; dongle5g
 expect 'wlan0 from a loaded dongle driver' 'dongle|wifi-on-no-interface'; never_enabled 'wlan0 from a loaded dongle driver'
 echo 'PASS a wlan interface made by a loaded dongle driver is not taken for built-in Wi-Fi'
 
@@ -116,3 +124,9 @@ mksh "$B/wifi-backend.sh" record dongle >/dev/null
 if mksh "$B/wifi-backend.sh" record usb >/dev/null 2>&1; then fail 'unknown backend recorded'; fi
 [ "$(mksh "$B/wifi-backend.sh" get)" = dongle ] || fail 'rejected record changed the saved backend'
 echo 'PASS record/get keep one validated backend and consume the USB override'
+
+mksh "$B/wifi-backend.sh" record none probe-none-2g-only-dongle >/dev/null
+[ "$(cat "$R/data/local/gen5w-portable/wifi-backend-why")" = 2g-only ] || fail '2.4GHz-only reason not recorded'
+mksh "$B/wifi-backend.sh" record none probe-none >/dev/null
+[ ! -e "$R/data/local/gen5w-portable/wifi-backend-why" ] || fail 'old 2.4GHz-only reason survived a new install'
+echo 'PASS the install records when a 2.4GHz-only dongle was the reason and clears it later'

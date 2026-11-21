@@ -42,6 +42,7 @@ transaction=
 update_retired=0
 legacy_disable_attempted=0
 legacy_disabled=0
+wifi_note=
 restore_update() {
     recovery_state=$ROOT/data/local/gen5w-portable/persistent/recovery
     if [ "$update_retired" != 1 ] &&
@@ -98,6 +99,8 @@ finish() {
     sync
     case "$state" in
     ok)
+        # The Wi-Fi choice gets its own notice: a toast is too short for both.
+        [ -z "$wifi_note" ] || { alert "$wifi_note"; sleep 5; }
         alert '정상 설치 후 자동 재부팅됩니다. 이때 화면이 한 번 꺼졌다가 다시 켜질 수 있습니다. USB를 빼지 마세요.'
         sleep 3
         if ! "$REBOOT" >> "$LOG" 2>&1; then
@@ -193,6 +196,31 @@ ap=$( ( "$SH" "$SETTINGS" get global wifi_ap_on 2>/dev/null & reader=$!
 ap=${ap%$'\r'}
 say "wifi_ap_on=$ap"
 [ "$ap" = 0 ] || finish refused "순정 핫스팟 설정(wifi_ap_on)이 0이 아닙니다: $ap. 설치하지 않았고 바뀐 것은 없습니다. 보고서를 PC로 가져오세요."
+# The package unpacks to about 24 MB beside its 9 MB staged ZIP. Refuse before any
+# change when /data is short. Toolbox df prints human sizes ("/data 1.9G 46.5M 1.9G
+# 4096"); an unreadable value is logged and left to the copy and install checks.
+NEED_DATA_MB=64
+data_free_mb() {
+    local filesystem size used free extra whole tenth
+    "${PORTABLE_TEST_DF:-df}" /data 2>/dev/null | while IFS=' ' read -r filesystem size used free extra; do
+        [ "$filesystem" = /data ] || continue
+        whole=${free%?}; tenth=0
+        case "$whole" in *.*) tenth=${whole#*.}; whole=${whole%%.*};; esac
+        case "$whole:$tenth" in :*|*:|*[!0-9:]*) exit 1;; esac
+        case "$free" in
+        *G) print -r -- "$((whole * 1024 + ${tenth%"${tenth#?}"} * 102))";;
+        *M) print -r -- "$whole";;
+        *K) print -r -- "$((whole / 1024))";;
+        *) exit 1;;
+        esac
+        exit 0
+    done
+}
+data_free=$(data_free_mb) || data_free=
+say "data free MB: ${data_free:-unknown} (need $NEED_DATA_MB)"
+if [ -n "$data_free" ] && [ "$data_free" -lt "$NEED_DATA_MB" ]; then
+    finish refused "/data 여유 공간이 ${data_free}MB입니다. ${NEED_DATA_MB}MB 이상 필요합니다. 설치하지 않았고 바뀐 것은 없습니다."
+fi
 # Stage under the fixed name the package documentation uses.
 if [ -e "$STAGE" ] || [ -L "$STAGE" ]; then
     [ -f "$STAGE" ] && [ ! -L "$STAGE" ] || finish failed '/data의 임시 파일 경로가 안전하지 않아 중단했습니다.'
@@ -313,11 +341,13 @@ fi
 update_retired=0
 # Which Wi-Fi the package chose (wifi-backend.sh, during the install).
 wifi=; IFS= read -r wifi < "$ROOT/data/local/gen5w-portable/wifi-backend" 2>/dev/null
-say "wifi backend=${wifi:-unknown}"
-case "$wifi" in
-builtin) wifi_note='Wi-Fi: 내장 Wi-Fi를 씁니다.';;
-dongle) wifi_note='Wi-Fi: USB Wi-Fi 동글 방식으로 설치했습니다(내장 Wi-Fi는 쓰지 않음). 동글을 꽂아 두세요.';;
-none) wifi_note='Wi-Fi: 내장 Wi-Fi와 지원 동글을 찾지 못해 무선 CarPlay는 동작하지 않습니다. 지원 동글을 꽂고 다시 설치하면 동글 방식으로 설치됩니다.';;
+wifi_why=; IFS= read -r wifi_why < "$ROOT/data/local/gen5w-portable/wifi-backend-why" 2>/dev/null
+say "wifi backend=${wifi:-unknown} why=${wifi_why:-none}"
+case "$wifi:$wifi_why" in
+builtin:*) wifi_note='Wi-Fi: 내장 Wi-Fi를 씁니다.';;
+dongle:*) wifi_note='Wi-Fi: USB Wi-Fi 동글 방식으로 설치했습니다(내장 Wi-Fi는 쓰지 않음). 5GHz 지원 동글을 꽂아 두세요.';;
+none:2g-only) wifi_note='Wi-Fi: 꽂힌 USB 동글이 2.4GHz 전용이라 무선 CarPlay는 동작하지 않습니다. 5GHz 지원 동글을 꽂고 다시 설치하세요.';;
+none:*) wifi_note='Wi-Fi: 내장 Wi-Fi와 지원 동글을 찾지 못해 무선 CarPlay는 동작하지 않습니다. 5GHz 지원 동글을 꽂고 다시 설치하면 동글 방식으로 설치됩니다.';;
 *) wifi_note='Wi-Fi: 설치 때 고른 방식을 읽지 못했습니다.';;
 esac
 if [ "$legacy_disabled" = 1 ]; then

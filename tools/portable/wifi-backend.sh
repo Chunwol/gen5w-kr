@@ -6,13 +6,15 @@
 #   builtin  built-in (SDIO Broadcom) Wi-Fi seen, either directly or after
 #            turning Wi-Fi on for up to 8 s while it was off (then off again),
 #            as the integrated editions' installer and check did.
-#   dongle   no built-in Wi-Fi and a supported USB dongle is plugged in; or
+#   dongle   no built-in Wi-Fi and a USB dongle that can host the stock 5 GHz
+#            hotspot is plugged in (2.4 GHz-only dongles report none); or
 #            GEN5W-FORCE-DONGLE was on the install USB; or an earlier install
 #            already put the dongle stand-in in place (probing would then load
 #            the stand-in, not the stock driver).
 #   none     neither: installed like builtin; wireless cannot start.
 #         Exit 1 (nothing changed) when Wi-Fi could not be turned off again.
-# record BACKEND   Saves the result for the services and the in-car screen.
+# record BACKEND [REASON]  Saves the result for the services and the in-car
+#                  screen, and whether a 2.4 GHz-only dongle was the reason.
 # get              Prints the saved result, or "unknown".
 umask 077
 LC_ALL=C; export LC_ALL
@@ -22,6 +24,7 @@ ADAPTER=${PORTABLE_TEST_WIFI_ADAPTER:-}
 HELPER=${PORTABLE_HELPER:-$BASE/bin/dex-patch}
 S=$ROOT/data/local/gen5w-portable
 RECORD=$S/wifi-backend
+WHY=$S/wifi-backend-why
 FORCE=$ROOT/data/nemesis/gen5wkr.force-dongle
 RECOVERY_MANIFEST=$S/persistent/recovery/manifest
 SYSFS=$ROOT/sys
@@ -86,10 +89,10 @@ builtin_observed() {
 # access-point mode (wireless CarPlay/Android Auto run the head unit as an AP)
 # and every module and firmware file of that profile in the package.
 profile_ready() {
-    local wanted=$1 driver modules firmware bands ap status item
+    local wanted=$1 need=${2:-yes} driver modules firmware bands ap status item
     while IFS='|' read -r driver modules firmware bands ap status; do
         [ "$driver" = "$wanted" ] || continue
-        [ "$status" = ready ] && [ "$ap" = yes ] || return 1
+        [ "$status" = ready ] && [ "$ap" = "$need" ] || return 1
         for item in $modules; do [ -f "$MODS/$item.ko" ] || return 1; done
         for item in $firmware; do [ -f "$FIRMWARE/$item" ] || return 1; done
         return 0
@@ -111,15 +114,15 @@ usb_modaliases() {
         print -r -- "usb:v${vid}p${pid}d0000dc00dsc00dp00ic00isc00ip00in00"
     done
 }
-dongle_present() {
-    local list modalias kind pattern module
+dongle_present() { # catalog AP value: yes (stock 5 GHz hotspot) or 2g
+    local need=${1:-yes} list modalias kind pattern module
     plain "$MODS/modules.alias" && [ -f "$MODS/modules.alias" ] && [ -f "$MODS/modules.profile" ] || return 1
     list=$(usb_modaliases)
     while IFS= read -r modalias; do
         [ -n "$modalias" ] || continue
         while read -r kind pattern module; do
             [ "$kind" = alias ] || continue
-            case "$modalias" in $pattern) profile_ready "$module" && return 0;; esac
+            case "$modalias" in $pattern) profile_ready "$module" "$need" && return 0;; esac
         done < "$MODS/modules.alias"
     done <<EOF
 $list
@@ -170,7 +173,9 @@ detect() {
     *)  # Unknown: never swap the Wi-Fi driver without positive evidence.
         echo "none|settings-$state"; return 0;;
     esac
-    if dongle_present; then echo "dongle|$state"; else echo "none|$state"; fi
+    if dongle_present; then echo "dongle|$state"
+    elif dongle_present 2g; then echo "none|$state-2g-only-dongle"
+    else echo "none|$state"; fi
 }
 case "$1" in
 detect) detect; exit $?;;
@@ -180,6 +185,11 @@ record)
     mkdir -p "$S" || fail 'state unavailable'
     for f in "$RECORD" "$RECORD.new"; do [ ! -e "$f" ] || [ -f "$f" ] || fail 'unsafe record'; done
     print -r -- "$2" > "$RECORD.new" && chmod 644 "$RECORD.new" && mv "$RECORD.new" "$RECORD" || fail 'record failed'
+    plain "$WHY" && [ ! -L "$WHY" ] && { [ ! -e "$WHY" ] || [ -f "$WHY" ]; } || fail 'unsafe reason record'
+    case "${3:-}" in
+    *-2g-only-dongle) print -r -- 2g-only > "$WHY" && chmod 644 "$WHY" || fail 'reason record failed';;
+    *) rm -f "$WHY" || fail 'reason record not cleared';;
+    esac
     # The USB override is one-shot: it applies to the install that read it.
     if [ -e "$FORCE" ]; then plain "$FORCE" && [ -f "$FORCE" ] && rm -f "$FORCE" || fail 'force marker not cleared'; fi
     echo "wifi-backend: recorded $2";;

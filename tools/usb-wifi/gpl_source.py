@@ -25,6 +25,7 @@ import tarfile
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import experiment  # noqa: E402
+from targets import vendor_targets  # noqa: E402
 
 STAMP = 1767225600  # 2026-01-01 00:00:00 UTC
 FIRMWARE_VERSION = "1.4.0-108-gd856466+dfsg1-1.3+deb12u1"
@@ -47,7 +48,8 @@ def readme(own):
     lines = [
         "# Gen5W KR dongle edition: GPL source",
         "",
-        "Corresponding source for the GPL-2.0 binaries in `gen5w-kr-dongle.zip`",
+        "Corresponding source for the GPL-2.0 binaries in `gen5w-kr-dongle.zip` and in the",
+        "`dongle/` folder of the `gen5w.kr.portable` package",
         "(files/modules/*.ko, files/bcmdhd.ko) and the source of the ath9k_htc firmware",
         "(files/firmware/htc_9271.fw, htc_7010.fw).",
         "",
@@ -73,6 +75,10 @@ def readme(own):
         "  upstream https://github.com/qca/open-ath9k-htc-firmware)",
     ]
     lines += [f"  - `{name}` {digest}" for name, digest in FIRMWARE.items()]
+    lines += ["- Vendor USB WLAN drivers (GPL-2.0), each at one Git commit. `build/build_external.py`",
+              "  applies the small fixes listed in `build/targets.py` and `build/patches/`:"]
+    lines += [f"  - `{item['module']}`: {item['repo']} commit {item['commit']}"
+              for item in vendor_targets().values()]
     lines += [
         "  The shipped htc_9271.fw / htc_7010.fw are that package's htc_9271-1.4.0.fw /",
         "  htc_7010-1.4.0.fw, unchanged (mostly BSD-3-Clause-Clear; see its debian/copyright).",
@@ -92,6 +98,13 @@ def readme(own):
         "        --config kernel-v039.config --output ~/gen5w-usb-repro",
         "    # then strip the experimental modules with arm-eabi-strip --strip-debug",
         "    build/bcmdhd_shim/build.sh ~/gen5w-usb-repro   # stand-in module",
+        "    python3 build/build_external.py --tree ~/gen5w-usb-repro/linux-3.18.24 \\",
+        "        --cross ~/gen5w-usb-repro/toolchain/bin/arm-eabi- --output ~/gen5w-usb-vendor",
+        "    python3 build/merge_external.py --built ~/gen5w-usb-vendor/modules \\",
+        "        --package <package> --firmware-root <linux-firmware checkout>",
+        "",
+        "Vendor drivers embed their build path, so byte-identical modules need the release",
+        "paths: `/g5w/tree` (prepared tree and toolchain) and `/g5w/out/vendor`.",
         "",
         "`experiment.py` builds the pinned in-tree USB WLAN target matrix and reports each",
         "module's vermagic and SHA-256. `assemble_payload.py` selects the compiled driver",
@@ -127,6 +140,10 @@ def main():
     for name in ("bcmdhd.c", "Makefile", "build.sh"):
         files["build/bcmdhd_shim/" + name] = (HERE / "bcmdhd_shim" / name).read_bytes()
     files["build/assemble_payload.py"] = (HERE / "assemble_payload.py").read_bytes()
+    for name in ("build_external.py", "merge_external.py"):
+        files["build/" + name] = (HERE / name).read_bytes()
+    for patch in sorted((HERE / "patches").glob("*.patch")):
+        files["build/patches/" + patch.name] = patch.read_bytes()
     files["README.md"] = readme({n: sha256(d) for n, d in files.items()})
 
     raw = io.BytesIO()

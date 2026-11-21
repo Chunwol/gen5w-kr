@@ -12,9 +12,11 @@
 
 동글판에는 다른 라이선스의 바이너리가 함께 들어 있습니다.
 
-- Linux 3.18.24 USB WLAN 드라이버 및 의존 모듈(`files/modules/*.ko`): 현대모비스가 공개한 Gen5W 커널 소스(STD_G5_WIDE R7)를 V039 커널 설정으로 빌드했습니다. **GPL-2.0**.
+- Linux 3.18.24 USB WLAN 드라이버 및 의존 모듈(`files/modules/*.ko`): 현대모비스가 공개한 Gen5W 커널 소스(STD_G5_WIDE R7)를 V039 커널 설정으로 빌드했습니다. Realtek 계열 9개는 `tools/usb-wifi/targets.py`에 고정한 공개 Git 커밋과 패치로 빌드합니다. **GPL-2.0**.
 - 대리 모듈 `files/bcmdhd.ko`: 이 프로젝트가 작성했습니다(`tools/usb-wifi/bcmdhd_shim`). 커널과 맞추기 위해 이 부분만 **GPL-2.0-only**입니다.
 - 펌웨어: ath9k HTC 파일은 Debian `open-ath9k-htc-firmware`의 고정 빌드이며, 추가 드라이버 펌웨어는 Linux firmware의 고정 커밋에서 가져왔습니다. 파일별 고지·해시·라이선스 텍스트는 패키지 `licenses/`를 확인하세요.
+
+범용판(`gen5w.kr.portable`)은 같은 종류의 바이너리를 `dongle/` 폴더에 담고 라이선스 전문을 `dongle/licenses/`에 넣습니다.
 
 같은 릴리스의 `gen5w-kr-dongle-gpl-source.tar.xz`에는 우리가 제공할 부분(V039 커널 설정, 빌드 스크립트, 대리 모듈 소스)과, Linux·모비스·Debian 원본 소스의 공식 다운로드 주소와 SHA-256이 있습니다. 모비스 소스에는 Telechips가 기밀 표시한 파일도 섞여 있어 우리가 다시 올리지 않고 링크만 둡니다. 원본은 관리자가 보관하고, 주소를 쓸 수 없게 되면 서면 약속에 따라 요청한 사람에게 개별로 전달합니다(공개 저장소·릴리스에 다시 올리지 않음). 패키지에는 3.18 인커널 USB WLAN 드라이버 15계열의 빌드 산출물과 필요한 의존 모듈이 들어가며, 펌웨어 출처·라이선스·SHA-256은 `licenses/`에 기록합니다. 동글판을 다른 사람에게 줄 때는 같은 릴리스의 GPL 소스 파일도 함께 줍니다. 소스 요청은 [이슈](https://github.com/Chunwol/gen5w-kr/issues)에 제목 "GPL source request"로 남깁니다.
 

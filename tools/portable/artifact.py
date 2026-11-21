@@ -83,8 +83,9 @@ def audit(files):
     # USB Wi-Fi dongle payload: a fixed set of names under dongle/ only.
     dongle = {n for n in files if n.startswith('dongle/')}
     assert 'dongle/bcmdhd.ko' in dongle and 'dongle/modules/modules.alias' in dongle and 'dongle/modules/modules.profile' in dongle, 'dongle payload missing'
+    assert {'dongle/licenses/GPL-2.0.txt', 'dongle/licenses/GPL-SOURCE.md', 'dongle/licenses/usb-wifi-firmware-notices.md'} <= dongle, 'dongle licences missing'
     for n in dongle:
-        assert re.fullmatch(r'dongle/(bcmdhd\.ko|modules/[A-Za-z0-9_-]+\.ko|modules/modules\.(alias|profile)|firmware/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?)', n), 'unexpected dongle member: '+n
+        assert re.fullmatch(r'dongle/(bcmdhd\.ko|modules/[A-Za-z0-9_-]+\.ko|modules/modules\.(alias|profile)|licenses/[A-Za-z0-9_.-]+|firmware/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?)', n), 'unexpected dongle member: '+n
         if n.endswith('.ko'): assert files[n][:4] == b'\x7fELF', 'dongle module is not ELF: '+n
     allowed.update(dongle)
     assert set(files) <= allowed, 'unexpected shipped files: '+str(set(files)-allowed)

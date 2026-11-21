@@ -14,7 +14,7 @@ Redistributable firmware license texts are included beside it.
 | `files/firmware/lbtf_usb.bin` | `52f4279505b66108fac66f33f7729979a6bbd0b256b73186ef45a6a8029a1509` | `LICENCE.OLPC` |
 | `files/firmware/rt2870.bin` | `251b8918391eac6415d60dca239e415aad0177e885376f2a17782e64fcbbe317` | `LICENCE.ralink-firmware.txt` |
 | `files/firmware/rt73.bin` | `a57745fa55b7700ff410bc69f3630c889e46d771ac17f6c48bda1c02908116bc` | `LICENCE.ralink-firmware.txt` |
-| `files/firmware/rtlwifi/rtl8712u.bin` | `6e84ec69c300b0182c9bc8fa41e88281eeb04013c4a34c341748052c3c6a9d3d` | `LICENCE.rtlwifi_firmware.txt` |
+| `files/firmware/rtlwifi/rtl8188fufw.bin` | `e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f` | `LICENCE.rtlwifi_firmware.txt` |
 
 The two `htc_*.fw` files are separately pinned to Debian
 `open-ath9k-htc-firmware` in `ath9k-htc-firmware.txt` and

@@ -97,6 +97,9 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
             files['dongle/modules/' + source.name] = source
         for source in sorted(path for path in (dongle / 'firmware').rglob('*') if path.is_file()):
             files['dongle/firmware/' + source.relative_to(dongle / 'firmware').as_posix()] = source
+        # Firmware and GPL licences travel with the binaries they cover.
+        for source in sorted((dongle.parent / 'licenses').iterdir()):
+            files['dongle/licenses/' + source.name] = source
         # The stock-warning timer and Bluelink reminder packages, unchanged, as services.
         for name in TIMER_SCRIPTS:
             files['timer/' + name] = ROOT / 'packages/consent-timer/scripts' / name

@@ -235,7 +235,7 @@ recovery_status() {
     echo "recovery_result=$result"
 }
 collect_status() {
-    local ts relay=unknown apguard=on wired=no version= line wlan=missing backend tmp="$UI_DIR/status.tmp"
+    local ts relay=unknown apguard=on wired=no version= line wlan=missing backend dongle why tmp="$UI_DIR/status.tmp"
     ts=$(uptime_s) || ts=
     read_portable
     host=dead; host_alive && host=alive
@@ -254,12 +254,24 @@ collect_status() {
     # Chosen at install (wifi-backend.sh); earlier installs have no record.
     backend=$(small "$PSTATE/wifi-backend") || backend=unknown
     case "$backend" in builtin|dongle|none) :;; *) backend=unknown;; esac
+    # The dongle service's state counts only when written during this boot.
+    dongle=unknown
+    if [ "$backend" = dongle ]; then
+        line=$(small "$PSTATE/dongle/status") || line=
+        case "$line" in
+        "$BOOT|ready"|"$BOOT|waiting"|"$BOOT|loading"|"$BOOT|failed"|"$BOOT|blocked"|"$BOOT|2g") dongle=${line#*'|'};;
+        esac
+    fi
+    why=none
+    [ "$(small "$PSTATE/wifi-backend-why")" != 2g-only ] || why=2g-only
     {
         print -r -- "ts=$ts"
         print -r -- "boot=$BOOT"
         print -r -- "host=$host"
         print -r -- "relay=$relay"
         print -r -- "backend=$backend"
+        print -r -- "dongle=$dongle"
+        print -r -- "wifi_why=$why"
         print -r -- "version=$version"
         if plain "$DEBUG_ON" && [ -f "$DEBUG_ON" ]; then print -r -- 'sw_debug=on'; else print -r -- 'sw_debug=off'; fi
         print -r -- "apguard=$apguard"

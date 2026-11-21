@@ -76,10 +76,11 @@ def assemble(module_root: Path, report_path: Path, package: Path, firmware_root:
             if crypto_module.is_file():
                 names.append(name)
                 selected[crypto_module.name] = crypto_module
-        if item["module"] == "ath9k_htc" and extra_module_dir:
+        # The V039 kernel has no EWMA helpers, and mac80211 and rt2x00 import them.
+        if extra_module_dir and any(Path(path).name == "mac80211.ko" for path in closure):
             average = extra_module_dir / "gen5w-average.ko"
             if not average.is_file():
-                raise ValueError("ath9k_htc requires the gen5w-average helper module")
+                raise ValueError(f"{item['module']} requires the gen5w-average helper module")
             selected[average.name] = average
             names.insert(0, "gen5w-average")
         for module_path in closure:
@@ -95,7 +96,7 @@ def assemble(module_root: Path, report_path: Path, package: Path, firmware_root:
         missing = [name for name in fw if not (firmware_root / name).is_file()]
         missing_firmware.update(missing)
         bands = ",".join(sorted(item["bands"])) or "none"
-        ap = "yes" if item["ap"] else "no"
+        ap = TARGETS.profile_ap(item)
         status = "incomplete" if missing else "ready"
         if status == "ready":
             ready_profiles.add(item["module"])

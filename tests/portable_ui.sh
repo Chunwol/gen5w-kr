@@ -82,7 +82,7 @@ echo "touch $A/OLD-RECOVERY-RAN" > "$N/gen5wkr.recovery/current/recovery.sh"
 # 1. Status/log schema from portable journals and the live host.
 echo builtin > "$P/wifi-backend"
 collect
-for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.84 apguard=on wired=no sw_wireless=on \
+for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.85 apguard=on wired=no sw_wireless=on \
           sw_timer=on sw_bluelink=on sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
           wlan=present recovery_state=none recovery_available=no recovery_request=0 recovery_result=none \
           portable_enabled=1 portable_phase=healthy portable_mode=full portable_overlay=committed portable_runtime=committed portable_session=running; do
@@ -96,6 +96,14 @@ grep -q '^boot|enabled=1 phase=healthy' "$UI/log" || fail 'journal summary missi
 [ ! -e "$APP/files/status" ] && [ "$(ls "$APP/files")" = "" ] || fail 'root wrote into the app folder'
 pass 'status/log follow the StatusModel schema from portable journals; private lines dropped; root-owned 755/644'
 echo dongle > "$P/wifi-backend"; collect; expect backend dongle 'dongle backend'
+expect dongle unknown 'dongle service has not reported this boot'
+mkdir -p "$P/dongle"; echo "$BOOT|ready" > "$P/dongle/status"; collect; expect dongle ready 'dongle state this boot'
+echo "$BOOT|2g" > "$P/dongle/status"; collect; expect dongle 2g '2.4GHz-only state'
+echo "other-boot|ready" > "$P/dongle/status"; collect; expect dongle unknown 'state from an earlier boot'
+echo "$BOOT|bad" > "$P/dongle/status"; collect; expect dongle unknown 'invalid state'
+rm -rf "$P/dongle"
+echo none > "$P/wifi-backend"; echo 2g-only > "$P/wifi-backend-why"; collect; expect wifi_why 2g-only 'install reason'
+rm -f "$P/wifi-backend-why"; collect; expect wifi_why none 'no install reason'
 rm -f "$P/wifi-backend"; collect; expect backend unknown 'no backend record'
 echo usb > "$P/wifi-backend"; collect; expect backend unknown 'invalid backend record'
 echo builtin > "$P/wifi-backend"; collect

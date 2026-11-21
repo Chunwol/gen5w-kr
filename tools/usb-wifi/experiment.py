@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import tarfile
 import zipfile
-from targets import TARGETS, config_options, in_tree_targets
+from targets import LAYOUT_OPTIONS, TARGETS, config_options
 
 INPUTS = {
     "upstream": "ed54cf8c3ac6b95fc17b07b3a236bc42719c96fee08fe696cabfb5b8e07f8c1b",
@@ -96,6 +96,10 @@ def main():
     make = ["make", "-j4", "ARCH=arm", "CROSS_COMPILE=" + str(toolchain / "bin/arm-eabi-"),
             "HOSTCFLAGS=-fcommon"]
     run(make + ["olddefconfig"], "config.log")
+    prepared = config(tree / ".config")
+    drift = [name for name in LAYOUT_OPTIONS if prepared.get(name) != baseline.get(name)]
+    if drift:
+        raise ValueError("kernel struct layout would differ from V039: " + ", ".join(drift))
     run(make + ["modules_prepare"], "prepare.log")
     average = out / "average"
     average.mkdir()
@@ -103,13 +107,9 @@ def main():
     (average / "Makefile").write_text(
         "obj-m += gen5w-average.o\ngen5w-average-y := average.o metadata.o\n")
     (average / "metadata.c").write_text('#include <linux/module.h>\nMODULE_LICENSE("GPL");\n')
-    for directory, log in [(str(average), "average.log"), ("crypto", "crypto.log"),
-                           ("net/mac80211", "mac80211.log"),
-                           ("drivers/net/wireless/ath", "ath.log"),
-                           ("drivers/net/wireless", "wireless-usb.log"),
-                           ("drivers/staging/rtl8192u", "rtl8192u.log"),
-                           ("drivers/staging/rtl8712", "rtl8712.log")]:
-        run(make + ["M=" + directory, "modules"], log)
+    run(make + ["M=" + str(average), "modules"], "average.log")
+    # An in-tree build keeps the intree flag. EWMA helpers come from gen5w-average.
+    run(make + ["KBUILD_MODPOST_WARN=1", "modules"], "modules.log")
 
     paths = [tree / name for name in CORE_MODULES] + [average / "gen5w-average.ko"]
     built = {}
@@ -129,6 +129,9 @@ def main():
                 "status": "not-built-no-pinned-source",
                 "reason": "external source was not part of the Linux 3.18.24 build input",
             }
+            continue
+        if "blocked" in item:
+            target_results[symbol] = {"status": "blocked", "reason": item["blocked"]}
             continue
         requested = item["config"].removeprefix("CONFIG_")
         state = after.get("CONFIG_" + requested, "n")

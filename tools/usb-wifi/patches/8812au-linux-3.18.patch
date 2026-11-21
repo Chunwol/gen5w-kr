@@ -1,0 +1,66 @@
+diff --git a/core/rtw_debug.c b/core/rtw_debug.c
+index 22ff44f..97e3a4d 100644
+--- a/core/rtw_debug.c
++++ b/core/rtw_debug.c
+@@ -5586,6 +5586,7 @@ int proc_get_efuse_map(struct seq_file *m, void *v)
+ 	ips_mode = pwrctrlpriv->ips_mode;
+ 	rtw_pm_set_ips(padapter, IPS_NONE);
+ 
++#ifdef CONFIG_EFUSE_CONFIG_FILE
+ 	if (pHalData->efuse_file_status == EFUSE_FILE_LOADED) {
+ 		RTW_PRINT_SEL(m, "File eFuse Map loaded! file path:%s\nDriver eFuse Map From File\n", EFUSE_MAP_PATH);
+ 		if (pHalData->bautoload_fail_flag)
+@@ -5599,6 +5600,11 @@ int proc_get_efuse_map(struct seq_file *m, void *v)
+ 		if (pHalData->bautoload_fail_flag)
+ 			RTW_PRINT_SEL(m, "HW Autoload fail!!!\n");
+ 	}
++#else
++	RTW_PRINT_SEL(m, "Driver eFuse Map From HW\n");
++	if (pHalData->bautoload_fail_flag)
++		RTW_PRINT_SEL(m, "HW Autoload fail!!!\n");
++#endif
+ 	for (i = 0; i < mapLen; i += 16) {
+ 		RTW_PRINT_SEL(m, "0x%02x\t", i);
+ 		for (j = 0; j < 8; j++)
+diff --git a/os_dep/linux/ioctl_cfg80211.c b/os_dep/linux/ioctl_cfg80211.c
+index ec47e95..087b764 100644
+--- a/os_dep/linux/ioctl_cfg80211.c
++++ b/os_dep/linux/ioctl_cfg80211.c
+@@ -1195,6 +1195,14 @@ check_bss:
+ 		#endif
+ 
+ 		if (check_fwstate(pmlmepriv, WIFI_MONITOR_STATE) != _TRUE) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0)
++			cfg80211_connect_result(wdev_to_ndev(pwdev), cur_network->network.MacAddress
++				, pmlmepriv->assoc_req + sizeof(struct rtw_ieee80211_hdr_3addr) + 2
++				, pmlmepriv->assoc_req_len - sizeof(struct rtw_ieee80211_hdr_3addr) - 2
++				, pmlmepriv->assoc_rsp + sizeof(struct rtw_ieee80211_hdr_3addr) + 6
++				, pmlmepriv->assoc_rsp_len - sizeof(struct rtw_ieee80211_hdr_3addr) - 6
++				, WLAN_STATUS_SUCCESS, GFP_ATOMIC);
++#else
+                         struct cfg80211_bss *bss;
+                         bss = cfg80211_get_bss(pwdev->wiphy, NULL, cur_network->network.MacAddress, NULL, 0,
+                                 IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
+@@ -1212,8 +1220,9 @@ check_bss:
+                                 , pmlmepriv->assoc_req_len - sizeof(struct rtw_ieee80211_hdr_3addr) - 2
+                                 , pmlmepriv->assoc_rsp + sizeof(struct rtw_ieee80211_hdr_3addr) + 6
+                                 , pmlmepriv->assoc_rsp_len - sizeof(struct rtw_ieee80211_hdr_3addr) - 6
+-                                , WLAN_STATUS_SUCCESS, GFP_ATOMIC);
++				, WLAN_STATUS_SUCCESS, GFP_ATOMIC);
+ 		#endif
++#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0) */
+                 }
+ 		#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 11, 0) || defined(COMPAT_KERNEL_RELEASE)
+ 		RTW_INFO("pwdev->sme_state(a)=%d\n", pwdev->sme_state);
+diff --git a/os_dep/linux/os_intfs.c b/os_dep/linux/os_intfs.c
+index 9c5d377..8c8b91f 100644
+--- a/os_dep/linux/os_intfs.c
++++ b/os_dep/linux/os_intfs.c
+@@ -2796,6 +2796,7 @@ static int netdev_vir_if_close(struct net_device *pnetdev)
+ #endif
+ 
+ #ifdef CONFIG_IOCTL_CFG80211
++	struct wireless_dev *wdev = padapter->rtw_wdev;
+ 	wdev->iftype = NL80211_IFTYPE_MONITOR;
+ 	wdev->current_bss = NULL;
+ 	rtw_scan_abort(padapter);

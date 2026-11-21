@@ -337,7 +337,7 @@ public final class MainActivity extends Activity {
         section(page, "이 화면에서 바꿀 수 없는 것");
         row(page, "오디오 모듈", "설치 / 제거로만", DIM);
         row(page, "주행 기록", "USB 키트가 필요", DIM);
-        row(page, "Wi-Fi 동글", model.backend().equals("dongle") ? "동글 방식으로 설치됨 (설치 때 정함)" : "해당 없음 (이 차는 내장 Wi-Fi)", DIM);
+        row(page, "Wi-Fi 동글", model.dongleText(), DIM);
     }
 
     /** Sends the three switch states to the collector. Runs off the main thread. */
@@ -657,8 +657,9 @@ public final class MainActivity extends Activity {
         note(page, "Android Auto는 순정 무선 지원과 등록이 필요합니다. CarPlay 전용 중계는 적용되지 않습니다.");
         section(page, "설치");
         row(page, "설치 버전", model.bridgeVersion().length() > 0 ? "v" + model.bridgeVersion() : "확인 못 함", TEXT);
-        String backend = model.backend();
-        row(page, "Wi-Fi 방식", backend.equals("builtin") ? "내장 Wi-Fi" : backend.equals("dongle") ? "USB 동글" : "확인 못 함", TEXT);
+        row(page, "Wi-Fi 방식", model.wifiTypeText(), model.backend().equals("none") ? WARN : TEXT);
+        if (model.backend().equals("dongle") || model.backend().equals("none"))
+            row(page, "Wi-Fi 동글", model.dongleText(), stale ? DIM : model.dongle().equals("ready") ? OK : WARN);
     }
 
     private String adbHealthText() {

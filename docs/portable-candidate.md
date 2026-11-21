@@ -419,6 +419,20 @@ framework maintenance. The final individual readiness/ABI call has its own
 still returns77; seal and other failures remain fatal. No stopped-framework
 transaction deadline is extended by these read-only retries.
 
+## Changes 0.3.85 (2026-11-22, vehicle and real-dongle unverified)
+
+- **USB Wi-Fi drivers rebuilt on the V039 layout.** The kernel has no
+  `WIRELESS_EXT`; the build now refuses a tree that enables it. Drivers that
+  need it (`r8712u`, `usb8xxx`, `zd1201`) are gone.
+- **Only 5 GHz dongles are used.** The stock hotspot runs on channel 149, so
+  the five Realtek 5 GHz families carry a Korean channel plan. A 2.4 GHz-only
+  dongle is not loaded and the car says why.
+- **The Wi-Fi result is visible.** The installer shows it as its own toast
+  before rebooting. The in-car app shows the Wi-Fi type and the dongle state
+  (`dongle.sh` writes `<boot id>|<state>`; `ui.sh` trusts this boot only).
+- **Licences ship in `dongle/licenses/`.** Modules are built from a neutral
+  path so they carry no builder home directory.
+
 ## Changes 0.3.78-0.3.81 (2026-11-19/20, vehicle-unverified)
 
 - **Dalvik inputs are digest-gated.** `candidate.py --runtime` refuses Dalvik

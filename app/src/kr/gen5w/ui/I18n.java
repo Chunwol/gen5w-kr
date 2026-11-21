@@ -108,6 +108,15 @@ public final class I18n {
         add("Wi-Fi 동글", "Wi-Fi dongle");
         add("동글 방식으로 설치됨 (설치 때 정함)", "Installed in dongle mode (chosen at install)");
         add("해당 없음 (이 차는 내장 Wi-Fi)", "Not applicable (this car has built-in Wi-Fi)");
+        add("없음 (무선 사용 불가)", "None (wireless unavailable)");
+        add("2.4GHz 전용 동글. 5GHz 동글로 다시 설치하세요", "2.4 GHz-only dongle. Reinstall with a 5 GHz dongle");
+        add("지원 동글 없음. 5GHz 동글을 꽂고 다시 설치하세요", "No supported dongle. Plug in a 5 GHz dongle and reinstall");
+        add("연결됨", "Connected");
+        add("5GHz 지원 동글을 꽂아 주세요", "Plug in a 5 GHz dongle");
+        add("드라이버 준비 중", "Preparing driver");
+        add("드라이버 실패. 동글을 뽑았다 다시 꽂으세요", "Driver failed. Unplug and replug the dongle");
+        add("재시작 보호로 멈춤. 동글을 뽑았다 다시 꽂으세요", "Stopped by restart guard. Unplug and replug the dongle");
+        add("2.4GHz 전용 동글. 5GHz 동글을 꽂아 주세요", "2.4 GHz-only dongle. Plug in a 5 GHz dongle");
         // Manage
         add("전체 제거", "Remove everything");
         add("제거하는 중입니다", "Removing");

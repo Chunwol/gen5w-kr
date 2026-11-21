@@ -53,7 +53,7 @@ cat > "$W/bin/hostapd" <<EOF
 #!/bin/sh
 [ "\$1" = -B ] && [ "\$2" = -P ] || exit 2
 pidfile=\$3; config=\$4
-grep -q '^channel=36$' "\$config" || grep -q '^channel=1$' "\$config" || exit 3
+grep -q '^channel=149$' "\$config" || grep -q '^channel=1$' "\$config" || exit 3
 grep -q '^ssid=GEN5W-DONGLE-TEST$' "\$config" || exit 4
 grep -q '^ctrl_interface=' "\$config" || exit 5
 (sleep 120) >/dev/null 2>&1 &
@@ -63,7 +63,7 @@ EOF
 cat > "$W/bin/hostapd_cli" <<EOF
 #!/bin/sh
 [ "\$2" = "$W/data/nemesis/gen5w-dongle-test-ctrl" ] || exit 2
-if [ "\$3" = status ]; then [ "\$MOCK_AP_DISABLED" = 1 ] && echo 'state=DISABLED' || echo 'state=ENABLED'; echo "freq=\${MOCK_AP_FREQ:-5180}"; exit 0; fi
+if [ "\$3" = status ]; then [ "\$MOCK_AP_DISABLED" = 1 ] && echo 'state=DISABLED' || echo 'state=ENABLED'; echo "freq=\${MOCK_AP_FREQ:-5745}"; exit 0; fi
 [ "\$3" = all_sta ] || exit 2
 [ -f "$W/stations" ] && echo 'Station aa:bb:cc:dd:ee:ff' || true
 EOF
@@ -109,8 +109,9 @@ check 'AP start rejects a radio that reports 2.4GHz for the 5GHz test' eval '! m
 check 'wrong-band AP attempt removes its process marker' test ! -e "$W/data/nemesis/gen5w-dongle-test-hostapd.pid"
 unset MOCK_AP_FREQ
 check 'test AP starts on a 5 GHz channel' mksh tools/usb-wifi/package/bin/dongle-test.sh ap-start
-check 'report confirms observed 5 GHz AP frequency' grep -q 'AP channel=36 frequency=5180 (5GHz confirmed' "$W/data/test.log"
-check 'AP config requests WPA2 and channel 36' grep -q '^wpa=2$' "$W/data/nemesis/gen5w-dongle-test-hostapd.conf"
+check 'report confirms observed 5 GHz AP frequency' grep -q 'AP channel=149 frequency=5745 (5GHz confirmed' "$W/data/test.log"
+check 'AP config requests WPA2' grep -q '^wpa=2$' "$W/data/nemesis/gen5w-dongle-test-hostapd.conf"
+check 'AP config uses the stock hotspot channel 149' grep -q '^channel=149$' "$W/data/nemesis/gen5w-dongle-test-hostapd.conf"
 check 'AP test uses conservative legacy 5 GHz mode' test "$(grep -c '^ieee80211n=' "$W/data/nemesis/gen5w-dongle-test-hostapd.conf")" = 0
 check 'AP test does not report a phone before association' eval '! mksh tools/usb-wifi/package/bin/dongle-test.sh ap-status'
 printf 'Station aa:bb:cc:dd:ee:ff (on wlan0)\n\tauthorized: yes\n' > "$W/stations"
@@ -128,9 +129,11 @@ check 'AP process stopped' eval '! kill -0 "$AP_PID" 2>/dev/null'
 echo 0cf3 > "$W/sys/bus/usb/devices/1-1/idVendor"; echo 9271 > "$W/sys/bus/usb/devices/1-1/idProduct"
 echo 'usb:v0CF3p9271d0000dc00dsc00dp00ic00isc00ip00in00' > "$W/sys/bus/usb/devices/1-1/modalias"
 export DONGLE_TEST_BOUND_DRIVER=ath9k_htc
+sed -i 's/^\(ath9k_htc|.*\)|yes|ready$/\1|2g|ready/' "$W/mods/modules.profile"
 check '2.4GHz-only AR9271 starts in dongle diagnostic mode' mksh tools/usb-wifi/package/bin/dongle-test.sh start ath9k_htc
+check '2.4GHz-only driver refuses the 5GHz stock-channel AP test' eval '! mksh tools/usb-wifi/package/bin/dongle-test.sh ap-start 5g'
 check 'AP test rejects an unsupported band selector' eval '! mksh tools/usb-wifi/package/bin/dongle-test.sh ap-start 6g'
-export MOCK_AP_FREQ=5180
+export MOCK_AP_FREQ=5745
 check '2.4GHz AP test rejects a radio reporting 5GHz' eval '! mksh tools/usb-wifi/package/bin/dongle-test.sh ap-start 2g'
 check 'wrong-band 2.4GHz AP attempt removes its process marker' test ! -e "$W/data/nemesis/gen5w-dongle-test-hostapd.pid"
 export MOCK_AP_FREQ=2412 MOCK_AP_CHANNEL=1
@@ -144,6 +147,7 @@ check '2.4GHz station is reported as association only' mksh tools/usb-wifi/packa
 check '2.4GHz association report names its band' grep -q 'AP station=associated band=2.4GHz channel=1' "$W/data/test.log"
 check '2.4GHz test mode cleanup succeeds' mksh tools/usb-wifi/package/bin/dongle-test.sh stop
 unset DONGLE_TEST_BOUND_DRIVER MOCK_AP_FREQ MOCK_AP_CHANNEL
+sed -i 's/^\(ath9k_htc|.*\)|2g|ready$/\1|yes|ready/' "$W/mods/modules.profile"
 echo 1b75 > "$W/sys/bus/usb/devices/1-1/idVendor"; echo 9170 > "$W/sys/bus/usb/devices/1-1/idProduct"
 echo 'usb:v1B75p9170d0000dc00dsc00dp00ic00isc00ip00in00' > "$W/sys/bus/usb/devices/1-1/modalias"
 export DONGLE_TEST_BOUND_DRIVER=carl9170

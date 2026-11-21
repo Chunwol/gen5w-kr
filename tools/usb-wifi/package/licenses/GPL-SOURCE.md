@@ -4,11 +4,11 @@
 
 | 파일 | 출처 | 라이선스 |
 |---|---|---|
-| `files/modules/*.ko` (15 USB WLAN drivers and their 32 kernel/helper modules) | Linux 3.18.24 + 현대모비스 Gen5W 공개 커널 소스(STD_G5_WIDE R7)를 V039 커널 설정으로 빌드 | GPL-2.0 (ath 계열 일부 Dual BSD/GPL) |
+| `files/modules/*.ko` (21 USB WLAN drivers and their 37 kernel/helper modules) | Linux 3.18.24 + 현대모비스 Gen5W 공개 커널 소스(STD_G5_WIDE R7)를 V039 커널 설정으로 빌드. Realtek 계열 9개는 `tools/usb-wifi/targets.py`에 고정한 공개 Git 커밋으로 빌드 | GPL-2.0 (ath 계열 일부 Dual BSD/GPL) |
 | `files/bcmdhd.ko` | 이 프로젝트가 작성한 대리 모듈(`tools/usb-wifi/bcmdhd_shim`) | GPL-2.0-only |
 | `files/firmware/*` | ath9k HTC, Linux-firmware, Atmel, and ZD1211 firmware sources | Per-file origins, hashes, and license text are in `ath9k-htc-firmware.txt`, `usb-wifi-firmware-notices.md`, `linux-firmware-WHENCE`, and adjacent `LICENCE.*` files |
 
-`modules.profile`는 빌드된 15개 USB WLAN 계열을 기록합니다. 펌웨어가 완비된 10개는 설치 시 자동 로딩 후보이고, 나머지 5개는 미완비로 표시됩니다. USB modalias는 15개 모두 기록해 `dongle-test.sh start auto`에서 미완비 프로필도 명시적으로 진단할 수 있지만, 설치 자동 감지와 부팅 로더는 미완비 프로필을 거부합니다.
+`modules.profile`는 빌드된 21개 USB WLAN 계열을 기록합니다. 펌웨어가 완비된 18개 중 순정 5GHz 핫스팟을 열 수 있는 5개만 범용판이 자동으로 고르고, 나머지 3개는 미완비로 표시됩니다. USB modalias는 21개 모두 기록해 `dongle-test.sh start auto`에서 미완비 프로필도 명시적으로 진단할 수 있지만, 설치 자동 감지와 부팅 로더는 미완비 프로필을 거부합니다.
 
 라이선스 전문: `GPL-2.0.txt`(GPL 2판), `ath9k-htc-firmware.txt`, `usb-wifi-firmware-notices.md`, `linux-firmware-WHENCE` 및 각 `LICENCE.*` 파일.
 

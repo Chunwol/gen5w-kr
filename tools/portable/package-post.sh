@@ -16,6 +16,7 @@ backend=$("$SH" "$BASE/wifi-backend.sh" detect) || {
     exit 1
 }
 echo "portable install: Wi-Fi $backend"
+wifi_reason=${backend#*'|'}
 backend=${backend%%'|'*}
 case "$backend" in
 dongle) features='bt dipo gpm hotspot audio projection dongle';;
@@ -42,7 +43,7 @@ esac
 : > "$NEMESIS_STATE/gen5wkr.debug-on" && chmod 644 "$NEMESIS_STATE/gen5wkr.debug-on" || exit 1
 "$SH" "$BASE/persistent-start.sh" verify || exit 1
 # Read by the dongle service and the in-car screen; before startup is enabled.
-"$SH" "$BASE/wifi-backend.sh" record "$backend" || exit 1
+"$SH" "$BASE/wifi-backend.sh" record "$backend" "$wifi_reason" || exit 1
 # Install the pre-zygote boot guard outside the package so uninstall cannot
 # remove it while the /system hook line is still present.
 GUARD=$TEST_ROOT/data/local/gen5w-portable/persistent/bootguard

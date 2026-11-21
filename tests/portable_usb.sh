@@ -144,6 +144,27 @@ grep -q 'persistent-payload-and-recovery-verified' "$t/usb/GEN5W-PORTABLE-REPORT
 grep -q TOAST "$ACTIONS/toast"
 echo 'PASS verified ZIP staged, NEMESIS install, staged copy removed, status/baseline recorded'
 
+# The larger dongle payload must be refused before any change when /data is short.
+fake_df() { printf '#!/bin/sh\necho "Filesystem Size Used Free Blksize"\necho "/data 1.9G 1.8G %s 4096"\n' "$1" > "$t/df-fake"; chmod +x "$t/df-fake"; }
+for free in 63.9M 512.0K; do
+    new_case; fake_df "$free"
+    if PORTABLE_TEST_DF=$t/df-fake run; then echo "FAIL installed with $free free on /data"; exit 1; fi
+    [ "$(result)" = '결과: refused' ] || { echo "FAIL $free was not refused"; exit 1; }
+    grep -q '여유 공간' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+    [ ! -e "$t/root/data/gen5w.kr.portable.zip" ]
+    if grep -q '^install ' "$ACTIONS/log" 2>/dev/null; then echo "FAIL install ran with $free free"; exit 1; fi
+done
+for free in 64.0M 1.9G; do
+    new_case; fake_df "$free"
+    PORTABLE_TEST_DF=$t/df-fake run
+    [ "$(result)" = '결과: ok' ] || { echo "FAIL $free free was refused"; exit 1; }
+done
+new_case; printf '#!/bin/sh\necho "/data ? ? unknown 4096"\n' > "$t/df-fake"
+PORTABLE_TEST_DF=$t/df-fake run
+[ "$(result)" = '결과: ok' ] || { echo 'FAIL unreadable df blocked the install'; exit 1; }
+grep -q 'data free MB: unknown' "$t/usb/GEN5W-PORTABLE-REPORT/LOG.txt"
+echo 'PASS short /data refused before any change; unreadable df left to later checks'
+
 # A hung system_server (am never returns) must not stall the installer.
 new_case
 printf '#!/bin/sh\nexec sleep 600\n' > "$t/am-hang"; chmod +x "$t/am-hang"
@@ -358,11 +379,17 @@ new_case; echo dongle > "$ACTIONS/wifi"; : > "$t/usb/GEN5W-FORCE-DONGLE"
 run
 [ "$(result)" = '결과: ok' ] && grep -qx force-dongle-seen "$ACTIONS/log"
 grep -q 'USB Wi-Fi 동글 방식으로 설치했습니다' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+grep -q 'alert: Wi-Fi: USB Wi-Fi 동글 방식' "$t/usb/GEN5W-PORTABLE-REPORT/LOG.txt"
 new_case; echo builtin > "$ACTIONS/wifi"; mkdir -p "$t/root/data/nemesis"; : > "$t/root/data/nemesis/gen5wkr.force-dongle"
 run
 [ "$(result)" = '결과: ok' ] && ! grep -q force-dongle-seen "$ACTIONS/log"
 grep -q '내장 Wi-Fi를 씁니다' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+grep -q 'alert: Wi-Fi: 내장 Wi-Fi를 씁니다' "$t/usb/GEN5W-PORTABLE-REPORT/LOG.txt"
 new_case; echo none > "$ACTIONS/wifi"
 run
 grep -q '무선 CarPlay는 동작하지 않습니다' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
-echo 'PASS USB installer passes GEN5W-FORCE-DONGLE once and reports the chosen Wi-Fi'
+grep -q 'alert: Wi-Fi: 내장 Wi-Fi와 지원 동글을 찾지 못해' "$t/usb/GEN5W-PORTABLE-REPORT/LOG.txt"
+new_case; echo none > "$ACTIONS/wifi"; mkdir -p "$t/root/data/local/gen5w-portable"; echo 2g-only > "$t/root/data/local/gen5w-portable/wifi-backend-why"
+run
+grep -q 'alert: Wi-Fi: 꽂힌 USB 동글이 2.4GHz 전용' "$t/usb/GEN5W-PORTABLE-REPORT/LOG.txt"
+echo 'PASS USB installer passes GEN5W-FORCE-DONGLE once and shows the chosen Wi-Fi on screen and in the report'

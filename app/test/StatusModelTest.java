@@ -26,6 +26,20 @@ public final class StatusModelTest {
         same("host", "alive", ok.host());
         same("relay", "on", ok.relay());
         same("backend", "builtin", ok.backend());
+        same("built-in type", "내장 Wi-Fi", ok.wifiTypeText());
+        same("built-in needs no dongle", "해당 없음 (이 차는 내장 Wi-Fi)", ok.dongleText());
+        StatusModel noWifi = StatusModel.parse(l("backend=none", "wifi_why=none"), null, 1000);
+        same("no Wi-Fi is not called unknown", "없음 (무선 사용 불가)", noWifi.wifiTypeText());
+        same("no Wi-Fi is not called built-in", "지원 동글 없음. 5GHz 동글을 꽂고 다시 설치하세요", noWifi.dongleText());
+        same("2.4 GHz-only install says why", "2.4GHz 전용 동글. 5GHz 동글로 다시 설치하세요",
+                StatusModel.parse(l("backend=none", "wifi_why=2g-only"), null, 1000).dongleText());
+        same("unknown backend stays unknown", "확인 못 함", StatusModel.parse(l("backend=x"), null, 1000).dongleText());
+        same("dongle connected", "연결됨", StatusModel.parse(l("backend=dongle", "dongle=ready"), null, 1000).dongleText());
+        same("dongle waiting", "5GHz 지원 동글을 꽂아 주세요", StatusModel.parse(l("backend=dongle", "dongle=waiting"), null, 1000).dongleText());
+        same("dongle failed", "드라이버 실패. 동글을 뽑았다 다시 꽂으세요", StatusModel.parse(l("backend=dongle", "dongle=failed"), null, 1000).dongleText());
+        same("dongle blocked", "재시작 보호로 멈춤. 동글을 뽑았다 다시 꽂으세요", StatusModel.parse(l("backend=dongle", "dongle=blocked"), null, 1000).dongleText());
+        same("dongle 2.4 GHz", "2.4GHz 전용 동글. 5GHz 동글을 꽂아 주세요", StatusModel.parse(l("backend=dongle", "dongle=2g"), null, 1000).dongleText());
+        same("edition without a dongle state", "동글 방식으로 설치됨 (설치 때 정함)", StatusModel.parse(l("backend=dongle", "dongle=bad"), null, 1000).dongleText());
         same("wlan unknown without the key", "unknown", ok.wlan());
         same("wlan present", "present", StatusModel.parse(l("ts=1000", "wlan=present"), null, 1010).wlan());
         same("wlan missing", "missing", StatusModel.parse(l("ts=1000", "wlan=missing"), null, 1010).wlan());

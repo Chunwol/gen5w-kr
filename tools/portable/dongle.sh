@@ -26,6 +26,7 @@ S=$ROOT/data/local/gen5w-portable
 STATE=$S/dongle
 MARK=$STATE/loading
 BLOCK=$STATE/blocked
+STATUS=$STATE/status
 LOGDIR=$ROOT/data/nemesis/logs/gen5w.kr.portable
 LOG=$LOGDIR/dongle.log
 MODS=$BASE/dongle/modules
@@ -85,8 +86,16 @@ round() { # loop bound for fixtures only
 [ "$(small "$S/wifi-backend")" = dongle ] || exit 0
 [ "$(small "$S/boot/enabled")" = 1 ] || { echo 'dongle: automatic startup is disabled'; exit 0; }
 plain "$MODS/modules.alias" && plain "$MODS/modules.profile" && [ -f "$MODS/modules.alias" ] && [ -f "$MODS/modules.profile" ] || { log 'FAIL driver catalog missing'; exit 1; }
-plain "$STATE" && plain "$MARK" && plain "$BLOCK" || exit 1
+plain "$STATE" && plain "$MARK" && plain "$BLOCK" && plain "$STATUS" || exit 1
 mkdir -p "$STATE" || exit 1
+# For the in-car screen: "<boot id>|<state>", written only when the state changes.
+BOOT_ID=
+{ IFS= read -r BOOT_ID < "$ROOT/proc/sys/kernel/random/boot_id"; } 2>/dev/null || BOOT_ID=
+shown=
+show() {
+    [ "$1" != "$shown" ] || return 0
+    print -r -- "$BOOT_ID|$1" > "$STATUS.new" && mv "$STATUS.new" "$STATUS" && shown=$1 || rm -f "$STATUS.new"
+}
 
 # Same match keys as wifi-backend.sh: interface modalias, then device IDs.
 usb_modaliases() {
@@ -105,8 +114,10 @@ usb_modaliases() {
 # Sets PROFILE_MODULES/PROFILE_FIRMWARE for a ready AP-capable profile with every file present.
 profile() {
     local wanted=$1 driver modules firmware bands ap status item
+    PROFILE_AP=
     while IFS='|' read -r driver modules firmware bands ap status; do
         [ "$driver" = "$wanted" ] || continue
+        [ "$status" = ready ] && PROFILE_AP=$ap
         [ "$status" = ready ] && [ "$ap" = yes ] && [ -n "$modules" ] || return 1
         for item in $modules; do plain "$MODS/$item.ko" && [ -f "$MODS/$item.ko" ] || return 1; done
         for item in $firmware; do plain "$FIRMWARE/$item" && [ -f "$FIRMWARE/$item" ] || return 1; done
@@ -115,15 +126,21 @@ profile() {
     done < "$MODS/modules.profile"
     return 1
 }
-# Prints the driver for the first plugged-in supported dongle.
+# Prints the driver for the first plugged-in supported dongle. A dongle that can
+# run an AP only on 2.4 GHz is not used (the stock hotspot is 5 GHz channel 149);
+# it is left in ONLY_2G so the service can say why nothing starts.
 find_driver() {
     local list modalias kind pattern module
+    ONLY_2G=
     list=$(usb_modaliases)
     while IFS= read -r modalias; do
         [ -n "$modalias" ] || continue
         while read -r kind pattern module; do
             [ "$kind" = alias ] || continue
-            case "$modalias" in $pattern) profile "$module" && { print -r -- "$module"; return 0; };; esac
+            case "$modalias" in $pattern)
+                profile "$module" && { print -r -- "$module"; return 0; }
+                [ "$PROFILE_AP" != 2g ] || ONLY_2G=$module;;
+            esac
         done < "$MODS/modules.alias"
     done <<EOF
 $list
@@ -182,9 +199,16 @@ if [ -e "$MARK" ] || [ -L "$MARK" ]; then
     op toast 'USB Wi-Fi 동글 드라이버를 올리던 중 재시작되어 동글 사용을 멈췄습니다. 동글을 뽑았다 다시 꽂으면 한 번 다시 시도합니다.'
 fi
 set_firmware_path || :
-fail_count=0; stable=0
+fail_count=0; stable=0; noted_2g=
 while round; do
     present=0; find_driver >/dev/null && present=1
+    if [ "$present" = 1 ] || [ -z "$ONLY_2G" ]; then
+        noted_2g=
+    elif [ "$noted_2g" != "$ONLY_2G" ]; then
+        noted_2g=$ONLY_2G
+        log "NOT USED $ONLY_2G: access point on 2.4GHz only; the stock hotspot needs 5GHz channel 149"
+        op toast 'USB Wi-Fi 동글이 2.4GHz 전용이라 무선 연결을 켤 수 없습니다. 5GHz를 지원하는 동글을 사용하세요.'
+    fi
     # Unplugging the dongle clears the block; the next attachment tries once more.
     if [ "$present" = 0 ]; then
         fail_count=0
@@ -202,5 +226,11 @@ while round; do
     elif [ "$present" = 1 ] && [ "$held" = 0 ] && [ ! -e "$BLOCK" ] && [ "$fail_count" -lt "$MAX_RETRIES" ]; then
         if load; then fail_count=0; else fail_count=$((fail_count + 1)); fi
     fi
+    if have_wlan; then show ready
+    elif [ -e "$BLOCK" ] || [ "$held" = 1 ]; then show blocked
+    elif [ "$present" = 1 ] && [ "$fail_count" -ge "$MAX_RETRIES" ]; then show failed
+    elif [ "$present" = 1 ]; then show loading
+    elif [ -n "$ONLY_2G" ]; then show 2g
+    else show waiting; fi
     op sleep 2
 done

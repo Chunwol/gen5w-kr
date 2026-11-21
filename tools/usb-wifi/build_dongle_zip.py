@@ -31,6 +31,8 @@ FIRMWARE_SHA256 = {
     'zd1211/zd1211b_ub': 'a4e2bda754923da656881db7498f2e4846cf44b3699a788a373357e049efbbbf',
     'zd1211/zd1211b_uphr': 'c2589e2d761a72a88fda208a255bc9eeb6fab35b9f9127165cfb3290b9ede104',
     'zd1211/zd1211b_ur': '7bd68cb61b503e4c2ce00dedac509c649e8deb5bf47640becef7c0eed6646633',
+    # Unchanged from linux-firmware (see usb-wifi-firmware-notices.md).
+    'rtlwifi/rtl8188fufw.bin': 'e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f',
 }
 
 def build_dongle_zip(pkg_dir: Path, out_zip: Path):

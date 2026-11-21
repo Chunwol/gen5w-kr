@@ -23,7 +23,30 @@ public final class StatusModel {
     private final String saved; // "<number>:<usb|nousb|fail|working|none>"
     private boolean portable, portableDisabled;
     private String swDebug = UNKNOWN;
+    private String dongle = UNKNOWN;
+    private boolean twoGhzOnly;
     public String switchDebug() { return swDebug; }
+    /** The dongle service's state this boot: ready, waiting, loading, failed, blocked, 2g or unknown. */
+    public String dongle() { return dongle; }
+    /** The Wi-Fi this install chose, as shown on the screen. */
+    public String wifiTypeText() {
+        if (backend.equals("builtin")) return "내장 Wi-Fi";
+        if (backend.equals("dongle")) return "USB 동글";
+        return backend.equals("none") ? "없음 (무선 사용 불가)" : "확인 못 함";
+    }
+    /** What the driver needs from the user right now, in the words the screen shows. */
+    public String dongleText() {
+        if (backend.equals("builtin")) return "해당 없음 (이 차는 내장 Wi-Fi)";
+        if (backend.equals("none")) return twoGhzOnly ? "2.4GHz 전용 동글. 5GHz 동글로 다시 설치하세요" : "지원 동글 없음. 5GHz 동글을 꽂고 다시 설치하세요";
+        if (!backend.equals("dongle")) return "확인 못 함";
+        if (dongle.equals("ready")) return "연결됨";
+        if (dongle.equals("waiting")) return "5GHz 지원 동글을 꽂아 주세요";
+        if (dongle.equals("loading")) return "드라이버 준비 중";
+        if (dongle.equals("failed")) return "드라이버 실패. 동글을 뽑았다 다시 꽂으세요";
+        if (dongle.equals("blocked")) return "재시작 보호로 멈춤. 동글을 뽑았다 다시 꽂으세요";
+        if (dongle.equals("2g")) return "2.4GHz 전용 동글. 5GHz 동글을 꽂아 주세요";
+        return "동글 방식으로 설치됨 (설치 때 정함)";
+    }
     public boolean portable() { return portable; }
     public boolean portableRemovalDone() { return portable && portableDisabled && removed.matches("[0-9]+:done"); }
     private RecoveryStatus recovery = RecoveryStatus.parse(null);
@@ -79,6 +102,9 @@ public final class StatusModel {
         parsed.portable = "0".equals(value(statusLines, "portable_enabled")) || "1".equals(value(statusLines, "portable_enabled"));
         parsed.recovery = RecoveryStatus.parse(statusLines);
         parsed.swDebug = choice(value(statusLines, "sw_debug"), "on", "off");
+        String dongle = value(statusLines, "dongle");
+        parsed.dongle = dongle.matches("ready|waiting|loading|failed|blocked|2g") ? dongle : UNKNOWN;
+        parsed.twoGhzOnly = "2g-only".equals(value(statusLines, "wifi_why"));
         return parsed;
     }
 

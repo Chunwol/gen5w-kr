@@ -71,9 +71,13 @@ find_device() {
 }
 bound_driver() {
     [ -n "${DONGLE_TEST_BOUND_DRIVER:-}" ] && { echo "$DONGLE_TEST_BOUND_DRIVER"; return 0; }
-    d=$(readlink "$SYS/class/net/$IFACE/device/driver" 2>/dev/null) || return 1
+    # Vendor drivers register a USB driver name that differs from their module name.
+    d=$(readlink "$SYS/class/net/$IFACE/device/driver/module" 2>/dev/null) ||
+        d=$(readlink "$SYS/class/net/$IFACE/device/driver" 2>/dev/null) || return 1
     echo "${d##*/}"
 }
+module_key() { case "$1" in *-*) echo "${1%%-*}_${1#*-}";; *) echo "$1";; esac; }
+is_selected() { [ -n "$1" ] && [ "$(module_key "$1")" = "$(module_key "$SELECTED")" ]; }
 report_state() {
     [ ! -L "$REPORT" ] || fail 'report path is a symlink'
     {
@@ -85,7 +89,7 @@ report_state() {
             read_ap_channel || AP_CHANNEL=unknown
             case "$AP_CHANNEL" in
                 1) echo 'AP channel=1 (2.4GHz configured; AP and phone association only)' ;;
-                36) echo 'AP channel=36 (5GHz configured; hostapd start is radio acceptance)' ;;
+                149) echo 'AP channel=149 (5GHz configured, as the stock hotspot; hostapd start is radio acceptance)' ;;
                 *) echo "AP channel=$AP_CHANNEL (configured; hostapd start is radio acceptance)" ;;
             esac
         fi
@@ -174,15 +178,15 @@ case "${1:-}" in
         : > "$LOADED" || { set_test 0; fail 'cannot create module journal'; }
         for module in $MODULES; do load_one "$module" || { cleanup_start_failure || fail "module load failed: $module; cleanup incomplete and automatic loader hold retained"; set_test 0 || fail 'module load failed and diagnostic hold could not be cleared'; fail "module load failed: $module"; }; done
         n=0; bound=
-        while [ "$n" -lt "${DONGLE_TEST_WAIT:-8}" ]; do bound=$(bound_driver 2>/dev/null || true); [ "$bound" = "$SELECTED" ] && break; sleep 1; n=$((n+1)); done
-        [ "$bound" = "$SELECTED" ] || { cleanup_start_failure || fail "interface not bound to $SELECTED (observed ${bound:-none}); cleanup incomplete and automatic loader hold retained"; set_test 0 || fail 'interface bind failed and diagnostic hold could not be cleared'; fail "interface not bound to $SELECTED (observed ${bound:-none})"; }
+        while [ "$n" -lt "${DONGLE_TEST_WAIT:-8}" ]; do bound=$(bound_driver 2>/dev/null || true); is_selected "$bound" && break; sleep 1; n=$((n+1)); done
+        is_selected "$bound" || { cleanup_start_failure || fail "interface not bound to $SELECTED (observed ${bound:-none}); cleanup incomplete and automatic loader hold retained"; set_test 0 || fail 'interface bind failed and diagnostic hold could not be cleared'; fail "interface not bound to $SELECTED (observed ${bound:-none})"; }
         echo "$SELECTED" > "$NEM/gen5w-dongle-test-driver"
         report_state; say "READY: $SELECTED on $USB_ID; start AP test explicitly" ;;
     ap-start)
         [ "$#" -le 2 ] || fail 'usage: dongle-test.sh ap-start [2g|5g]'
         BAND=${2:-5g}
         case "$BAND" in
-            5g) HWMODE=a; CHANNEL=36; EXPECTED_FREQ=5180; BAND_LABEL=5GHz ;;
+            5g) HWMODE=a; CHANNEL=149; EXPECTED_FREQ=5745; BAND_LABEL=5GHz ;;
             2g) HWMODE=g; CHANNEL=1; EXPECTED_FREQ=2412; BAND_LABEL=2.4GHz ;;
             *) fail 'usage: dongle-test.sh ap-start [2g|5g]' ;;
         esac
@@ -190,13 +194,17 @@ case "${1:-}" in
         SELECTED=$(cat "$NEM/gen5w-dongle-test-driver" 2>/dev/null)
         [ "$(getprop gen5w.dongle.test 2>/dev/null)" = 1 ] && [ -n "$SELECTED" ] || fail 'start a selected driver first'
         profile "$SELECTED" || fail "$SELECTED driver profile is not ready"
-        [ "$AP" = yes ] || fail "$SELECTED AP mode is not enabled by this driver"
+        case "$AP:$BAND" in
+            yes:*|2g:2g) ;;
+            2g:5g) fail "$SELECTED runs an AP on 2.4GHz only; the stock hotspot needs 5GHz channel 149" ;;
+            *) fail "$SELECTED AP mode is not enabled by this driver" ;;
+        esac
         if [ "$BAND" = 5g ]; then
             case ",$BANDS," in *,5GHz,*) ;; *) fail "$SELECTED does not advertise 5GHz";; esac
         else
             case ",$BANDS," in *,2.4GHz,*) ;; *) fail "$SELECTED does not advertise 2.4GHz";; esac
         fi
-        [ -e "$NET/$IFACE" ] && [ "$(bound_driver)" = "$SELECTED" ] || fail 'selected WLAN interface is not bound'
+        [ -e "$NET/$IFACE" ] && is_selected "$(bound_driver)" || fail 'selected WLAN interface is not bound'
         [ -x "$HOSTAPD" ] || fail "hostapd unavailable: $HOSTAPD"
         [ -x "$HOSTAPD_CLI" ] || fail 'hostapd_cli unavailable; cannot verify AP startup'
         mkdir -p "$NEM" || fail 'cannot create diagnostic directory'; umask 077
@@ -224,7 +232,7 @@ EOF
             log '2.4GHz radio test only; not concurrent CarPlay/Bluetooth validation'
             say 'AP started: SSID GEN5W-DONGLE-TEST, password gen5wkr18, channel 1 (2.4 GHz, 2412 MHz confirmed). This tests radio/AP/phone association only, not concurrent CarPlay and Bluetooth.'
         else
-            say 'AP started: SSID GEN5W-DONGLE-TEST, password gen5wkr18, channel 36 (5 GHz, 5180 MHz confirmed). Run ap-status after connecting a phone.'
+            say 'AP started: SSID GEN5W-DONGLE-TEST, password gen5wkr18, channel 149 (5 GHz, 5745 MHz confirmed). Run ap-status after connecting a phone.'
         fi ;;
     ap-status)
         safe_state_paths || fail 'unsafe diagnostic state path'
