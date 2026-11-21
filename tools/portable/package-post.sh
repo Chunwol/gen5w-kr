@@ -12,6 +12,13 @@ NEMESIS_STATE=${TEST_ROOT}/data/nemesis
     if [ -f "$BOOT_STATE/update-held" ]; then "$SH" "$BASE/boot.sh" update-restore || :; fi
     exit 1
 }
+# AP admission (match marker and system-UID restart guard), as the live-overlay
+# arm does. Without it the AP broker refuses every request with "AP control not
+# ready" and wireless never starts (car 2026-11-21). Before any /system change.
+"$SH" "$BASE/ap.sh" prepare || {
+    if [ -f "$BOOT_STATE/update-held" ]; then "$SH" "$BASE/boot.sh" update-restore || :; fi
+    exit 1
+}
 "$SH" "$BASE/persistent-migrate.sh" apply "$PLAN/manifest" "$PLAN/stock-origins" || exit 1
 # The migration finalizes any held live-overlay retirement only after all
 # persistent targets and /system read-only state have been verified.

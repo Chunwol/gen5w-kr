@@ -88,7 +88,10 @@ reject_reason() {
 booted() { [ "$("$GETPROP" sys.boot_completed 2>/dev/null)" = 1 ]; }
 send_close() {
     local output rc
-    output=$(err_run timer runtime close-consent "$AM" broadcast -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE)
+    # am broadcast is ordered (it waits for the result). On the background
+    # queue it waited 31 s behind the ordered BOOT_COMPLETED dispatch (car
+    # 2026-11-21), so send it on the foreground queue: FLAG_RECEIVER_FOREGROUND.
+    output=$(err_run timer runtime close-consent "$AM" broadcast -f 268435456 -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE)
     rc=$?
     case "$output" in
         *'Broadcast completed'*) log 'timer: close broadcast command completed';;

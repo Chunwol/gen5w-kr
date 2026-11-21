@@ -30,6 +30,9 @@ prepare.sh:*)
     mkdir -p "$1"
     printf 'manifest\n' > "$1/manifest"
     printf 'stock-origins\n' > "$1/stock-origins";;
+ap.sh:prepare)
+    echo ap-prepare >> "$actions/log"
+    [ "${PORTABLE_TEST_FAIL_AP:-0}" = 0 ] || exit 44;;
 persistent-migrate.sh:apply\ *)
     echo migrate >> "$actions/log"
     [ "${PORTABLE_TEST_FAIL_MIGRATE:-0}" = 0 ] || exit 41
@@ -55,7 +58,7 @@ EOF
 chmod +x "$t/adapter"
 run() {
     PORTABLE_TEST_ROOT="$root" PORTABLE_TEST_SH="$t/adapter" PORTABLE_TEST_ACTIONS="$actions" \
-        PORTABLE_TEST_FAIL_MIGRATE="${PORTABLE_TEST_FAIL_MIGRATE:-0}" \
+        PORTABLE_TEST_FAIL_MIGRATE="${PORTABLE_TEST_FAIL_MIGRATE:-0}" PORTABLE_TEST_FAIL_AP="${PORTABLE_TEST_FAIL_AP:-0}" \
         mksh "$pkg/package-post.sh"
 }
 
@@ -67,7 +70,7 @@ cmp "$pkg/bin/dex-patch" "$guard/bin/dex-patch"
 [ -x "$guard/guard.sh" ] && [ -x "$guard/restore.sh" ] && [ -x "$guard/bin/dex-patch" ]
 [ "$(cat "$guard/count")" = 0 ]
 [ ! -e "$guard/tripped" ]
-[ "$(cat "$actions/log")" = "$(printf 'prepare\nmigrate\nverify\npersistent-commit\nbluelink-save')" ]
+[ "$(cat "$actions/log")" = "$(printf 'prepare\nap-prepare\nmigrate\nverify\npersistent-commit\nbluelink-save')" ]
 grep -qx '    <long name="extra_remind_time" value="1700000000000" />' "$root/data/nemesis/gen5wkr.bluelink/orig-lines"
 [ "$(cat "$root/data/local/gen5w-portable/boot/enabled")" = 1 ]
 [ -f "$root/data/nemesis/gen5wkr.debug-on" ]
@@ -83,8 +86,23 @@ touch "$root/data/nemesis/gen5wkr.ui-wireless-off"
 if PORTABLE_TEST_FAIL_MIGRATE=1 run >/dev/null 2>&1; then
     echo 'FAIL package-post accepted an incomplete persistent migration'; exit 1
 fi
-[ "$(cat "$actions/log")" = "$(printf 'prepare\nmigrate')" ]
+[ "$(cat "$actions/log")" = "$(printf 'prepare\nap-prepare\nmigrate')" ]
 [ ! -e "$root/data/local/gen5w-portable/boot/enabled" ]
 [ ! -e "$root/data/nemesis/gen5wkr.debug-on" ]
 [ -f "$root/data/nemesis/gen5wkr.ui-wireless-off" ]
 echo 'PASS package-post refuses before commit and preserves the wireless hold when migration fails'
+
+# Car 2026-11-21: the persistent path never ran ap.sh prepare, so the AP broker
+# refused every request ("AP control not ready") and wireless never started.
+# The AP admission must be prepared before /system changes, and its failure
+# must stop the install before migration.
+rm -rf "$root/data/local/gen5w-portable" "$root/data/nemesis" "$actions/log"
+mkdir -p "$root/data/nemesis" "$root/data/local/gen5w-portable/boot"
+touch "$root/data/nemesis/gen5wkr.ui-wireless-off"
+if PORTABLE_TEST_FAIL_AP=1 run >/dev/null 2>&1; then
+    echo 'FAIL package-post continued without AP match-mode admission'; exit 1
+fi
+[ "$(cat "$actions/log")" = "$(printf 'prepare\nap-prepare')" ]
+[ ! -e "$root/data/local/gen5w-portable/boot/enabled" ]
+[ -f "$root/data/nemesis/gen5wkr.ui-wireless-off" ]
+echo 'PASS package-post prepares AP admission before migration and stops if it fails'

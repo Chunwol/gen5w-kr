@@ -44,6 +44,9 @@ check 'passing stock check closes after the short delay' closed
 check 'timer logs startup and accepted state' eval 'grep -q "timer: started" "$W/timer.log" && grep -q "timer: state accepted" "$W/timer.log"'
 check 'timer logs close request' grep -q 'timer: sending delayed close request' "$W/timer.log"
 check 'timer records close broadcast command completion' grep -q 'timer: close broadcast command completed' "$W/timer.log"
+# Car 2026-11-21: on the background queue the close waited 31 s behind the
+# ordered BOOT_COMPLETED dispatch. FLAG_RECEIVER_FOREGROUND (0x10000000).
+check 'close request uses the foreground broadcast queue' grep -qx 'broadcast -f 268435456 -a com.hkmc.intent.action.CLOSE_CONSENTSCREEN_FORCE' "$W/am.log"
 touch "$W/data/nemesis/gen5wkr.ui-timer-off"
 feed "$OK|2"; run
 check 'screen switch off: stock check does not close' eval '! closed'
