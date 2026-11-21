@@ -25,11 +25,18 @@ script=$1; shift
 name=${script##*/}
 case "$name:$*" in
 prepare.sh:*)
-    echo prepare >> "$actions/log"
+    case " $* " in *' dongle '*) echo prepare-dongle >> "$actions/log";; *) echo prepare >> "$actions/log";; esac
     [ "$2" = --stock-origins ] || exit 40
+    [ "$3 $4 $5 $6 $7 $8" = 'bt dipo gpm hotspot audio projection' ] || exit 45
     mkdir -p "$1"
     printf 'manifest\n' > "$1/manifest"
     printf 'stock-origins\n' > "$1/stock-origins";;
+wifi-backend.sh:detect)
+    echo wifi-detect >> "$actions/log"
+    echo "${PORTABLE_TEST_WIFI:-builtin|observed}"
+    case "${PORTABLE_TEST_WIFI:-builtin}" in error*) exit 1;; esac;;
+wifi-backend.sh:record\ *)
+    echo "wifi-record $2" >> "$actions/log";;
 ap.sh:prepare)
     echo ap-prepare >> "$actions/log"
     [ "${PORTABLE_TEST_FAIL_AP:-0}" = 0 ] || exit 44;;
@@ -58,7 +65,7 @@ EOF
 chmod +x "$t/adapter"
 run() {
     PORTABLE_TEST_ROOT="$root" PORTABLE_TEST_SH="$t/adapter" PORTABLE_TEST_ACTIONS="$actions" \
-        PORTABLE_TEST_FAIL_MIGRATE="${PORTABLE_TEST_FAIL_MIGRATE:-0}" PORTABLE_TEST_FAIL_AP="${PORTABLE_TEST_FAIL_AP:-0}" \
+        PORTABLE_TEST_FAIL_MIGRATE="${PORTABLE_TEST_FAIL_MIGRATE:-0}" PORTABLE_TEST_FAIL_AP="${PORTABLE_TEST_FAIL_AP:-0}" PORTABLE_TEST_WIFI="${PORTABLE_TEST_WIFI:-builtin|observed}" \
         mksh "$pkg/package-post.sh"
 }
 
@@ -70,7 +77,7 @@ cmp "$pkg/bin/dex-patch" "$guard/bin/dex-patch"
 [ -x "$guard/guard.sh" ] && [ -x "$guard/restore.sh" ] && [ -x "$guard/bin/dex-patch" ]
 [ "$(cat "$guard/count")" = 0 ]
 [ ! -e "$guard/tripped" ]
-[ "$(cat "$actions/log")" = "$(printf 'prepare\nap-prepare\nmigrate\nverify\npersistent-commit\nbluelink-save')" ]
+[ "$(cat "$actions/log")" = "$(printf 'wifi-detect\nprepare\nap-prepare\nmigrate\nverify\nwifi-record builtin\npersistent-commit\nbluelink-save')" ]
 grep -qx '    <long name="extra_remind_time" value="1700000000000" />' "$root/data/nemesis/gen5wkr.bluelink/orig-lines"
 [ "$(cat "$root/data/local/gen5w-portable/boot/enabled")" = 1 ]
 [ -f "$root/data/nemesis/gen5wkr.debug-on" ]
@@ -86,7 +93,7 @@ touch "$root/data/nemesis/gen5wkr.ui-wireless-off"
 if PORTABLE_TEST_FAIL_MIGRATE=1 run >/dev/null 2>&1; then
     echo 'FAIL package-post accepted an incomplete persistent migration'; exit 1
 fi
-[ "$(cat "$actions/log")" = "$(printf 'prepare\nap-prepare\nmigrate')" ]
+[ "$(cat "$actions/log")" = "$(printf 'wifi-detect\nprepare\nap-prepare\nmigrate')" ]
 [ ! -e "$root/data/local/gen5w-portable/boot/enabled" ]
 [ ! -e "$root/data/nemesis/gen5wkr.debug-on" ]
 [ -f "$root/data/nemesis/gen5wkr.ui-wireless-off" ]
@@ -102,7 +109,33 @@ touch "$root/data/nemesis/gen5wkr.ui-wireless-off"
 if PORTABLE_TEST_FAIL_AP=1 run >/dev/null 2>&1; then
     echo 'FAIL package-post continued without AP match-mode admission'; exit 1
 fi
-[ "$(cat "$actions/log")" = "$(printf 'prepare\nap-prepare')" ]
+[ "$(cat "$actions/log")" = "$(printf 'wifi-detect\nprepare\nap-prepare')" ]
 [ ! -e "$root/data/local/gen5w-portable/boot/enabled" ]
 [ -f "$root/data/nemesis/gen5wkr.ui-wireless-off" ]
 echo 'PASS package-post prepares AP admission before migration and stops if it fails'
+
+# Install-time Wi-Fi choice: a dongle adds the stand-in feature and is recorded
+# before startup is enabled; a failed Wi-Fi check changes nothing.
+rm -rf "$root/data/local/gen5w-portable" "$root/data/nemesis" "$actions/log"
+mkdir -p "$root/data/nemesis" "$root/data/local/gen5w-portable/boot"
+PORTABLE_TEST_WIFI='dongle|probe-none' run > "$t/out"
+grep -qx 'portable install: Wi-Fi dongle|probe-none' "$t/out"
+[ "$(cat "$actions/log")" = "$(printf 'wifi-detect\nprepare-dongle\nap-prepare\nmigrate\nverify\nwifi-record dongle\npersistent-commit\nbluelink-save')" ]
+echo 'PASS package-post installs the dongle stand-in when the Wi-Fi check chose the dongle'
+
+rm -rf "$root/data/local/gen5w-portable" "$root/data/nemesis" "$actions/log"
+mkdir -p "$root/data/nemesis" "$root/data/local/gen5w-portable/boot"
+PORTABLE_TEST_WIFI='none|probe-none' run > "$t/out"
+grep -qx 'wifi-record none' "$actions/log" && ! grep -q prepare-dongle "$actions/log"
+echo 'PASS package-post installs like built-in Wi-Fi and records none when neither is found'
+
+rm -rf "$root/data/local/gen5w-portable" "$root/data/nemesis" "$actions/log"
+mkdir -p "$root/data/nemesis" "$root/data/local/gen5w-portable/boot"
+touch "$root/data/nemesis/gen5wkr.ui-wireless-off"
+if PORTABLE_TEST_WIFI='error|wifi-still-on' run >/dev/null 2>&1; then
+    echo 'FAIL package-post continued after Wi-Fi stayed on'; exit 1
+fi
+[ "$(cat "$actions/log")" = wifi-detect ]
+[ ! -e "$root/data/local/gen5w-portable/boot/enabled" ]
+[ -f "$root/data/nemesis/gen5wkr.ui-wireless-off" ]
+echo 'PASS package-post stops before any change when the Wi-Fi check fails'

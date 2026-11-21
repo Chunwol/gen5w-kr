@@ -45,6 +45,9 @@ install)
  [ ! -f "$ACTIONS/refuse" ] || { echo 'portable install: conflicting installation retained'; exit 1; }
  [ ! -f "$ACTIONS/expect-retirement" ] || echo package-replace >> "$ACTIONS/log"
  : > "$ACTIONS/new-package"
+ # The package's Wi-Fi check: sees the USB override, records its choice.
+ [ ! -f "$PORTABLE_TEST_ROOT/data/nemesis/gen5wkr.force-dongle" ] || echo force-dongle-seen >> "$ACTIONS/log"
+ if [ -f "$ACTIONS/wifi" ]; then mkdir -p "$PORTABLE_TEST_ROOT/data/local/gen5w-portable"; cp "$ACTIONS/wifi" "$PORTABLE_TEST_ROOT/data/local/gen5w-portable/wifi-backend"; fi
   if [ -f "$ACTIONS/migration-fail" ]; then
     echo migration-rollback >> "$ACTIONS/log"
     rm -f "$ACTIONS/retirement-held"
@@ -119,7 +122,7 @@ new_case() {
     head -c 4096 /dev/urandom > "$t/usb/gen5w.kr.portable.zip"
     cp "$t/usb/gen5w.kr.portable.zip" "$ACTIONS/expected.zip"
     printf '%s\r\n' "$(md5sum "$t/usb/gen5w.kr.portable.zip" | cut -d' ' -f1)" > "$t/usb/gen5w.kr.portable.zip.md5"
-    rm -f "$ACTIONS/log" "$ACTIONS/refuse" "$ACTIONS/pkg-list" "$ACTIONS/ap" "$ACTIONS/toast" "$ACTIONS/ap-fail" "$ACTIONS/new-hook-fail" "$ACTIONS/inplace-hook-fail" "$ACTIONS/retirement-held" "$ACTIONS/retire-fail" "$ACTIONS/new-package" "$ACTIONS/migration-ready" "$ACTIONS/migration-fail" "$ACTIONS/expect-retirement" "$ACTIONS/retirement-status" "$ACTIONS/legacy-no-handoff" "$ACTIONS/legacy-disabled"
+    rm -f "$ACTIONS/wifi" "$ACTIONS/log" "$ACTIONS/refuse" "$ACTIONS/pkg-list" "$ACTIONS/ap" "$ACTIONS/toast" "$ACTIONS/ap-fail" "$ACTIONS/new-hook-fail" "$ACTIONS/inplace-hook-fail" "$ACTIONS/retirement-held" "$ACTIONS/retire-fail" "$ACTIONS/new-package" "$ACTIONS/migration-ready" "$ACTIONS/migration-fail" "$ACTIONS/expect-retirement" "$ACTIONS/retirement-status" "$ACTIONS/legacy-no-handoff" "$ACTIONS/legacy-disabled"
 export PORTABLE_TEST_ROOT=$t/root
 }
 run() { mksh "$t/usb/NEMESIS.sh"; }
@@ -347,3 +350,19 @@ grep -q '업데이트하거나 삭제' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
 if grep -sEq '^guard-restore$|^reboot$|^install ' "$ACTIONS/log"; then echo 'FAIL leftover refusal changed something'; cat "$ACTIONS/log"; exit 1; fi
 [ "$(cat "$t/root/data/local/gen5w-portable/boot/enabled")" = 1 ] || { echo 'FAIL leftover refusal changed boot state'; exit 1; }
 echo 'PASS leftover /system install without package: refused with update/remove guidance, nothing changed'
+
+# Install-time Wi-Fi choice: the USB override reaches the package, a stale
+# override does not, and the result names the Wi-Fi the install chose.
+rm -f "$ACTIONS/wrap" "$ACTIONS/reboot-fail"
+new_case; echo dongle > "$ACTIONS/wifi"; : > "$t/usb/GEN5W-FORCE-DONGLE"
+run
+[ "$(result)" = '결과: ok' ] && grep -qx force-dongle-seen "$ACTIONS/log"
+grep -q 'USB Wi-Fi 동글 방식으로 설치했습니다' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+new_case; echo builtin > "$ACTIONS/wifi"; mkdir -p "$t/root/data/nemesis"; : > "$t/root/data/nemesis/gen5wkr.force-dongle"
+run
+[ "$(result)" = '결과: ok' ] && ! grep -q force-dongle-seen "$ACTIONS/log"
+grep -q '내장 Wi-Fi를 씁니다' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+new_case; echo none > "$ACTIONS/wifi"
+run
+grep -q '무선 CarPlay는 동작하지 않습니다' "$t/usb/GEN5W-PORTABLE-REPORT/RESULT.txt"
+echo 'PASS USB installer passes GEN5W-FORCE-DONGLE once and reports the chosen Wi-Fi'

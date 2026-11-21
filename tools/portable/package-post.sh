@@ -8,7 +8,21 @@ PLAN=${TEST_ROOT}/data/local/gen5w-portable/plan-$BOOT-$$
 BOOT_STATE=${TEST_ROOT}/data/local/gen5w-portable/boot
 NEMESIS_STATE=${TEST_ROOT}/data/nemesis
 # APK installation was completed by NEMESIS before this hook.
-"$SH" "$BASE/prepare.sh" "$PLAN" --stock-origins || {
+# Built-in Wi-Fi or USB dongle, decided before any /system change. It may turn
+# Wi-Fi on for up to 8 s and off again; if Wi-Fi stays on, nothing is changed.
+backend=$("$SH" "$BASE/wifi-backend.sh" detect) || {
+    echo "portable install: Wi-Fi check failed ($backend); nothing changed" >&2
+    if [ -f "$BOOT_STATE/update-held" ]; then "$SH" "$BASE/boot.sh" update-restore || :; fi
+    exit 1
+}
+echo "portable install: Wi-Fi $backend"
+backend=${backend%%'|'*}
+case "$backend" in
+dongle) features='bt dipo gpm hotspot audio projection dongle';;
+builtin|none) features='bt dipo gpm hotspot audio projection';;
+*) exit 1;;
+esac
+"$SH" "$BASE/prepare.sh" "$PLAN" --stock-origins $features || {
     if [ -f "$BOOT_STATE/update-held" ]; then "$SH" "$BASE/boot.sh" update-restore || :; fi
     exit 1
 }
@@ -27,6 +41,8 @@ NEMESIS_STATE=${TEST_ROOT}/data/nemesis
 [ ! -e "$NEMESIS_STATE/gen5wkr.debug-on" ] || [ -f "$NEMESIS_STATE/gen5wkr.debug-on" ] || exit 1
 : > "$NEMESIS_STATE/gen5wkr.debug-on" && chmod 644 "$NEMESIS_STATE/gen5wkr.debug-on" || exit 1
 "$SH" "$BASE/persistent-start.sh" verify || exit 1
+# Read by the dongle service and the in-car screen; before startup is enabled.
+"$SH" "$BASE/wifi-backend.sh" record "$backend" || exit 1
 # Install the pre-zygote boot guard outside the package so uninstall cannot
 # remove it while the /system hook line is still present.
 GUARD=$TEST_ROOT/data/local/gen5w-portable/persistent/bootguard

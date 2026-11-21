@@ -235,7 +235,7 @@ recovery_status() {
     echo "recovery_result=$result"
 }
 collect_status() {
-    local ts relay=unknown apguard=on wired=no version= line wlan=missing tmp="$UI_DIR/status.tmp"
+    local ts relay=unknown apguard=on wired=no version= line wlan=missing backend tmp="$UI_DIR/status.tmp"
     ts=$(uptime_s) || ts=
     read_portable
     host=dead; host_alive && host=alive
@@ -251,12 +251,15 @@ collect_status() {
         done < "$BASE/NEMESIS.data"
     fi
     [ -d "$NETDIR/wlan0" ] && wlan=present
+    # Chosen at install (wifi-backend.sh); earlier installs have no record.
+    backend=$(small "$PSTATE/wifi-backend") || backend=unknown
+    case "$backend" in builtin|dongle|none) :;; *) backend=unknown;; esac
     {
         print -r -- "ts=$ts"
         print -r -- "boot=$BOOT"
         print -r -- "host=$host"
         print -r -- "relay=$relay"
-        print -r -- "backend=builtin"
+        print -r -- "backend=$backend"
         print -r -- "version=$version"
         if plain "$DEBUG_ON" && [ -f "$DEBUG_ON" ]; then print -r -- 'sw_debug=on'; else print -r -- 'sw_debug=off'; fi
         print -r -- "apguard=$apguard"

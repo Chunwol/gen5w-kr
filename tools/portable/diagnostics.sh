@@ -80,6 +80,22 @@ for name in hud-owner.status hud-health.status hud-variant.status; do
     copy "$name" "$ROOT/data/data/kr.gen5w.core/files/$name"
 done
 copy dipo-ready.txt "$ROOT/data/data/com.daudio.app.dipo/files/gen5w-portable-ready"
+# Wi-Fi chosen at install and the USB dongle service: state, log, loaded
+# modules, firmware search path and plugged-in USB device IDs.
+copy wifi-backend.txt "$STATE/wifi-backend"
+for file in "$STATE/dongle"/*; do
+    [ -f "$file" ] && [ ! -L "$file" ] || continue
+    copy "dongle-${file##*/}" "$file"
+done
+copy dongle.log "$ROOT/data/nemesis/logs/gen5w.kr.portable/dongle.log"
+copy modules.txt "$ROOT/proc/modules"
+copy firmware-path.txt "$ROOT/sys/module/firmware_class/parameters/path"
+for v in "$ROOT"/sys/bus/usb/devices/*/idVendor; do
+    p=${v%idVendor}idProduct
+    [ -f "$v" ] && [ -f "$p" ] || continue
+    IFS= read -r vid < "$v"; IFS= read -r pid < "$p"
+    d=${v%/idVendor}; print -r -- "${d##*/} $vid:$pid"
+done > "$OUT/usb-devices.txt" 2>/dev/null
 # Four rolling files, each at most 4 MiB; preserve successful-but-broken sessions.
 for file in "$STATE/debug"/logcat.log "$STATE/debug"/logcat.log.1 "$STATE/debug"/logcat.log.2 "$STATE/debug"/logcat.log.3; do
     plain "$file" && [ -f "$file" ] || continue

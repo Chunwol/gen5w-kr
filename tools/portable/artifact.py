@@ -72,7 +72,7 @@ def audit(files):
                'dalvik/adapter.jar', 'dalvik/hook-vm-test.jar', 'dalvik/libgen5whook.so', 'dalvik/abi.sha256'}
     allowed.update(n+'.sh' for n in ('prepare', 'overlay', 'portable', 'check', 'runtime', 'ap', 'framework', 'persistent-migrate', 'persistent-start', 'wrap-dipo',
                    'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'diagnostics', 'debug', 'ui', 'boot', 'rescue', 'rescue-watch', 'bootguard', 'bootguard-restore', 'state-reset',
-                   'package-pre', 'package-post', 'package-preun', 'service'))
+                   'package-pre', 'package-post', 'package-preun', 'service', 'wifi-backend', 'dongle'))
     allowed.update('permissions/'+n+'.xml' for n in ('com.hkmc.software.connectivity.carplay_wireless',
                    'com.hkmc.software.connectivity.androidauto_wireless', 'com.hkmc.software.wifihotspot'))
     allowed.update('timer/'+n+'.sh' for n in ('common', 'errors', 'install-hold', 'timer'))
@@ -80,6 +80,13 @@ def audit(files):
     allowed.add('bin/sha256-check')
     required = allowed - {'bin/audio-patch', 'bin/audio-patch-v035', 'bin/audio-region-patch', 'audio/recipe.sh', 'audio/recipe-v035.sh', 'bin/sha256-check'}
     assert required <= set(files), 'missing package member: '+str(required-set(files))
+    # USB Wi-Fi dongle payload: a fixed set of names under dongle/ only.
+    dongle = {n for n in files if n.startswith('dongle/')}
+    assert 'dongle/bcmdhd.ko' in dongle and 'dongle/modules/modules.alias' in dongle and 'dongle/modules/modules.profile' in dongle, 'dongle payload missing'
+    for n in dongle:
+        assert re.fullmatch(r'dongle/(bcmdhd\.ko|modules/[A-Za-z0-9_-]+\.ko|modules/modules\.(alias|profile)|firmware/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?)', n), 'unexpected dongle member: '+n
+        if n.endswith('.ko'): assert files[n][:4] == b'\x7fELF', 'dongle module is not ELF: '+n
+    allowed.update(dongle)
     assert set(files) <= allowed, 'unexpected shipped files: '+str(set(files)-allowed)
     meta = configparser.ConfigParser(interpolation=None)
     meta.read_string(files['NEMESIS.data'].decode('utf-8'))
@@ -96,6 +103,7 @@ def audit(files):
     assert meta['service.3']['path'] == 'debug.sh' and meta['service.3']['uid'] == 'root'
     assert meta['service.4']['path'] == 'timer/timer.sh' and meta['service.4']['uid'] == 'root'
     assert meta['service.5']['path'] == 'bluelink/quiet.sh' and meta['service.5']['uid'] == 'system'
+    assert meta['service.6']['path'] == 'dongle.sh' and meta['service.6']['uid'] == 'root' and meta['service.6']['mode'] == 'background'
     assert files.get('bin/sha256-check', b'') == files.get('bin/audio-patch', b''), 'timer helper differs from the audio helper'
     for name, data in files.items():
         if name.endswith(('.sh', '.data', '.xml')): assert b'\r' not in data, 'CRLF: '+name

@@ -85,9 +85,18 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
     if runtime:
         for name in ('engine.jar', 'adapter.jar', 'libgen5whook.so', 'abi.sha256', 'hook-vm-test.jar'):
             files['dalvik/' + name] = inputs / 'dalvik' / name
-        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'state-reset.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data'):
+        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'state-reset.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data', 'wifi-backend.sh', 'dongle.sh'):
             files[name] = HERE / name
         files['bootguard-restore.sh'] = HERE / 'recovery-usb/restore.sh'
+        # USB Wi-Fi dongle payload (used only when the install-time check
+        # chooses the dongle): the stand-in module, driver modules, catalog
+        # and firmware. Built from the kernel GPL source (tools/usb-wifi).
+        dongle = ROOT / 'tools/usb-wifi/package/files'
+        files['dongle/bcmdhd.ko'] = dongle / 'bcmdhd.ko'
+        for source in sorted((dongle / 'modules').iterdir()):
+            files['dongle/modules/' + source.name] = source
+        for source in sorted(path for path in (dongle / 'firmware').rglob('*') if path.is_file()):
+            files['dongle/firmware/' + source.relative_to(dongle / 'firmware').as_posix()] = source
         # The stock-warning timer and Bluelink reminder packages, unchanged, as services.
         for name in TIMER_SCRIPTS:
             files['timer/' + name] = ROOT / 'packages/consent-timer/scripts' / name

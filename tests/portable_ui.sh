@@ -80,8 +80,9 @@ echo "touch $A/OLD-REMOVAL-RAN" > "$N/apps/gen5w.kr.bridge/preun.sh"
 echo "touch $A/OLD-RECOVERY-RAN" > "$N/gen5wkr.recovery/current/recovery.sh"
 
 # 1. Status/log schema from portable journals and the live host.
+echo builtin > "$P/wifi-backend"
 collect
-for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.83 apguard=on wired=no sw_wireless=on \
+for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.84 apguard=on wired=no sw_wireless=on \
           sw_timer=on sw_bluelink=on sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
           wlan=present recovery_state=none recovery_available=no recovery_request=0 recovery_result=none \
           portable_enabled=1 portable_phase=healthy portable_mode=full portable_overlay=committed portable_runtime=committed portable_session=running; do
@@ -94,6 +95,11 @@ grep -q '^portable|session: host/AP/HUD supervisor running$' "$UI/log" || fail '
 grep -q '^boot|enabled=1 phase=healthy' "$UI/log" || fail 'journal summary missing'
 [ ! -e "$APP/files/status" ] && [ "$(ls "$APP/files")" = "" ] || fail 'root wrote into the app folder'
 pass 'status/log follow the StatusModel schema from portable journals; private lines dropped; root-owned 755/644'
+echo dongle > "$P/wifi-backend"; collect; expect backend dongle 'dongle backend'
+rm -f "$P/wifi-backend"; collect; expect backend unknown 'no backend record'
+echo usb > "$P/wifi-backend"; collect; expect backend unknown 'invalid backend record'
+echo builtin > "$P/wifi-backend"; collect
+pass 'status reports the Wi-Fi backend recorded at install, unknown otherwise'
 envelope 'debug=on'; collect
 [ -f "$N/gen5wkr.debug-on" ] || fail 'debug switch did not enable'
 collect; expect sw_debug on 'debug status enabled'

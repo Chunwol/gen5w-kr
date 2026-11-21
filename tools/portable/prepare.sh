@@ -24,7 +24,7 @@ if [ -n "$ROOT" ]; then
     [ -n "$PORTABLE_TEST_HELPER" ] && HELPER=$PORTABLE_TEST_HELPER
 fi
 plain "$HELPER" && [ -x "$HELPER" ] || fail 'native helper missing'
-case "$1" in /data/*) WORK=$1;; *) fail 'usage: prepare.sh /data/NEW-DIRECTORY [--stock-origins] [route|bt|dipo|gpm|hotspot|audio|projection ...]';; esac
+case "$1" in /data/*) WORK=$1;; *) fail 'usage: prepare.sh /data/NEW-DIRECTORY [--stock-origins] [route|bt|dipo|gpm|hotspot|audio|projection|dongle ...]';; esac
 shift
 ORIGIN_MODE=off
 case "${1:-}" in --stock-origins) ORIGIN_MODE=on; shift;; esac
@@ -52,7 +52,7 @@ plain "$ROOT$WORK" || fail 'unsafe work directory'
 features=" $* "
 seen=' '
 for feature in "$@"; do
-    case "$feature" in route|bt|dipo|gpm|hotspot|audio|projection) :;; *) fail 'unknown feature';; esac
+    case "$feature" in route|bt|dipo|gpm|hotspot|audio|projection|dongle) :;; *) fail 'unknown feature';; esac
     case "$seen" in *" $feature "*) fail 'duplicate feature';; esac
     seen="$seen$feature "
 done
@@ -225,7 +225,7 @@ prefetch_inputs() {
     local list='' p f
     for p in /system/app/Iap2ServerApp.odex /system/app/HKMC_DiPO.odex /system/app/HKMC_GPM.odex \
              /system/app/HKMC_WifiSettings.odex /system/lib/libCarPlayAudio.so /system/build.prop \
-             /system/etc/qb_runtime.sh /system/etc/featurexml.cfg "$ROOT"/system/etc/permissions/*.xml; do
+             /system/etc/qb_runtime.sh /system/etc/featurexml.cfg /system/wifi/bcmdhd.ko "$ROOT"/system/etc/permissions/*.xml; do
         case "$p" in "$ROOT"/*) f=$p; p=${p#"$ROOT"};; *) f=$ROOT$p;; esac
         safe "$f" && [ -f "$f" ] && [ ! -L "$f" ] && list="$list $f"
         f=$RECOVERY/originals$p
@@ -491,6 +491,27 @@ add_wrapper_property() {
     mv "$ROOT$temp" "$ROOT$source" || fail 'wrapper property publish failed'
     match_meta "$ROOT$target" "$ROOT$source" "$STOCK_META" || fail 'build.prop metadata mismatch'
 }
+# USB Wi-Fi dongle (chosen at install by wifi-backend.sh): the stock HAL loads
+# /system/wifi/bcmdhd.ko; the stand-in at that path only waits for the dongle's
+# interface. Only the exact V039 stock module is replaced; it is restored from
+# the immutable origin like every other target. The dongle was chosen on
+# purpose, so anything unexpected stops the install instead of skipping.
+STOCK_BCMDHD_SHA256=ef79d002fd2a59e775ab7167f6adf4ecbdac0f2e2a9a2463fd5cc96b12de50c0
+[ -z "$ROOT" ] || STOCK_BCMDHD_SHA256=${PORTABLE_TEST_BCMDHD_SHA256:-$STOCK_BCMDHD_SHA256}
+dongle() {
+    local target=/system/wifi/bcmdhd.ko source=$WORK/files/bcmdhd.ko base payload=$BASE/dongle/bcmdhd.ko
+    plain "$payload" && [ -f "$payload" ] || fail 'dongle stand-in module missing from the package'
+    plain "$ROOT$target" && [ -f "$ROOT$target" ] || fail 'dongle: stock Wi-Fi module missing'
+    base=$ROOT$target
+    if [ "$ORIGIN_MODE" = on ]; then load_stock_origin "$target" || fail 'dongle: cannot validate the stock Wi-Fi module origin'; [ "$STOCK_KIND" = file ] || fail 'dongle: stock Wi-Fi module has no file origin'; base=$STOCK_PATH; fi
+    fact "$base" || fail 'dongle: cannot identify the stock Wi-Fi module'
+    [ "$FACT_HASH" = "$STOCK_BCMDHD_SHA256" ] || fail 'dongle: stock Wi-Fi module is not the reviewed V039 build'
+    plain "$ROOT$source" && [ ! -e "$ROOT$source" ] && [ ! -L "$ROOT$source" ] || fail 'dongle: unsafe staging path'
+    cp "$payload" "$ROOT$source" || fail 'dongle: staging failed'
+    if [ "$ORIGIN_MODE" = on ]; then match_meta "$base" "$ROOT$source" "$STOCK_META"; else match_meta "$base" "$ROOT$source"; fi || fail 'dongle: metadata failed'
+    row dongle "$source" "$target" || fail 'dongle: manifest failed'
+    status dongle prepared usb-wifi-stand-in
+}
 # Pre-zygote boot guard: one background line in the stock qb_runtime.sh, which
 # V039 init runs as root at post-fs-data (service qb_uid_check). Init does not
 # wait for it. The stock script must be recognized exactly; otherwise skip.
@@ -535,6 +556,7 @@ for feature in "$@"; do
     hotspot) patch hotspot /system/app/HKMC_WifiSettings.odex;;
     projection) projection;;
     audio) audio || fail 'audio preparation failed';;
+    dongle) dongle;;
     esac
 done
 if [ "$ORIGIN_MODE" = on ]; then

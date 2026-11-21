@@ -359,3 +359,26 @@ set -e
 [ "$rc" = 77 ] && grep -q '^audio|skipped|unsupported-native-abi$' "$t/report"
 [ ! -e "$t/root/data/unsupported-audio/files/libCarPlayAudio.so" ]
 echo 'PASS regional audio preparation accepts reviewed ABI roles and skips unknown dependency without output'
+
+# USB Wi-Fi dongle backend: only the reviewed stock bcmdhd.ko is replaced by the
+# stand-in, with an immutable stock origin like every other persistent target.
+rm -rf "$t/root/data/local/gen5w-portable"
+mkdir -p "$t/root/system/wifi" "$t/bundle/dongle"
+printf 'stock-bcmdhd-v039' > "$t/root/system/wifi/bcmdhd.ko"; chmod 644 "$t/root/system/wifi/bcmdhd.ko"
+printf 'stand-in-bcmdhd' > "$t/bundle/dongle/bcmdhd.ko"
+stock_ko=$(printf 'stock-bcmdhd-v039' | sha256sum | cut -d' ' -f1)
+stand_in=$(printf 'stand-in-bcmdhd' | sha256sum | cut -d' ' -f1)
+PORTABLE_TEST_BCMDHD_SHA256=$stock_ko "$shell" "$t/bundle/prepare.sh" /data/dongle-plan --stock-origins dongle > "$t/report"
+grep -qx 'dongle|prepared|usb-wifi-stand-in' "$t/report"
+grep -q "^dongle|/data/dongle-plan/files/bcmdhd.ko|/system/wifi/bcmdhd.ko|$stand_in|[0-9]*|[0-9]*|644|static\$" "$t/root/data/dongle-plan/manifest"
+cmp "$t/root/system/wifi/bcmdhd.ko" "$t/root/data/dongle-plan/stock-origins/system/wifi/bcmdhd.ko"
+grep -q "^/system/wifi/bcmdhd.ko|$stock_ko|" "$t/root/data/dongle-plan/stock-origins/index.tsv"
+[ "$(cat "$t/root/system/wifi/bcmdhd.ko")" = stock-bcmdhd-v039 ]
+if PORTABLE_TEST_BCMDHD_SHA256=$stand_in "$shell" "$t/bundle/prepare.sh" /data/dongle-foreign --stock-origins dongle > "$t/report" 2>&1; then
+    echo 'FAIL dongle stand-in replaced an unreviewed Wi-Fi module'; exit 1
+fi
+grep -q 'not the reviewed V039 build' "$t/report"
+[ "$(cat "$t/root/system/wifi/bcmdhd.ko")" = stock-bcmdhd-v039 ]
+"$shell" "$t/bundle/prepare.sh" /data/no-dongle --stock-origins projection > "$t/report"
+! grep -q bcmdhd "$t/root/data/no-dongle/manifest"
+echo 'PASS dongle backend stages the stand-in only over the reviewed stock module; built-in installs never touch it'

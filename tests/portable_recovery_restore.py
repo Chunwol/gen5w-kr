@@ -212,6 +212,16 @@ class RecoveryRestoreTest(unittest.TestCase):
         self.assertEqual(self.events().count("reboot"), 1)
         self.assertTrue((self.usb / "GEN5W-RECOVERY-RESULT.txt").is_file())
 
+    def test_restores_dongle_stand_in_to_stock_wifi_module(self):
+        target = "/system/wifi/bcmdhd.ko"
+        self.add_file(target, b"stand-in-bcmdhd", b"stock-bcmdhd")
+        self.write_manifest()
+        result = self.run_restore()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.live(target).read_bytes(), b"stock-bcmdhd")
+        self.assertEqual(self.live(TARGET).read_bytes(), b"stock-dipo")
+        self.assertEqual(self.events().count("reboot"), 1)
+
     def test_bootguard_invokes_real_restore_and_restores_qb_runtime(self):
         target = "/system/etc/qb_runtime.sh"
         self.add_file(target, b"#!/system/bin/sh\n# hook\n", b"#!/system/bin/sh\n# stock\n")

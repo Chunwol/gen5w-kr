@@ -34,6 +34,21 @@ class ArtifactTests(unittest.TestCase):
     def test_real_authored_candidate(self):
         self.assertGreater(self.audit.audit(dict(self.files)), 30)
 
+    def test_dongle_payload_shipped_and_bounded(self):
+        self.assertIn('dongle/bcmdhd.ko', self.files)
+        self.assertIn('dongle/modules/ath9k_htc.ko', self.files)
+        self.assertIn('dongle/firmware/htc_9271.fw', self.files)
+        self.assertIn('wifi-backend.sh', self.files)
+        self.assertIn('dongle.sh', self.files)
+        files = dict(self.files)
+        files['dongle/modules/../evil.ko'] = b'\x7fELF'
+        with self.assertRaises(AssertionError):
+            self.audit.audit(self.sealed(files))
+        files = dict(self.files)
+        files['dongle/modules/ath9k_htc.ko'] = b'not a module'
+        with self.assertRaises(AssertionError):
+            self.audit.audit(self.sealed(files))
+
     def test_corruption_and_unhashed_files(self):
         files = dict(self.files)
         files['boot.sh'] += b'corrupted'

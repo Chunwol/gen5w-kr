@@ -398,6 +398,31 @@ class PersistentMigrationTest(unittest.TestCase):
         self.assertIn(target, self.read_recovery_rows())
         self.assert_no_external_actions()
 
+    def test_migrates_dongle_stand_in_with_immutable_original(self):
+        # USB Wi-Fi dongle backend: the stock Broadcom module is replaced by the
+        # stand-in and must be restorable from its immutable original.
+        target = "/system/wifi/bcmdhd.ko"
+        original = b"stock-bcmdhd"
+        applied = b"stand-in-bcmdhd"
+        self._write(self.system / target.removeprefix("/system/"), original)
+        self._write(self.stock / target.lstrip("/"), original)
+        self._write(self.data / "overlay/files/bcmdhd.ko", applied)
+        with self.stock_index.open("a") as stream:
+            stream.write(target + "|" + self.digest(original) + "|0|0|644|system_file\n")
+        with self.manifest.open("a") as stream:
+            stream.write("dongle|/data/overlay/files/bcmdhd.ko|" + target
+                         + "|" + self.digest(applied) + "|0|0|644|static\n")
+        labels_path = self.root / ".labels.json"
+        labels = json.loads(labels_path.read_text())
+        labels[str(self.system / "wifi/bcmdhd.ko")] = "system_file"
+        labels_path.write_text(json.dumps(labels))
+        result = self.run_migration()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.system / "wifi/bcmdhd.ko").read_bytes(), applied)
+        self.assertEqual(self.backup(target).read_bytes(), original)
+        self.assertIn(target, self.read_recovery_rows())
+        self.assert_no_external_actions()
+
     def test_migrates_file_and_expands_permissions_directory_with_recovery_first(self):
         result = self.run_migration()
         self.assertEqual(result.returncode, 0, result.stdout)

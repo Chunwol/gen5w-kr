@@ -264,6 +264,16 @@ if [ "$update" = 1 ] && [ "$orphan" = 0 ]; then
     say 'own apps stopped before update'
     say 'old preuninstall temporarily neutralized (not armed, no mounts/wrap)'
 fi
+# An empty GEN5W-FORCE-DONGLE on this USB: use a USB Wi-Fi dongle even where
+# built-in Wi-Fi exists. The package reads the marker once and clears it.
+FORCE=$ROOT/data/nemesis/gen5wkr.force-dongle
+[ ! -L "$FORCE" ] && { [ ! -e "$FORCE" ] || [ -f "$FORCE" ]; } || finish failed '동글 지정 표식 경로가 안전하지 않아 중단했습니다.'
+if [ -f GEN5W-FORCE-DONGLE ] && [ ! -L GEN5W-FORCE-DONGLE ]; then
+    mkdir -p "${FORCE%/*}" && : > "$FORCE" || finish failed '동글 지정 표식을 만들지 못했습니다.'
+    say 'GEN5W-FORCE-DONGLE: USB Wi-Fi dongle requested'
+else
+    rm -f "$FORCE" || finish failed '이전 동글 지정 표식을 지우지 못했습니다.'
+fi
 say 'staged; nemesis install begins'
 # NEMESIS extracts the package with the caller's umask. Under 077 the APKs end
 # up 0600 in a 0700 directory and pm (uid system) cannot read them (vehicle,
@@ -301,8 +311,17 @@ fi
 "$SH" "$APP/persistent-start.sh" verify > "$REPORT/status.txt" 2>&1 ||
     finish failed '설치는 끝났지만 영구 적용 상태와 복구 원본 manifest를 검증하지 못했습니다. 재시동하지 말고 보고서를 PC로 가져오세요.'
 update_retired=0
+# Which Wi-Fi the package chose (wifi-backend.sh, during the install).
+wifi=; IFS= read -r wifi < "$ROOT/data/local/gen5w-portable/wifi-backend" 2>/dev/null
+say "wifi backend=${wifi:-unknown}"
+case "$wifi" in
+builtin) wifi_note='Wi-Fi: 내장 Wi-Fi를 씁니다.';;
+dongle) wifi_note='Wi-Fi: USB Wi-Fi 동글 방식으로 설치했습니다(내장 Wi-Fi는 쓰지 않음). 동글을 꽂아 두세요.';;
+none) wifi_note='Wi-Fi: 내장 Wi-Fi와 지원 동글을 찾지 못해 무선 CarPlay는 동작하지 않습니다. 지원 동글을 꽂고 다시 설치하면 동글 방식으로 설치됩니다.';;
+*) wifi_note='Wi-Fi: 설치 때 고른 방식을 읽지 못했습니다.';;
+esac
 if [ "$legacy_disabled" = 1 ]; then
-    finish ok '구버전 해제 중 화면이 한 번 전환된 뒤 설치가 끝나면 자동 재부팅됩니다. USB를 빼지 마세요.'
+    finish ok "구버전 해제 중 화면이 한 번 전환된 뒤 설치가 끝나면 자동 재부팅됩니다. USB를 빼지 마세요. $wifi_note"
 else
-    finish ok '정상 설치 후 자동 재부팅되며, 이때 화면이 한 번 꺼졌다가 다시 켜질 수 있습니다. USB를 빼지 마세요.'
+    finish ok "정상 설치 후 자동 재부팅되며, 이때 화면이 한 번 꺼졌다가 다시 켜질 수 있습니다. USB를 빼지 마세요. $wifi_note"
 fi
