@@ -190,7 +190,7 @@ load() {
 }
 
 # Policy: the car boots as stock; driver modules load only after boot completed.
-while [ "$(op boot-completed)" != 1 ]; do round || exit 0; op sleep 2; done
+while [ "$(op boot-completed)" != 1 ]; do round || exit 0; op sleep 10; done
 held=0
 if [ -e "$MARK" ] || [ -L "$MARK" ]; then
     rm -f "$BLOCK"
@@ -199,9 +199,20 @@ if [ -e "$MARK" ] || [ -L "$MARK" ]; then
     op toast 'USB Wi-Fi 동글 드라이버를 올리던 중 재시작되어 동글 사용을 멈췄습니다. 동글을 뽑았다 다시 꽂으면 한 번 다시 시도합니다.'
 fi
 set_firmware_path || :
-fail_count=0; stable=0; noted_2g=
+fail_count=0; stable=0; noted_2g=; present=0; usb_seen=-
+# The catalog holds hundreds of aliases, so match only when the USB bus changed.
+# devnum changes on every attach, so a replug in the same port is rescanned.
+usb_changed() {
+    local d n now=
+    for d in "$SYSFS"/bus/usb/devices/*; do
+        n=; [ ! -r "$d/devnum" ] || IFS= read -r n < "$d/devnum"
+        now="$now ${d##*/}:$n"
+    done
+    [ "$now" != "$usb_seen" ] || return 1
+    usb_seen=$now
+}
 while round; do
-    present=0; find_driver >/dev/null && present=1
+    if usb_changed; then present=0; find_driver >/dev/null && present=1; fi
     if [ "$present" = 1 ] || [ -z "$ONLY_2G" ]; then
         noted_2g=
     elif [ "$noted_2g" != "$ONLY_2G" ]; then

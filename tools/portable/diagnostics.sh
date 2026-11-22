@@ -83,6 +83,7 @@ copy dipo-ready.txt "$ROOT/data/data/com.daudio.app.dipo/files/gen5w-portable-re
 # Wi-Fi chosen at install and the USB dongle service: state, log, loaded
 # modules, firmware search path and plugged-in USB device IDs.
 copy wifi-backend.txt "$STATE/wifi-backend"
+copy wifi-backend-why.txt "$STATE/wifi-backend-why"
 for file in "$STATE/dongle"/*; do
     [ -f "$file" ] && [ ! -L "$file" ] || continue
     copy "dongle-${file##*/}" "$file"

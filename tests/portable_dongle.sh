@@ -27,6 +27,7 @@ insmod) echo "\${2##*/}" >> "$A/insmod"
         name=\${2##*/}; name=\${name%.ko}; echo "\${name//-/_} 1000 0 - Live 0x0" >> "$A/modules"
         if [ "\$name" = 88x2bu ] && [ ! -f "$A/no-wlan" ]; then mkdir -p "$R/sys/class/net/wlan0"; fi;;
 sleep) echo sleep >> "$A/sleeps"
+       [ ! -f "$A/drop-alias" ] || : > "$B/dongle/modules/modules.alias"
        [ ! -f "$A/unplug-after-first" ] || { rm -rf "$R/sys/bus/usb/devices/1-1" "$R/sys/bus/usb/devices/1-1:1.0"; rm -f "$A/unplug-after-first"; };;
 sync) :;;
 toast) echo "\$2" >> "$A/toast";;
@@ -93,6 +94,11 @@ grep -q 'NOT USED ath9k_htc' "$R/data/nemesis/logs/gen5w.kr.portable/dongle.log"
 [ "$(grep -c '2.4GHz 전용' "$A/toast")" = 1 ] || fail '2.4GHz-only notice must show once'
 [ "$(cut -d'|' -f2 "$S/dongle/status")" = 2g ] || fail '2.4GHz-only dongle not shown on the screen'
 echo 'PASS a 2.4GHz-only dongle is not loaded and the driver says why, once'
+
+reset dongle 1; rtl88x2bu; touch "$A/no-wlan" "$A/drop-alias"; cp "$B/dongle/modules/modules.alias" "$t/alias.keep"; run 3
+cp "$t/alias.keep" "$B/dongle/modules/modules.alias"
+[ "$(cut -d'|' -f2 "$S/dongle/status")" != waiting ] || fail 'the driver catalog was scanned again without a USB change'
+echo 'PASS the driver catalog is scanned only when the USB bus changes'
 
 reset dongle 1; run 3
 [ ! -e "$A/insmod" ] || fail 'loaded without a dongle'
