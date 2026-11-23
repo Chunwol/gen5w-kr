@@ -12,6 +12,9 @@ public final class GuidanceRequest {
         int components(int[] ids, String[] names) throws Exception;
         boolean start(String[] names) throws Exception;
     }
+    public interface LookupBackend extends Backend {
+        int componentId(String name) throws Exception;
+    }
     private long successfulEpoch = -1;
     public boolean ensure(long epoch, Backend backend) throws Exception {
         if (epoch < 0) return false;
@@ -21,6 +24,19 @@ public final class GuidanceRequest {
         int[] ids = new int[count]; Arrays.fill(ids,-1);
         String[] names = new String[count];
         int received = backend.components(ids,names);
+        // V039's stock DiPO requests this OEM component directly. If the
+        // server advertises one component but its list parser returns none,
+        // require the independent native lookup to confirm that exact name.
+        // Never invent a component when discovery is absent or ambiguous.
+        if (received == 0 && count == 1 && backend instanceof LookupBackend) {
+            String name = "RouteGuidanceComponent0";
+            int id = ((LookupBackend)backend).componentId(name);
+            if (id > 0 && id <= 65535) {
+                ids[0] = id;
+                names[0] = name;
+                received = 1;
+            }
+        }
         if (received <= 0 || received > count) return false;
         for (int i = 0; i < received; i++) {
             if (ids[i] < 0 || ids[i] > 65535 || names[i] == null

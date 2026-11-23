@@ -80,6 +80,8 @@ for name in hud-owner.status hud-health.status hud-variant.status; do
     copy "$name" "$ROOT/data/data/kr.gen5w.core/files/$name"
 done
 copy dipo-ready.txt "$ROOT/data/data/com.daudio.app.dipo/files/gen5w-portable-ready"
+copy installed-candidate.json "$BASE/CANDIDATE.json"
+copy installed-SHA256SUMS "$BASE/SHA256SUMS"
 # Wi-Fi chosen at install and the USB dongle service: state, log, loaded
 # modules, firmware search path and plugged-in USB device IDs.
 copy wifi-backend.txt "$STATE/wifi-backend"

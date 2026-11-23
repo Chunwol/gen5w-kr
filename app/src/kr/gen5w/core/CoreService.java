@@ -341,6 +341,25 @@ public final class CoreService extends Service {
     private final Runnable bindRetry = new Runnable() { public void run() { bind(); } };
     private final Runnable registerRetry = new Runnable() { public void run() { register(); } };
     private final Runnable routeRetry = new Runnable() { public void run() { requestGuidance(); } };
+    private final kr.gen5w.hud.MediaSubscription mediaSubscription = new kr.gen5w.hud.MediaSubscription();
+    private boolean requestMedia(final IIap2Service service, final long ticket) {
+        try {
+            return mediaSubscription.ensure(ticket, new kr.gen5w.hud.MediaSubscription.Backend() {
+                public boolean start() throws Exception {
+                    boolean accepted = service.Iap2SvcNowPlayingStart();
+                    kr.gen5w.diag.DebugTrace.event("media.subscribe", ticket, accepted ? 1 : 0);
+                    return accepted;
+                }
+            });
+        } catch (Exception e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("core.media.subscribe",e);
+            return false;
+        } catch (LinkageError unavailable) {
+            // The optional media API must never disable guidance on another OEM ABI.
+            kr.gen5w.diag.SafeDiagnostic.failure("core.media.api",unavailable);
+            return true;
+        }
+    }
     private void queueGuidanceRequest() {
         main.removeCallbacks(routeRetry);
         if (!stopping) main.post(routeRetry);
@@ -351,22 +370,35 @@ public final class CoreService extends Service {
         kr.gen5w.diag.DebugTrace.event("route.request", ticket, registered ? 1 : 0);
         if (ticket < 0) return;
         final IIap2Service service = iap2;
+        // OEM DiPO skips its Now Playing start on Wireless transport. The
+        // relayed component-5 iAP2 link still needs this shared native feed
+        // for stock INFO. Accept/retry independently of route-list discovery.
+        final boolean mediaReady = requestMedia(service, ticket);
         try {
-            if (guidanceRequest.ensure(ticket,new GuidanceRequest.Backend() {
+            if (guidanceRequest.ensure(ticket,new GuidanceRequest.LookupBackend() {
                 public int count() throws Exception {
                     int count = service.Iap2SvcGetRouteGuidanceRegisteredComponentCount();
                     kr.gen5w.diag.DebugTrace.event("route.components", ticket, count);
                     return count;
                 }
                 public int components(int[] ids,String[] names) throws Exception {
-                    return service.Iap2SvcGetRouteGuidanceComponentNameIdList(ids,names);
+                    int received = service.Iap2SvcGetRouteGuidanceComponentNameIdList(ids,names);
+                    kr.gen5w.diag.DebugTrace.event("route.list", ticket, received,
+                        ids.length > 0 ? ids[0] : -1,
+                        names.length > 0 && names[0] != null ? names[0].length() : -1);
+                    return received;
+                }
+                public int componentId(String name) throws Exception {
+                    int id = service.Iap2SvcGetRouteGuidanceComponentIdByName(name);
+                    kr.gen5w.diag.DebugTrace.event("route.lookup", ticket, id);
+                    return id;
                 }
                 public boolean start(String[] names) throws Exception {
                     boolean accepted = service.Iap2SvcStartRouteGuidanceUpdate(names,true,true);
                     kr.gen5w.diag.DebugTrace.event("route.start", ticket, names.length, accepted ? 1 : 0);
                     return accepted;
                 }
-            })) return;
+            }) && mediaReady) return;
         } catch (Exception e) { Log.w(TAG,"route request not ready: " + e.getClass().getSimpleName()); }
           catch (LinkageError e) { Log.w(TAG,"route request API unavailable"); return; }
         if (!stopping && registered && iap2 == service && epoch.isCurrent(ticket)) {

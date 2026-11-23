@@ -501,6 +501,21 @@ class RecoveryRestoreTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.events().count("reboot"), count)
 
+    def test_valid_marker_for_old_manifest_does_not_block_restore(self):
+        done = self.recovery / "restore.done"
+        done.write_text(
+            "GEN5W-RESTORE-DONE|1|" + "0" * 64
+            + "|11111111-2222-4333-8444-555555555555\n",
+            encoding="ascii",
+        )
+
+        result = self.run_restore()
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.live(TARGET).read_bytes(), b"stock-dipo")
+        self.assertEqual(self.events().count("reboot"), 1)
+        self.assertIn(self.digest((self.recovery / "manifest").read_bytes()), done.read_text())
+
     def test_success_marker_reentry_with_rw_system_remounts_ro_without_success(self):
         first = self.run_restore()
         self.assertEqual(first.returncode, 0, first.stdout)

@@ -246,13 +246,32 @@ public final class GuidanceSessionTest {
         check("reconnect requests guidance again", request.ensure(2,backend) && backend.starts == starts+1);
         backend.invalid = true;
         check("malformed native component list not requested", !request.ensure(3,backend) && backend.starts == starts+1);
+        backend.invalid = false;
+        backend.listUnavailable = true;
+        check("missing list cannot invent a component", !request.ensure(4,backend));
+        backend.lookupId = 1;
+        check("OEM component lookup can confirm a name when list parsing fails", request.ensure(4,backend));
+        check("confirmed OEM component requested", "RouteGuidanceComponent0".equals(backend.lastName));
+        MediaSubscription media = new MediaSubscription();
+        final int[] mediaCalls = {0};
+        final boolean[] mediaAccept = {false};
+        MediaSubscription.Backend mediaBackend = new MediaSubscription.Backend() {
+            public boolean start() { mediaCalls[0]++; return mediaAccept[0]; }
+        };
+        check("media subscription waits for a live session", !media.ensure(-1,mediaBackend) && mediaCalls[0]==0);
+        check("not-ready media subscription remains retryable", !media.ensure(1,mediaBackend) && mediaCalls[0]==1);
+        mediaAccept[0]=true;
+        check("native media acceptance is required", media.ensure(1,mediaBackend) && mediaCalls[0]==2);
+        check("media is requested once per live session", media.ensure(1,mediaBackend) && mediaCalls[0]==2);
+        check("handover requests media on the new session", media.ensure(2,mediaBackend) && mediaCalls[0]==3);
         System.out.println("guidance session: " + passed + " passed");
     }
     static Item text(int id,String value) { Item it = new Item(); it.id=id; it.strings=new String[]{value}; return it; }
-    static final class RequestBackend implements GuidanceRequest.Backend {
-        int count, starts; boolean accept, invalid; String lastName;
+    static final class RequestBackend implements GuidanceRequest.LookupBackend {
+        int count, starts, lookupId; boolean accept, invalid, listUnavailable; String lastName;
         public int count() { return count; }
-        public int components(int[] ids,String[] names) { ids[0]=0; names[0]=invalid ? null : "RouteGuidanceComponent0"; return 1; }
+        public int components(int[] ids,String[] names) { if(listUnavailable)return 0; ids[0]=0; names[0]=invalid ? null : "RouteGuidanceComponent0"; return 1; }
+        public int componentId(String name) { return lookupId; }
         public boolean start(String[] names) { starts++; lastName=names[0]; return accept; }
     }
 }

@@ -13,6 +13,8 @@ public interface IIap2Service extends IInterface {
     boolean Iap2SvcTransportReadDone(byte[] data, int length) throws RemoteException;
     boolean Iap2SvcWiFiRequestInformation() throws RemoteException;
     int Iap2SvcGetRouteGuidanceRegisteredComponentCount() throws RemoteException;
+    int Iap2SvcGetRouteGuidanceComponentIdByName(String name) throws RemoteException;
+    boolean Iap2SvcNowPlayingStart() throws RemoteException;
     int Iap2SvcGetRouteGuidanceComponentNameIdList(int[] ids, String[] names) throws RemoteException;
     boolean Iap2SvcStartRouteGuidanceUpdate(String[] names, boolean sourceName, boolean sourceSupport) throws RemoteException;
 

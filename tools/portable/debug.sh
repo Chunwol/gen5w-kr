@@ -89,7 +89,10 @@ PROPERTIES
 properties() { locked properties properties-$1; }
 capture() {
     if [ -n "$ROOT" ]; then exec "$ADAPTER" capture "$STATE/logcat.log"; fi
-    exec "$BASE/bin/dex-patch" supervise 180 /system/bin/true /system/bin/logcat -v time -b main -b system -f "$STATE/logcat.log" -r 4096 -n 3 '*:V'
+    # High-rate map rendering chatter otherwise rotates away the connection
+    # handshake before a failed session can be exported. Keep navigation
+    # cluster, projection, audio and Bluetooth tags at their original levels.
+    exec "$BASE/bin/dex-patch" supervise 180 /system/bin/true /system/bin/logcat -v time -b main -b system -f "$STATE/logcat.log" -r 4096 -n 3 'CoNA:S' 'ExSL:S' 'JNI_Layer:S' 'Java_Layer:S' 'Navi:S' 'GKI_LINUX:S' '*:V'
 }
 case "${1:-run}" in
 properties-on) property_transaction on;;

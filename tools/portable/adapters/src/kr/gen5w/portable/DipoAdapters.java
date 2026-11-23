@@ -24,6 +24,7 @@ public final class DipoAdapters {
   private static Field binderLocal, localOwner;
   private static Method notifications;
   private static Field detailsService, serviceOwner, serviceBluetooth;
+  private static Field iapSendLength, iapSendBytes;
   private static final ThreadLocal<Reconnect> reconnect =
       new ThreadLocal<Reconnect>();
   private static final class Reconnect {
@@ -279,6 +280,26 @@ public final class DipoAdapters {
         new Entry(identity, "reconnectIdentity", Object.class, Integer.TYPE));
     plan.add(new Entry(saveAddress, "saveAddress", Object.class, Object.class,
                        Integer.TYPE));
+    // V039's async sender tests its int field against impossible int bounds,
+    // leaving every packet length at zero. Preserve the OEM worker and native
+    // call; repair only the validated packet-length setter before it starts.
+    try {
+      Class<?> sender = Class.forName(service.getName() + "$1iAPSendMessage",
+                                     false, service.getClassLoader());
+      if (!Thread.class.isAssignableFrom(sender))
+        throw new IllegalArgumentException("unreviewed iAP2 sender");
+      Field length = sender.getDeclaredField("len");
+      Field bytes = sender.getDeclaredField("msg");
+      if (length.getType() != Integer.TYPE || bytes.getType() != byte[].class ||
+          Modifier.isStatic(length.getModifiers()) || Modifier.isStatic(bytes.getModifiers()))
+        throw new IllegalArgumentException("unreviewed iAP2 sender fields");
+      length.setAccessible(true);
+      bytes.setAccessible(true);
+      iapSendLength = length;
+      iapSendBytes = bytes;
+      plan.add(new Entry(method(sender, "setMsgDataLen", Void.TYPE, Integer.TYPE),
+                         "iapSendLength", Object.class, Integer.TYPE, Integer.TYPE));
+    } catch (ClassNotFoundException absent) { }
     // Observe the actual native audio/mode callbacks, then preserve OEM handling.
     // Older firmware without these callbacks retains the existing adapter plan.
     try {
@@ -456,6 +477,15 @@ public final class DipoAdapters {
   }
   public static boolean wirelessSupport(Object receiver, int handle) {
     return false;
+  }
+  public static void iapSendLength(Object receiver, int length, int handle)
+      throws Throwable {
+    synchronized (receiver) {
+      byte[] bytes = (byte[])iapSendBytes.get(receiver);
+      if (bytes == null || length < 0 || length > bytes.length)
+        throw new IllegalArgumentException("invalid iAP2 packet length");
+      iapSendLength.setInt(receiver, length);
+    }
   }
   public static void audioStreamStart(Object receiver, int stream, int role,
                                       int rate, int handle) throws Throwable {

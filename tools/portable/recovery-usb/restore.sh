@@ -182,7 +182,13 @@ if [ -f "$DONE" ]; then
     done_magic= done_version= done_sha= done_boot= done_extra=
     IFS='|' read -r done_magic done_version done_sha done_boot done_extra < "$DONE" || :
     [ "$done_magic" = GEN5W-RESTORE-DONE ] && [ "$done_version" = 1 ] &&
-        [ "$done_sha" = "$MANIFEST_SHA" ] && [ -z "$done_extra" ] && valid_boot_id "$done_boot" || fail stale-completion-marker
+        valid_sha "$done_sha" && [ -z "$done_extra" ] && valid_boot_id "$done_boot" || fail invalid-completion-marker
+    if [ "$done_sha" != "$MANIFEST_SHA" ]; then
+        # A prior install can publish a new, fully validated manifest while
+        # leaving the old restore marker behind. It cannot describe this
+        # manifest, so discard it and perform the normal restore below.
+        rm -f "$DONE" || fail stale-completion-marker
+    else
     while IFS='|' read -r target kind original_sha applied_sha orig_uid orig_gid orig_mode orig_label applied_uid applied_gid applied_mode applied_label prior_applied_sha || [ -n "$target" ]; do
         [ "$target" = 'GEN5W-RECOVERY-MANIFEST' ] && continue
         [ "$target" = '' ] && continue
@@ -212,6 +218,7 @@ already-restored=1
 reboot=confirmed
 manifest_sha256=$MANIFEST_SHA" > "$REPORT" || fail report-write
     exit 0
+    fi
 fi
 
 # Treat /system as potentially writable before invoking remount. If the helper
