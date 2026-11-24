@@ -189,18 +189,28 @@ if [ -f "$DONE" ]; then
         # manifest, so discard it and perform the normal restore below.
         rm -f "$DONE" || fail stale-completion-marker
     else
+    needs_restore=0
     while IFS='|' read -r target kind original_sha applied_sha orig_uid orig_gid orig_mode orig_label applied_uid applied_gid applied_mode applied_label prior_applied_sha || [ -n "$target" ]; do
         [ "$target" = 'GEN5W-RECOVERY-MANIFEST' ] && continue
         [ "$target" = '' ] && continue
         live=$(path_for "$target") || fail unknown-target
         no_link_components "$live" || fail symlink-target
         if [ "$kind" = absent ]; then
-            [ ! -e "$live" ] || fail target-changed-after-restore
+            [ ! -e "$live" ] || needs_restore=1
         else
-            [ -f "$live" ] && [ "$(hash_file "$live")" = "$original_sha" ] || fail target-changed-after-restore
-            [ "$(metadata "$live")" = "$orig_uid|$orig_gid|$orig_mode" ] && [ "$(label_of "$live")" = "$orig_label" ] || fail target-metadata-changed-after-restore
+            if [ -f "$live" ] && [ "$(hash_file "$live")" = "$original_sha" ]; then
+                [ "$(metadata "$live")" = "$orig_uid|$orig_gid|$orig_mode" ] && [ "$(label_of "$live")" = "$orig_label" ] || fail target-metadata-changed-after-restore
+            else
+                needs_restore=1
+            fi
         fi
     done < "$MANIFEST"
+    if [ "$needs_restore" = 1 ]; then
+        # Reinstalling identical payload can reuse this exact manifest. The
+        # complete preflight above still rejects foreign bytes/metadata, and
+        # the restore loop rechecks each target immediately before writing.
+        rm -f "$DONE" || fail stale-completion-marker
+    else
     if ! system_is_ro; then
         # A prior restore marker does not prove the live mount stayed read-only.
         # Reassert the invariant on every exit while preserving the no-reboot
@@ -218,6 +228,7 @@ already-restored=1
 reboot=confirmed
 manifest_sha256=$MANIFEST_SHA" > "$REPORT" || fail report-write
     exit 0
+    fi
     fi
 fi
 
