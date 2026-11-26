@@ -36,21 +36,55 @@ public final class V039DipoIconTest {
         Maneuver toll = m(0, 0, 0, 0); toll.desc = "서울TG";
         icon("toll text on no-turn", ClusterIcon.TOLL, toll);
         Maneuver overEntry = m(3, 0, 0, 0); overEntry.afterRoad = "성산고가차도 진입";
-        icon("overpass entry straight", ClusterIcon.OVERPASS_ENTRY_LC, overEntry);
+        icon("overpass entry text upgrades straight icon", ClusterIcon.OVERPASS_ENTRY_LC, overEntry);
         Maneuver overEntryR = m(50, 0, 0, 0); overEntryR.afterRoad = "고가차도 진입";
-        icon("overpass entry slight right (Kakao/Naver RightOverpass)", ClusterIcon.OVERPASS_ENTRY_R, overEntryR);
+        icon("overpass entry text upgrades slight right icon", ClusterIcon.OVERPASS_ENTRY_R, overEntryR);
         Maneuver overSideL = m(13, 0, 0, U); overSideL.afterRoad = "고가차도 옆길";
-        icon("overpass side left (Kakao/Naver LeftOverpathSide)", ClusterIcon.OVERPASS_SIDE_L, overSideL);
+        icon("overpass side text upgrades keep left icon", ClusterIcon.OVERPASS_SIDE_L, overSideL);
         Maneuver overSideR = m(14, 0, 0, U); overSideR.afterRoad = "고가도로옆";
-        icon("overpass side right (Tmap/Kakao/Naver RightOverpathSide)", ClusterIcon.OVERPASS_SIDE_R, overSideR);
+        icon("overpass side text upgrades keep right icon", ClusterIcon.OVERPASS_SIDE_R, overSideR);
         Maneuver underEntry = m(3, 0, 0, 0); underEntry.afterRoad = "전방에 지하 차도 진입";
-        icon("underpass entry straight", ClusterIcon.UNDERPASS_ENTRY_LC, underEntry);
+        icon("underpass entry text upgrades straight icon", ClusterIcon.UNDERPASS_ENTRY_LC, underEntry);
         Maneuver underEntryR = m(50, 0, 0, 0); underEntryR.afterRoad = "지하차도 진입";
-        icon("underpass entry slight right", ClusterIcon.UNDERPASS_ENTRY_R, underEntryR);
+        icon("underpass entry text upgrades slight right icon", ClusterIcon.UNDERPASS_ENTRY_R, underEntryR);
         Maneuver underSideL = m(3, 0, 0, 0); underSideL.afterRoad = "지하차도옆";
-        icon("underpass side straight defaults to left/centre side", ClusterIcon.UNDERPASS_SIDE_L, underSideL);
+        icon("underpass side text upgrades straight icon", ClusterIcon.UNDERPASS_SIDE_L, underSideL);
         Maneuver underSideR = m(14, 0, 0, U); underSideR.afterRoad = "오른쪽에 지하 차도 옆길";
-        icon("underpass side right", ClusterIcon.UNDERPASS_SIDE_R, underSideR);
+        icon("underpass side text upgrades keep right icon", ClusterIcon.UNDERPASS_SIDE_R, underSideR);
+        Maneuver underSideEntryL = m(49, 0, 0, -45); underSideEntryL.afterRoad = "지하차도 옆길 진입";
+        icon("side road with jinin preserves side road icon", ClusterIcon.UNDERPASS_SIDE_L, underSideEntryL);
+        Maneuver underSlightL = m(1, 0, 0, -60); underSlightL.afterRoad = "지하차도 진입";
+        icon("slight left -60 underpass entry", ClusterIcon.UNDERPASS_ENTRY_LC, underSlightL);
+        Maneuver underSlightR45 = m(2, 0, 0, 45); underSlightR45.afterRoad = "지하차도 진입";
+        icon("slight right +45 underpass entry", ClusterIcon.UNDERPASS_ENTRY_R, underSlightR45);
+        Maneuver underSharp30R = m(48, 0, 0, 30); underSharp30R.afterRoad = "지하차도 옆길";
+        icon("sharp type 30 deg right underpass side", ClusterIcon.UNDERPASS_SIDE_R, underSharp30R);
+        Maneuver naverUnderR = m(0, 0, 0, 45); naverUnderR.afterRoad = "강변북로 지하차도 진입";
+        icon("naver clock-face +45 underpass entry", ClusterIcon.UNDERPASS_ENTRY_R, naverUnderR);
+        Maneuver tunnelEntry = m(3, 0, 0, 0); tunnelEntry.afterRoad = "남산1호터널 진입";
+        icon("tunnel entry uses stock underpass entry lc", ClusterIcon.UNDERPASS_ENTRY_LC, tunnelEntry);
+        if (!ClusterIcon.isTunnelText(tunnelEntry.afterRoad, tunnelEntry.desc)) {
+            throw new AssertionError("tunnelEntry should trigger isTunnelText");
+        }
+        passed++;
+        Maneuver tunnelEntryR = m(50, 0, 0, 45); tunnelEntryR.afterRoad = "남산1호터널 방면";
+        icon("tunnel slight right uses stock underpass entry r", ClusterIcon.UNDERPASS_ENTRY_R, tunnelEntryR);
+        Maneuver tunnelSideR = m(14, 0, 0, U); tunnelSideR.afterRoad = "남산1호터널 오른쪽 옆길";
+        icon("tunnel side right uses stock underpass side r", ClusterIcon.UNDERPASS_SIDE_R, tunnelSideR);
+        if (ClusterIcon.isTunnelText(tunnelSideR.afterRoad, tunnelSideR.desc)) {
+            throw new AssertionError("tunnel side road must not trigger isTunnelText");
+        }
+        passed++;
+        Maneuver tunnelJunc = m(3, 0, 0, 0); tunnelJunc.afterRoad = "터널사거리";
+        icon("intersection name with 터널 stays straight", 0x41, tunnelJunc);
+        if (ClusterIcon.isTunnelText(tunnelJunc.afterRoad, tunnelJunc.desc)) {
+            throw new AssertionError("tunnel intersection name must not trigger isTunnelText");
+        }
+        passed++;
+        Maneuver unprotected = m(1, 0, 0, -90); unprotected.afterRoad = "OO사거리"; unprotected.desc = "비보호 좌회전";
+        icon("unprotected left turn -90 upgrades to 0x4c", ClusterIcon.UNPROTECTED_LEFT, unprotected);
+        Maneuver naverUnprotected = m(0, 0, 0, -90); naverUnprotected.desc = "비보호좌회전";
+        icon("naver clock-face -90 unprotected left upgrades to 0x4c", ClusterIcon.UNPROTECTED_LEFT, naverUnprotected);
         Maneuver overJunc = m(3, 0, 0, 0); overJunc.afterRoad = "고가사거리";
         icon("intersection name with 고가 stays straight", 0x41, overJunc);
         Maneuver turn90Over = m(1, 0, 0, -90); turn90Over.afterRoad = "고가차도 진입";
@@ -110,6 +144,19 @@ public final class V039DipoIconTest {
         icon("slight right", 0x42, m(50, 0, 0, 45));
         icon("change highway left", 0xae, m(52, 0, 0, 0));
         icon("change highway right", 0xad, m(53, 0, 0, 0));
+        icon("straight without exit angle", 0x41, m(3, 0, 0, U));
+        icon("continue without exit angle", 0xac, m(5, 0, 0, U));
+        icon("on ramp without exit angle", ClusterIcon.IC_ENTER_C, m(9, 0, 0, U));
+        Maneuver onRampL = m(9, 0, 0, U); onRampL.afterRoad = "왼쪽 진입";
+        icon("on ramp left text", ClusterIcon.IC_ENTER_L, onRampL);
+        Maneuver onRampR = m(9, 0, 0, U); onRampR.desc = "우측 램프";
+        icon("on ramp right text", ClusterIcon.IC_ENTER_R, onRampR);
+        icon("ferry without exit angle", 0xb0, m(15, 0, 0, U));
+        icon("left off ramp without exit angle", ClusterIcon.IC_EXIT_L, m(22, 0, 0, U));
+        icon("right off ramp without exit angle", ClusterIcon.IC_EXIT_R, m(23, 0, 0, U));
+        icon("arrive left without exit angle", 0x72, m(24, 0, 0, U));
+        icon("arrive right without exit angle", 0x71, m(25, 0, 0, U));
+        icon("exit roundabout 90 (case 7)", 0x63, m(7, 0, 1, 90));
 
         // V039 emits no cluster icon for these combinations. Do not invent one.
         icon("generic off ramp, centre exit", ClusterIcon.IC_EXIT_C, m(8, 0, 0, 0));

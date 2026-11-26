@@ -5,7 +5,9 @@ import kr.gen5w.probe.Item;
 
 public final class GuidanceSessionTest {
     static int passed;
-    static final class Sink implements GuidanceSession.TimeSink {
+    static final class Sink implements GuidanceSession.TunnelSink {
+        boolean tunnelActive; long tunnelDist = Long.MIN_VALUE; int tunnelWrites; boolean rejectTunnel;
+        public boolean tunnel(boolean active, long m) { if (rejectTunnel) return false; tunnelActive = active; tunnelDist = m; tunnelWrites++; return true; }
         long time = Long.MIN_VALUE; int timeWrites;
         public boolean timeRemaining(long s) { time = s; timeWrites++; return true; }
         String dest; int destWrites;
@@ -51,9 +53,9 @@ public final class GuidanceSessionTest {
             rsess.status(st);
             check("duplicate remaining not resent", rs.remainWrites == rw);
             rsess.status(s(5, "지도 A", 7));
-            check("reroute clears remaining", rs.remain == -1);
+            check("reroute holds remaining", rs.remain == 12345);
             rsess.status(s(1, "지도 A", 7));
-            check("reroute cannot resurrect remaining", rs.remain == -1);
+            check("reroute retains remaining", rs.remain == 12345);
             st.distanceRemaining = 900; rsess.status(st);
             rsess.disconnect();
             check("disconnect clears remaining", rs.remain == -1);
@@ -73,7 +75,29 @@ public final class GuidanceSessionTest {
             ts.timeRemaining = 1700; rsess.status(ts);
             check("new minute resent", rs.time == 1700);
             rsess.status(s(5, "지도 A", 7));
-            check("reroute clears time", rs.time == -1);
+            check("reroute holds time", rs.time >= 0);
+        }
+        {
+            Sink out = new Sink(); GuidanceSession route = new GuidanceSession(out);
+            GuidanceParser.Status start = s(1, "route"); start.hasRemaining = true; start.distanceRemaining = 5000;
+            start.hasTime = true; start.timeRemaining = 1800; route.status(start);
+            check("route lease without a turn", route.hasPhoneRoute());
+            int writesBefore = out.remainWrites;
+            route.status(s(5, "route"));
+            check("rerouting keeps route totals and lease", route.hasPhoneRoute() && out.remain == 5000 && out.remainWrites == writesBefore);
+            route.status(s(4, "route"));
+            check("locating without a turn keeps route totals", out.remain == 5000 && out.time >= 0);
+            GuidanceParser.Status invalid = s(5, "route"); invalid.hasRemaining=true; invalid.distanceRemaining=-1;
+            invalid.hasTime=true; invalid.timeRemaining=-1; route.status(invalid);
+            check("transient invalid estimates cannot blank known totals", out.remain == 5000 && out.time >= 0);
+            int timeBefore = out.timeWrites;
+            java.lang.reflect.Field timeAt = GuidanceSession.class.getDeclaredField("timeLeftAtMs");
+            timeAt.setAccessible(true); timeAt.setLong(route, System.currentTimeMillis() - 120000L);
+            route.retryOutput();
+            check("elapsed time alone does not resend arrival clock", out.timeWrites == timeBefore);
+            route.setOutputAllowed(false); route.setOutputAllowed(true); route.retryOutput();
+            check("ownership recovery resends unchanged totals", out.remainWrites == writesBefore + 1 && out.remain == 5000);
+            route.disconnect(); check("disconnect releases route lease", !route.hasPhoneRoute() && out.remain == -1);
         }
         Sink sink = new Sink(); GuidanceSession session = new GuidanceSession(sink);
         session.maneuver(m(7, 1));
@@ -105,9 +129,129 @@ public final class GuidanceSessionTest {
         check("disconnect clears", blank(sink));
         session.status(s(1, "지도 B", 8));
         check("reconnect cannot revive old maneuver", blank(sink));
-        for (int state : new int[]{0,2,3,4,5,77}) {
+        for (int state : new int[]{0,2,3,5,77}) {
             session.maneuver(m(8, 1)); session.status(s(1, "지도 B", 8)); session.status(s(state, "지도 B", 8));
             check("non-guidance state clears " + state, blank(sink));
+        }
+        {
+            Sink us = new Sink(); GuidanceSession under = new GuidanceSession(us);
+            Item ulane = new Item(); ulane.id = 2;
+            ulane.groups.add(Arrays.asList(n(0,0),n(1,2),n(2,0,90),n(3,90)));
+            under.maneuver(m(7, 1));
+            GuidanceParser.Status active = s(1, "지도 U", 7);
+            active.hasDistance = true; active.distanceToNext = 350;
+            active.hasRemaining = true; active.distanceRemaining = 4200;
+            active.hasDestination = true; active.destination = "도착지";
+            active.hasLaneIndex = true; active.laneIndex = 3;
+            active.hasLaneTotal = true; active.laneTotal = 1;
+            active.hasLaneVisible = true; active.laneVisible = true;
+            under.status(active);
+            under.message(GuidanceParser.LANES, Arrays.asList(n(0,1),n(1,3),ulane));
+            check("locating from active preserves turn/tbt/remain/dest/lanes",
+                    !blank(us) && us.tbtIcon == 0x46 && us.remain == 4200 && "도착지".equals(us.dest) && us.lanes[1] == 1);
+            // GPS loss in underpass: state=4 (Locating) with empty current list preserves display
+            GuidanceParser.Status loc = s(GuidanceSession.STATE_LOCATING, "지도 U");
+            under.status(loc);
+            check("underpass state 4 keeps turn frame active",
+                    !blank(us) && us.tbtIcon == 0x46 && us.remain == 4200 && "도착지".equals(us.dest) && us.lanes[1] == 1
+                            && "도로".equals(under.currentRoad()) && under.hasActiveGuidance());
+            // Recovering back to state=1 continues seamlessly
+            under.status(s(1, "지도 U", 7));
+            check("recovering from underpass state 4 keeps guidance",
+                    !blank(us) && us.tbtIcon == 0x46 && us.remain == 4200 && us.lanes[1] == 1);
+            // Grazing locating deadline clears after LOCATING_GRACE_MS
+            under.status(s(GuidanceSession.STATE_LOCATING, "지도 U"));
+            under.expireLocating(1000L);
+            under.expireLocating(1000L + GuidanceSession.LOCATING_GRACE_MS - 1L);
+            check("before locating grace deadline guidance stays held", !blank(us) && us.tbtIcon == 0x46);
+            under.expireLocating(1000L + GuidanceSession.LOCATING_GRACE_MS);
+            check("after locating grace deadline guidance clears",
+                    blank(us) && us.tbtIcon == 0 && us.remain >= 0 && !"".equals(us.dest) && us.lanes[1] == 0);
+            // Long tunnel: still locating after the grace (route kept, output hidden), then GPS
+            // returns with the same current turn and no maneuver resend -> the turn comes back.
+            under.status(s(GuidanceSession.STATE_LOCATING, "지도 U"));
+            check("long tunnel stays hidden while locating after grace", blank(us));
+            under.status(s(1, "지도 U", 7));
+            check("long tunnel recovery restores the turn without a maneuver resend",
+                    !blank(us) && us.tbtIcon == 0x46);
+            // Idle session entering state=4 must stay blank
+            GuidanceSession idle = new GuidanceSession(new Sink());
+            idle.maneuver(m(7, 1));
+            idle.status(s(GuidanceSession.STATE_LOCATING, "지도 U", 7));
+            check("locating from idle stays blank", !idle.hasActiveGuidance());
+            // Immediate non-navigating exit (0, 2, 5, disconnect) while in state=4 clears immediately
+            for (int endState : new int[]{0, 2, 5}) {
+                under.maneuver(m(8, 2)); under.status(s(1, "지도 U", 8));
+                under.status(s(GuidanceSession.STATE_LOCATING, "지도 U"));
+                under.status(s(endState, "지도 U", 8));
+                check("exiting locating via state " + endState + " clears immediately", blank(us));
+            }
+            under.maneuver(m(8, 2)); under.status(s(1, "지도 U", 8));
+            under.status(s(GuidanceSession.STATE_LOCATING, "지도 U"));
+            under.disconnect();
+            check("disconnect during locating clears immediately", blank(us));
+            check("non-tunnel locating flow never emits PE_00", us.tunnelWrites == 0);
+        }
+        {
+            Sink ts = new Sink(); GuidanceSession tses = new GuidanceSession(ts);
+            Maneuver tm = m(5, 3); tm.afterRoad = "남산1호터널 진입";
+            tses.maneuver(tm);
+            GuidanceParser.Status far = s(1, "지도 T", 5); far.hasDistance = true; far.distanceToNext = 1500;
+            tses.status(far);
+            check("far tunnel (>1000m) does not emit PE_00", ts.tunnelWrites == 0 && !ts.tunnelActive);
+            GuidanceParser.Status near = s(1, "지도 T", 5); near.hasDistance = true; near.distanceToNext = 800;
+            tses.status(near);
+            check("tunnel within 1000m activates PE_00", ts.tunnelWrites == 1 && ts.tunnelActive && ts.tunnelDist == 800);
+            GuidanceParser.Status sameBucket = s(1, "지도 T", 5); sameBucket.hasDistance = true; sameBucket.distanceToNext = 770;
+            tses.status(sameBucket);
+            check("distinct 50m bucket updates PE_00", ts.tunnelWrites == 2 && ts.tunnelActive && ts.tunnelDist == 750);
+            GuidanceParser.Status dedupBucket = s(1, "지도 T", 5); dedupBucket.hasDistance = true; dedupBucket.distanceToNext = 760;
+            tses.status(dedupBucket);
+            check("same 50m bucket does not spam PE_00", ts.tunnelWrites == 2);
+            GuidanceParser.Status close = s(1, "지도 T", 5); close.hasDistance = true; close.distanceToNext = 30;
+            tses.status(close);
+            check("tunnel <50m buckets to 0m", ts.tunnelWrites == 3 && ts.tunnelActive && ts.tunnelDist == 0);
+            tses.status(s(GuidanceSession.STATE_LOCATING, "지도 T"));
+            check("locating in tunnel holds PE_00 at 0m", ts.tunnelActive && ts.tunnelDist == 0);
+            ts.rejectTunnel = true;
+            tses.disconnect();
+            check("failed PE_00 clear stays pending", ts.tunnelActive);
+            ts.rejectTunnel = false;
+            tses.retryOutput();
+            check("retryOutput completes deferred PE_00 clear", !ts.tunnelActive && ts.tunnelDist == -1);
+            int writesAfterClear = ts.tunnelWrites;
+            tses.maneuver(m(6, 3)); tses.status(s(1, "지도 T", 6)); tses.disconnect();
+            check("non-tunnel route after tunnel never re-emits PE_00", ts.tunnelWrites == writesAfterClear);
+        }
+        {
+            // Audit P2: GPS loss with an unknown distance must not activate a distant tunnel at 0m.
+            Sink fs = new Sink(); GuidanceSession fses = new GuidanceSession(fs);
+            Maneuver fm = m(5, 3); fm.afterRoad = "남산1호터널 진입";
+            fses.maneuver(fm);
+            GuidanceParser.Status far5 = s(1, "지도 T", 5); far5.hasDistance = true; far5.distanceToNext = 5000;
+            fses.status(far5);
+            GuidanceParser.Status lost = s(GuidanceSession.STATE_LOCATING, "지도 T"); lost.hasDistance = true; lost.distanceToNext = -1;
+            fses.status(lost);
+            check("GPS loss never turns a distant tunnel into an active 0m tunnel", fs.tunnelWrites == 0 && !fs.tunnelActive);
+            GuidanceParser.Status back = s(1, "지도 T", 5); back.hasDistance = true; back.distanceToNext = 600;
+            fses.status(back);
+            check("tunnel activates once really within 1000m", fs.tunnelWrites == 1 && fs.tunnelActive && fs.tunnelDist == 600);
+        }
+        {
+            // A rejected activation already reached the HUD service, so its clear must still be delivered.
+            Sink rs = new Sink(); rs.rejectTunnel = true; GuidanceSession rses = new GuidanceSession(rs);
+            Maneuver rm = m(5, 3); rm.afterRoad = "북악터널";
+            rses.maneuver(rm);
+            GuidanceParser.Status nearR = s(1, "지도 R", 5); nearR.hasDistance = true; nearR.distanceToNext = 300;
+            rses.status(nearR);
+            check("rejected activation is not recorded", rs.tunnelWrites == 0);
+            rses.maneuver(m(6, 3)); // re-render retries the activation; still rejected
+            rs.rejectTunnel = false;
+            GuidanceParser.Status plain = s(1, "지도 R", 6); plain.hasDistance = true; plain.distanceToNext = 500;
+            rses.status(plain);
+            check("clear follows a rejected activation", rs.tunnelWrites == 1 && !rs.tunnelActive && rs.tunnelDist == -1);
+            rses.disconnect();
+            check("clear is sent only once", rs.tunnelWrites == 1);
         }
         Maneuver missing = m(0,1); missing.exitAngle = Maneuver.UNKNOWN_ANGLE;
         check("missing angle uses the type's default icon", ClusterIcon.of(missing) == 0x46);
@@ -166,9 +310,12 @@ public final class GuidanceSessionTest {
         check("selected lane set reaches lane sink", sink.lanes != null && sink.lanes.length == 81 && sink.lanes[0] == (byte)0xf1 && sink.lanes[1] == 1);
         Maneuver overM = m(7, 3); overM.afterRoad = "성산고가차도 진입";
         session.maneuver(overM);
-        check("overpass maneuver sets OFF_OVER lane mask in LaneFrame", (sink.turns[2] & 255) == ClusterIcon.OVERPASS_ENTRY_LC && (sink.lanes[LaneBits.OFF_OVER] & 255) == 1);
+        check("overpass text sets stock overpass icon and OFF_OVER", (sink.turns[2] & 255) == ClusterIcon.OVERPASS_ENTRY_LC && (sink.lanes[LaneBits.OFF_OVER] & 255) == 1 && (sink.lanes[LaneBits.OFF_UNDER] & 255) == 0);
+        Maneuver underM = m(7, 3); underM.afterRoad = "지하차도 진입";
+        session.maneuver(underM);
+        check("underpass text sets stock underpass icon and OFF_UNDER", (sink.turns[2] & 255) == ClusterIcon.UNDERPASS_ENTRY_LC && (sink.lanes[LaneBits.OFF_UNDER] & 255) == 1 && (sink.lanes[LaneBits.OFF_OVER] & 255) == 0);
         session.maneuver(m(7, 3));
-        check("returning to normal straight clears OFF_OVER lane mask", (sink.lanes[LaneBits.OFF_OVER] & 255) == 0);
+        check("normal straight clears OFF_OVER and OFF_UNDER", (sink.lanes[LaneBits.OFF_OVER] & 255) == 0 && (sink.lanes[LaneBits.OFF_UNDER] & 255) == 0);
         int laneWrites = sink.laneWrites;
         session.message(GuidanceParser.STATUS, Arrays.asList(n(0,1)));
         check("unchanged lane frame suppressed", sink.laneWrites == laneWrites);
@@ -248,10 +395,24 @@ public final class GuidanceSessionTest {
         check("malformed native component list not requested", !request.ensure(3,backend) && backend.starts == starts+1);
         backend.invalid = false;
         backend.listUnavailable = true;
-        check("missing list cannot invent a component", !request.ensure(4,backend));
+        check("unreviewed missing list cannot invent a component", !request.ensure(4,backend));
         backend.lookupId = 1;
         check("OEM component lookup can confirm a name when list parsing fails", request.ensure(4,backend));
         check("confirmed OEM component requested", "RouteGuidanceComponent0".equals(backend.lastName));
+        backend.lookupId=0; backend.reviewed=true;
+        check("reviewed OEM profile may request its canonical single component",request.ensure(5,backend));
+        check("canonical fallback permits all V039 models and build dates",
+                GuidanceRequest.reviewedCanonicalProfile("OSHEV.KOR.0000.V039.001.260902")
+                && GuidanceRequest.reviewedCanonicalProfile("OTHER.V039.001.260902")
+                && GuidanceRequest.reviewedCanonicalProfile("MODEL.EUR.S5W_M.V039.999.270101")
+                && GuidanceRequest.reviewedCanonicalProfile("MODEL.USA.V039.000.240101"));
+        check("canonical fallback excludes other or malformed versions",
+                !GuidanceRequest.reviewedCanonicalProfile("OSHEV.KOR.0000.V035.001.250507")
+                && !GuidanceRequest.reviewedCanonicalProfile("MODEL.V040.001.260902")
+                && !GuidanceRequest.reviewedCanonicalProfile("MODEL.V0390.001.260902")
+                && !GuidanceRequest.reviewedCanonicalProfile("MODEL.XV039.001.260902")
+                && !GuidanceRequest.reviewedCanonicalProfile("")
+                && !GuidanceRequest.reviewedCanonicalProfile(null));
         MediaSubscription media = new MediaSubscription();
         final int[] mediaCalls = {0};
         final boolean[] mediaAccept = {false};
@@ -267,8 +428,9 @@ public final class GuidanceSessionTest {
         System.out.println("guidance session: " + passed + " passed");
     }
     static Item text(int id,String value) { Item it = new Item(); it.id=id; it.strings=new String[]{value}; return it; }
-    static final class RequestBackend implements GuidanceRequest.LookupBackend {
-        int count, starts, lookupId; boolean accept, invalid, listUnavailable; String lastName;
+    static final class RequestBackend implements GuidanceRequest.ReviewedOemBackend {
+        int count, starts, lookupId; boolean accept, invalid, listUnavailable, reviewed; String lastName;
+        public boolean canonicalFallbackAllowed() { return reviewed; }
         public int count() { return count; }
         public int components(int[] ids,String[] names) { if(listUnavailable)return 0; ids[0]=0; names[0]=invalid ? null : "RouteGuidanceComponent0"; return 1; }
         public int componentId(String name) { return lookupId; }

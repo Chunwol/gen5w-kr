@@ -16,23 +16,27 @@ public final class LaneFrame {
             if (lane.index != base+i || lane.angles == null || lane.highlights == null
                     || lane.angles.length == 0 || lane.angles.length > 3) return clear();
             int seen = 0;
+            int outSlot = 0;
+            boolean highlightAll = lane.status == 2 && lane.highlights.length == 0;
             for (int j = 0; j < lane.angles.length; j++) {
                 int direction = direction(lane.angles[j]);
-                if (direction == 0 || (seen & (1 << direction)) != 0) return clear();
+                if (direction == 0) return clear();
+                if ((seen & (1 << direction)) != 0) continue;
                 seen |= 1 << direction;
-                boolean highlight = false;
+                boolean highlight = highlightAll;
                 for (int angle : lane.highlights) if (direction(angle) == direction) highlight = true;
-                out[0x13+3*i+j] = (byte)direction;
-                out[3+i] |= (highlight ? 2 : 1) << (2*j);
+                out[0x13 + 3 * i + outSlot] = (byte) direction;
+                out[3 + i] |= (highlight ? 2 : 1) << (2 * outSlot);
                 recommended[i] |= highlight;
+                outSlot++;
             }
             int highlights = 0;
             for (int angle : lane.highlights) {
                 int direction = direction(angle);
-                if (direction == 0 || (seen & (1 << direction)) == 0
-                        || (highlights & (1 << direction)) != 0) return clear();
+                if (direction == 0 || (seen & (1 << direction)) == 0) return clear();
                 highlights |= 1 << direction;
             }
+            if (outSlot == 0) return clear();
         }
         out[1] = (byte)lanes.lanes.size();
         LaneBits.entry(out, recommended, icon);
@@ -53,13 +57,13 @@ public final class LaneFrame {
             if (dirVal >= 1 && dirVal <= 8) {
                 switch (dirVal) {
                     case 1: angle = 0; break;
-                    case 2: angle = -45; break;
-                    case 3: angle = -90; break;
-                    case 4: angle = 45; break;
-                    case 5: angle = 90; break;
+                    case 2: angle = 45; break;
+                    case 3: angle = 90; break;
+                    case 4: angle = 135; break;
+                    case 5: angle = 180; break;
                     case 6: angle = -135; break;
-                    case 7: angle = 135; break;
-                    case 8: angle = 180; break;
+                    case 7: angle = -90; break;
+                    case 8: angle = -45; break;
                 }
             }
             lane.angles = new int[]{angle};
@@ -69,19 +73,20 @@ public final class LaneFrame {
         }
         return encode(lanes, icon);
     }
-    // Direction identities cross-checked with two stock native conversion tables.
-    // Unsupported angles cannot be represented exactly by these eight identities.
+    // Clockwise V039 cluster lane direction codes: 1 straight, 2-4 right, 5 back, 6-8 left.
     static int direction(int angle) {
-        switch (angle) {
-            case 0: return 1;
-            case -45: return 2;
-            case -90: return 3;
-            case 45: return 4;
-            case 90: return 5;
-            case -135: return 6;
-            case 135: return 7;
-            case -180: case 180: return 8;
-            default: return 0;
-        }
+        int a = angle;
+        if (a >= 65176 && a <= 65535) a -= 65536;
+        if (a > 180 && a <= 360) a -= 360;
+        else if (a < -180 && a >= -360) a += 360;
+        if (a < -180 || a > 180) return 0;
+        if (a >= -22 && a <= 22) return 1;
+        if (a <= 67 && a >= 23) return 2;
+        if (a <= 112 && a >= 68) return 3;
+        if (a <= 157 && a >= 113) return 4;
+        if (a >= 158 || a <= -158) return 5;
+        if (a <= -113) return 6;
+        if (a <= -68) return 7;
+        return 8;
     }
 }

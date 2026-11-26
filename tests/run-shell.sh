@@ -61,4 +61,5 @@ bash tests/par.sh python3 tests/dongle_runtime.py tests/broker_diagnostics.py te
 # installer scans real /proc and correctly refuses a running authored app, so
 # this test must not overlap those tests.
 bash tests/portable_ui.sh || rc=1
+bash tests/portable_drivelog.sh || rc=1
 exit $rc

@@ -42,7 +42,7 @@ boot=$(small "$BOOT_ID_FILE") && [ -n "$boot" ] || fail 'boot id unavailable'
 [ "$(small "$S/boot/enabled")" != 1 ] || fail 'earlier package is still enabled; disable it first'
 [ -r "$MOUNTS" ] || fail 'mount table unavailable'
 ! grep -q '/data/local/gen5w-portable' "$MOUNTS" || fail 'earlier package still has bind mounts'
-for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do
+for key in wrap.com.daudio.app.dipo wrap.com.google.android.project wrap.com.mnsoft.navi; do
     [ -z "$("$GETPROP" "$key" 2>/dev/null)" ] || fail "earlier wrapper property is set: $key"
 done
 case "$(small "$S/runtime/phase")" in pending|committed|enabling)

@@ -8,6 +8,12 @@ PLAN=${TEST_ROOT}/data/local/gen5w-portable/plan-$BOOT-$$
 BOOT_STATE=${TEST_ROOT}/data/local/gen5w-portable/boot
 NEMESIS_STATE=${TEST_ROOT}/data/nemesis
 # APK installation was completed by NEMESIS before this hook.
+# Verify the actual installed APK before enabling the modern native AA stream.
+"$SH" "$BASE/core-ready.sh" verify || {
+    echo "portable install: installed Core APK is not the bundled version; nothing changed" >&2
+    if [ -f "$BOOT_STATE/update-held" ]; then "$SH" "$BASE/boot.sh" update-restore || :; fi
+    exit 1
+}
 # Built-in Wi-Fi or USB dongle, decided before any /system change. It may turn
 # Wi-Fi on for up to 8 s and off again; if Wi-Fi stays on, nothing is changed.
 backend=$("$SH" "$BASE/wifi-backend.sh" detect) || {
@@ -54,7 +60,16 @@ for pair in "bootguard.sh guard.sh" "bootguard-restore.sh restore.sh" "bin/dex-p
     [ ! -L "$GUARD/$2" ] && cp "$BASE/$1" "$GUARD/$2.new" && chmod 700 "$GUARD/$2.new" && mv "$GUARD/$2.new" "$GUARD/$2" || exit 1
 done
 rm -f "$GUARD/tripped" "$GUARD/GEN5W-RECOVERY-RESULT.txt" && echo 0 > "$GUARD/count" && sync || exit 1
-"$SH" "$BASE/boot.sh" persistent-commit || exit 1
+# Final prerequisite: retire the stock network-ADB switch without changing
+# custom/disabled TCP ports. Recovery state is retained outside the package.
+"$SH" "$BASE/network-adb.sh" apply || exit 1
+"$SH" "$BASE/boot.sh" persistent-commit || {
+    ADB_RESCUE=$TEST_ROOT/data/local/gen5w-portable/network-adb/restore.sh
+    if [ -e "${ADB_RESCUE%/*}/journal" ]; then
+        [ ! -L "$ADB_RESCUE" ] && "$SH" "$ADB_RESCUE" restore || echo "portable install: network ADB restore failed; retain external recovery journal" >&2
+    fi
+    exit 1
+}
 rm -f "$TEST_ROOT/data/local/gen5w-portable/persistent/recovery/transaction-committed" "$TEST_ROOT/data/local/gen5w-portable/persistent/recovery/transaction-in-progress" || exit 1
 # Clear the authored UI hold only after the persistent transaction and its
 # immutable restore originals are verified. AP reset evidence is independent.
@@ -62,6 +77,7 @@ rm -f "$TEST_ROOT/data/local/gen5w-portable/persistent/recovery/transaction-comm
 [ ! -e "$NEMESIS_STATE/gen5wkr.ui-wireless-off" ] || [ -f "$NEMESIS_STATE/gen5wkr.ui-wireless-off" ] || exit 1
 rm -f "$NEMESIS_STATE/gen5wkr.ui-wireless-off" || exit 1
 rm -f "$BOOT_STATE/update-held" "$BOOT_STATE/update-enabled" || exit 1
+# split-default-applied is kept on update: the one-time split-screen default must not undo a later user OFF.
 # Bundled Bluelink reminder service: keep the car's own reminder values for removal.
 # It changes only that app's settings file; a failure leaves the reminder stock.
 BL_TEST_DATA=${TEST_ROOT:+$TEST_ROOT/data} "$SH" "$BASE/bluelink/post.sh" || echo "portable install: Bluelink reminder values not saved; reminder left stock"

@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 /** Requests and observes V039 OEM PhoneProjection; it owns no CarPlay transport. */
 public final class WirelessBridge implements StockProjectionSession.Port, V039RelayCoordinator.Events {
     static final String TAG = "Gen5wWireless";
+    static final long SCAN_INTERVAL_MS = 15000L;
     static final UUID APPLE_CAFF = UUID.fromString("00000000-deca-fade-deca-deafdecacaff");
     static final UUID APPLE_CAFE = UUID.fromString("00000000-deca-fade-deca-deafdecacafe");
     final Context context;
@@ -36,7 +37,9 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     final StockProjectionSession session = new StockProjectionSession(this);
     final SdpRefresh sdpRefresh = new SdpRefresh();
     final V039RelayCoordinator relay;
+    final Set<String> unpaired = new LinkedHashSet<String>();
     final Set<String> linked = new LinkedHashSet<String>();
+    final Set<String> sdpDeferredMusic = new LinkedHashSet<String>();
     final Map<String, Long> falseConnectionSince = new LinkedHashMap<String, Long>();
     final Map<String, Boolean> appleCarPlay = new LinkedHashMap<String, Boolean>();
     final ExecutorService oemCalls = Executors.newFixedThreadPool(2);
@@ -48,6 +51,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     boolean relayInspectPending;
     boolean relayEnabled;
     long relayCandidateGeneration = -1;
+    long lastScanMs = -SCAN_INTERVAL_MS;
 
     final StockApGuard apGuard;
 
@@ -72,6 +76,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
     void run() {
         registerAction(BluetoothDevice.ACTION_ACL_CONNECTED);
         registerAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        registerAction("android.bluetooth.device.action.BOND_STATE_CHANGED");
         registerAction(BluetoothDevice.ACTION_UUID);
         registerAction(BluetoothAdapter.ACTION_STATE_CHANGED);
         registerAction("android.bluetooth.headsetclient.profile.action.CONNECTION_STATE_CHANGED");
@@ -87,6 +92,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         registerAction("kr.gen5w.wireless.RELAY_HANDOVER_REQUESTED", RELAY_SENDER_PERMISSION);
         registerAction("kr.gen5w.wireless.RELAY_HANDOVER_CONNECTED", RELAY_SENDER_PERMISSION);
         registerAction("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED", RELAY_SENDER_PERMISSION);
+        registerAction("kr.gen5w.wireless.RETRY_CARPLAY", RELAY_SENDER_PERMISSION);
         IntentFilter stop = new IntentFilter("kr.gen5w.wireless.STOP_BRIDGE");
         stop.addAction(Intent.ACTION_SHUTDOWN);
         try {
@@ -126,13 +132,25 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         public void run() {
             if (shuttingDown) return;
             refreshWired();
-            scan();
+            if (now() - lastScanMs >= SCAN_INTERVAL_MS) scan();
             session.environment(cable, false, now());
             session.tick(now());
             apGuard.observe(session.phase(), now());
             relay.tick();
             maintainRelay();
             main.postDelayed(this, 1000L);
+        }
+    };
+
+    private final Runnable splitRetryTask = new Runnable() {
+        public void run() {
+            if (shuttingDown) return;
+            relay.retryNow();
+            scan();
+            offerCandidate();
+            session.tick(now());
+            relay.tick();
+            maintainRelay();
         }
     };
 
@@ -151,6 +169,13 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
             BluetoothDevice device = (BluetoothDevice) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
             if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
                 connected(device);
+            } else if ("android.bluetooth.device.action.BOND_STATE_CHANGED".equals(action)) {
+                int bond = i.getIntExtra("android.bluetooth.device.extra.BOND_STATE", 10);
+                if (device != null && bond == BluetoothDevice.BOND_BONDED) {
+                    unpaired.remove(device.getAddress().toUpperCase(java.util.Locale.US));
+                    connected(device);
+                }
+                else if (device != null && bond == 10) bondRemoved(device);
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 disconnected(device);
             } else if (BluetoothDevice.ACTION_UUID.equals(action)) {
@@ -173,6 +198,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
             } else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action) &&
                     i.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0) != BluetoothAdapter.STATE_ON) {
                 linked.clear();
+                sdpDeferredMusic.clear();
                 falseConnectionSince.clear();
                 sdpRefresh.clear();
                 appleCarPlay.clear();
@@ -181,6 +207,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                 log("path=stock event=cancel reason=bluetooth-off");
             } else if ("com.hkmc.intent.action.SYSTEM_POWERON".equals(action)) {
                 linked.clear();
+                sdpDeferredMusic.clear();
                 falseConnectionSince.clear();
                 sdpRefresh.clear();
                 appleCarPlay.clear();
@@ -195,20 +222,55 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
                 relay.handoverConnected();
             } else if ("kr.gen5w.wireless.RELAY_HANDOVER_DISCONNECTED".equals(action)) {
                 log("path=relay event=dipo-handover result=disconnected");
-                relay.handoverDisconnected();
+                long sentAt = i.getLongExtra("sent_at", -1L);
+                long sourceGeneration = i.getLongExtra("dipo_generation", -1L);
+                log("path=relay event=handover-receive generation=" + relay.generation()
+                        + " dipo-generation=" + sourceGeneration + " time=" + now() + " sent-at=" + sentAt
+                        + " disconnect-delivery=received");
+                DriveLog.bridge(41, relay.generation(), 1, sentAt, 2, sourceGeneration, 0);
+                relay.handoverDisconnected(sentAt);
+            } else if ("kr.gen5w.wireless.RETRY_CARPLAY".equals(action)) {
+                log("path=relay event=split-retry result=requested");
+                relay.retryNow();
+                scan();
+                offerCandidate();
+                main.removeCallbacks(splitRetryTask);
+                main.postDelayed(splitRetryTask, 3000L);
             }
             refreshWired();
             session.environment(cable, false, now());
-            scan();
+            if (isBluetoothOrResetAction(action)) scan();
             session.tick(now());
             relay.tick();
             maintainRelay();
         }
     };
 
+    private static boolean isBluetoothOrResetAction(String action) {
+        if (action == null) return false;
+        return BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)
+                || BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)
+                || "android.bluetooth.device.action.BOND_STATE_CHANGED".equals(action)
+                || BluetoothDevice.ACTION_UUID.equals(action)
+                || BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)
+                || action.endsWith("profile.action.CONNECTION_STATE_CHANGED")
+                || "com.hkmc.intent.action.SYSTEM_POWERON".equals(action);
+    }
+
+    private static boolean containsIgnoreCase(Set<String> values, String target) {
+        for (String value : values) if (target.equalsIgnoreCase(value)) return true;
+        return false;
+    }
+
     void scan() {
+        lastScanMs = now();
         if (adapter == null || !adapter.isEnabled()) {
+            for (String previous : linked) {
+                sdpRefresh.reset(previous);
+                appleCarPlay.remove(previous);
+            }
             linked.clear();
+            sdpDeferredMusic.clear();
             falseConnectionSince.clear();
             if (session.candidate() != null) session.lost(null, now());
             return;
@@ -216,29 +278,44 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         String hfp = null;
         try { hfp = (String) adapter.getClass().getMethod("getConnectedHfpAddr").invoke(adapter); }
         catch (Exception ignored) {}
+        Set<BluetoothDevice> bondedDevices = adapter.getBondedDevices();
         List<BluetoothCandidateScan.Device> devices = new ArrayList<BluetoothCandidateScan.Device>();
-        for (BluetoothDevice device : adapter.getBondedDevices()) {
-            if (device == null) continue;
-            final BluetoothDevice bonded = device;
-            devices.add(new BluetoothCandidateScan.Device() {
-                public String address() { return bonded.getAddress(); }
-                public Boolean isConnected() {
-                    try {
-                        return (Boolean) bonded.getClass().getMethod("isConnected").invoke(bonded);
-                    } catch (Exception ignored) {
-                        return null;
+        if (bondedDevices != null) {
+            for (BluetoothDevice device : bondedDevices) {
+                if (device == null || device.getBondState() != BluetoothDevice.BOND_BONDED
+                        || unpaired.contains(device.getAddress().toUpperCase(java.util.Locale.US))) continue;
+                final BluetoothDevice bonded = device;
+                devices.add(new BluetoothCandidateScan.Device() {
+                    public String address() { return bonded.getAddress(); }
+                    public Boolean isConnected() {
+                        try {
+                            return (Boolean) bonded.getClass().getMethod("isConnected").invoke(bonded);
+                        } catch (Exception ignored) {
+                            return null;
+                        }
                     }
-                }
-            });
+                });
+            }
         }
+        Set<String> previouslyLinked = new LinkedHashSet<String>(linked);
         BluetoothCandidateScan.reconcile(linked, falseConnectionSince, devices, hfp, session, now());
-        for (BluetoothDevice device : adapter.getBondedDevices()) {
-            if (device != null && linked.contains(device.getAddress())) requestFreshSdp(device);
+        for (String previous : previouslyLinked) {
+            if (!containsIgnoreCase(linked, previous)) {
+                sdpRefresh.reset(previous);
+                appleCarPlay.remove(previous);
+                sdpDeferredMusic.remove(previous);
+            }
+        }
+        if (bondedDevices != null) {
+            for (BluetoothDevice device : bondedDevices) {
+                if (device != null && linked.contains(device.getAddress())) requestFreshSdp(device);
+            }
         }
     }
 
     void connected(BluetoothDevice device) {
-        if (device == null || device.getBondState() != BluetoothDevice.BOND_BONDED) return;
+        if (device == null || device.getBondState() != BluetoothDevice.BOND_BONDED
+                || unpaired.contains(device.getAddress().toUpperCase(java.util.Locale.US))) return;
         DriveLog.bridge(2, 1, 0, 0, 0, 0, 0);
         String address = device.getAddress();
         linked.add(address);
@@ -254,33 +331,115 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         boolean relayCandidate = address.equals(session.candidate());
         BluetoothCandidateScan.disconnected(linked, falseConnectionSince, address, session, now());
         sdpRefresh.reset(address);
+        sdpDeferredMusic.remove(address);
         appleCarPlay.remove(address);
         if (relayCandidate) relay.bluetoothLost();
+    }
+
+    /** Stock WPP wireless/service/d.java:30-46 handles BOND_NONE=10 as deletion.
+     * Delete our address caches only; WPP's databases remain owned by stock. */
+    void bondRemoved(BluetoothDevice device) {
+        String address = device.getAddress();
+        boolean current = address.equalsIgnoreCase(session.candidate()) || relay.hasCandidate(address);
+        // Fence late ACL/SDP and stale bonded-device snapshots until a real BOND_BONDED event.
+        unpaired.add(address.toUpperCase(java.util.Locale.US));
+        Set<String> cachedAddresses = new LinkedHashSet<String>(linked);
+        cachedAddresses.addAll(appleCarPlay.keySet());
+        cachedAddresses.addAll(sdpDeferredMusic);
+        cachedAddresses.add(address);
+        for (String cached : cachedAddresses) if (address.equalsIgnoreCase(cached)) {
+            linked.remove(cached);
+            appleCarPlay.remove(cached);
+            sdpDeferredMusic.remove(cached);
+            sdpRefresh.reset(cached);
+        }
+        falseConnectionSince.remove(address.toUpperCase(java.util.Locale.US));
+        if (current) {
+            session.lost(null, now());
+            relay.candidateLost(); // deletion must bypass bluetoothLost's Wi-Fi preservation exception.
+            relayCandidateGeneration = session.generation();
+        }
+        log("path=relay event=bond-none generation=" + relay.generation() + " time=" + now() + " result=deleted");
+    }
+
+    static boolean isAppleVendor(BluetoothDevice device) {
+        if (device == null) return false;
+        try {
+            Object vendor = BluetoothDevice.class.getMethod("getVendor").invoke(device);
+            return Integer.valueOf(76).equals(vendor);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    boolean isBluetoothMusicActive() {
+        try {
+            Object am = context.getSystemService("audio");
+            if (am == null) return false;
+            Object active = am.getClass().getMethod("isMusicActive").invoke(am);
+            return Boolean.TRUE.equals(active);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     void requestFreshSdp(BluetoothDevice device) {
         if (device == null) return;
         String address = device.getAddress();
         long time = now();
+        ParcelUuid[] cached = null;
+        try { cached = device.getUuids(); }
+        catch (RuntimeException ignored) { }
+        if (cached != null) {
+            for (ParcelUuid value : cached) {
+                UUID uuid = value == null ? null : value.getUuid();
+                if (APPLE_CAFF.equals(uuid) || APPLE_CAFE.equals(uuid)) {
+                    appleCarPlay.put(address, Boolean.TRUE);
+                    sdpRefresh.complete(address, time, true);
+                    sdpDeferredMusic.remove(address);
+                    return;
+                }
+            }
+        }
+        if (isAppleVendor(device)) {
+            appleCarPlay.put(address, Boolean.TRUE);
+            sdpRefresh.complete(address, time, true);
+            sdpDeferredMusic.remove(address);
+            return;
+        }
+        if (!sdpRefresh.canBegin(address, time)) return;
+        if (isBluetoothMusicActive()) {
+            if (sdpDeferredMusic.add(address)) {
+                log("path=stock event=sdp result=deferred-music-active");
+            }
+            return;
+        }
+        sdpDeferredMusic.remove(address);
         if (!sdpRefresh.begin(address, time)) return;
         boolean requested = false;
         try { requested = device.fetchUuidsWithSdp(); }
         catch (RuntimeException ignored) { }
-        if (!requested) sdpRefresh.complete(address, time, false);
+        if (!requested) {
+            sdpRefresh.rejected(address, time);
+            log("path=stock event=sdp result=rejected");
+        } else {
+            log("path=stock event=sdp result=requested");
+        }
     }
 
     void acceptFreshSdp(BluetoothDevice device) {
         if (device == null || !linked.contains(device.getAddress())) return;
+        boolean apple = isAppleVendor(device);
         ParcelUuid[] values;
         try { values = device.getUuids(); }
         catch (RuntimeException e) { values = null; }
-        boolean apple = false;
-        if (values != null) for (ParcelUuid value : values) {
+        boolean hasUuids = values != null && values.length > 0;
+        if (!apple && hasUuids) for (ParcelUuid value : values) {
             UUID uuid = value == null ? null : value.getUuid();
             if (APPLE_CAFF.equals(uuid) || APPLE_CAFE.equals(uuid)) { apple = true; break; }
         }
-        sdpRefresh.complete(device.getAddress(), now(), values != null);
-        appleCarPlay.put(device.getAddress(), Boolean.valueOf(apple));
+        sdpRefresh.complete(device.getAddress(), now(), apple || hasUuids);
+        if (apple || hasUuids) appleCarPlay.put(device.getAddress(), Boolean.valueOf(apple));
         maintainRelay();
     }
 
@@ -610,6 +769,9 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         // Logged unfiltered: a filter turned every relay step into "other" and
         // hid where the Bluetooth/iAP2 handshake stopped on the car.
         log("path=relay event=" + name + " result=" + result);
+        if ("relay".equals(name) && "adapter-ready".equals(result)) {
+            maintainRelay();
+        }
     }
 
     private static int eventCode(String name) {
@@ -684,6 +846,7 @@ public final class WirelessBridge implements StockProjectionSession.Port, V039Re
         linked.clear();
         falseConnectionSince.clear();
         main.removeCallbacks(tick);
+        main.removeCallbacks(splitRetryTask);
         oemCalls.shutdownNow();
         if (eventsRegistered) try { context.unregisterReceiver(events); } catch (RuntimeException ignored) {}
         if (stopRegistered) try { context.unregisterReceiver(stopReceiver); } catch (RuntimeException ignored) {}

@@ -35,6 +35,27 @@ public final class SwitchRequestTest {
         check("exclusive fresh debug command", writer.writeDebug(seq, dir, 10, 30,
                 "12345678-1234-1234-1234-123456789abc", true)
                 && read(target).equals("boot=12345678-1234-1234-1234-123456789abc\nexpires=30\ndebug=on\n"));
+        for (String key : new String[] { "cp_split", "aa_split", "cp_enable", "aa_enable", "cp_rhd" }) {
+            long s = writer.issue();
+            check("projection key " + key, writer.writeProjection(s, dir, 10, 30,
+                    "12345678-1234-1234-1234-123456789abc", key, true, "77")
+                    && read(target).equals("boot=12345678-1234-1234-1234-123456789abc\nexpires=30\npp=" + key + ":on:77\n"));
+        }
+        check("invalid projection key rejected", !writer.writeProjection(writer.issue(), dir, 10, 30,
+                "12345678-1234-1234-1234-123456789abc", "bogus", true, "77"));
+        check("invalid projection token rejected", !writer.writeProjection(writer.issue(), dir, 10, 30,
+                "12345678-1234-1234-1234-123456789abc", "cp_split", false, "77;rm"));
+        check("expired projection envelope rejected", !writer.writeProjection(writer.issue(), dir, 31, 30,
+                "12345678-1234-1234-1234-123456789abc", "cp_split", false, "78"));
+        check("future projection envelope rejected", !writer.writeProjection(writer.issue(), dir, 10, 41,
+                "12345678-1234-1234-1234-123456789abc", "cp_split", false, "79"));
+        long staleSeq = writer.issue();
+        writer.issue();
+        check("stale projection sequence rejected", !writer.writeProjection(staleSeq, dir, 10, 30,
+                "12345678-1234-1234-1234-123456789abc", "cp_split", true, "80"));
+        writer.close();
+        check("closed writer projection rejected", !writer.writeProjection(writer.issue(), dir, 10, 30,
+                "12345678-1234-1234-1234-123456789abc", "cp_split", true, "81"));
         target.delete();
         if (failures != 0) { System.out.println("== SwitchRequest: " + failures + " failed"); System.exit(1); }
         System.out.println("== SwitchRequest: all passed");

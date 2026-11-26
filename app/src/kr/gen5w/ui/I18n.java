@@ -200,5 +200,47 @@ public final class I18n {
         add("자동 적용을 끄고 이 패키지가 적용한 기능을 되돌립니다. 패키지와 앱은 마지막에 NEMESIS Manager에서 지웁니다.", "Disables automatic activation and restores features applied by this package. Remove the package and app in NEMESIS Manager afterwards.");
         add("기능을 되돌리는 동안 차를 끄지 마세요. Android가 다시 시작될 수 있습니다. 실패하면 진단을 저장하고 복원 상태를 확인하세요.", "Keep the car on while features are restored. Android may restart. If restoration fails, save a diagnosis and check its status.");
         add("자동 적용을 끄고 기능을 되돌립니다. 다시 사용하려면 설치 키트로 설정해야 합니다.", "Disables automatic activation and restores features. Use the installation kit to configure it again.");
+        add("폰 프로젝션 (순정 숨김 설정)", "Phone Projection (hidden stock settings)");
+        add("무선 기능 활성화 시 순정 설정에서 숨겨지는 항목을 여기서 직접 변경합니다. 변경 후 재연결하면 반영됩니다.", "Edit stock Phone Projection settings hidden while wireless projection is active. Reconnect after changing them.");
+        add("설정을 적용하는 중입니다...", "Applying setting...");
+        add("폰 프로젝션 설정 적용에 실패했습니다. 잠시 뒤 다시 시도하세요.", "Failed to apply the Phone Projection setting. Try again shortly.");
+        add("Apple CarPlay 분할 화면 사용", "Use Split Screen for Apple CarPlay");
+        add("변경 시 CarPlay를 다시 연결합니다.",
+            "Changing this reconnects CarPlay.");
+        add("Android Auto 분할 화면 사용", "Use Split Screen for Android Auto");
+        add("Android Auto 오른쪽에 차량 분할창을 표시합니다. 변경 후 Android Auto를 다시 연결해야 적용됩니다.",
+            "Shows the vehicle split screen on the right side of Android Auto. Reconnect Android Auto after changing.");
+        add("Apple CarPlay 사용", "Enable Apple CarPlay");
+        add("순정 Apple CarPlay 활성화 설정(carplay_information)을 켜고 끕니다.", "Turns the stock Apple CarPlay activation setting (carplay_information) on or off.");
+        add("Android Auto 사용", "Enable Android Auto");
+        add("순정 Android Auto 활성화 설정을 켜고 끕니다.", "Turns the stock Android Auto activation setting on or off.");
+        add("CarPlay 우핸들 레이아웃 (RHD)", "CarPlay Right-Hand Drive layout (RHD)");
+        add("켜면 CarPlay 사이드바를 오른쪽(우핸들 차량 기준)으로 옮깁니다. 변경 시 CarPlay를 다시 연결해 적용합니다.",
+            "Moves the CarPlay sidebar to the right side for right-hand-drive vehicles. Automatically reconnects CarPlay when changed.");
+        add("설정이 저장되었습니다. CarPlay 연결을 다시 시도합니다.",
+            "Setting saved. Reconnecting CarPlay now.");
+        add("설정이 저장되었습니다. Android Auto를 다시 연결하면 적용됩니다.",
+            "Setting saved. Reconnect Android Auto to apply.");
+        add("무선 호스트 실행 중", "Wireless host running");
+        add("무선 서비스가 준비되었습니다. 실제 연결은 휴대폰 블루투스·Wi-Fi 연결 후 진행됩니다.", "Wireless service is ready. Phone connection starts after pairing via Bluetooth and Wi-Fi.");
+        add("CarPlay 무선 중계", "CarPlay wireless relay");
+        add("● 활성", "● Active"); add("● 비활성", "● Inactive");
+        add("순정 내비 미안내 (폰 HUD 대기)", "Stock navi idle (phone HUD ready)");
+        add("Android Auto 출력 대기/허용", "Android Auto output ready/allowed");
+        add("CarPlay / AA HUD 연동", "CarPlay / AA HUD link");
+        add("끄면 계기판·HUD 길안내 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.", "Stops cluster/HUD guidance service when off; starts again right away when on.");
+        add("순정 Apple CarPlay 사용 설정을 켜고 끕니다.", "Turns the stock Apple CarPlay setting on or off.");
+        add("자동 적용 (설치·제거로 관리)", "Managed by install / remove");
+        add("켜면 상세 로그를 용량 제한으로 보관합니다. 문제가 생기면 USB를 꽂고 아래 진단 저장을 누르세요.", "Keeps bounded detailed logs when enabled. Insert USB and press Save below if a problem occurs.");
+        add("USB를 꽂은 뒤 저장을 누르면 상태·최근 기록·진단 스냅샷을 USB의 gen5w-kr-diag 폴더에 저장합니다. USB 연결만으로 자동 저장되지 않으며 개인정보 줄은 제외합니다.", "Insert USB and press Save to write status, recent logs, and diagnosis snapshots to gen5w-kr-diag on USB. Plugging in USB alone does not auto-save; private lines are excluded.");
+        add("USB의 gen5w-kr-diag 폴더에 저장했습니다. USB를 빼서 PC로 확인하세요.", "Saved to gen5w-kr-diag on USB. Unplug and check on a PC.");
+        add("USB가 연결되어 있지 않아 차량 내부에만 저장했습니다. USB를 꽂고 다시 저장을 누르세요.", "No USB connected, so saved in car only. Insert USB and press Save again.");
+        add("USB에 쓰지 못했습니다. USB 연결과 용량을 확인한 뒤 다시 누르세요.", "Could not write to USB. Check USB connection and space, then try again.");
+        add("자동 적용을 끄고 기능을 되돌립니다. 다시 사용하려면 설치 USB로 다시 설치해야 합니다.", "Turns off automatic application and restores stock features. Use the install USB to reinstall later.");
+        add("기록된 오류가 없습니다.", "No recorded errors.");
+        add("무선 연결·HUD·Wi-Fi 상태와 설치 버전을 보여 줍니다.", "Shows wireless, HUD, Wi-Fi status and installed version.");
+        add("무선·안내창·HUD·순정 숨김 설정을 켜고 끕니다. 설치된 파일은 지워지지 않습니다.", "Turns wireless, notice, HUD and hidden stock settings on or off. Installed files are not deleted.");
+        add("최근 동작 기록과 오류 로그를 파일별 역순으로 보여 줍니다. 종류와 출처로 걸러 볼 수 있습니다.", "Shows recent logs and errors grouped by file in reverse order, filtered by category and source.");
+        add("상세 디버깅, 수동 진단 저장(USB), 복구와 제거 작업을 합니다.", "Manage detailed debugging, manual USB diagnosis save, recovery and removal.");
     }
 }

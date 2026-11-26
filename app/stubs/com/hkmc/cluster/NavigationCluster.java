@@ -35,4 +35,13 @@ public class NavigationCluster {
     public void updateTBTSubInfo(float distance, int distanceErr, int unit, int hours,
             int minutes, int timeType, int timeFormat, float compassDegree,
             int compassDegreeErr) { throw new RuntimeException("stub"); }
+    public void updateTBTSubInfo2C(int distToPoint1_unit, int distToPoint1_F, int distToPoint1_I,
+            int distToPoint2_unit, int distToPoint2_F, int distToPoint2_I,
+            int distToPoint3_unit, int distToPoint3_F, int distToPoint3_I) { throw new RuntimeException("stub"); }
+    public void updateTBTTrapInfo(int fixedSpeed, int mobileSpeed, int overSpeedAlarm, int redlineSpeed,
+            int nonSpeed, int warningZone, int curveWarning, int mergeWarning, int tollGateCurrency,
+            int tollGate, int displayTG, int barGraphLevel, int speedLimit, int busSpeed,
+            int speedLimitType, int speedLimitUnit, int speedInfoType) { throw new RuntimeException("stub"); }
+    public void updateSTD_NAVI_PE_00_Info(int tunnelDistance, int tunnelRoadClass, int tunnelExist,
+            int parkingLot, int airConditionWarning, int airConditionType) { throw new RuntimeException("stub"); }
 }

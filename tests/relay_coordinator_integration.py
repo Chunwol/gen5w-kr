@@ -2,21 +2,30 @@
 import ast
 from pathlib import Path
 import subprocess
-import tempfile
+import repo_tmp as tempfile
 
 root = Path(__file__).resolve().parents[1]
 tree = ast.parse((root / 'tests/wireless_bridge_integration.py').read_text(encoding='utf-8'))
 stubs = ast.literal_eval(next(n.value for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'stubs' for t in n.targets)))
 stubs.pop('kr/gen5w/wireless/V039RelayCoordinator.java')
+stubs['android/os/Handler.java'] = '''package android.os; public class Handler {
+ public static final java.util.List<Runnable> delayed = new java.util.ArrayList<Runnable>();
+ public static long lastDelay = -1L;
+ public Handler(Looper l){}
+ public void post(Runnable r){r.run();}
+ public void postDelayed(Runnable r,long t){lastDelay=t;delayed.add(r);}
+ public void removeCallbacks(Runnable r){}
+}'''
 stubs['android/os/SystemClock.java'] = 'package android.os; public class SystemClock { public static long time; public static long elapsedRealtime(){return time;} }'
 stubs['kr/gen5w/wireless/BtRelayPipe.java'] = 'package kr.gen5w.wireless; class BtRelayPipe { enum Event { CLOSED } interface Diagnostics { void event(Event e,int c); } }'
 stubs['kr/gen5w/wireless/V039BtRelayAdapter.java'] = '''package kr.gen5w.wireless;
 class V039BtRelayAdapter {
  interface Listener {void ready();void sppConnected(long g);void iap2Connected(long g,int c);void disconnected(long g,int c);void failed(long g,Failure f);}
  enum Failure { SPP_CONNECT,IAP2_START,IAP2_UNAVAILABLE,BTCM_UNAVAILABLE,TRANSPORT,OTHER }
- static int connects; static long generation; static boolean reject=true;
+ static int connects, fallbacks; static long generation; static boolean reject=true;
  V039BtRelayAdapter(android.content.Context c,Listener l,BtRelayPipe.Diagnostics d){}
  boolean open(){return true;} boolean connect(long g,String a){connects++;generation=g;return !reject;}
+ boolean requestSppConnect(long g){if(g==generation){fallbacks++;return true;}return false;}
  boolean startIap2(long g,int c){return true;} void stop(int c){} void disconnect(){} void close(){}
 }'''
 stubs['kr/gen5w/hotspot/ApProfiles.java'] = 'package kr.gen5w.hotspot; public class ApProfiles { public interface Guard {void check() throws Exception;} }'
@@ -29,7 +38,7 @@ harness = '''package kr.gen5w.wireless;
 public class RelayCoordinatorIntegrationTest {
  static void check(boolean b,String m){if(!b)throw new AssertionError(m);}
  static int failures;
- static V039RelayCoordinator fresh(){failures=0;V039BtRelayAdapter.connects=0;V039BtRelayAdapter.reject=true;android.os.SystemClock.time=0;V039RelayCoordinator c=new V039RelayCoordinator(null,new android.os.Handler(null),new V039RelayCoordinator.Events(){public void relayEvent(String n,String r){if(r.startsWith("failed-"))failures++;}});c.ready();return c;}
+ static V039RelayCoordinator fresh(){failures=0;V039BtRelayAdapter.connects=0;V039BtRelayAdapter.fallbacks=0;V039BtRelayAdapter.reject=true;android.os.Handler.delayed.clear();android.os.Handler.lastDelay=-1L;android.os.SystemClock.time=0;V039RelayCoordinator c=new V039RelayCoordinator(null,new android.os.Handler(null),new V039RelayCoordinator.Events(){public void relayEvent(String n,String r){if(r.startsWith("failed-"))failures++;}});c.ready();return c;}
  static void retriesBounded(){V039RelayCoordinator c=fresh();try{
  c.start("phone");check(V039BtRelayAdapter.connects==1,"initial attempt");
  c.tick();c.tick();check(failures==1,"one failure is reported once, not on every later update");
@@ -75,7 +84,44 @@ public class RelayCoordinatorIntegrationTest {
  c.credentialsReady();c.sppConnected(g2);c.iap2Connected(g2,4);
  c.disconnected(g2,4);waitPhase(c,BtRelaySession.Phase.CANCELLED);
  }finally{c.close();}}
- public static void main(String[]args)throws Exception{retriesBounded();cleanupOwnsGate();shutdownCleansAp();wifiSessionOutlivesBluetooth();System.out.println("PASS production relay coordinator retry integration");}
+ static void sppActiveFallbackWithinFirstAttempt(){V039RelayCoordinator c=fresh();try{
+ V039BtRelayAdapter.reject=false;c.start("phone");
+ check(android.os.Handler.lastDelay==V039RelayCoordinator.SPP_ACTIVE_FALLBACK_MS&&android.os.Handler.delayed.size()==1,"schedules 2s active SPP fallback");
+ android.os.Handler.delayed.get(0).run();
+ check(V039BtRelayAdapter.fallbacks==1,"first attempt triggers requestSppConnect after 2s wait");
+ c.sppConnected(V039BtRelayAdapter.generation);
+ c.start("phone");
+ int before=V039BtRelayAdapter.fallbacks;
+ for(Runnable r:android.os.Handler.delayed)r.run();
+ check(V039BtRelayAdapter.fallbacks==before,"fallback does not fire after SPP connected");
+ }finally{c.close();}
+ V039RelayCoordinator c2=fresh();V039BtRelayAdapter.reject=false;c2.start("phone");c2.close();
+ int beforeClose=V039BtRelayAdapter.fallbacks;
+ for(Runnable r:android.os.Handler.delayed)r.run();
+ check(V039BtRelayAdapter.fallbacks==beforeClose,"fallback ignored after coordinator closes");}
+ static void staleHandoverDisconnectIgnored()throws Exception{V039RelayCoordinator c=fresh();try{
+ V039BtRelayAdapter.reject=false;android.os.SystemClock.time=500000;c.start("phone");
+ check(c.active(),"attempt active");
+ c.handoverDisconnected(499000L);
+ check(c.active(),"disconnect sent before this attempt began is ignored");
+ c.handoverDisconnected(500001L);waitPhase(c,BtRelaySession.Phase.CANCELLED);
+ }finally{c.close();}}
+ static void retryNowClearsBackoff(){V039RelayCoordinator c=fresh();try{
+ for(int i=0;i<3;i++){c.start("phone");android.os.SystemClock.time+=100000;}
+ check(V039BtRelayAdapter.connects==3,"exhausted 3 attempts");
+ c.start("phone");check(V039BtRelayAdapter.connects==3,"blocked before retryNow");
+ c.retryNow();c.start("phone");check(V039BtRelayAdapter.connects==4,"retryNow clears attempts/backoff immediately");
+ }finally{c.close();}}
+ static void component5EndReconcilesActive()throws Exception{V039RelayCoordinator c=fresh();try{
+ V039BtRelayAdapter.reject=false;android.os.SystemClock.time=900000;c.start("phone");long g=c.generation();
+ c.credentialsReady();c.sppConnected(g);c.iap2Connected(g,4);c.handoverRequested();c.handoverConnected();
+ waitPhase(c,BtRelaySession.Phase.ACTIVE);
+ c.disconnected(g-1,5);check(c.carPlayOwned(),"stale component5 end cannot cancel current generation");
+ c.retryNow();check(c.carPlayOwned(),"retry alone cannot invent evidence of session end");
+ c.disconnected(g,5);waitPhase(c,BtRelaySession.Phase.CANCELLED);
+ c.start("phone");check(c.generation()>g,"real component5 end releases phantom ACTIVE for a new generation");
+ }finally{c.close();}}
+ public static void main(String[]args)throws Exception{component5EndReconcilesActive();retriesBounded();cleanupOwnsGate();shutdownCleansAp();wifiSessionOutlivesBluetooth();sppActiveFallbackWithinFirstAttempt();staleHandoverDisconnectIgnored();retryNowClearsBackoff();System.out.println("PASS production relay coordinator retry integration");}
 }'''
 with tempfile.TemporaryDirectory(prefix='gen5w-relay-coordinator-') as tmp:
     base = Path(tmp)

@@ -5,12 +5,42 @@ package kr.gen5w.hud;
  * road-name UTF-16LE starts at byte 5. The stock buffer is 87 bytes.
  */
 public final class TurnFrame {
+    public static final int ICON_STRAIGHT = 0x41;
+    /** Far maneuvers keep their real icon (user request 2026-11-26: the stock "straight beyond 3 km" rule hid the next turn); effectively disabled. */
+    public static final long FAR_STRAIGHT_THRESHOLD_M = Long.MAX_VALUE;
     public static final int SCALE_METER = 0;
     public static final int SCALE_KILOMETER = 1;
     public static final int DIST_ERR_OK = 0;
+    public static final int DIST_ERR_NO_DECIMAL = -2;
     public static final int DIST_ERR_UNKNOWN = -3;
+    public static final int BAR_ERR_OK = 0;
+    public static final int BAR_ERR_INVALID = -1;
+    public static final int BAR_ERR_HIDDEN = -2;
+    public static final int SUB2C_UNIT_NONE = 0;
+    public static final int SUB2C_UNIT_METER = 1;
+    public static final int SUB2C_UNIT_KILOMETER = 2;
+    public static final int SUB2C_UNIT_INVALID = 15;
+    public static final int SUB2C_FRAC_INVALID = 15;
+    public static final int SUB2C_INT_INVALID = 65535;
+    /** Stock V039 com.mnsoft.navi idle TBT_DISPLAY_TYPE (0 is treated as an error/spinner). */
+    public static final int TBT_DISPLAY_IDLE = 8;
 
     private TurnFrame() {}
+
+    /** Maps GuidanceSession's clear code (<= 0) to stock idle displayType=8 instead of invalid 0. */
+    public static int tbtDisplayType(int icon) {
+        return icon > 0 ? icon : TBT_DISPLAY_IDLE;
+    }
+
+    /** Projection code 0x40 ("no direction") draws the cluster's loading spinner; never send it. */
+    public static final int ICON_NO_DIRECTION = 0x40;
+
+    /** Replaces the spinner code with straight-ahead; far turns are replaced only when FAR_STRAIGHT_THRESHOLD_M is lowered (disabled). */
+    public static int effectiveIcon(int icon, long distanceMeters) {
+        if (icon <= 0) return icon;
+        if (icon == ICON_NO_DIRECTION) return ICON_STRAIGHT;
+        return distanceMeters > FAR_STRAIGHT_THRESHOLD_M ? ICON_STRAIGHT : icon;
+    }
 
     /**
      * Converts distance in meters to the float value expected by stock
@@ -32,7 +62,44 @@ public final class TurnFrame {
     }
 
     public static int tbtDistanceError(long meters) {
-        return meters < 0 ? DIST_ERR_UNKNOWN : DIST_ERR_OK;
+        if (meters < 0) return DIST_ERR_UNKNOWN;
+        return meters < 1000L ? DIST_ERR_NO_DECIMAL : DIST_ERR_OK;
+    }
+
+    public static int tbtBarGraphError(int icon, long meters) {
+        if (icon <= 0) return BAR_ERR_INVALID;
+        return (meters < 0 || meters > 300L) ? BAR_ERR_HIDDEN : BAR_ERR_OK;
+    }
+
+    /** 0..100 (ClusterService rounds /10 into the 4-bit bar); the stock engine never shows an empty bar (>= 1 step). */
+    public static int tbtBarGraphLevel(int icon, long meters) {
+        if (icon <= 0 || meters < 0 || meters > 300L) return 0;
+        return (int) Math.min(100L, Math.max(10L, ((300L - meters) * 100L) / 300L));
+    }
+
+    public static int subInfo2CUnit(long meters) {
+        if (meters < 0) return SUB2C_UNIT_INVALID;
+        return meters < 1000L ? SUB2C_UNIT_METER : SUB2C_UNIT_KILOMETER;
+    }
+
+    /** Largest kilometre value the 16-bit whole field carries is 65534.9 km (65535 = invalid). */
+    private static final long SUB2C_MAX_TENTHS = 655349L;
+
+    /** Rounded tenths of a kilometre, saturated before any arithmetic so huge inputs cannot overflow. */
+    private static long subInfo2CTenthsTotal(long meters) {
+        long bounded = Math.min(meters, SUB2C_MAX_TENTHS * 100L);
+        return Math.min(SUB2C_MAX_TENTHS, (bounded + 50L) / 100L);
+    }
+
+    public static int subInfo2CTenths(long meters) {
+        if (meters < 0 || meters < 1000L) return SUB2C_FRAC_INVALID;
+        return (int) (subInfo2CTenthsTotal(meters) % 10L);
+    }
+
+    public static int subInfo2CWhole(long meters) {
+        if (meters < 0) return SUB2C_INT_INVALID;
+        if (meters < 1000L) return (int) meters;
+        return (int) (subInfo2CTenthsTotal(meters) / 10L);
     }
 
     public static byte[] clear() { return new byte[]{(byte)0xf2, 0}; }
@@ -41,7 +108,8 @@ public final class TurnFrame {
         byte[] out = new byte[87];
         out[0] = (byte)0xf2; out[1] = 3;
         for (int i = 0; i < Math.min(3, icons.length); i++) {
-            if (icons[i] > 0 && icons[i] <= 0xee) out[2+i] = (byte)icons[i];
+            int code = icons[i] == ICON_NO_DIRECTION ? ICON_STRAIGHT : icons[i];
+            if (code > 0 && code <= 0xee) out[2+i] = (byte)code;
         }
         if (name != null) {
             int n = Math.min(39, name.length());

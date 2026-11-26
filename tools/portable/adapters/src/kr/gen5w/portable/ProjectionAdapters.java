@@ -19,15 +19,22 @@ public final class ProjectionAdapters {
   public static final class Transaction {
     private final ArrayList<Integer> handles = new ArrayList<Integer>();
     private boolean committed, rolledBack, rollbackFailed;
+    private Runnable onCommit;
     void add(Method target, Method replacement) {
       handles.add(Hook.install(target, replacement));
     }
+    synchronized void setOnCommit(Runnable action) { onCommit = action; }
     synchronized boolean isCommitted() { return committed; }
     synchronized boolean isRolledBack() { return rolledBack; }
     public synchronized void commit() {
       if (rolledBack || rollbackFailed)
         throw new IllegalStateException("adapter transaction cannot commit");
       committed = true;
+      if (onCommit != null) {
+        Runnable action = onCommit;
+        onCommit = null;
+        action.run();
+      }
     }
     public synchronized void rollback() {
       // An earlier successful installation belongs to its original caller.
@@ -62,6 +69,8 @@ public final class ProjectionAdapters {
       implementation = "kr.gen5w.portable.DipoAdapters";
     else if ("com.google.android.projection.sink".equals(name))
       implementation = "kr.gen5w.portable.GpmAdapters";
+    else if ("com.mnsoft.navi".equals(name))
+      implementation = "kr.gen5w.portable.NaviAdapters";
     else
       return null;
     try {

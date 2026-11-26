@@ -1,27 +1,27 @@
 """Run the complete production WirelessBridge with Android/OEM boundary fakes."""
 from pathlib import Path
 import subprocess
-import tempfile
+import repo_tmp as tempfile
 
 root = Path(__file__).resolve().parents[1]
 stubs = {
 'android/content/Context.java': 'package android.content; public abstract class Context { public static final String USB_SERVICE="usb"; public abstract Object getSystemService(String n); public java.util.Map<String,String> receiverPermissions=new java.util.HashMap<String,String>(); public Object registerReceiver(BroadcastReceiver r,IntentFilter f,String p,android.os.Handler h){if(f!=null&&f.action!=null)receiverPermissions.put(f.action,p==null?"":p);return null;} public void unregisterReceiver(BroadcastReceiver r){} public void sendBroadcast(Intent i){} public java.io.File getFilesDir(){return null;} }',
 'android/content/BroadcastReceiver.java': 'package android.content; public abstract class BroadcastReceiver { public abstract void onReceive(Context c,Intent i); }',
 'android/content/IntentFilter.java': 'package android.content; public class IntentFilter { public String action; public IntentFilter(String a){action=a;} public void addAction(String a){} }',
-'android/content/Intent.java': 'package android.content; public class Intent { public static final String ACTION_SHUTDOWN="shutdown"; public String action,pkg; public java.util.Map<String,String> extras=new java.util.HashMap<String,String>(); public Intent(String a){action=a;} public String getAction(){return action;} public Intent setPackage(String p){pkg=p;return this;} public Intent putExtra(String k,String v){extras.put(k,v);return this;} public int getIntExtra(String k,int d){return d;} public Object getParcelableExtra(String k){return null;} }',
+'android/content/Intent.java': 'package android.content; public class Intent { public static final String ACTION_SHUTDOWN="shutdown"; public String action,pkg; public java.util.Map<String,String> extras=new java.util.HashMap<String,String>(); public Intent(String a){action=a;} public String getAction(){return action;} public Intent setPackage(String p){pkg=p;return this;} public Intent putExtra(String k,String v){extras.put(k,v);return this;} public java.util.Map<String,Object> objects=new java.util.HashMap<String,Object>(); public Intent putExtra(String k,Object v){objects.put(k,v);return this;} public int getIntExtra(String k,int d){Object v=objects.get(k);return v instanceof Integer?((Integer)v).intValue():d;} public long getLongExtra(String k,long d){return d;} public Object getParcelableExtra(String k){return objects.get(k);} }',
 'android/app/Service.java': 'package android.app; public abstract class Service extends android.content.Context { public void stopSelf(){} }',
 'android/os/Handler.java': 'package android.os; public class Handler { public Handler(Looper l){} public void post(Runnable r){r.run();} public void postDelayed(Runnable r,long t){} public void removeCallbacks(Runnable r){} }',
 'android/os/Looper.java': 'package android.os; public class Looper { public static Looper getMainLooper(){return new Looper();} }',
-'android/os/SystemClock.java': 'package android.os; public class SystemClock { public static long elapsedRealtime(){return 10;} }',
+'android/os/SystemClock.java': 'package android.os; public class SystemClock { public static long nowMs = 10L; public static long elapsedRealtime(){return nowMs;} }',
 'android/os/SystemProperties.java': 'package android.os; public class SystemProperties { public static String value=""; public static String get(String k){return "wifi.interface".equals(k)?value:"";} }',
 'android/util/Log.java': 'package android.util; public class Log { public static java.util.List<String> lines=new java.util.concurrent.CopyOnWriteArrayList<String>(); public static int i(String t,String m){lines.add(m);return 0;} }',
-'android/bluetooth/BluetoothAdapter.java': 'package android.bluetooth; public class BluetoothAdapter { public static final String ACTION_STATE_CHANGED="state",EXTRA_STATE="extra"; public static final int STATE_ON=12; public static BluetoothAdapter getDefaultAdapter(){return null;} public boolean isEnabled(){return true;} public java.util.Set<BluetoothDevice> getBondedDevices(){return new java.util.HashSet<BluetoothDevice>();} }',
-'android/bluetooth/BluetoothDevice.java': 'package android.bluetooth; public class BluetoothDevice { public static final String ACTION_ACL_CONNECTED="connected",ACTION_ACL_DISCONNECTED="disconnected",ACTION_UUID="uuid",EXTRA_DEVICE="device"; public static final int BOND_BONDED=12; public int getBondState(){return 12;} public String getAddress(){return "phone";} public boolean fetchUuidsWithSdp(){return true;} public android.os.ParcelUuid[] getUuids(){return new android.os.ParcelUuid[0];} }',
+'android/bluetooth/BluetoothAdapter.java': 'package android.bluetooth; public class BluetoothAdapter { public static final String ACTION_STATE_CHANGED="state",EXTRA_STATE="extra"; public static final int STATE_ON=12; public static BluetoothAdapter instance; public static BluetoothAdapter getDefaultAdapter(){return instance;} public boolean isEnabled(){return true;} public java.util.Set<BluetoothDevice> bonded=new java.util.HashSet<BluetoothDevice>(); public java.util.Set<BluetoothDevice> getBondedDevices(){return bonded;} }',
+'android/bluetooth/BluetoothDevice.java': 'package android.bluetooth; public class BluetoothDevice { public static final String ACTION_ACL_CONNECTED="connected",ACTION_ACL_DISCONNECTED="disconnected",ACTION_UUID="uuid",EXTRA_DEVICE="device"; public static final int BOND_BONDED=12; public String addr="phone"; public boolean connected=true,sdpResult=true; public int sdpCalls,vendor,bond=12; public BluetoothDevice(){} public BluetoothDevice(String a){addr=a;} public int getBondState(){return bond;} public String getAddress(){return addr;} public boolean isConnected(){return connected;} public int getVendor(){return vendor;} public boolean fetchUuidsWithSdp(){sdpCalls++;return sdpResult;} public android.os.ParcelUuid[] getUuids(){return new android.os.ParcelUuid[0];} }',
 'android/os/ParcelUuid.java': 'package android.os; public class ParcelUuid { public java.util.UUID getUuid(){return null;} }',
 'android/hardware/usb/UsbDevice.java': 'package android.hardware.usb; public class UsbDevice { public int getVendorId(){return 0;} }',
 'android/hardware/usb/UsbManager.java': 'package android.hardware.usb; public class UsbManager { public static final String ACTION_USB_DEVICE_ATTACHED="attach",ACTION_USB_DEVICE_DETACHED="detach",EXTRA_DEVICE="usb"; public java.util.Map<String,UsbDevice> getDeviceList(){return new java.util.HashMap<String,UsbDevice>();} }',
 'com/hkmc/userprofile/UserProfileManager.java': 'package com.hkmc.userprofile; public class UserProfileManager { public UserProfileManager(android.content.Context c){} public int getUserType(){return 0;} }',
-'kr/gen5w/wireless/DriveLog.java': 'package kr.gen5w.wireless; public class DriveLog { public static java.util.List<String> codes=new java.util.concurrent.CopyOnWriteArrayList<String>(); public static void bridge(int a,int b,int c,int d,int e,int f,int g){codes.add(b+":"+c);} }',
+'kr/gen5w/wireless/DriveLog.java': 'package kr.gen5w.wireless; public class DriveLog { public static java.util.List<String> codes=new java.util.concurrent.CopyOnWriteArrayList<String>(); public static void bridge(int a,long b,long c,long d,long e,long f,long g){codes.add(b+":"+c);} }',
 'kr/gen5w/wireless/V039RelayCoordinator.java': '''package kr.gen5w.wireless;
 import android.content.Context; import android.os.Handler;
 final class V039RelayCoordinator {
@@ -29,8 +29,8 @@ final class V039RelayCoordinator {
  int starts,cancels,losses; long owner; boolean running;
  V039RelayCoordinator(Context c,Handler h,Events e){} void open(){} void tick(){}
  void start(String a){starts++;owner++;} long generation(){return owner;} void candidateLost(){owner++;losses++;running=false;} void handoverRequested(){}
- boolean owned; int kept; boolean carPlayOwned(){return owned;} void bluetoothLost(){if(owned){kept++;return;}candidateLost();}
- void handoverConnected(){} void handoverDisconnected(){} void apObservedReady(){}
+ boolean owned; int kept,retries; boolean hasCandidate(String a){return owned;} boolean carPlayOwned(){return owned;} void bluetoothLost(){if(owned){kept++;return;}candidateLost();} void retryNow(){retries++;}
+ void handoverConnected(){} void handoverDisconnected(){} void handoverDisconnected(long t){} void apObservedReady(){}
  void credentialsReady(){} void projectionActive(){} void close(){}
  void cancel(BtRelaySession.CancelReason r){cancels++;} boolean active(){return running;} static boolean adapterOk=true; boolean adapterReady(){return adapterOk;}
 }''',
@@ -63,8 +63,12 @@ public class WirelessBridgeIntegrationTest {
         public void requestConnectSPP(String a){outside(); calls++;}
         void outside(){check(!Thread.holdsLock(context.bridge.session),"OEM read/call must be outside session monitor");}
     }
+    public static class AudioManagerStub {
+        public boolean musicActive;
+        public boolean isMusicActive(){return musicActive;}
+    }
     public static class TestContext extends android.content.Context implements PhoneProjectionAccess.ProfileProvider {
-        Manager manager=new Manager(); WirelessBridge bridge; int broadcasts; boolean foreignAfterBroadcast,unavailableAfterBroadcast;
+        Manager manager=new Manager(); WirelessBridge bridge; AudioManagerStub audio=new AudioManagerStub(); int broadcasts; boolean foreignAfterBroadcast,unavailableAfterBroadcast;
         static final StockApGuard.Flush NO_FLUSH=new StockApGuard.Flush(){public void run(){}};
         static StockApGuard tempGuard(StockApGuard.Flush flush){try{return new StockApGuard(java.nio.file.Files.createTempDirectory("gen5w-apguard").toFile(),"0123abcd-0000-1111-2222-333344445555",flush);}catch(java.io.IOException e){throw new AssertionError(e);}}
         TestContext(){this(tempGuard(NO_FLUSH));}
@@ -74,7 +78,7 @@ public class WirelessBridgeIntegrationTest {
             }catch(Exception e){throw new AssertionError(e);}
         }
         volatile Thread mainThread; final java.util.concurrent.atomic.AtomicInteger wifiOnMain=new java.util.concurrent.atomic.AtomicInteger(),wifiReads=new java.util.concurrent.atomic.AtomicInteger();
-        public Object getSystemService(String n){if("wifi".equals(n)){wifiReads.incrementAndGet();if(Thread.currentThread()==mainThread)wifiOnMain.incrementAndGet();}if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");if(manager.crash&&"phoneprojection".equals(n))throw new ExceptionInInitializerError();return "phoneprojection".equals(n)?manager:null;}
+        public Object getSystemService(String n){if("wifi".equals(n)){wifiReads.incrementAndGet();if(Thread.currentThread()==mainThread)wifiOnMain.incrementAndGet();}if("audio".equals(n))return audio;if(bridge!=null)check(!Thread.holdsLock(bridge.session),"service lookup outside monitor");if(manager.crash&&"phoneprojection".equals(n))throw new ExceptionInInitializerError();return "phoneprojection".equals(n)?manager:null;}
         public PhoneProjectionAccess.Profile find(String a){return manager.saved?new PhoneProjectionAccess.Profile(a,1,!manager.off,!manager.noAuto):null;}
         public void sendBroadcast(android.content.Intent i){check(!Thread.holdsLock(bridge.session),"broadcast outside monitor"); broadcasts++; check("com.daudio.app.phoneprojection".equals(i.pkg)&&i.extras.size()==1,"scoped single extra action"); if(foreignAfterBroadcast)manager.foreignAfterInspection=true; if(unavailableAfterBroadcast)manager.unavailableAfterInspection=true;}
     }
@@ -290,7 +294,100 @@ public class WirelessBridgeIntegrationTest {
         check("".equals(c.receiverPermissions.get("connected")),"system Bluetooth broadcasts stay open");
       }finally{c.bridge.shutdown();}
     }
-    public static void main(String[] args)throws Exception{stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();apGuardFailureSendsNoOemAction();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();wifiSettingsAreNeverReadOnTheMainThread();lateAppleSdpEndsStockProfileWait();System.out.println("PASS production WirelessBridge ownership integration");}
+    static void scanDisconnectResetsSdpAndMusicDefersSdp()throws Exception{
+      android.bluetooth.BluetoothAdapter btAdapter = new android.bluetooth.BluetoothAdapter();
+      android.bluetooth.BluetoothAdapter.instance = btAdapter;
+      TestContext c=new TestContext();try{
+        android.bluetooth.BluetoothDevice dev = new android.bluetooth.BluetoothDevice("AA:BB:CC:DD:EE:FF");
+        btAdapter.bonded.add(dev);
+        c.audio.musicActive = true;
+        c.bridge.scan();
+        check(dev.sdpCalls==0, "active music playback must suppress fetchUuidsWithSdp");
+        check(c.bridge.sdpDeferredMusic.contains("AA:BB:CC:DD:EE:FF"), "deferred music device tracked");
+        c.audio.musicActive = false;
+        c.bridge.scan();
+        check(dev.sdpCalls==1, "SDP resumes once music playback stops");
+        c.bridge.sdpRefresh.complete("AA:BB:CC:DD:EE:FF", 200L, false);
+        c.bridge.sdpRefresh.begin("AA:BB:CC:DD:EE:FF", 20000L);
+        c.bridge.sdpRefresh.complete("AA:BB:CC:DD:EE:FF", 20100L, false);
+        check(!c.bridge.sdpRefresh.canBegin("AA:BB:CC:DD:EE:FF", 40000L), "quota exhausted before scan disconnect");
+        dev.connected = false;
+        // Simulate 1s false-confirmation window: two scans >1s apart clear linked device via scan().
+        android.os.SystemClock.nowMs = 45000L;
+        c.bridge.scan();
+        android.os.SystemClock.nowMs = 46100L;
+        c.bridge.scan();
+        check(c.bridge.sdpRefresh.canBegin("AA:BB:CC:DD:EE:FF", 50000L), "scan-detected disconnect with live adapter resets SDP retry quota");
+      }finally{android.os.SystemClock.nowMs=10L;android.bluetooth.BluetoothAdapter.instance=null;c.bridge.shutdown();}
+    }
+    static void acceptFreshSdpPreservesAppleVendorAndRetriesEmptyUnknown()throws Exception{
+      TestContext c=new TestContext();try{
+        android.bluetooth.BluetoothDevice apple=new android.bluetooth.BluetoothDevice("11:22:33:44:55:66");
+        apple.vendor=76;
+        c.bridge.linked.add("11:22:33:44:55:66");
+        c.bridge.acceptFreshSdp(apple);
+        check(Boolean.TRUE.equals(c.bridge.appleCarPlay.get("11:22:33:44:55:66")),"empty ACTION_UUID preserves Apple vendor 76");
+        check(c.bridge.sdpRefresh.ready("11:22:33:44:55:66"),"Apple vendor SDP marked ready");
+        android.bluetooth.BluetoothDevice unknown=new android.bluetooth.BluetoothDevice("77:88:99:AA:BB:CC");
+        unknown.vendor=0;
+        c.bridge.linked.add("77:88:99:AA:BB:CC");
+        c.bridge.sdpRefresh.begin("77:88:99:AA:BB:CC", 10L);
+        c.bridge.acceptFreshSdp(unknown);
+        check(!c.bridge.sdpRefresh.ready("77:88:99:AA:BB:CC"),"empty ACTION_UUID on non-Apple vendor stays retryable");
+        check(!c.bridge.appleCarPlay.containsKey("77:88:99:AA:BB:CC"),"empty ACTION_UUID never caches negative CarPlay capability");
+      }finally{c.bridge.shutdown();}
+    }
+    static void adapterReadyTriggersMaintainRelayImmediately()throws Exception{
+      TestContext c=new TestContext();try{
+        c.manager.saved=true;c.manager.idle=true;c.bridge.enableRelay();
+        c.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+        c.bridge.session.candidate("phone",0);
+        c.bridge.session.tick(0);
+        c.bridge.session.inspected(c.bridge.session.generation(),new StockProjectionSession.Observation(
+            StockProjectionSession.Result.INVOKED,true,1,StockProjectionSession.ProfileState.DISABLED,
+            false,false,false,StockProjectionSession.WifiCredentialState.UNKNOWN,11),1);
+        settle(c);
+        check(c.bridge.relay.starts==0,"unrelated setup has not started relay before maintainRelay or adapter-ready");
+        c.bridge.relayEvent("step","spp-connected");settle(c);
+        check(c.bridge.relay.starts==0,"unrelated relay events do not trigger maintainRelay");
+        c.bridge.relayEvent("relay","adapter-ready");settle(c);
+        check(c.bridge.relay.starts==1,"adapter-ready immediately runs maintainRelay without waiting for 1s tick");
+      }finally{c.bridge.shutdown();}
+    }
+    static void retryCarPlayBroadcastClearsBackoffAndStarts()throws Exception{
+      TestContext c=new TestContext();try{
+        c.bridge.run();
+        check("android.permission.SHUTDOWN".equals(c.receiverPermissions.get("kr.gen5w.wireless.RETRY_CARPLAY")),"RETRY_CARPLAY requires SHUTDOWN permission");
+        int before=c.bridge.relay.retries;
+        c.bridge.events.onReceive(c,new android.content.Intent("kr.gen5w.wireless.RETRY_CARPLAY"));
+        settle(c);
+        check(c.bridge.relay.retries==before+1,"RETRY_CARPLAY triggers immediate retryNow");
+      }finally{c.bridge.shutdown();}
+    }
+    static void unpairClearsCachesAndEndsOwnedWifi()throws Exception{
+      TestContext c=new TestContext();try{
+        android.bluetooth.BluetoothDevice d=new android.bluetooth.BluetoothDevice("phone");
+        c.bridge.connected(d);c.bridge.appleCarPlay.put("phone",Boolean.TRUE);
+        c.bridge.sdpRefresh.complete("phone",0,true);c.bridge.sdpDeferredMusic.add("phone");
+        c.bridge.falseConnectionSince.put("PHONE",1L);
+        c.bridge.relay.owned=true;c.bridge.relay.running=true;
+        int losses=c.bridge.relay.losses;long generation=c.bridge.session.generation();
+        d.bond=10;
+        c.bridge.events.onReceive(c,new android.content.Intent("android.bluetooth.device.action.BOND_STATE_CHANGED")
+            .putExtra("device",d).putExtra("android.bluetooth.device.extra.BOND_STATE",10));
+        check(c.bridge.relay.losses==losses+1&&!c.bridge.relay.running,"unpair bypasses ACL Wi-Fi keep exception");
+        check(c.bridge.session.candidate()==null&&!c.bridge.linked.contains("phone"),"candidate and link removed");
+        check(!c.bridge.sdpRefresh.ready("phone")&&!c.bridge.appleCarPlay.containsKey("phone")
+            &&!c.bridge.sdpDeferredMusic.contains("phone")&&!c.bridge.falseConnectionSince.containsKey("PHONE"),"all address caches discarded");
+        c.bridge.acceptFreshSdp(d);check(!c.bridge.sdpRefresh.ready("phone"),"late SDP cannot revive deleted peer");
+        d.bond=12;c.bridge.connected(d);
+        check(c.bridge.session.candidate()==null,"late ACL with stale bond cache cannot undo unpair");
+        c.bridge.events.onReceive(c,new android.content.Intent("android.bluetooth.device.action.BOND_STATE_CHANGED")
+            .putExtra("device",d).putExtra("android.bluetooth.device.extra.BOND_STATE",12));
+        check(c.bridge.session.generation()>generation,"re-pair creates a fresh candidate generation");
+      }finally{c.bridge.shutdown();}
+    }
+    public static void main(String[] args)throws Exception{unpairClearsCachesAndEndsOwnedWifi();stockOffSettingBlocksAndStopsRelay();failedRelayReadNeverSticks();relayNoticesRequireSystemSender();ownershipChangesCancelAtEveryBoundary();idleOwnershipAllowsOneBootstrap();apGuardFailureSendsNoOemAction();interfaceDiagnosticsNeverBlockBootstrap();missingProfileFallsBackOnlyForFreshAppleSdp();relayReadySkipsStockBootstrap();relayAdmissionRechecksOwnershipAndGeneration();scanCandidateGenerationResetsRelay();runningWifiSessionSurvivesBluetoothSideLoss();wifiSettingsAreNeverReadOnTheMainThread();lateAppleSdpEndsStockProfileWait();scanDisconnectResetsSdpAndMusicDefersSdp();acceptFreshSdpPreservesAppleVendorAndRetriesEmptyUnknown();adapterReadyTriggersMaintainRelayImmediately();retryCarPlayBroadcastClearsBackoffAndStarts();System.out.println("PASS production WirelessBridge ownership integration");}
 }
 """
 with tempfile.TemporaryDirectory(prefix='gen5w-wireless-bridge-') as tmp:

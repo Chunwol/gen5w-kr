@@ -12,6 +12,7 @@ public final class AaRouteCache {
     private int icon, secondIcon;
     private long distance = -1;
     private String road;
+    private boolean tunnel;
     private long updatedAt;
     private boolean routePending, lanePending;
     private byte[] lanes;
@@ -23,11 +24,17 @@ public final class AaRouteCache {
 
     /** Returns false when the update was not accepted (output yielded or no turn). */
     public synchronized boolean update(int first, int second, long meters, String name, long now) {
+        return update(first, second, meters, name, false, now);
+    }
+
+    /** Returns false when the update was not accepted (output yielded or no turn). */
+    public synchronized boolean update(int first, int second, long meters, String name, boolean isTunnel, long now) {
         if (!allowed || first <= 0 || meters < 0) return false;
         icon = first;
         secondIcon = second;
         distance = meters;
         road = name;
+        tunnel = isTunnel;
         updatedAt = now;
         routePending = true;
         return true;
@@ -43,7 +50,7 @@ public final class AaRouteCache {
     }
 
     public synchronized void clear() {
-        icon = 0; secondIcon = 0; distance = -1; road = null;
+        icon = 0; secondIcon = 0; distance = -1; road = null; tunnel = false;
         routePending = false; lanePending = false; lanes = null; updatedAt = 0;
     }
     public synchronized boolean isActive() { return distance >= 0 && icon > 0; }
@@ -57,5 +64,6 @@ public final class AaRouteCache {
     public synchronized int secondIcon() { return secondIcon; }
     public synchronized long distance() { return distance; }
     public synchronized String road() { return road; }
+    public synchronized boolean tunnel() { return tunnel; }
     public synchronized byte[] lanes() { return lanes == null ? null : lanes.clone(); }
 }

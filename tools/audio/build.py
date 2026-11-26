@@ -33,9 +33,13 @@ def main():
  for profile,suffix in [('recipe.json',''),('recipe-v035.json','-v035')]:
   recipe=json.loads((ROOT/'tools/audio'/profile).read_text())
   include=out if not suffix else out/'v035';include.mkdir(parents=True,exist_ok=True)
+  authored=out/'formats.elf'
+  if suffix:
+   authored=include/'formats.elf'
+   run(['-DLEGACY_V035','-nostdlib','-Wl,-T,tools/audio/layout.ld','-Wl,-e,input_formats','-Wl,--build-id=none','-Wl,-no-pie','tools/audio/formats.S','-o',authored])
   header=['#define ORIGINAL_SHA "'+recipe['original_sha256']+'"','#define PATCHED_SHA "'+recipe['patched_sha256']+'"']
   for index,patch in enumerate(recipe['patches']):
-   data=section((out/'formats.elf').read_bytes(),patch['section'])
+   data=section(authored.read_bytes(),patch['section'])
    if len(data)!=patch['length'] or hashlib.sha256(data).hexdigest()!=patch['replacement_sha256']:raise SystemExit('replacement differs from reviewed recipe: '+patch['section'])
    header.append('static const unsigned char replacement%d[] = {%s};'%(index,','.join(map(str,data))))
   header.append('static const struct patch patches[] = {'+','.join('{%d,%d,replacement%d}'%(p['offset'],p['length'],i) for i,p in enumerate(recipe['patches']))+'};')
@@ -43,5 +47,5 @@ def main():
   run(['-std=c99','-Os','-Wall','-Wextra','-Werror','-fno-builtin','-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fno-pie','-nostdlib','-static','-Wl,-e,_start','-Wl,--build-id=none','-I',include,'tools/audio/patch.c','tools/audio/runtime.c','tools/audio/syscalls.S','-o',ROOT/'packages/audio-format/bin'/('audio-patch'+suffix)])
   env=['AUDIO_RECIPE='+recipe['id']]+['AUDIO_'+name.upper()+'_SHA='+value for name,value in recipe['dependencies'].items()]
   (ROOT/'packages/audio-format/scripts'/('recipe'+suffix+'.sh')).write_text('\n'.join(env)+'\n',newline='\n')
-  print('Built freestanding ARM audio-patch'+suffix+'; two authored sections verified')
+  print('Built freestanding ARM audio-patch'+suffix+'; authored sections verified:',len(recipe['patches']))
 if __name__=='__main__':main()

@@ -144,7 +144,7 @@ EOF
 # /system changes (build.prop wrapper and patched files). Installing over it is
 # refused; restoring it is a separate recovery step, never part of installing.
 if [ "$update" = 0 ]; then
-    for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do
+    for key in wrap.com.daudio.app.dipo wrap.com.google.android.project wrap.com.mnsoft.navi; do
         if [ -n "$("$GETPROP" "$key" 2>/dev/null)" ]; then
             say "leftover persistent install without package: $key"
             finish refused '이전 설치가 차에 남아 있습니다. 기존 설치를 업데이트하거나 삭제(순정 복구)한 뒤 다시 꽂아 주세요. 아무것도 바꾸지 않았습니다.'
@@ -258,7 +258,7 @@ if [ "$update" = 1 ]; then
         finish refused '범용판 마운트가 아직 남아 있습니다. 기존 화면 구성을 안전하게 내리지 못했습니다.'
     fi
     if [ -z "$ROOT" ]; then
-        for key in wrap.com.daudio.app.dipo wrap.com.google.android.project; do
+        for key in wrap.com.daudio.app.dipo wrap.com.google.android.project wrap.com.mnsoft.navi; do
             [ -z "$(getprop "$key")" ] || finish refused "범용판 실행 설정($key)이 남아 있습니다. 기존 wrapper를 안전하게 내리지 못했습니다: $key"
         done
     fi

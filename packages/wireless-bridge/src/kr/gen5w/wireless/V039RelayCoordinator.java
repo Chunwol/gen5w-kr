@@ -11,6 +11,7 @@ import java.util.concurrent.Executors;
 
 /** Single owner for the exact-V039 fallback transport and projection AP. */
 final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelayPipe.Diagnostics {
+    static final long SPP_ACTIVE_FALLBACK_MS = 2000L;
     interface Events { void relayEvent(String name, String result); }
 
     private final Handler main;
@@ -21,6 +22,8 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
     private String candidate;
     private int attempts;
     private long retryAfter;
+    /** Start time of the newest attempt; a handover-disconnect sent before it belongs to an older session. */
+    private long attemptStartedAt = Long.MIN_VALUE;
     private boolean ready;
     private volatile boolean closed;
     private volatile long shutdownDeadline;
@@ -40,6 +43,7 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         if (attempts >= 3 || now() < retryAfter) return;
         if (!ready) { events.relayEvent("relay", "adapter-waiting"); return; }
         attempts++;
+        attemptStartedAt = now();
         apply(session.start(now()));
     }
 
@@ -51,7 +55,12 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         apply(session.iap2Connected(session.generation(), 5, now()));
     }
 
-    void handoverDisconnected() {
+    void handoverDisconnected() { handoverDisconnected(-1L); }
+
+    void handoverDisconnected(long sentAt) {
+        boolean stale = sentAt >= 0 && attemptStartedAt != Long.MIN_VALUE && sentAt < attemptStartedAt;
+        observeEnd(1, stale ? 0 : 1, sentAt);
+        if (stale) return;
         if (active()) apply(session.cancel(session.generation(), BtRelaySession.CancelReason.PHONE_LOST));
     }
 
@@ -64,6 +73,8 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         if (active()) apply(session.cancel(session.generation(), reason));
     }
 
+    boolean hasCandidate(String address) { return address != null && address.equalsIgnoreCase(candidate); }
+
     boolean carPlayOwned() { return session.carPlayOwned(); }
 
     /** The phone's Bluetooth side is gone (ACL or the stock candidate). A Wi-Fi CarPlay
@@ -74,6 +85,13 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
             return;
         }
         candidateLost();
+    }
+
+    /** Clears retry backoff so a user setting toggle (e.g. split screen) retries CarPlay at once. */
+    void retryNow() {
+        if (closed) return;
+        attempts = 0;
+        retryAfter = 0;
     }
 
     void candidateLost() {
@@ -119,7 +137,9 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
         apply(session.iap2Connected(generation, component, now()));
     }}); }
     public void disconnected(final long generation, final int component) { post(new Runnable() { public void run() {
-        if (session.generation() == generation && session.carPlayOwned()) {
+        // Stock Iap2Service.java:3815-3827 delivers disconnected(component); component 5 ends CarPlay transport.
+        if (component == 5 && session.generation() == generation) observeEnd(2, 1, now());
+        if (component != 5 && session.generation() == generation && session.carPlayOwned()) {
             events.relayEvent("relay", "bluetooth-lost-wifi-session-kept component=" + component);
             return;
         }
@@ -135,12 +155,21 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
                 events.relayEvent("relay", "bluetooth-failure-wifi-session-kept " + failure.name().toLowerCase());
                 return;
             }
+            if (owner == session.generation() && failure == V039BtRelayAdapter.Failure.IAP2_UNAVAILABLE)
+                observeEnd(3, 1, now()); // V039BtRelayAdapter iap2Binding.onServiceDisconnected:321-324.
             BtRelaySession.FailureReason reason = failure == V039BtRelayAdapter.Failure.SPP_CONNECT
                     ? BtRelaySession.FailureReason.SPP_ERROR
                     : failure == V039BtRelayAdapter.Failure.IAP2_START || failure == V039BtRelayAdapter.Failure.IAP2_UNAVAILABLE
                     ? BtRelaySession.FailureReason.IAP2_ERROR : BtRelaySession.FailureReason.TRANSPORT_ERROR;
             apply(session.fail(owner, reason));
         }});
+    }
+
+    private void observeEnd(int source, int accepted, long sentAt) {
+        android.util.Log.i("Gen5wWireless", "path=relay event=session-end generation=" + session.generation()
+                + " time=" + now() + " sent-at=" + sentAt + " source=" + source
+                + " disconnect-delivery=" + (accepted == 1 ? "accepted" : "stale"));
+        DriveLog.bridge(41, session.generation(), source, sentAt, accepted, 0, 0);
     }
 
     public void event(BtRelayPipe.Event value, int component) {
@@ -151,6 +180,10 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
 
     private void apply(BtRelaySession.Update update) {
         if (closed) return;
+        if (update.phase == BtRelaySession.Phase.ACTIVE) {
+            attempts = 0;
+            retryAfter = 0;
+        }
         // An update keeps its failure until the next attempt; report it once per attempt.
         if ((update.failure != null || update.cancellation != null) && update.generation != reportedGeneration) {
             reportedGeneration = update.generation;
@@ -169,7 +202,16 @@ final class V039RelayCoordinator implements V039BtRelayAdapter.Listener, BtRelay
                 + " phase=" + session.phase().name().toLowerCase());
         switch (command.type) {
             case CONNECT_SPP:
-                if (!adapter.connect(generation, candidate)) apply(session.fail(generation, BtRelaySession.FailureReason.SPP_ERROR));
+                if (!adapter.connect(generation, candidate)) {
+                    apply(session.fail(generation, BtRelaySession.FailureReason.SPP_ERROR));
+                } else if (session.generation() == generation && session.phase() == BtRelaySession.Phase.SPP_CONNECTING) {
+                    main.postDelayed(new Runnable() { public void run() {
+                        if (!closed && session.generation() == generation
+                                && session.phase() == BtRelaySession.Phase.SPP_CONNECTING) {
+                            adapter.requestSppConnect(generation);
+                        }
+                    }}, SPP_ACTIVE_FALLBACK_MS);
+                }
                 break;
             case START_IAP2:
                 if (!adapter.startIap2(generation, command.component))

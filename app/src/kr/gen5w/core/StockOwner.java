@@ -14,6 +14,8 @@ import android.os.Process;
 public final class StockOwner {
     private static final Uri STATE = Uri.parse("content://com.mnsoft.navi/State_Table");
     private static final Observation observation = new Observation();
+    private static final int GC_QUERY_INTERVAL = 120;
+    private static int queryCount;
 
     interface Source { Cursor query(Uri uri, String[] columns) throws Exception; }
 
@@ -55,9 +57,28 @@ public final class StockOwner {
                 // The navigation process restarted: drop the reference and acquire afresh next time.
                 release();
                 Throwable cause = e.getCause();
+                if (isWindowOrBinderExhaustion(cause)) reclaimNativeResources();
                 if (cause instanceof Exception) throw (Exception)cause;
-                throw e;
+                if (cause instanceof Error) throw (Error)cause;
+                throw new RuntimeException(cause);
+            } catch (Throwable t) {
+                release();
+                if (isWindowOrBinderExhaustion(t)) reclaimNativeResources();
+                if (t instanceof Exception) throw (Exception)t;
+                if (t instanceof Error) throw (Error)t;
+                throw new RuntimeException(t);
             }
+        }
+
+        private static boolean isWindowOrBinderExhaustion(Throwable t) {
+            if (t == null) return false;
+            String name = t.getClass().getName();
+            return name.contains("CursorWindow") || name.contains("TransactionTooLarge");
+        }
+
+        private static void reclaimNativeResources() {
+            System.gc();
+            System.runFinalization();
         }
 
         private void release() {
@@ -130,7 +151,9 @@ public final class StockOwner {
             return result;
         } catch (Exception e) { kr.gen5w.diag.SafeDiagnostic.failure("core.owner.query",e); return '?'; }
         finally {
-            if (cursor != null) try { cursor.close(); } catch (RuntimeException ignored) { }
+            if (cursor != null) {
+                try { cursor.close(); } catch (Throwable ignored) { }
+            }
         }
     }
 
@@ -159,19 +182,29 @@ public final class StockOwner {
         final LocalServerSocket server = new LocalServerSocket(StockGuidance.SOCKET);
         new Thread(new Runnable() {
             public void run() {
-                try {
-                    while (true) {
+                int acceptErrors = 0;
+                while (true) {
+                    try {
                         LocalSocket client = server.accept();
+                        acceptErrors = 0;
                         try {
                             client.setSoTimeout(200);
                             if (client.getPeerCredentials().getUid() == clientUid
                                     && client.getInputStream().read() == '?') {
                                 client.getOutputStream().write(read(source));
+                                if ((++queryCount % GC_QUERY_INTERVAL) == 0) {
+                                    System.gc();
+                                    System.runFinalization();
+                                }
                             }
                         } catch (java.io.IOException ignored) { }
                         finally { try { client.close(); } catch (java.io.IOException ignored) { } }
+                    } catch (java.io.IOException e) {
+                        kr.gen5w.diag.SafeDiagnostic.failure("core.owner.accept", e);
+                        if (++acceptErrors >= 20) System.exit(1);
+                        try { Thread.sleep(500); } catch (InterruptedException ignored) { }
                     }
-                } catch (java.io.IOException e) { System.exit(1); }
+                }
             }
         }, "gen5w-stock-owner").start();
         Looper.loop();

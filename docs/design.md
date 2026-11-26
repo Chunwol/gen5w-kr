@@ -30,6 +30,10 @@ CarPlay 길안내는 `core`가 `com.remote.service.IAP2SERVICE`에 별도 이름
 
 Android Auto 길안내는 순정 Google Projection 모듈(`HKMC_GPM.odex`)의 `stepofspec == 999` 분기를 `gpm-patch`로 우회하여, Google 표준 네비게이션 채널(`NavigationStatusService`)과 순정 `GpmNaviTBTManager`를 활성화하도록 구성합니다. 사용자 스마트폰에 별도 앱을 설치하지 않는 경로지만, Google 지도·티맵·네이버 지도·카카오내비의 실제 TBT 수신과 차량 표시는 앱·운영체제별 실차 검증 전까지 확정하지 않습니다.
 
+0.3.87은 확인된 V039 native 원본에서 프로토콜 1.6과 `0x8006/0x8007` 생산자를 함께 적용합니다. 비차단 Unix 소켓의 길이 제한 프레임을 Core가 protobuf로 해석하고 회전·차선·거리 상태를 결합합니다. 상태 3(재탐색)은 이전 출력을 지우고 새로운 회전과 거리를 기다리며, 소유권을 잃거나 안내가 끝나면 상태를 비웁니다. Native 입력 해시가 다르거나 GPM 변경이 지원되지 않으면 이 확장과 1.6 광고를 함께 제외합니다. 설치된 Core APK가 번들 APK와 일치하지 않으면 시스템 변경 전에 중단합니다.
+
+원형교차로·출발·페리 등 순정 심볼 대응이 확인되지 않은 현대식 maneuver는 임의로 직진으로 바꾸지 않습니다. 같은 연결에서의 자동 재시도와 일부 지역의 선택적 설정 메뉴 패치는 별도 미구현 항목입니다. [초기판·AA 감사](initial-version-aa-audit.md)에 비교 근거와 검증 경계를 기록합니다.
+
 출력은 순정 `NavigationCluster`의 `updateTPTurnListNew`, `updateLaneInfo`, `updateTBTInfo`를 사용합니다. 2nd TBT(차기 회전 아이콘)는 `updateTPTurnListNew`의 두 번째 슬롯과 `updateTBTInfo`의 `sideStreet`에 전달합니다. `combiSideStreet`는 V039의 0~4 범위에 맞춰 0을 사용합니다. 출력이 실패하면 최신 정보나 지움 요청을 다시 보냅니다. 자체 CAN 프레임은 만들지 않습니다. 메시지 필드와 프레임 규격은 [iAP2](iap2-fields.md), [HUD](hud.md)를 참고하세요.
 
 ## 시동 안내

@@ -15,6 +15,17 @@ public final class GuidanceRequest {
     public interface LookupBackend extends Backend {
         int componentId(String name) throws Exception;
     }
+    public interface ReviewedOemBackend extends LookupBackend {
+        boolean canonicalFallbackAllowed() throws Exception;
+    }
+    public static boolean reviewedCanonicalProfile(String product) {
+        if (product == null) return false;
+        // Shared V039 policy: model, market and build date do not restrict this fallback.
+        for (String part : product.split("\\.", -1)) {
+            if ("V039".equals(part)) return true;
+        }
+        return false;
+    }
     private long successfulEpoch = -1;
     public boolean ensure(long epoch, Backend backend) throws Exception {
         if (epoch < 0) return false;
@@ -24,14 +35,17 @@ public final class GuidanceRequest {
         int[] ids = new int[count]; Arrays.fill(ids,-1);
         String[] names = new String[count];
         int received = backend.components(ids,names);
-        // V039's stock DiPO requests this OEM component directly. If the
-        // server advertises one component but its list parser returns none,
-        // require the independent native lookup to confirm that exact name.
-        // Never invent a component when discovery is absent or ambiguous.
+        // V039's stock DiPO requests this canonical component directly.
+        // Its native-list parser can return zero despite count=1. A zero from
+        // name->id is also ambiguous (component zero or unavailable). Request
+        // only the single advertised OEM component and require start acceptance;
+        // never select a fallback for an absent or ambiguous advertisement.
         if (received == 0 && count == 1 && backend instanceof LookupBackend) {
             String name = "RouteGuidanceComponent0";
             int id = ((LookupBackend)backend).componentId(name);
-            if (id > 0 && id <= 65535) {
+            boolean reviewed = id == 0 && backend instanceof ReviewedOemBackend
+                    && ((ReviewedOemBackend)backend).canonicalFallbackAllowed();
+            if ((id > 0 && id <= 65535) || (id == 0 && reviewed)) {
                 ids[0] = id;
                 names[0] = name;
                 received = 1;

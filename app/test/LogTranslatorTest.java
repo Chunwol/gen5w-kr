@@ -42,6 +42,19 @@ public final class LogTranslatorTest {
         same("category install", "install", LogTranslator.category("INSTALLED bluelink: x"));
         same("category other", "other", LogTranslator.category("hello"));
         same("category null", "other", LogTranslator.category(null));
+        same("category benign warning not forced to error", "wireless", LogTranslator.category("error", "W/Gen5wCore: CarPlay warning only"));
+        same("category diag err", "error", LogTranslator.category("Gen5wDiag ERR code=ap.transition exception=TimeoutException"));
+        same("translate diag err", "내부 진단 오류 (ap.transition)",
+                LogTranslator.translate("Gen5wDiag ERR code=ap.transition exception=TimeoutException"));
+        same("category android error tag", "error", LogTranslator.category("11-25 10:00:00.000 E/Gen5wCore( 123): boom"));
+        same("category worker exit", "error", LogTranslator.category("worker=owner exit=23"));
+        same("translate worker exit", "세션 감시 프로세스(owner)가 비정상 종료되었습니다",
+                LogTranslator.translate("worker=owner exit=23"));
+        same("category negative rc/exit", "error", LogTranslator.category("cmd exit=-1"));
+        same("rc=0 exit=0 failed=0 timeout=0 unblocked not error", "other",
+                LogTranslator.category("step done rc=0 exit=0 failed=0 timeout=0 unblocked"));
+        same("overflow-safe huge rc", "error", LogTranslator.category("rc=999999999999999999999"));
+        same("category wireless session", "wireless", LogTranslator.category("session: CarPlay connected"));
         if (failures != 0) { System.out.println("== LogTranslator: " + failures + " failed"); System.exit(1); }
         System.out.println("== LogTranslator: all passed");
     }

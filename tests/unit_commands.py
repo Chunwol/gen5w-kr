@@ -585,6 +585,24 @@ def android_reset_errors(files):
     return errors
 
 
+SUPERVISE_LITERAL = re.compile(r'\bsupervise\s+([0-9]+)\b')
+
+
+def supervise_limit_errors(files):
+    """tools/portable/supervision.c rejects timeouts outside [1, 180]."""
+    errors = []
+    for path in files:
+        path = pathlib.Path(path)
+        if not path.is_absolute():
+            path = ROOT / path
+        for number, line in enumerate(path.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+            for match in SUPERVISE_LITERAL.finditer(line):
+                seconds = int(match.group(1))
+                if seconds < 1 or seconds > 180:
+                    errors.append(f'{path.relative_to(ROOT).as_posix()}:{number}: supervise timeout {seconds} exceeds supervision.c [1, 180] limit')
+    return errors
+
+
 def main():
     if sys.argv[1:] == ['--list']:
         for path in script_files():
@@ -600,6 +618,7 @@ def main():
         print('FAIL unit commands: no built scripts in dist/ (run tools/build-all.sh first)')
         return 1
     linter.errors.extend(direct_exec_errors(files))
+    linter.errors.extend(supervise_limit_errors(files))
     linter.errors.extend(android_reset_errors(files))
     for e in linter.errors:
         print(f'FAIL {e}')

@@ -9,7 +9,7 @@ t=$(mktemp -d /tmp/gen5w-cost.XXXXXX)
 trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 XML_COUNT=${COST_XML_COUNT:-87}
 mkdir -p "$t/bundle/permissions" "$t/bundle/dalvik" "$t/root/system/app" "$t/root/system/etc/permissions" "$t/root/data" "$t/bin"
-cp tools/portable/prepare.sh tools/portable/wrap-common.sh tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh "$t/bundle/"
+cp tools/portable/prepare.sh tools/portable/wrap-common.sh tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh tools/portable/wrap-navi.sh "$t/bundle/"
 for f in engine.jar adapter.jar libgen5whook.so; do printf 'fixture %s\n' "$f" > "$t/bundle/dalvik/$f"; done
 cp packages/wireless-enable/files/permissions/*wireless.xml packages/wireless-enable/files/permissions/*wifihotspot.xml "$t/bundle/permissions/"
 cat > "$t/helper" <<'PY'

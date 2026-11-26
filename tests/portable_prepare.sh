@@ -5,7 +5,7 @@ t=$(mktemp -d /tmp/gen5w-prepare.XXXXXX)
 trap 'rc=$?; rm -rf "$t"; exit $rc' EXIT
 mkdir -p "$t/bundle/permissions" "$t/bundle/dalvik" "$t/root/system/app" "$t/root/system/etc/permissions" "$t/root/data"
 cp tools/portable/prepare.sh "$t/bundle/"
-cp tools/portable/wrap-common.sh tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh "$t/bundle/"
+cp tools/portable/wrap-common.sh tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh tools/portable/wrap-navi.sh "$t/bundle/"
 # Preparation validates these runtime payload paths but does not execute them.
 # Use named non-empty stand-ins because generated Dalvik artifacts are build outputs.
 printf 'fixture engine jar payload\n' > "$t/bundle/dalvik/engine.jar"
@@ -120,6 +120,7 @@ awk -F'|' -v uid="$(id -u)" -v gid="$(id -g)" '$1=="projection" && $3=="/system/
 # entries, in the immutable stock-origin snapshot.
 DIPO_WRAP='W=/data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
 GPM_WRAP='W=/data/nemesis/apps/gen5w.kr.portable/wrap-gpm.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
+NAVI_WRAP='W=/data/nemesis/apps/gen5w.kr.portable/wrap-navi.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
 cat > "$t/root/system/build.prop" <<EOF
 # keep this comment
 persist.ium.support=stock
@@ -133,6 +134,7 @@ grep -q '^dipo|prepared|structural$' "$t/report"
 grep -q '^gpm|skipped|unsupported-structure$' "$t/report"
 [ "$(grep -Fxc "wrap.com.daudio.app.dipo=$DIPO_WRAP" "$t/root/data/wrapper-dipo-only/files/build.prop")" = 1 ]
 ! grep -q '^wrap.com.google.android.project=' "$t/root/data/wrapper-dipo-only/files/build.prop"
+[ "$(grep -Fxc "wrap.com.mnsoft.navi=$NAVI_WRAP" "$t/root/data/wrapper-dipo-only/files/build.prop")" = 1 ]
 grep -Fx '# keep this comment' "$t/root/data/wrapper-dipo-only/files/build.prop" >/dev/null
 grep -Fx 'persist.ium.support=stock' "$t/root/data/wrapper-dipo-only/files/build.prop" >/dev/null
 cmp "$t/build-prop-dipo-only.original" "$t/root/data/wrapper-dipo-only/stock-origins/system/build.prop"
@@ -160,6 +162,7 @@ grep -q '^dipo|prepared|structural$' "$t/report"
 grep -q '^gpm|prepared|structural$' "$t/report"
 [ "$(grep -Fxc "wrap.com.daudio.app.dipo=$DIPO_WRAP" "$t/root/data/wrapper-both/files/build.prop")" = 1 ]
 [ "$(grep -Fxc "wrap.com.google.android.project=$GPM_WRAP" "$t/root/data/wrapper-both/files/build.prop")" = 1 ]
+[ "$(grep -Fxc "wrap.com.mnsoft.navi=$NAVI_WRAP" "$t/root/data/wrapper-both/files/build.prop")" = 1 ]
 grep -Fx '# unrelated build properties stay in place' "$t/root/data/wrapper-both/files/build.prop" >/dev/null
 grep -Fx 'custom.device.flag=preserve-me' "$t/root/data/wrapper-both/files/build.prop" >/dev/null
 cmp "$t/build-prop-both.original" "$t/root/data/wrapper-both/stock-origins/system/build.prop"
@@ -382,3 +385,33 @@ grep -q 'not the reviewed V039 build' "$t/report"
 "$shell" "$t/bundle/prepare.sh" /data/no-dongle --stock-origins projection > "$t/report"
 ! grep -q bcmdhd "$t/root/data/no-dongle/manifest"
 echo 'PASS dongle backend stages the stand-in only over the reviewed stock module; built-in installs never touch it'
+
+# Modern AA version and receiver code are staged together, only with GPM ready.
+mkdir -p "$t/bundle/bin" "$t/root/system/lib"
+printf supported > "$t/root/system/app/HKMC_GPM.odex"
+echo reviewed-native > "$t/root/system/lib/libautoreceiver_infobank.so"
+cat > "$t/bundle/bin/aa-native-patch" <<'SH'
+#!/bin/sh
+case "$1" in
+original) [ "$(cat "$2")" = reviewed-native ];;
+apply) [ "$(cat "$2")" = reviewed-native ] && echo authored-modern-native > "$3";;
+*) exit 1;;
+esac
+SH
+chmod 755 "$t/bundle/bin/aa-native-patch"
+"$shell" "$t/bundle/prepare.sh" /data/aa-native-plan gpm > "$t/report"
+grep -qx 'aa-native|prepared|modern-navigation-and-protocol' "$t/report"
+grep -q '|/system/lib/libautoreceiver_infobank.so|' "$t/root/data/aa-native-plan/manifest"
+[ "$(cat "$t/root/system/lib/libautoreceiver_infobank.so")" = reviewed-native ]
+echo foreign-native > "$t/root/system/lib/libautoreceiver_infobank.so"
+"$shell" "$t/bundle/prepare.sh" /data/aa-native-unknown gpm > "$t/report"
+grep -qx 'aa-native|skipped|unsupported-native-ABI' "$t/report"
+! grep -q libautoreceiver "$t/root/data/aa-native-unknown/manifest"
+echo unsupported > "$t/root/system/app/HKMC_GPM.odex"
+echo reviewed-native > "$t/root/system/lib/libautoreceiver_infobank.so"
+rc=0
+"$shell" "$t/bundle/prepare.sh" /data/aa-native-no-gpm gpm > "$t/report" || rc=$?
+[ "$rc" = 77 ]
+grep -qx 'aa-native|skipped|gpm-unavailable' "$t/report"
+! grep -q libautoreceiver "$t/root/data/aa-native-no-gpm/manifest"
+echo 'PASS modern AA producer/version requires GPM and exact native ABI; stock untouched'

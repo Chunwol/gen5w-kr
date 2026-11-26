@@ -182,7 +182,7 @@ validate_row() {
     safe "$src" && safe "$dst" || return 1
     case "$src" in /data/*) :;; *) return 1;; esac
     case "$dst" in
-    /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/etc/featurexml.cfg|/system/etc/permissions) :;;
+    /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/lib/libautoreceiver_infobank.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/etc/featurexml.cfg|/system/etc/permissions) :;;
     /system/onebin/*/featurexml.cfg)
         region=${dst#/system/onebin/}; region=${region%/featurexml.cfg}
         case "$region" in ''|*[!a-zA-Z0-9_-]*) return 1;; esac;;

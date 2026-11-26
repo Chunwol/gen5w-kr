@@ -41,6 +41,7 @@ PSTATE=$ROOT/data/local/gen5w-portable
 APPDIR=$ROOT/data/data/kr.gen5w.core
 REQUEST=$APPDIR/files/ui-request
 HOST_READY=$ROOT/data/data/kr.gen5w.wirelesshost/files/bridge-ready
+PRIV_STAGE=$PSTATE/.ui-stage
 LOGDIR=$NEMDIR/logs/gen5w.kr.portable
 BOOT_ID=$ROOT/proc/sys/kernel/random/boot_id
 UPTIME=$ROOT/proc/uptime
@@ -57,8 +58,12 @@ SAVED=$NEMDIR/gen5wkr.ui-portable-saved
 REMOVED=$NEMDIR/gen5wkr.ui-portable-removed
 RECOVERY=$NEMDIR/gen5wkr.ui-portable-recovery
 ADBTOK=$NEMDIR/gen5wkr.ui-portable-adb
+PPTOK=$NEMDIR/gen5wkr.ui-portable-pp
 RLOCK=$NEMDIR/gen5wkr.ui-portable-restore
+PPLOCK=$NEMDIR/gen5wkr.ui-portable-pp-lock
+SPLIT_DEFAULT=$PSTATE/split-default-applied
 WRAP_DIPO='/system/bin/sh /data/local/gen5w-portable/runtime-payload/wrap-dipo.sh'
+WRAP_DIPO_PERSIST='W=/data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
 INTERVAL=${PORTABLE_UI_INTERVAL:-15}; case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=15;; esac
 REQ_STEP=2
 MAX_REQUEST=256
@@ -66,13 +71,31 @@ MAX_LINES=200
 MAX_LINE=200
 PER_SOURCE=25
 MAX_SOURCE_BYTES=131072
-# Lines that can carry personal data are dropped (same list as the core collector).
-PRIV='([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}:\*\*|[Ss][Ss][Ii][Dd]|[Pp]assw|PASSW|[Pp]assphrase|[Pp]sk|PSK|[Ss]erial|SERIAL|[Ii]mei|IMEI|[Ii]ccid|ICCID|[Mm]sisdn|MSISDN|VIN[=: ]|vin[=: ]|DEVICE_NAME|[Dd]evice ?[Nn]ame|getName|FRQ:|BND:|ALBUM|TITLE|ARTIST|mArtist'
+ERRORS_AT=-999
+ERRORS_BOOT=
+ERRORS_STATUS=ok
+ERR_FILTER='Gen5w|gen5w|CarPlay|TccCarPlay|Iap2|iAP2|dipo|Dipo|Projection|FATAL EXCEPTION|AndroidRuntime|System\.err|AudioPolicy|AudioFlinger|audio_a2dp_hw|socket underrun'
+# Lines that can carry personal data are dropped case-insensitively (aligned with diagnostics/usb-collect).
+# Privacy filtering removed at the user's request (2026-11-26): logs keep every line.
+PRIV='^G5W_NO_PRIVACY_FILTER_NEVER_MATCHES^'
 op() {
     if [ -n "$ROOT" ]; then "$ADAPTER" "$@"; return $?; fi
     case "$1" in
-    snapshot) "$HELPER" supervise 25 /system/bin/true /system/bin/sh "$2" active "$3";;
+    snapshot) "$HELPER" supervise 60 /system/bin/true /system/bin/sh "$2" active "$3";;
+    errors) "$HELPER" supervise 8 /system/bin/true /system/bin/sh -c 'ulimit -f 4096; exec /system/bin/logcat -d -v time -t 250 -b main -b system "*:E" Gen5wCore:W Gen5wNavi:W Gen5wDiag:W Gen5wTrace:W Gen5wWireless:W TccCarPlay:W CarPlayService:W Iap2Service:W DipoService:W AudioFlinger:W AudioPolicyManager:W audio_a2dp_hw:W AndroidRuntime:E System.err:W';;
     get) getprop "$2";;
+    settings-get) "$HELPER" supervise 15 /system/bin/true /system/bin/sh /system/bin/settings get system "$2";;
+    settings-put) "$HELPER" supervise 15 /system/bin/true /system/bin/sh /system/bin/settings put system "$2" "$3";;
+    broadcast-cp-split) "$HELPER" supervise 10 /system/bin/true /system/bin/sh /system/bin/am broadcast -a android.intent.action.daudio.connectivity.carplay.splitscreenview --ei STATE "$2";;
+    restart-carplay)
+        rcout=$("$HELPER" supervise 16 /system/bin/true /system/bin/sh /system/bin/am broadcast -p com.daudio.app.dipo -a kr.gen5w.dipo.RESTART_CARPLAY 2>&1) || return 1
+        # Stock DipoService.java:6616 H(true) queues E()/bP()/nc(); acceptance is not completion.
+        # 3 = observed replacement session; 4 = no session (stored setting used next connect).
+        # The receiver waits up to 12 s (H(true), then one disconnect fallback if E() did not restart).
+        case "$rcout" in *"result=3,"*|*"result=3"|*"result=4,"*|*"result=4") return 0;; *) return 1;; esac;;
+    broadcast-pp-status)
+        "$HELPER" supervise 10 /system/bin/true /system/bin/sh /system/bin/am broadcast -a "$2" --ez status "$3" &&
+        "$HELPER" supervise 10 /system/bin/true /system/bin/sh /system/bin/am broadcast -a com_phoneprojection_status_change;;
     disable) /system/bin/sh "$2" disable;;
     sync) sync;;
     *) return 1;;
@@ -128,12 +151,17 @@ prepare() {
     [ ! -L "$UI_DIR" ] || return 1
     [ -e "$UI_DIR" ] || mkdir "$UI_DIR" || return 1
     root_dir "$UI_DIR" && chmod 755 "$UI_DIR" || return 1
+    plain "$PRIV_STAGE" || return 1
+    [ ! -L "$PRIV_STAGE" ] || return 1
+    [ -e "$PRIV_STAGE" ] || mkdir -p "$PRIV_STAGE" || return 1
+    root_dir "$PRIV_STAGE" && chmod 700 "$PRIV_STAGE" || return 1
     local f
-    for f in status status.tmp log log.tmp filter.tmp notes notes.tmp request.copy diag.tmp diag-latest.txt restore.log restore.log.tmp; do
+    for f in status status.tmp log log.tmp notes notes.tmp request.copy diag.tmp diag-latest.txt restore.log restore.log.tmp errors.cache errors.cache.tmp; do
         [ ! -L "$UI_DIR/$f" ] || return 1
         [ ! -e "$UI_DIR/$f" ] || [ -f "$UI_DIR/$f" ] || return 1
     done
-    for f in "$WIRELESS_OFF" "$SAVED" "$SAVED.tmp" "$REMOVED" "$REMOVED.tmp" "$RECOVERY" "$RECOVERY.tmp" "$ADBTOK" "$ADBTOK.tmp" "$RLOCK"; do
+    rm -f "$UI_DIR/filter.tmp" "$UI_DIR/tail.tmp" "$UI_DIR/errors.raw" "$UI_DIR/errors.cap" "$UI_DIR/errors.match" 2>/dev/null || :
+    for f in "$WIRELESS_OFF" "$SAVED" "$SAVED.tmp" "$REMOVED" "$REMOVED.tmp" "$RECOVERY" "$RECOVERY.tmp" "$ADBTOK" "$ADBTOK.tmp" "$PPTOK" "$PPTOK.tmp" "$RLOCK" "$PPLOCK"; do
         [ ! -L "$f" ] || return 1
     done
 }
@@ -205,13 +233,26 @@ restore_live() { # worker lock: "<boot>|<pid:starttime>"
     IFS='|' read -r owner_boot owner_key 2>/dev/null < "$RLOCK/owner" || return 0
     [ "$owner_boot" = "$BOOT" ] && [ "$(process_key "${owner_key%%:*}")" = "$owner_key" ]
 }
+pp_live() { # worker lock: "<boot>|<pid:starttime>"
+    local owner_boot owner_key
+    [ -d "$PPLOCK" ] && [ ! -L "$PPLOCK" ] && [ -f "$PPLOCK/owner" ] && [ ! -L "$PPLOCK/owner" ] || return 1
+    IFS='|' read -r owner_boot owner_key 2>/dev/null < "$PPLOCK/owner" || return 1
+    [ -n "$owner_boot" ] && [ -n "$owner_key" ] || return 1
+    [ "$owner_boot" = "$BOOT" ] && [ "$(process_key "${owner_key%%:*}")" = "$owner_key" ]
+}
 pair() { # "<number>:<result>[:detail]" from a record file, or 0:none
     local n r d
     [ -f "$1" ] && [ ! -L "$1" ] && IFS=' ' read -r n r d < "$1"
     case "$n" in ''|*[!0-9]*) n=0;; esac
     [ "${#n}" -le 10 ] || n=0
     r=$(word "${r:-none}"); d=${d:+$(word "$d")}
-    if [ "$r" = working ] && ! restore_live && [ "$1" != "$SAVED" ]; then r=failed; d=interrupted; fi
+    if [ "$r" = working ]; then
+        if [ "$1" = "$PPTOK" ]; then
+            pp_live || { r=failed; d=interrupted; }
+        elif ! restore_live && [ "$1" != "$SAVED" ]; then
+            r=failed; d=interrupted
+        fi
+    fi
     print -r -- "$n:$r${d:+:$d}"
 }
 recovery_status() {
@@ -235,13 +276,15 @@ recovery_status() {
     echo "recovery_result=$result"
 }
 collect_status() {
-    local ts relay=unknown apguard=on wired=no version= line wlan=missing backend dongle why tmp="$UI_DIR/status.tmp"
+    local ts relay=unknown apguard=on wired=no version= line wlan=missing backend dongle why dipo_wrap tmp="$UI_DIR/status.tmp"
     ts=$(uptime_s) || ts=
     read_portable
     host=dead; host_alive && host=alive
     # Wireless relay is truthfully "on" only with the owned DiPO wrapper live this boot.
-    if [ "$P_MODE" = static ] || [ "$P_RUNTIME" = disabled ] || [ "$RUNTIME_LIVE" = 0 ]; then relay=off
-    elif [ "$P_RUNTIME" = committed ] && [ "$(op get wrap.com.daudio.app.dipo)" = "$WRAP_DIPO" ]; then relay=on; fi
+    dipo_wrap=$(op get wrap.com.daudio.app.dipo)
+    if [ "$P_REASON" = persistent-start-ready ] && [ "$dipo_wrap" = "$WRAP_DIPO_PERSIST" ]; then relay=on
+    elif [ "$P_MODE" = static ] || [ "$P_RUNTIME" = disabled ] || [ "$RUNTIME_LIVE" = 0 ]; then relay=off
+    elif [ "$P_RUNTIME" = committed ] && [ "$dipo_wrap" = "$WRAP_DIPO" ]; then relay=on; fi
     # The screen cannot start a disabled or runtime-less install: show the switch locked.
     if [ "$P_ENABLED" != 1 ] || [ "$P_MODE" = static ] || ap_blocked; then apguard=off; fi
     [ ! -e "$NEMDIR/gen5wkr.wireless-disabled" ] || wired=yes
@@ -283,6 +326,7 @@ collect_status() {
         print -r -- "sw_adb=unknown"
         print -r -- "adb_health=unknown"
         print -r -- "adb_result=$(pair "$ADBTOK")"
+        print -r -- "pp_result=$(pair "$PPTOK")"
         print -r -- "saved=$(pair "$SAVED")"
         print -r -- "removed=$(pair "$REMOVED")"
         print -r -- "wlan=$wlan"
@@ -309,34 +353,105 @@ emit_tail() { # source keep file
         NLOG=$((NLOG + 1))
     done < "$3"
 }
+drop_unterminated_last() { # reads stdin; drops trailing line lacking '\n'
+    local line
+    while IFS= read -r line; do
+        print -r -- "$line"
+    done
+}
+refresh_errors() {
+    local now rc=0 op_rc=0 raw_size=0 skip=0 discard
+    now=$(uptime_s) || return 0
+    if [ "$ERRORS_BOOT" = "$BOOT" ] && [ -f "$UI_DIR/errors.cache" ] && [ "$now" -ge "$ERRORS_AT" ] && [ "$((now - ERRORS_AT))" -lt 60 ]; then
+        return 0
+    fi
+    plain "$PRIV_STAGE/errors.raw" && plain "$PRIV_STAGE/errors.cap" && plain "$PRIV_STAGE/errors.trim" && plain "$PRIV_STAGE/errors.match" && plain "$UI_DIR/errors.cache.tmp" && plain "$UI_DIR/errors.cache" || return 1
+    ( umask 077; op errors > "$PRIV_STAGE/errors.raw" 2>/dev/null ); op_rc=$?
+    if [ "$op_rc" -ne 0 ]; then
+        rm -f "$PRIV_STAGE/errors.raw"
+        ERRORS_STATUS=failed
+        return 1
+    fi
+    raw_size=$(file_size "$PRIV_STAGE/errors.raw") || raw_size=0
+    if [ "$raw_size" -gt "$MAX_SOURCE_BYTES" ]; then
+        skip=$(( (raw_size - MAX_SOURCE_BYTES + 4095) / 4096 ))
+        ( umask 077
+          dd if="$PRIV_STAGE/errors.raw" of="$PRIV_STAGE/errors.cap" bs=4096 skip="$skip" count=32 2>/dev/null || :
+          { IFS= read -r discard; drop_unterminated_last; } < "$PRIV_STAGE/errors.cap" > "$PRIV_STAGE/errors.trim"
+        )
+    else
+        ( umask 077; drop_unterminated_last < "$PRIV_STAGE/errors.raw" > "$PRIV_STAGE/errors.trim" 2>/dev/null ) || ( umask 077; : > "$PRIV_STAGE/errors.trim" )
+    fi
+    rm -f "$PRIV_STAGE/errors.raw" "$PRIV_STAGE/errors.cap"
+    ( umask 077; grep -a -i -E "$ERR_FILTER" "$PRIV_STAGE/errors.trim" > "$PRIV_STAGE/errors.match" 2>/dev/null ); rc=$?
+    rm -f "$PRIV_STAGE/errors.trim"
+    if [ "$rc" -le 1 ]; then
+        grep -a -i -v -E "$PRIV" "$PRIV_STAGE/errors.match" > "$UI_DIR/errors.cache.tmp" 2>/dev/null; rc=$?
+        [ "$rc" -le 1 ] || : > "$UI_DIR/errors.cache.tmp"
+    else
+        : > "$UI_DIR/errors.cache.tmp"
+    fi
+    rm -f "$PRIV_STAGE/errors.match"
+    chmod 644 "$UI_DIR/errors.cache.tmp" && mv "$UI_DIR/errors.cache.tmp" "$UI_DIR/errors.cache"
+    ERRORS_STATUS=ok
+    ERRORS_AT=$now
+    ERRORS_BOOT=$BOOT
+}
 collect_file() { # file source keep
-    local size
-    plain "$1" && [ -f "$1" ] || return 0
+    local size skip=0 src=$1 rc=0 discard flt="$PRIV_STAGE/filter.tmp" tail="$PRIV_STAGE/tail.tmp" trim="$PRIV_STAGE/trim.tmp"
+    plain "$1" && [ -f "$1" ] && plain "$flt" && plain "$tail" && plain "$trim" || return 0
     [ "$NLOG" -lt "$MAX_LINES" ] || return 0
     size=$(file_size "$1") || return 0
     if [ "$size" -gt "$MAX_SOURCE_BYTES" ]; then
-        print -r -- "$2|(log too large, skipped)" >> "$UI_DIR/log.tmp"; NLOG=$((NLOG + 1)); return 0
+        skip=$(( (size - MAX_SOURCE_BYTES + 4095) / 4096 ))
+        ( umask 077
+          dd if="$1" of="$tail" bs=4096 skip="$skip" count=32 2>/dev/null || exit 1
+          { IFS= read -r discard; drop_unterminated_last; } < "$tail" > "$trim"
+        ) || { rm -f "$tail" "$trim"; return 0; }
+    else
+        ( umask 077; drop_unterminated_last < "$1" > "$trim" 2>/dev/null ) || { rm -f "$trim"; return 0; }
     fi
-    grep -a -v -E "$PRIV" "$1" > "$UI_DIR/filter.tmp" 2>/dev/null
-    emit_tail "$2" "$3" "$UI_DIR/filter.tmp"
+    src=$trim
+    ( umask 077; grep -a -i -v -E "$PRIV" "$src" > "$flt" 2>/dev/null ); rc=$?
+    [ "$rc" -le 1 ] || : > "$flt"
+    rm -f "$tail" "$trim"
+    emit_tail "$2" "$3" "$flt"
+    rm -f "$flt"
 }
 collect_log() {
-    local file nl="$NEMDIR/nemesis.log" size
+    local file nl="$NEMDIR/nemesis.log" size rc=0 nem="$PRIV_STAGE/nem.match" ntrim="$PRIV_STAGE/nem.trim" flt="$PRIV_STAGE/filter.tmp"
     NLOG=0
     : > "$UI_DIR/log.tmp" || return 1
     print -r -- "boot|enabled=$(word "${P_ENABLED:-0}") phase=$P_PHASE reason=$P_REASON mode=$P_MODE" >> "$UI_DIR/log.tmp"
     print -r -- "boot|overlay=$P_OVERLAY runtime=$P_RUNTIME session=$P_SESSION host=$host" >> "$UI_DIR/log.tmp"
     NLOG=2
-    collect_file "$UI_DIR/notes" ui 10
+    collect_file "$PSTATE/boot/health-lost" error 5
+    refresh_errors || :
+    collect_file "$UI_DIR/errors.cache" error 30
+    if [ "$ERRORS_STATUS" = failed ] && [ "$NLOG" -lt "$MAX_LINES" ]; then
+        print -r -- "ui|FAIL error log collector failed" >> "$UI_DIR/log.tmp"
+        NLOG=$((NLOG + 1))
+    fi
+    collect_file "$UI_DIR/notes" ui 15
     collect_file "$UI_DIR/restore.log" restore 30
     if plain "$LOGDIR" && [ -d "$LOGDIR" ]; then
         for file in "$LOGDIR"/*.log; do collect_file "$file" portable "$PER_SOURCE"; done
     fi
     if plain "$nl" && [ -f "$nl" ] && size=$(file_size "$nl") && [ "$size" -le 1048576 ] && [ "$NLOG" -lt "$MAX_LINES" ]; then
-        grep -a -E 'gen5w\.kr\.portable|boot:|session:|runtime:|overlay:|portable:' "$nl" 2>/dev/null | grep -a -v -E "$PRIV" > "$UI_DIR/filter.tmp"
-        emit_tail nemesis 40 "$UI_DIR/filter.tmp"
+        plain "$nem" && plain "$ntrim" && plain "$flt" || { rm -f "$PRIV_STAGE"/*; return 1; }
+        ( umask 077; drop_unterminated_last < "$nl" > "$ntrim" 2>/dev/null ) || ( umask 077; : > "$ntrim" )
+        ( umask 077; grep -a -E 'gen5w\.kr\.portable|boot:|session:|runtime:|overlay:|portable:' "$ntrim" > "$nem" 2>/dev/null ); rc=$?
+        rm -f "$ntrim"
+        if [ "$rc" -le 1 ]; then
+            ( umask 077; grep -a -i -v -E "$PRIV" "$nem" > "$flt" 2>/dev/null ); rc=$?
+            [ "$rc" -le 1 ] || : > "$flt"
+        else
+            ( umask 077; : > "$flt" )
+        fi
+        rm -f "$nem"
+        emit_tail nemesis 40 "$flt"
     fi
-    rm -f "$UI_DIR/filter.tmp"
+    rm -f "$PRIV_STAGE"/*
     chmod 644 "$UI_DIR/log.tmp" && mv "$UI_DIR/log.tmp" "$UI_DIR/log"
 }
 # ---- requests: authenticated envelope, bounded hostile read ----
@@ -375,7 +490,7 @@ apply_requests() {
     rm -f "$UI_DIR/request.copy"
 }
 handle_request() {
-    local line key value boot= expires= wireless= timer= bluelink= debug= adb= save= remove= recovery= up count=0
+    local line key value boot= expires= wireless= timer= bluelink= debug= adb= pp= pptok= pp_rest= save= remove= recovery= up count=0
     while IFS= read -r line; do
         key=${line%%=*}; value=${line#*=}
         [ "$key" != "$line" ] || return 0
@@ -390,6 +505,16 @@ handle_request() {
             case "$value" in on:*|off:*) :;; *) return 0;; esac
             case "${value#*:}" in ''|*[!0-9]*) return 0;; esac
             [ "${#value}" -le 14 ] || return 0; adb=$value;;
+        pp) [ -z "$pp" ] || return 0
+            case "$value" in
+            cp_split:on:*|cp_split:off:*|aa_split:on:*|aa_split:off:*|cp_enable:on:*|cp_enable:off:*|aa_enable:on:*|aa_enable:off:*|cp_rhd:on:*|cp_rhd:off:*) :;;
+            *) return 0;;
+            esac
+            pp_rest=${value#*:}
+            pptok=${pp_rest#*:}
+            case "$pptok" in ''|*[!0-9]*) return 0;; esac
+            [ "${#pptok}" -le 10 ] || return 0
+            pp=$value;;
         save|remove|recovery)
             case "$value" in ''|*[!0-9]*) return 0;; esac
             [ "${#value}" -le 10 ] || return 0
@@ -409,7 +534,14 @@ handle_request() {
     read_portable
     if [ -n "$debug" ]; then
         [ "$count" = 3 ] && plain "$DEBUG_ON" && { [ ! -e "$DEBUG_ON" ] || [ -f "$DEBUG_ON" ]; } || return 0
-        if [ "$debug" = on ]; then : > "$DEBUG_ON" && chmod 644 "$DEBUG_ON"; else rm -f "$DEBUG_ON"; fi
+        if [ "$debug" = on ]; then
+            if [ ! -e "$DEBUG_ON" ]; then
+                plain "$PSTATE/debug" && mkdir -p "$PSTATE/debug" && plain "$PSTATE/debug/focus-reset" && { [ ! -e "$PSTATE/debug/focus-reset" ] || [ -f "$PSTATE/debug/focus-reset" ]; } && : > "$PSTATE/debug/focus-reset" || return 0
+            fi
+            : > "$DEBUG_ON" && chmod 644 "$DEBUG_ON"
+        else
+            rm -f "$DEBUG_ON"
+        fi
         return 0
     fi
     if [ -n "$recovery" ]; then
@@ -417,6 +549,15 @@ handle_request() {
         start_restore recovery "$recovery"; return 0
     fi
     if [ -n "$remove" ]; then start_restore remove "$remove"; return 0; fi
+    if [ -n "$pp" ]; then
+        [ "$count" = 3 ] || return 0
+        if restore_live; then
+            local pp_rest=${pp#*:}
+            record "$PPTOK" "${pp_rest#*:} failed busy" || :
+            return 0
+        fi
+        start_pp "$pp"; return 0
+    fi
     [ -z "$save" ] || start_save "$save"
     if [ -n "$wireless" ] && ! restore_live && [ ! -L "$WIRELESS_OFF" ]; then
         if [ "$wireless" = off ]; then [ -f "$WIRELESS_OFF" ] || : > "$WIRELESS_OFF"; else rm -f "$WIRELESS_OFF"; fi
@@ -442,6 +583,7 @@ start_restore() { # kind number
     case "$kind" in remove) file=$REMOVED;; recovery) file=$RECOVERY;; *) return 0;; esac
     [ -f "$file" ] && IFS=' ' read -r last rest < "$file"
     [ "$last" != "$n" ] || return 0
+    if pp_live; then record "$file" "$n failed busy"; return 0; fi
     if [ "$kind" = recovery ]; then
         # Offered only while auto-start is off with owned changes still live.
         [ "$(recovery_status | grep -x 'recovery_available=yes')" = recovery_available=yes ] || return 0
@@ -461,6 +603,7 @@ restore_worker() {
     fi
     print -r -- "$boot|$key" > "$RLOCK/owner" || { rmdir "$RLOCK"; exit 0; }
     trap 'rm -f "$RLOCK/owner"; rmdir "$RLOCK" 2>/dev/null' EXIT
+    if pp_live; then record "$file" "$n failed busy"; exit 0; fi
     record "$file" "$n working gen5w.kr.portable" || exit 0
     if plain "$BASE/boot.sh" && [ -f "$BASE/boot.sh" ]; then
         op disable "$BASE/boot.sh" > "$UI_DIR/restore.log.tmp" 2>&1 || rc=1
@@ -470,6 +613,99 @@ restore_worker() {
     if [ "$rc" = 0 ]; then
         if [ "$kind" = remove ]; then record "$file" "$n done"; else record "$file" "$n restored"; fi
     else record "$file" "$n failed boot-disable"
+    fi
+}
+# ---- projection settings: stock PhoneProjection Settings.System keys ----
+put_profiles() {
+    local k=$1 v=$2
+    op settings-put "$k" "$v" >/dev/null 2>&1 &&
+    op settings-put "${k}_dr1" "$v" >/dev/null 2>&1 &&
+    op settings-put "${k}_dr2" "$v" >/dev/null 2>&1
+}
+sync_split_profile() {
+    local suf=$1 other_base=$2 shared=$3 other
+    if [ "$shared" = 0 ]; then
+        other=$(op settings-get "${other_base}${suf}" 2>/dev/null) || return 1
+        [ "$other" != 1 ] || shared=1
+    fi
+    op settings-put "phoneprojection_setting_use_split_screen${suf}" "$shared" >/dev/null 2>&1
+}
+ensure_default_split() {
+    [ ! -e "$SPLIT_DEFAULT" ] && [ ! -L "$SPLIT_DEFAULT" ] && [ ! -L "$SPLIT_DEFAULT.tmp" ] || return 0
+    restore_live && return 0
+    [ -n "$ROOT" ] || [ "$(getprop sys.boot_completed 2>/dev/null)" = 1 ] || return 0
+    if put_profiles carplay_ss_osd 1 &&
+       put_profiles androidauto_ss_osd 1 &&
+       put_profiles phoneprojection_setting_use_split_screen 1; then
+        op broadcast-cp-split 1 >/dev/null 2>&1 || :
+        ( umask 022; print -r -- 1 > "$SPLIT_DEFAULT.tmp" && mv "$SPLIT_DEFAULT.tmp" "$SPLIT_DEFAULT" ) 2>/dev/null || rm -f "$SPLIT_DEFAULT.tmp"
+    fi
+}
+start_pp() { # key:state:token
+    local key=${1%%:*} rest=${1#*:} state token last unused waited=0
+    state=${rest%%:*}; token=${rest#*:}
+    [ -f "$PPTOK" ] && IFS=' ' read -r last unused < "$PPTOK"
+    [ "$last" != "$token" ] || return 0
+    if ! mkdir "$PPLOCK" 2>/dev/null; then
+        if pp_live; then record "$PPTOK" "$token failed busy"; return 0; fi
+        [ ! -L "$PPLOCK" ] && [ -d "$PPLOCK" ] || return 0
+        rm -f "$PPLOCK/owner" "$PPLOCK/owner.tmp"; rmdir "$PPLOCK" && mkdir "$PPLOCK" || { record "$PPTOK" "$token failed busy"; return 0; }
+    fi
+    record "$PPTOK" "$token working" || { rmdir "$PPLOCK" 2>/dev/null; return 0; }
+    pp_worker "$key" "$state" "$token" &
+    # Wait briefly until the worker records its owner identity or finishes, avoiding a false interrupted status on round().
+    while [ -d "$PPLOCK" ] && [ ! -f "$PPLOCK/owner" ] && [ "$waited" -lt 20 ]; do sleep .05; waited=$((waited + 1)); done
+}
+# One stock configuration request; supervise bounds the receiver's state observation.
+restart_cp() {
+    op restart-carplay "$1" >/dev/null 2>&1
+}
+pp_worker() {
+    local key=$1 state=$2 token=$3 boot=$BOOT val=0 bval=false ok=1 self owner_key
+    [ "$state" != on ] || { val=1; bval=true; }
+    IFS= read -r self < /proc/self/stat || { rmdir "$PPLOCK" 2>/dev/null; exit 0; }
+    owner_key=$(process_key "${self%% *}") || { rmdir "$PPLOCK" 2>/dev/null; exit 0; }
+    [ ! -L "$PPLOCK/owner.tmp" ] && [ ! -L "$PPLOCK/owner" ] &&
+    print -r -- "$boot|$owner_key" > "$PPLOCK/owner.tmp" && mv "$PPLOCK/owner.tmp" "$PPLOCK/owner" || {
+        rm -f "$PPLOCK/owner.tmp" 2>/dev/null; rmdir "$PPLOCK" 2>/dev/null; exit 0
+    }
+    trap 'rm -f "$PPLOCK/owner" "$PPLOCK/owner.tmp"; rmdir "$PPLOCK" 2>/dev/null' EXIT
+    if restore_live; then record "$PPTOK" "$token failed busy"; exit 0; fi
+    case "$key" in
+    cp_split)
+        if put_profiles carplay_ss_osd "$val" &&
+           sync_split_profile "" androidauto_ss_osd "$val" &&
+           sync_split_profile _dr1 androidauto_ss_osd "$val" &&
+           sync_split_profile _dr2 androidauto_ss_osd "$val"; then
+            # Stock PhoneProjection d.java:318-324 broadcasts the newly stored split value.
+            op broadcast-cp-split "$val" >/dev/null 2>&1 || :
+            restart_cp "$val" || ok=0
+        else ok=0; fi;;
+    aa_split)
+        if put_profiles androidauto_ss_osd "$val" &&
+           sync_split_profile "" carplay_ss_osd "$val" &&
+           sync_split_profile _dr1 carplay_ss_osd "$val" &&
+           sync_split_profile _dr2 carplay_ss_osd "$val"; then :
+        else ok=0; fi;;
+    cp_enable)
+        if put_profiles carplay_information "$val"; then
+            op broadcast-pp-status android.intent.action.daudio.connectivity.carplay.statuschanged "$bval" >/dev/null 2>&1 || :
+        else ok=0; fi;;
+    aa_enable)
+        if put_profiles androidauto_information "$val"; then
+            op broadcast-pp-status android.intent.action.daudio.connectivity.androidauto.statuschanged "$bval" >/dev/null 2>&1 || :
+        else ok=0; fi;;
+    cp_rhd)
+        if put_profiles carplya_rhd "$val"; then
+            restart_cp "" || ok=0
+        else ok=0; fi;;
+    *) ok=0;;
+    esac
+    if [ "$ok" = 1 ]; then
+        record "$PPTOK" "$token ok" || :
+    else
+        record "$PPTOK" "$token failed" || :
+        note "FAIL projection setting $key=$state"
     fi
 }
 # ---- diagnosis: status + log only, to a verified FAT/fuse USB mount ----
@@ -511,7 +747,7 @@ do_save() {
         print -r -- "Gen5W KR portable diagnosis #$n"
         for f in status log; do
             print -r -- "===== $f"
-            plain "$UI_DIR/$f" && [ -f "$UI_DIR/$f" ] && grep -a -v -E "$PRIV" "$UI_DIR/$f"
+            plain "$UI_DIR/$f" && [ -f "$UI_DIR/$f" ] && grep -a -i -v -E "$PRIV" "$UI_DIR/$f"
         done
     } > "$tmp" 2>/dev/null || { rm -f "$tmp"; record "$SAVED" "$n fail"; exit 0; }
     chmod 644 "$tmp" && mv "$tmp" "$UI_DIR/diag-latest.txt" || { record "$SAVED" "$n fail"; exit 0; }
@@ -544,6 +780,7 @@ do_save() {
                 local copied=1
                 for evidence_file in "$evidence"/*; do
                     plain "$evidence_file" && [ -f "$evidence_file" ] || continue
+                    case "${evidence_file##*/}" in .*|*.part|*.part.*|*.raw|*.flt|*.rc|*.tmp) continue;; esac
                     ( set -C; cat "$evidence_file" > "$staged/${evidence_file##*/}" ) 2>/dev/null || copied=0
                 done
                 if [ "$copied" = 1 ] && print -r -- complete > "$staged/USB-COMPLETE" && op sync; then
@@ -565,11 +802,14 @@ do_save() {
 }
 round() {
     prepare || return 0
+    ensure_default_split || :
     read_portable
     collect_status || :
     collect_log || :
 }
-trap 'exit 0' HUP INT TERM
+cleanup_stage() { rm -rf "$PRIV_STAGE" 2>/dev/null || :; }
+trap cleanup_stage EXIT
+trap 'cleanup_stage; exit 0' HUP INT TERM
 # The in-car screen cannot ask anything before Android is up, and this loop's
 # helper calls compete with zygote and system_server during boot.
 if [ -z "$ROOT" ]; then

@@ -28,7 +28,7 @@ mkdir -p "$B/bin" "$B/dalvik" "$R/data/plan/perms" "$R/system/app" "$R/system/et
 fail() { echo "FAIL $*" >&2; exit 1; }
 
 # ---- bundle: production scripts, interpreter path mapped for this host ----
-for name in boot.sh rescue.sh rescue-watch.sh session.sh runtime.sh overlay.sh portable.sh framework.sh ap.sh wrap-common.sh wrap-dipo.sh wrap-gpm.sh wrap-probe.sh; do
+for name in boot.sh rescue.sh rescue-watch.sh session.sh runtime.sh overlay.sh portable.sh framework.sh ap.sh wrap-common.sh wrap-dipo.sh wrap-gpm.sh wrap-navi.sh wrap-probe.sh; do
     cp "tools/portable/$name" "$B/$name"
 done
 sed -i '1c#!/usr/bin/mksh' "$B/boot.sh" "$B/rescue.sh"
@@ -244,6 +244,7 @@ expect_mounts() { # sorted target list
 }
 DIPO='/system/bin/sh /data/local/gen5w-portable/runtime-payload/wrap-dipo.sh'
 GPM='/system/bin/sh /data/local/gen5w-portable/runtime-payload/wrap-gpm.sh'
+NAVI='/system/bin/sh /data/local/gen5w-portable/runtime-payload/wrap-navi.sh'
 ALL='/system/app/HKMC_GPM.odex /system/app/HKMC_WifiSettings.odex /system/app/Iap2ServerApp.odex /system/etc/permissions '
 
 # Power loss / QuickBoot: every process started after the snapshot is gone.
@@ -282,6 +283,7 @@ healthy_full() { # label
     expect_mounts "$ALL" "$1"
     [ "$(prop wrap.com.daudio.app.dipo)" = "$DIPO" ] || fail "$1: dipo wrapper [$(prop wrap.com.daudio.app.dipo)]"
     [ "$(prop wrap.com.google.android.project)" = "$GPM" ] || fail "$1: gpm wrapper"
+    [ "$(prop wrap.com.mnsoft.navi)" = "$NAVI" ] || fail "$1: navi wrapper"
     [ "$(mksh "$B/portable.sh" status | head -n1)" = 'state|committed' ] || fail "$1: overlay not committed"
     [ "$(mksh "$B/runtime.sh" status)" = 'runtime|committed' ] || fail "$1: runtime not committed"
     [ "$(cat "$J/runtime-mode")" = full ] && [ "$(cat "$J/enabled")" = 1 ] || fail "$1: mode/enabled"
@@ -405,7 +407,7 @@ echo "PASS static fallback: bt/projection withheld, independent features bound, 
 rearm boot-10 boot-11
 touch "$A/dipo-never-ready"; cold_boot boot-12; before=$(cycles); settle 'dipo never ready'
 [ "$(cat "$J/attempt")" = 'boot-12|healthy' ] && [ "$(cat "$J/runtime-mode")" = static ] || fail 'dipo fallback'
-invariant 'dipo never ready'; [ -z "$(prop wrap.com.google.android.project)" ] || fail 'gpm wrapper left after runtime recovery'
+invariant 'dipo never ready'; [ -z "$(prop wrap.com.google.android.project)$(prop wrap.com.mnsoft.navi)" ] || fail 'gpm/navi wrapper left after runtime recovery'
 restarts=$(( $(cycles) - before )); no_errors dipo
 rm "$A/dipo-never-ready"
 echo "PASS DiPO readiness timeout: runtime retired to static in $restarts framework restarts"
@@ -414,7 +416,7 @@ echo "PASS DiPO readiness timeout: runtime retired to static in $restarts framew
 kill_runner
 boot disable > /dev/null
 expect_mounts '' 'final disable'
-[ -z "$(prop wrap.com.daudio.app.dipo)$(prop wrap.com.google.android.project)" ] || fail 'wrapper after disable'
+[ -z "$(prop wrap.com.daudio.app.dipo)$(prop wrap.com.google.android.project)$(prop wrap.com.mnsoft.navi)" ] || fail 'wrapper after disable'
 stock_sums | diff - "$t/stock.sums" || fail 'stock bytes changed'
 [ "$(mksh "$B/portable.sh" status | head -n1)" = 'state|disabled' ] && [ "$(mksh "$B/runtime.sh" status)" = 'runtime|disabled' ] || fail 'journals after disable'
 [ "$(cat "$J/reason")" = disabled-restored ] && [ "$(cat "$J/enabled")" = 0 ] || fail 'boot journal after disable'

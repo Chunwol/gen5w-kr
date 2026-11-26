@@ -57,6 +57,20 @@ def check_dalvik_inputs(directory: Path) -> None:
         raise ValueError('libgen5whook.so changes the bootclasspath (shared dex cache rewrite)')
 
 
+def check_apps_inputs(directory: Path) -> None:
+    """Refuse stale core/host APKs and bridge DEX before staging any output."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('gen5w_apps_build', HERE / 'build_apps.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    recorded = directory / 'source.sha256'
+    no_symlink(recorded.absolute())
+    if not recorded.is_file():
+        raise ValueError('apps inputs carry no source.sha256; rebuild them with tools/portable/build_apps.py')
+    if recorded.read_text(encoding='ascii').strip() != module.source_digest():
+        raise ValueError('apps inputs were built from different sources; rebuild them with tools/portable/build_apps.py')
+
+
 def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
     output = output.absolute()
     inputs = inputs.absolute()
@@ -85,7 +99,7 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
     if runtime:
         for name in ('engine.jar', 'adapter.jar', 'libgen5whook.so', 'abi.sha256', 'hook-vm-test.jar'):
             files['dalvik/' + name] = inputs / 'dalvik' / name
-        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'state-reset.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data', 'wifi-backend.sh', 'dongle.sh'):
+        for name in ('runtime.sh', 'ap.sh', 'framework.sh', 'persistent-migrate.sh', 'persistent-start.sh', 'wrap-dipo.sh', 'wrap-gpm.sh', 'wrap-navi.sh', 'wrap-common.sh', 'wrap-probe.sh', 'session.sh', 'diagnostics.sh', 'debug.sh', 'ui.sh', 'boot.sh', 'rescue.sh', 'rescue-watch.sh', 'bootguard.sh', 'state-reset.sh', 'package-pre.sh', 'package-post.sh', 'package-preun.sh', 'service.sh', 'NEMESIS.data', 'wifi-backend.sh', 'dongle.sh', 'network-adb.sh', 'core-ready.sh'):
             files[name] = HERE / name
         files['bootguard-restore.sh'] = HERE / 'recovery-usb/restore.sh'
         # USB Wi-Fi dongle payload (used only when the install-time check
@@ -105,6 +119,10 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
             files['timer/' + name] = ROOT / 'packages/consent-timer/scripts' / name
         for name in BLUELINK_SCRIPTS:
             files['bluelink/' + name] = ROOT / 'packages/bluelink-quiet/scripts' / name
+        # USB drive log (simple log, default on): portable service + the shared drive-log helpers.
+        files['drivelog/service.sh'] = HERE / 'drivelog.sh'
+        for name in ('common.sh', 'install-hold.sh'):
+            files['drivelog/' + name] = ROOT / 'packages/drive-log/scripts' / name
         for name, source in (('bridge.dex', inputs / 'apps/bridge.dex'),
                              ('wireless-host.apk', inputs / 'apps/wireless-host.apk'),
                              ('gen5w-core.apk', inputs / 'apps/gen5w-core.apk')):
@@ -113,6 +131,7 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
                  'com.hkmc.software.connectivity.androidauto_wireless.xml',
                  'com.hkmc.software.wifihotspot.xml'):
         files['permissions/' + name] = ROOT / 'packages/wireless-enable/files/permissions' / name
+    files['bin/aa-native-patch'] = ROOT / 'packages/core/bin/aa-native-patch'
     # The reviewed audio helper remains hash-bound; an unknown native ABI skips audio.
     for suffix in ('', '-v035'):
         helper = ROOT / 'packages/audio-format/bin' / ('audio-patch' + suffix)
@@ -133,6 +152,7 @@ def assemble(output: Path, inputs: Path, runtime: bool = False) -> None:
             raise FileNotFoundError(source)
     if runtime:
         check_dalvik_inputs(inputs / 'dalvik')
+        check_apps_inputs(inputs / 'apps')
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix='.portable-candidate-', dir=output.parent))
     try:

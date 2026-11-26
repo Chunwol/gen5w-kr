@@ -89,8 +89,13 @@ dl_validate_record() {
     [ "${#_dl_record}" -le 128 ] || return 1
     _dl_old_ifs=$IFS; IFS='|'; set -- $_dl_record; IFS=$_dl_old_ifs
     [ "$#" = 10 ] && [ "$1" = D1 ] || return 1
-    case "$3" in 1|2) ;; *) return 1;; esac
-    case "$4" in 1|2|20|21|22|23|24|25|26|27|28|29|32|33|34|35) ;; *) return 1;; esac
+    case "$3" in 1|2|3) ;; *) return 1;; esac
+    # 40 native-finalize: DiPO generation, broadcast-enqueued(0/1), reserved x4.
+    # 41 session-end: relay generation, source(1 handover/2 cp5/3 binder), sent-at,
+    # delivery(0 stale/1 accepted/2 received), DiPO generation (receipt only), reserved.
+    # 42 stock-navi icon change (navi adapter): displayType, sideStreet, combiSideStreet,
+    # distance (m, truncated), distanceErr, stockActive.
+    case "$4" in 1|2|20|21|22|23|24|25|26|27|28|29|32|33|34|35|36|37|38|39|40|41|42) ;; *) return 1;; esac
     shift
     _dl_pos=2
     for _dl_field in "$@"; do

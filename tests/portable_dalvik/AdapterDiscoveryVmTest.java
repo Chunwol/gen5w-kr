@@ -15,7 +15,7 @@ public final class AdapterDiscoveryVmTest {
         Class<?> plan = AppLocalLoader.loadWith(adapters, "kr.gen5w.portable.DipoAdapters");
         Object count = AppLocalLoader.invoke(plan.getMethod("validate", android.content.Context.class), null,
             new Object[]{new AppContext(owner, "com.daudio.app.dipo", "/system/app/HKMC_DiPO.apk")});
-        if (!Integer.valueOf(19).equals(count)) throw new AssertionError("DiPO discovery count=" + count);
+        if (!Integer.valueOf(22).equals(count)) throw new AssertionError("DiPO discovery count=" + count);
         System.out.println("PASS V039 actual stock DiPO adapter discovery hooks=" + count);
     }
 }

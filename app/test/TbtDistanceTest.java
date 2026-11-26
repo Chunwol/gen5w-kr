@@ -54,12 +54,38 @@ public final class TbtDistanceTest {
         flaky.accept=false;retry.disconnect();flaky.accept=true;retry.retryOutput();
         check(flaky.turnFrame.length==2 && flaky.laneFrame[1]==0 && flaky.icon==0 && flaky.meters==-1);
         check(TurnFrame.tbtDistanceValue(-1L)==0f && TurnFrame.tbtDistanceScale(-1L)==TurnFrame.SCALE_METER && TurnFrame.tbtDistanceError(-1L)==TurnFrame.DIST_ERR_UNKNOWN);
-        check(TurnFrame.tbtDistanceValue(350L)==350f && TurnFrame.tbtDistanceScale(350L)==TurnFrame.SCALE_METER && TurnFrame.tbtDistanceError(350L)==TurnFrame.DIST_ERR_OK);
+        check(TurnFrame.tbtDistanceValue(350L)==350f && TurnFrame.tbtDistanceScale(350L)==TurnFrame.SCALE_METER && TurnFrame.tbtDistanceError(350L)==TurnFrame.DIST_ERR_NO_DECIMAL);
         check(TurnFrame.tbtDistanceValue(999L)==999f && TurnFrame.tbtDistanceScale(999L)==TurnFrame.SCALE_METER);
         check(TurnFrame.tbtDistanceValue(1000L)==1.0f && TurnFrame.tbtDistanceScale(1000L)==TurnFrame.SCALE_KILOMETER);
         check(TurnFrame.tbtDistanceValue(1900L)==1.9f && TurnFrame.tbtDistanceScale(1900L)==TurnFrame.SCALE_KILOMETER);
         check(TurnFrame.tbtDistanceValue(80000L)==80.0f && TurnFrame.tbtDistanceScale(80000L)==TurnFrame.SCALE_KILOMETER && TurnFrame.tbtDistanceError(80000L)==TurnFrame.DIST_ERR_OK);
         check(TurnFrame.tbtDistanceValue(4294967295L)==32767.9f && TurnFrame.tbtDistanceScale(4294967295L)==TurnFrame.SCALE_KILOMETER);
+        check(TurnFrame.TBT_DISPLAY_IDLE==8 && TurnFrame.tbtDisplayType(0)==8 && TurnFrame.tbtDisplayType(-1)==8 && TurnFrame.tbtDisplayType(0x46)==0x46);
+        check(TurnFrame.effectiveIcon(0x43, 6000L)==0x43 && TurnFrame.effectiveIcon(0x43, 3000L)==0x43 && TurnFrame.effectiveIcon(0x43, -1L)==0x43 && TurnFrame.effectiveIcon(0, 6000L)==0);
+        check(TurnFrame.tbtBarGraphError(0, -1L)==TurnFrame.BAR_ERR_INVALID && TurnFrame.tbtBarGraphLevel(0, -1L)==0);
+        check(TurnFrame.tbtBarGraphError(0x43, 500L)==TurnFrame.BAR_ERR_HIDDEN && TurnFrame.tbtBarGraphLevel(0x43, 500L)==0);
+        check(TurnFrame.tbtBarGraphError(0x43, 150L)==TurnFrame.BAR_ERR_OK && TurnFrame.tbtBarGraphLevel(0x43, 150L)==50);
+        check(TurnFrame.tbtBarGraphError(0x43, 0L)==TurnFrame.BAR_ERR_OK && TurnFrame.tbtBarGraphLevel(0x43, 0L)==100);
+        check(TurnFrame.tbtBarGraphError(0x43, 300L)==TurnFrame.BAR_ERR_OK && TurnFrame.tbtBarGraphLevel(0x43, 300L)==10);
+        // Audit P3: saturate before rounding so huge AA distances cannot wrap.
+        check(TurnFrame.subInfo2CWhole(Long.MAX_VALUE)==65534 && TurnFrame.subInfo2CTenths(Long.MAX_VALUE)==9);
+        check(TurnFrame.subInfo2CWhole(65534900L)==65534 && TurnFrame.subInfo2CTenths(65534900L)==9);
+        check(TurnFrame.subInfo2CWhole(99999999999L)==65534 && TurnFrame.subInfo2CTenths(99999999999L)==9);
+        // 0x40 draws the cluster spinner: never sent, straight-ahead instead.
+        check(TurnFrame.effectiveIcon(0x40, 100L)==0x41 && TurnFrame.encode(new int[]{0x40, 0x40}, "")[2]==0x41
+                && TurnFrame.encode(new int[]{0x43, 0x40}, "")[3]==0x41);
+        check(TurnFrame.subInfo2CUnit(-1L)==15 && TurnFrame.subInfo2CTenths(-1L)==15 && TurnFrame.subInfo2CWhole(-1L)==65535);
+        check(TurnFrame.subInfo2CUnit(350L)==1 && TurnFrame.subInfo2CTenths(350L)==15 && TurnFrame.subInfo2CWhole(350L)==350);
+        check(TurnFrame.subInfo2CUnit(1900L)==2 && TurnFrame.subInfo2CTenths(1900L)==9 && TurnFrame.subInfo2CWhole(1900L)==1);
+        check(TurnFrame.subInfo2CUnit(1999L)==2 && TurnFrame.subInfo2CTenths(1999L)==0 && TurnFrame.subInfo2CWhole(1999L)==2);
+        // Stock >3km straight-ahead threshold in GuidanceSession
+        Output farOut=new Output();GuidanceSession farSession=new GuidanceSession(farOut);
+        farSession.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,1),n(3,2),n(8,0),n(9,0),n(11,90)));
+        farSession.message(GuidanceParser.MANEUVER,Arrays.asList(n(0,0),n(1,2),n(3,1),n(8,0),n(9,0),n(11,-90)));
+        farSession.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),n(1,1),list(1,2),n(10,6000)));
+        check(farOut.icon==0x43 && farOut.secondIcon==0x46 && (farOut.turnFrame[2]&255)==0x43 && (farOut.turnFrame[3]&255)==0x46);
+        farSession.message(GuidanceParser.STATUS,Arrays.asList(n(0,0),n(1,1),list(1,2),n(10,3000)));
+        check(farOut.icon==0x43 && farOut.secondIcon==0x46 && (farOut.turnFrame[2]&255)==0x43 && (farOut.turnFrame[3]&255)==0x46);
         System.out.println("TbtDistanceTest "+checks+" assertions passed");
     }
 }

@@ -93,6 +93,10 @@ public final class StatusModelTest {
         check("adb switch missing is unknown", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).switchAdb().equals("unknown"));
         check("removed state is read", StatusModel.parse(java.util.Arrays.asList("ts=10", "removed=5:failed:gen5w.kr.audio"), null, 12).removedState().equals("5:failed:gen5w.kr.audio"));
         check("missing removed state is none", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).removedState().equals("0:none"));
+        check("pp result default is 0:none", StatusModel.parse(java.util.Arrays.asList("ts=10"), null, 12).projectionResult().equals("0:none"));
+        check("pp result ok parsed", StatusModel.parse(java.util.Arrays.asList("ts=10", "pp_result=42:ok"), null, 12).projectionResult().equals("42:ok"));
+        check("pp result failed parsed", StatusModel.parse(java.util.Arrays.asList("ts=10", "pp_result=42:failed"), null, 12).projectionResult().equals("42:failed"));
+        check("pp result working parsed", StatusModel.parse(java.util.Arrays.asList("ts=10", "pp_result=42:working"), null, 12).projectionResult().equals("42:working"));
         if (failures != 0) { System.out.println("== StatusModel: " + failures + " failed"); System.exit(1); }
         System.out.println("== StatusModel: all passed");
     }

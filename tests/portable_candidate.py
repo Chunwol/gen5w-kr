@@ -23,6 +23,33 @@ class CandidateTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def test_app_digest_covers_compilation_inputs_and_tracks_file_set(self):
+        build = self.load('tools/portable/build_apps.py')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in build.SOURCE_ROOTS:
+                path = root / relative
+                if path.suffix in ('.java', '.xml', '.py'):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b'original')
+                else:
+                    path.mkdir(parents=True, exist_ok=True)
+                    (path / 'Source.java').write_bytes(b'original')
+            original = build.source_digest(root)
+            for path in sorted(root.rglob('*')):
+                if not path.is_file():
+                    continue
+                path.write_bytes(b'changed')
+                self.assertNotEqual(original, build.source_digest(root), str(path))
+                path.write_bytes(b'original')
+            added = root / 'app/src/NewAaParser.java'
+            added.write_bytes(b'new source')
+            self.assertNotEqual(original, build.source_digest(root))
+            added.unlink()
+            self.assertEqual(original, build.source_digest(root))
+            (root / 'app/src/Source.java').unlink()
+            self.assertNotEqual(original, build.source_digest(root))
+
     def test_bundle_requires_all_inputs_before_creating_output(self):
         module = self.module()
         with tempfile.TemporaryDirectory() as temp:
@@ -106,6 +133,15 @@ class CandidateTests(unittest.TestCase):
                 module.assemble(output, inputs, runtime=True)
             self.assertFalse(output.exists())
             (inputs / 'dalvik/libgen5whook.so').write_bytes(b'authored-fixture')
+            with self.assertRaisesRegex(ValueError, 'apps inputs carry no source'):
+                module.assemble(output, inputs, runtime=True)
+            self.assertFalse(output.exists())
+            (inputs / 'apps/source.sha256').write_text('0' * 64 + '\n', encoding='ascii')
+            with self.assertRaisesRegex(ValueError, 'apps inputs were built from different sources'):
+                module.assemble(output, inputs, runtime=True)
+            self.assertFalse(output.exists())
+            apps_build = self.load('tools/portable/build_apps.py')
+            (inputs / 'apps/source.sha256').write_text(apps_build.source_digest() + '\n', encoding='ascii')
             module.assemble(output, inputs, runtime=True)
             self.assertFalse((output / 'enabled').exists())
             self.assertTrue((output / 'app/gen5w-core.apk').read_bytes() == b'portable-core-no-autostart', 'wrong core APK variant')

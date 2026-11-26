@@ -23,9 +23,11 @@ public final class StatusModel {
     private final String saved; // "<number>:<usb|nousb|fail|working|none>"
     private boolean portable, portableDisabled;
     private String swDebug = UNKNOWN;
+    private String ppResult = "0:none";
     private String dongle = UNKNOWN;
     private boolean twoGhzOnly;
     public String switchDebug() { return swDebug; }
+    public String projectionResult() { return ppResult; }
     /** The dongle service's state this boot: ready, waiting, loading, failed, blocked, 2g or unknown. */
     public String dongle() { return dongle; }
     /** The Wi-Fi this install chose, as shown on the screen. */
@@ -102,6 +104,8 @@ public final class StatusModel {
         parsed.portable = "0".equals(value(statusLines, "portable_enabled")) || "1".equals(value(statusLines, "portable_enabled"));
         parsed.recovery = RecoveryStatus.parse(statusLines);
         parsed.swDebug = choice(value(statusLines, "sw_debug"), "on", "off");
+        String ppRes = value(statusLines, "pp_result");
+        parsed.ppResult = ppRes.length() == 0 ? "0:none" : ppRes;
         String dongle = value(statusLines, "dongle");
         parsed.dongle = dongle.matches("ready|waiting|loading|failed|blocked|2g") ? dongle : UNKNOWN;
         parsed.twoGhzOnly = "2g-only".equals(value(statusLines, "wifi_why"));

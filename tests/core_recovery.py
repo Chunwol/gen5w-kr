@@ -1,7 +1,7 @@
 """Execute production recovery methods against host IPC/provider boundaries."""
 from pathlib import Path
 import subprocess
-import tempfile
+import repo_tmp as tempfile
 
 root = Path(__file__).resolve().parents[1]
 
@@ -165,8 +165,9 @@ public class HudHealthTest {
     static final String TAG="test";
     static class Log { static void w(String a,String b) {} }
     static class Handler { void postDelayed(Runnable r,long delay) {} }
-    static class Session { void retryOutput() {} }
+    static class Session { void retryOutput() {} void expireLocating(long ms) {} }
     Handler io=new Handler(); Session session=new Session();
+    long now() { return 0; }
     boolean stopping; String ownerState="UNKNOWN";
     java.io.File folder;
     java.io.File getFilesDir() { return folder; }
@@ -174,6 +175,7 @@ public class HudHealthTest {
     void flushAaClear() {}
     void expireAaRoute() {}
     void retryAaOutput() {}
+    void maintainTunnelPe00() {}
     public static void main(String[] args) throws Exception {
         HudHealthTest service=new HudHealthTest();
         service.folder=new java.io.File(args[0]);
@@ -231,3 +233,34 @@ activity = (root/'app/src/kr/gen5w/ui/MainActivity.java').read_text(encoding='ut
 if 'android.permission.GET_TASKS' not in manifest or 'catch (SecurityException e)' not in activity or 'moveTaskToBack(true)' not in activity:
     raise SystemExit('FAIL back button must survive the car activity controller GET_TASKS check')
 print('PASS owner provider path, early boot wait, back button permission')
+
+# Exercise the production lease broadcaster: an unleased interval permits stock
+# writes, so unchanged outputs must become pending once on reacquisition.
+methods = block(core, 'private void notifyNaviPhoneGuiding(')
+harness = r'''public class LeaseRecoveryTest {
+    static final String ACTION_PHONE_GUIDING="phone";
+    static final long PHONE_GUIDING_RENEW_MS=2000;
+    boolean stopping, lastPhoneGuidingSent;
+    long lastPhoneGuidingSentMs=-2000, clock=1000, lastPe00Bucket=300;
+    long now() { return clock; }
+    static class Session { int invalidations; void invalidateOutput() { invalidations++; } }
+    Session session=new Session();
+    static class DriveLog { static void core(int event,long a,long b,long c,long d,long e,long f) {} }
+    static class Intent { Intent(String action) {} void setPackage(String pkg) {} void putExtra(String key,boolean value) {} void putExtra(String key,long value) {} }
+    int broadcasts; void sendBroadcast(Intent intent) { broadcasts++; }
+    static void check(boolean value) { if(!value) throw new AssertionError("lease recovery"); }
+    public static void main(String[] args) {
+        LeaseRecoveryTest t=new LeaseRecoveryTest();
+        t.notifyNaviPhoneGuiding(true); check(t.session.invalidations==1 && t.broadcasts==1);
+        t.clock+=2000; t.notifyNaviPhoneGuiding(true); check(t.session.invalidations==1 && t.broadcasts==2);
+        t.clock+=15000; t.notifyNaviPhoneGuiding(true); check(t.session.invalidations==2 && t.lastPe00Bucket==Long.MIN_VALUE);
+        t.notifyNaviPhoneGuiding(false); t.notifyNaviPhoneGuiding(true); check(t.session.invalidations==3);
+        t.stopping=true; t.clock+=20000; t.notifyNaviPhoneGuiding(true); check(t.session.invalidations==3);
+        System.out.println("PASS production lease reacquisition invalidates outputs once; renewals do not");
+    }
+'''
+with tempfile.TemporaryDirectory(prefix='gen5w-lease-') as tmp:
+    path=Path(tmp)/'LeaseRecoveryTest.java'
+    path.write_bytes((harness+methods+'\n}').encode('utf-8'))
+    subprocess.run(['javac','--release','8','-d',tmp,str(path)],check=True)
+    subprocess.run(['java','-cp',tmp,'LeaseRecoveryTest'],check=True)

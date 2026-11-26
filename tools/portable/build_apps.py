@@ -1,6 +1,7 @@
 """Build the authored core variant whose startup belongs solely to boot.sh."""
 from pathlib import Path
 import argparse
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -9,6 +10,33 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 ANDROID = '{http://schemas.android.com/apk/res/android}'
+
+SOURCE_ROOTS = (
+    'app/src', 'app/stubs', 'shared/src', 'probe/stubs',
+    'probe/src/kr/gen5w/probe/Item.java', 'probe/src/kr/gen5w/probe/Convert.java',
+    'packages/wireless-bridge/src', 'packages/wireless-bridge/stubs',
+    'app/AndroidManifest.xml', 'packages/wireless-bridge/host/AndroidManifest.xml',
+    'tools/portable/build_apps.py',
+)
+
+
+def source_digest(root=ROOT):
+    """Hash authored Java, manifests, and recipe; paths detect added/removed files."""
+    root = Path(root)
+    digest = hashlib.sha256()
+    for relative in SOURCE_ROOTS:
+        base = root / relative
+        if base.is_file():
+            files = [base]
+        elif base.is_dir():
+            files = sorted(base.rglob('*.java'))
+        else:
+            raise FileNotFoundError(base)
+        for path in files:
+            digest.update(path.relative_to(root).as_posix().encode('utf-8') + bytes(1))
+            digest.update(path.read_bytes().replace(bytes([13,10]), bytes([10])) + bytes(1))
+    return digest.hexdigest()
+
 
 def build(output: Path, sdk: Path, java_home: Path, keystore: Path) -> None:
     output, sdk, java_home, keystore = map(Path, (output, sdk, java_home, keystore))
@@ -32,6 +60,7 @@ def build(output: Path, sdk: Path, java_home: Path, keystore: Path) -> None:
     for ancestor in (output.absolute(), *output.absolute().parents):
         if ancestor.is_symlink():
             raise ValueError('symlink output ancestor')
+    built_source_digest = source_digest()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='portable-apk-', dir=output.parent) as temp:
         stage = Path(temp)
@@ -93,10 +122,13 @@ def build(output: Path, sdk: Path, java_home: Path, keystore: Path) -> None:
                         '--ks-key-alias', 'probe', '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'false',
                         '--v3-signing-enabled', 'false', '--min-sdk-version', '18', '--out', str(stage/'wireless-host.apk'), str(stage/'host-aligned.apk')], check=True)
         subprocess.run([str(java), '-jar', str(signer), 'verify', '--min-sdk-version', '18', str(stage/'wireless-host.apk')], check=True)
+        if source_digest() != built_source_digest:
+            raise ValueError('app sources changed during build; rebuild with tools/portable/build_apps.py')
         output.mkdir(mode=0o755)
         for name in ('gen5w-core.apk', 'wireless-host.apk'):
             (stage/name).rename(output/name)
         (dex/'classes.dex').rename(output/'bridge.dex')
+        (output/'source.sha256').write_text(built_source_digest + '\n', encoding='ascii')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

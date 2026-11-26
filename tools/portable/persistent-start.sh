@@ -28,7 +28,7 @@ meta() { "$HELPER" metadata "$(mapped "$1")"; }
 label() { "$HELPER" label "$(mapped "$1")"; }
 allowed_target() {
     case "$1" in
-        /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/wifi/bcmdhd.ko|/system/etc/featurexml.cfg|/system/onebin/*/featurexml.cfg|/system/featurexml/*/featurexml.cfg|/system/*/featurexml.cfg|/system/etc/permissions/*.xml)
+        /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/lib/libautoreceiver_infobank.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/wifi/bcmdhd.ko|/system/etc/featurexml.cfg|/system/onebin/*/featurexml.cfg|/system/featurexml/*/featurexml.cfg|/system/*/featurexml.cfg|/system/etc/permissions/*.xml)
             case "$1" in *..*|*'//'*) return 1;; esac
             case "$1" in /system/etc/permissions/*.xml) n=${1##*/}; case "$n" in ''|*[!A-Za-z0-9_.+-]*|.*) return 1;; esac; [ "$1" = "/system/etc/permissions/$n" ] || return 1;; esac
             ;;

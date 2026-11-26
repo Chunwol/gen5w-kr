@@ -61,7 +61,13 @@ int main(int argc, char **argv) {
  if((!strcmp(argv[1],"apply") || !strcmp(argv[1],"verify")) ? argc!=4 : argc!=3) return 2;
  in=open(argv[2],O_RDONLY|O_BINARY); if(in<0) return 1;
  if((length=(long)lseek(in,0,SEEK_END))<0 || length>32*1024*1024 || lseek(in,0,SEEK_SET)!=0) { close(in); return 1; }
- size=(size_t)length; data=malloc(size?size:1); if(!data) { close(in); return 1; }
+ size=(size_t)length;
+#ifdef OUTPUT_SIZE
+ data=malloc(size>OUTPUT_SIZE ? size : OUTPUT_SIZE);
+#else
+ data=malloc(size?size:1);
+#endif
+ if(!data) { close(in); return 1; }
  for(i=0;i<size;) { int n=(int)read(in,data+i,(unsigned)(size-i)); if(n<=0) break; i+=(size_t)n; }
  close(in); if(i!=size) { free(data); return 1; }
  sha256(data,size,digest);
@@ -69,6 +75,10 @@ int main(int argc, char **argv) {
  if(!strcmp(argv[1],"patched")) { rc=strcmp(digest,PATCHED_SHA)!=0; free(data); return rc; }
  if(strcmp(digest,ORIGINAL_SHA)) { free(data); return 1; }
  if(!strcmp(argv[1],"original")) { free(data); return 0; }
+#ifdef OUTPUT_SIZE
+ if(!expand_patch_image(data,size)) { free(data); return 1; }
+ size=OUTPUT_SIZE;
+#endif
  for(i=0;i<sizeof(patches)/sizeof(patches[0]);i++) {
   if(patches[i].offset>size || patches[i].length>size-patches[i].offset) { free(data); return 1; }
   memcpy(data+patches[i].offset,patches[i].bytes,patches[i].length);

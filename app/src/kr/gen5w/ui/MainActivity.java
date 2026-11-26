@@ -37,10 +37,10 @@ public final class MainActivity extends Activity {
     private static final String[] TABS = {"정보", "켜기/끄기", "기록", "관리"};
     private static final long REFRESH_MS = 5000;
     private static final String[] HELP = {
-        "무선 연결 상태와 설치된 구성 요소를 보여 줍니다.",
-        "기능을 켜고 끕니다. 설치된 파일은 지워지지 않습니다.",
-        "최근 기록을 보여 줍니다. 종류와 출처로 걸러 볼 수 있습니다.",
-        "진단 저장과 제거 같은 관리 작업을 합니다."};
+        "무선 연결·HUD·Wi-Fi 상태와 설치 버전을 보여 줍니다.",
+        "무선·안내창·HUD·순정 숨김 설정을 켜고 끕니다. 설치된 파일은 지워지지 않습니다.",
+        "최근 동작 기록과 오류 로그를 파일별 역순으로 보여 줍니다. 종류와 출처로 걸러 볼 수 있습니다.",
+        "상세 디버깅, 수동 진단 저장(USB), 복구와 제거 작업을 합니다."};
     private static final String LANG_FILE = "lang-en"; // present = English; absent = Korean (default)
     private static final String UI_DIR = "/data/nemesis/gen5wkr.ui";
     // The installed Korean V039 Settings skin takes precedence over corporate CI colors.
@@ -64,10 +64,13 @@ public final class MainActivity extends Activity {
     private volatile boolean loading;
     private boolean resumed;
     private static final long PENDING_MS = 40000;
+    private static final long PP_PENDING_MS = 120000;
     // Switch order: wireless, timer, bluelink, adb. A click shows its new state at once, until the collector confirms it.
     private final String[] pending = new String[4];
     private final long[] pendingAt = new long[4];
     private ScrollView scrollView;
+    private HorizontalScrollView filterStrip;
+    private int filterScrollX;
     private int shownTab = -1;
     private long requestSeq;
     private final SwitchRequest.Writer requests = new SwitchRequest.Writer();
@@ -84,6 +87,10 @@ public final class MainActivity extends Activity {
     private String recoveryToken;
     private long recoveryAskedAt;
     private boolean recoveryWriteFailed;
+    private ProjectionSettings ppModel = ProjectionSettings.unknown();
+    private String ppPendingKey, ppPendingState, ppToken;
+    private long ppAskedAt;
+    private boolean ppWriteFailed;
 
     private final Runnable tick = new Runnable() {
         public void run() {
@@ -239,15 +246,38 @@ public final class MainActivity extends Activity {
                 List<String> status = BoundedLines.read(new File(dir, "status"), 16 * 1024, 50);
                 List<String> log = BoundedLines.read(new File(dir, "log"), 64 * 1024, 300);
                 final StatusModel next = StatusModel.parse(status, log, SystemClock.elapsedRealtime() / 1000);
+                final ProjectionSettings nextPp = ProjectionSettingsReader.read(MainActivity.this);
                 final List<String> lines = log == null ? new ArrayList<String>() : log;
                 handler.post(new Runnable() {
                     public void run() {
                         loading = false;
                         if (isFinishing() || isDestroyed()) return;
-                        model = next; logLines = lines; loaded = true;
+                        model = next; ppModel = nextPp; logLines = lines; loaded = true;
                         if (adbToken != null && (adbToken + ":failed").equals(model.adbResult())) {
                             pending[3] = null;
                             adbToken = null;
+                        }
+                        if (ppToken != null) {
+                            String ppRes = model.projectionResult();
+                            if (ProjectionSettings.isTerminalResult(ppToken, ppRes)) {
+                                final String finishedKey = ppPendingKey;
+                                ppPendingKey = null; ppPendingState = null;
+                                ppWriteFailed = ppRes.startsWith(ppToken + ":failed");
+                                if (!ppWriteFailed && finishedKey != null && ppRes.equals(ppToken + ":ok")) {
+                                    if (ProjectionSettings.KEY_CP_SPLIT.equals(finishedKey)
+                                            || ProjectionSettings.KEY_CP_RHD.equals(finishedKey)) {
+                                        android.widget.Toast.makeText(MainActivity.this,
+                                                I18n.t("설정이 저장되었습니다. CarPlay 연결을 다시 시도합니다."),
+                                                android.widget.Toast.LENGTH_LONG).show();
+                                    } else if (ProjectionSettings.KEY_AA_SPLIT.equals(finishedKey)) {
+                                        android.widget.Toast.makeText(MainActivity.this,
+                                                I18n.t("설정이 저장되었습니다. Android Auto를 다시 연결하면 적용됩니다."),
+                                                android.widget.Toast.LENGTH_LONG).show();
+                                    }
+                                }
+                            } else if (ppTimedOut()) {
+                                ppPendingKey = null; ppPendingState = null;
+                            }
                         }
                         render();
                     }
@@ -257,6 +287,8 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
+        if (filterStrip != null && shownTab == LOG) filterScrollX = filterStrip.getScrollX();
+        filterStrip = null;
         langButton.setText(I18n.english() ? "한국어" : "English"); // the language it switches to
         for (int i = 0; i < menuItems.length; i++) {
             boolean on = i == tab;
@@ -301,25 +333,86 @@ public final class MainActivity extends Activity {
         return reported;
     }
 
+    private boolean ppPending() {
+        return ProjectionSettings.isPending(
+                ppToken, ppWriteFailed, SystemClock.elapsedRealtime() - ppAskedAt, PP_PENDING_MS, model.projectionResult());
+    }
+
+    private boolean ppTimedOut() {
+        return ProjectionSettings.isTimedOut(
+                ppToken, ppWriteFailed, SystemClock.elapsedRealtime() - ppAskedAt, PP_PENDING_MS, model.projectionResult());
+    }
+
+    private String effectivePp(String key) {
+        return ProjectionSettings.effectiveState(key, ppPendingKey, ppPendingState, ppPending(), ppModel);
+    }
+
+    private void ppRow(LinearLayout page, String name, String help, String lock, final String key) {
+        switchRowView(page, name, help, lock, effectivePp(key), new View.OnClickListener() {
+            public void onClick(View v) {
+                String current = effectivePp(key);
+                if (!"on".equals(current) && !"off".equals(current)) return;
+                sendProjectionRequest(key, !"on".equals(current));
+            }
+        });
+    }
+
+    private void sendProjectionRequest(final String key, final boolean targetOn) {
+        if (!model.portable() || !canRequest() || ppPending()) {
+            android.widget.Toast.makeText(this, I18n.t("새 상태를 기다린 뒤 다시 시도하세요."), android.widget.Toast.LENGTH_SHORT).show();
+            load();
+            return;
+        }
+        ppToken = newToken();
+        final String token = ppToken;
+        ppPendingKey = key;
+        ppPendingState = targetOn ? "on" : "off";
+        ppAskedAt = SystemClock.elapsedRealtime();
+        ppWriteFailed = false;
+        final long seq = requests.issue();
+        requestSeq = seq;
+        final String boot = model.bootId();
+        final long expires = SystemClock.elapsedRealtime() / 1000 + 30;
+        final File dir = getFilesDir();
+        new Thread(new Runnable() {
+            public void run() {
+                final boolean ok = requests.writeProjection(seq, dir, SystemClock.elapsedRealtime() / 1000, expires, boot, key, targetOn, token);
+                handler.post(new Runnable() {
+                    public void run() {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (!ok && token.equals(ppToken)) {
+                            ppPendingKey = null; ppPendingState = null; ppWriteFailed = true;
+                        }
+                        render();
+                        load();
+                    }
+                });
+            }
+        }, "gen5w-pp-request").start();
+        render();
+    }
+
     private void buildSwitches(LinearLayout page) {
         if (!loaded) { note(page, "불러오는 중..."); return; }
         final boolean readable = canRequest();
+        final boolean busyPp = ppPending();
         if (!readable) note(page, "상태가 오래되었거나 수집기가 응답하지 않아 조작을 잠갔습니다.");
         note(page, "끄면 몇 초 안에 반영됩니다. 설치된 파일은 그대로 남아 있어 언제든 다시 켤 수 있습니다. (제거가 아닙니다)");
         section(page, "무선");
         final String wireless = effective(0, model.switchWireless());
         String wlock = model.wiredOnly() ? "설치 때 유선 전용으로 설치되어 여기서 켤 수 없습니다"
                 : model.apguardOff() ? (model.portable() ? "안전 보호 또는 자동 적용 상태 때문에 여기서 켤 수 없습니다" : "재시작 보호가 걸려 있어 여기서 켤 수 없습니다") : null;
+        String lockMsg = !readable ? "상태를 읽을 수 없어 바꿀 수 없습니다" : busyPp ? "설정을 적용하는 중입니다..." : null;
         switchRow(page, "무선 CarPlay / Android Auto", "무선 연결 담당 서비스를 켜고 끕니다. 유선 연결은 그대로 동작합니다.",
-                wlock != null ? wlock : readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", wireless, 0);
+                wlock != null ? wlock : lockMsg, wireless, 0);
         section(page, "안내창");
         switchRow(page, "시동 안내창 자동 닫기", "끄면 차 순정 10초 타이머로 돌아갑니다.",
-                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(1, model.switchTimer()), 1);
+                lockMsg, effective(1, model.switchTimer()), 1);
         switchRow(page, "블루링크 월간 안내 숨기기", "끄면 차의 원래 안내 시간 값을 되돌립니다.",
-                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(2, model.switchBluelink()), 2);
+                lockMsg, effective(2, model.switchBluelink()), 2);
         section(page, "HUD");
         final boolean hudOff = HudSwitch.isOff(new File(getApplicationInfo().dataDir));
-        switchRowView(page, "CarPlay HUD 연동", "끄면 이 앱의 HUD 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.",
+        switchRowView(page, "CarPlay / AA HUD 연동", "끄면 계기판·HUD 길안내 서비스를 멈춥니다. 켜면 바로 다시 시작합니다.",
                 readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", hudOff ? "off" : "on", new View.OnClickListener() {
                     public void onClick(View v) {
                         boolean nowOff = HudSwitch.isOff(new File(getApplicationInfo().dataDir));
@@ -329,20 +422,36 @@ public final class MainActivity extends Activity {
                         render();
                     }
                 });
-        section(page, "개발자 접속 (이번 부팅만)");
-        switchRow(page, "Wi-Fi ADB", "이 스위치는 차의 Wi-Fi를 켜지 않고 접속 포트만 엽니다. 차가 이미 Wi-Fi에 연결돼 있어야 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요합니다.",
-                readable ? null : "상태를 읽을 수 없어 바꿀 수 없습니다", effective(3, model.switchAdb()), 3);
-        row(page, "ADB 접속 상태", adbHealthText(), DIM);
-        if (model.adbResult().endsWith(":failed")) note(page, "ADB 설정 적용에 실패했습니다. 새 상태를 확인하고 다시 시도하세요.");
+        if (model.portable()) {
+            section(page, "폰 프로젝션 (순정 숨김 설정)");
+            note(page, "무선 기능 활성화 시 순정 설정에서 숨겨지는 항목을 여기서 직접 변경합니다. 변경 후 재연결하면 반영됩니다.");
+            String ppLock = lockMsg;
+            if (ppWriteFailed || ppTimedOut() || (ppToken != null && model.projectionResult().startsWith(ppToken + ":failed"))) {
+                note(page, "폰 프로젝션 설정 적용에 실패했습니다. 잠시 뒤 다시 시도하세요.");
+            }
+            // Stock DipoActivity.java:475-492 right_screen; e/a/i.java:272-307 fixes creation width.
+            ppRow(page, "Apple CarPlay 분할 화면 사용", "변경 시 CarPlay를 다시 연결합니다.", ppLock, ProjectionSettings.KEY_CP_SPLIT);
+            ppRow(page, "Android Auto 분할 화면 사용", "Android Auto 오른쪽에 차량 분할창을 표시합니다. 변경 후 Android Auto를 다시 연결해야 적용됩니다.", ppLock, ProjectionSettings.KEY_AA_SPLIT);
+            ppRow(page, "Apple CarPlay 사용", "순정 Apple CarPlay 사용 설정을 켜고 끕니다.", ppLock, ProjectionSettings.KEY_CP_ENABLE);
+            ppRow(page, "Android Auto 사용", "순정 Android Auto 활성화 설정을 켜고 끕니다.", ppLock, ProjectionSettings.KEY_AA_ENABLE);
+            ppRow(page, "CarPlay 우핸들 레이아웃 (RHD)", "켜면 CarPlay 사이드바를 오른쪽(우핸들 차량 기준)으로 옮깁니다. 변경 시 CarPlay를 다시 연결해 적용합니다.", ppLock, ProjectionSettings.KEY_CP_RHD);
+        }
+        if (!model.portable()) {
+            section(page, "개발자 접속 (이번 부팅만)");
+            switchRow(page, "Wi-Fi ADB", "이 스위치는 차의 Wi-Fi를 켜지 않고 접속 포트만 엽니다. 차가 이미 Wi-Fi에 연결돼 있어야 PC에서 adb connect <차 주소>:5555 로 접속할 수 있습니다. 차를 껐다 켜면 자동으로 꺼집니다. 순정 ADB 키 승인은 그대로 필요합니다.",
+                    lockMsg, effective(3, model.switchAdb()), 3);
+            row(page, "ADB 접속 상태", adbHealthText(), DIM);
+            if (model.adbResult().endsWith(":failed")) note(page, "ADB 설정 적용에 실패했습니다. 새 상태를 확인하고 다시 시도하세요.");
+        }
         section(page, "이 화면에서 바꿀 수 없는 것");
-        row(page, "오디오 모듈", "설치 / 제거로만", DIM);
-        row(page, "주행 기록", "USB 키트가 필요", DIM);
+        row(page, "오디오 모듈", model.portable() ? "자동 적용 (설치·제거로 관리)" : "설치 / 제거로만", DIM);
+        if (!model.portable()) row(page, "주행 기록", "USB 키트가 필요", DIM);
         row(page, "Wi-Fi 동글", model.dongleText(), DIM);
     }
 
     /** Sends the three switch states to the collector. Runs off the main thread. */
     private void sendRequest() {
-        if (!model.canControl(SystemClock.elapsedRealtime()/1000) || "working".equals(model.recovery().state()) || recoveryPending()) {
+        if (!model.canControl(SystemClock.elapsedRealtime()/1000) || "working".equals(model.recovery().state()) || recoveryPending() || ppPending()) {
             pending[0] = pending[1] = pending[2] = pending[3] = null;
             android.widget.Toast.makeText(this, I18n.t("새 상태를 기다린 뒤 다시 시도하세요."), android.widget.Toast.LENGTH_SHORT).show();
             load();
@@ -522,7 +631,7 @@ public final class MainActivity extends Activity {
     }
 
     private void sendRecovery() {
-        if (!model.recovery().canRequest(model.canControl(SystemClock.elapsedRealtime()/1000)) || recoveryPending()) { load(); return; }
+        if (!model.recovery().canRequest(model.canControl(SystemClock.elapsedRealtime()/1000)) || recoveryPending() || ppPending()) { load(); return; }
         confirmRecovery=false;
         recoveryToken=newToken(); recoveryAskedAt=SystemClock.elapsedRealtime(); recoveryWriteFailed=false;
         final String token=recoveryToken, boot=model.bootId(); final File dir=getFilesDir();
@@ -540,7 +649,7 @@ public final class MainActivity extends Activity {
     }
 
     private void sendDebugRequest() {
-        if (!canRequest()) return;
+        if (!canRequest() || ppPending()) return;
         final long seq = requests.issue();
         final String boot = model.bootId();
         final long expires = SystemClock.elapsedRealtime()/1000+30;
@@ -555,7 +664,7 @@ public final class MainActivity extends Activity {
     private void buildManage(LinearLayout page) {
         if (model.portable()) {
             section(page, "상세 디버깅");
-            switchRowView(page, "오디오·HUD·INFO 상세 기록", "로그는 용량을 제한해 보관합니다. 문제가 있으면 연결된 상태에서 진단을 저장하세요.",
+            switchRowView(page, "오디오·HUD·INFO 상세 기록", "켜면 상세 로그를 용량 제한으로 보관합니다. 문제가 생기면 USB를 꽂고 아래 진단 저장을 누르세요.",
                     canRequest() ? null : "새 상태를 기다린 뒤 다시 시도하세요.", model.switchDebug(), new View.OnClickListener() {
                 public void onClick(View v) { sendDebugRequest(); }
             });
@@ -585,7 +694,7 @@ public final class MainActivity extends Activity {
                         });
             } else {
                 box(page, "정말 제거할까요?", (model.portable() ? "기능을 되돌리는 동안 차를 끄지 마세요. Android가 다시 시작될 수 있습니다. 실패하면 진단을 저장하고 복원 상태를 확인하세요." : "제거하는 동안 차를 끄거나 USB를 빼지 마세요. 중간에 실패하면 그 단계에서 멈추고 아무것도 강제로 지우지 않습니다. 다 지우면 차가 한 번 재부팅됩니다."), WARN);
-                buttonRow(page, "제거 시작", (model.portable() ? "자동 적용을 끄고 기능을 되돌립니다. 다시 사용하려면 설치 키트로 설정해야 합니다." : "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다."), "제거 시작", canRequest(), 1, new View.OnClickListener() {
+                buttonRow(page, "제거 시작", (model.portable() ? "자동 적용을 끄고 기능을 되돌립니다. 다시 사용하려면 설치 USB로 다시 설치해야 합니다." : "되돌릴 수 없습니다. 다시 쓰려면 설치 키트로 다시 설치해야 합니다."), "제거 시작", canRequest(), 1, new View.OnClickListener() {
                     public void onClick(View v) {
                         if (!canRequest()) { render(); return; }
                         confirmRemove = false;
@@ -607,10 +716,10 @@ public final class MainActivity extends Activity {
         boolean saveNow = saveToken != null && SystemClock.elapsedRealtime() - saveAskedAt < PENDING_MS
                 && !saved.startsWith(saveToken + ":");
         String help = saveNow || saveResult.equals("working") ? "저장하는 중입니다..."
-                : saveResult.equals("usb") ? "USB의 gen5w-kr-diag 폴더에 저장했습니다. USB를 PC에서 확인하세요."
-                : saveResult.equals("nousb") ? "USB가 연결되어 있지 않아 차 안에만 저장했습니다. USB를 꽂고 다시 누르세요."
-                : saveResult.equals("fail") ? "USB에 쓰지 못했습니다. USB를 확인하고 다시 누르세요."
-                : "상태, 최근 기록, 이 차의 시스템 정보를 한 파일로 USB에 저장합니다. 개인정보가 들어 있을 수 있는 줄은 뺍니다.";
+                : saveResult.equals("usb") ? "USB의 gen5w-kr-diag 폴더에 저장했습니다. USB를 빼서 PC로 확인하세요."
+                : saveResult.equals("nousb") ? "USB가 연결되어 있지 않아 차량 내부에만 저장했습니다. USB를 꽂고 다시 저장을 누르세요."
+                : saveResult.equals("fail") ? "USB에 쓰지 못했습니다. USB 연결과 용량을 확인한 뒤 다시 누르세요."
+                : "USB를 꽂은 뒤 저장을 누르면 상태·최근 기록·진단 스냅샷을 USB의 gen5w-kr-diag 폴더에 저장합니다. USB 연결만으로 자동 저장되지 않으며 개인정보 줄은 제외합니다.";
         buttonRow(page, "진단 저장", help, "저장", model.canControl(SystemClock.elapsedRealtime()/1000) && !"working".equals(model.recovery().state()) && !recoveryPending() && !saveNow, 0, new View.OnClickListener() {
             public void onClick(View v) {
                 if (!model.canControl(SystemClock.elapsedRealtime()/1000) || "working".equals(model.recovery().state()) || recoveryPending()) { render(); return; }
@@ -634,7 +743,7 @@ public final class MainActivity extends Activity {
             long age = model.ageSeconds();
             box(page, "기록이 오래됨", age < 0 ? "이전 부팅 때의 기록입니다. 새 기록을 기다리는 중입니다." : I18n.t("마지막 갱신이 {0}초 전입니다. 아래 값이 지금과 다를 수 있습니다.", String.valueOf(age)), WARN);
         } else if (host.equals("alive")) {
-            hero(page, "무선 호스트 준비", "호스트 실행은 Wi-Fi나 휴대폰 연결 성공을 뜻하지 않습니다.", OK);
+            hero(page, "무선 호스트 실행 중", "무선 서비스가 준비되었습니다. 실제 연결은 휴대폰 블루투스·Wi-Fi 연결 후 진행됩니다.", OK);
         } else if (host.equals("dead")) {
             String why = I18n.english() ? (model.whyRaw().length() > 0 ? model.whyRaw() : I18n.t(model.why())) : model.why();
             hero(page, "무선 대기 중", why.length() > 0 ? why : "원인을 확인하지 못했습니다", WARN);
@@ -645,14 +754,14 @@ public final class MainActivity extends Activity {
         row(page, "무선 호스트", host.equals("alive") ? "● 실행 중" : host.equals("dead") ? "● 실행 안 됨" : "확인 못 함",
                 stale ? DIM : host.equals("alive") ? OK : host.equals("dead") ? WARN : DIM);
         String relay = model.relay();
-        row(page, "릴레이 구성", relay.equals("on") ? "● 포함됨" : relay.equals("off") ? "● 없음" : "확인 못 함",
+        row(page, "CarPlay 무선 중계", relay.equals("on") ? "● 활성" : relay.equals("off") ? "● 비활성" : "확인 못 함",
                 stale ? DIM : relay.equals("on") ? OK : relay.equals("off") ? WARN : DIM);
         String wlan = model.wlan();
         row(page, "차 Wi-Fi", wlan.equals("present") ? "인터페이스 있음 (AP 연결 여부는 별도)" : wlan.equals("missing") ? "인터페이스 없음" : "확인 못 함",
                 stale ? DIM : wlan.equals("present") ? OK : wlan.equals("missing") ? WARN : DIM);
         row(page, "유선 전용 모드", model.wiredOnly() ? "켜짐" : "꺼짐", model.wiredOnly() ? WARN : TEXT);
         row(page, "재시작 보호", model.apguardOff() ? "● 걸림(무선 꺼짐)" : "● 정상", model.apguardOff() ? RED : stale ? DIM : OK);
-        row(page, "ADB 접속 상태", adbHealthText(), DIM);
+        if (!model.portable()) row(page, "ADB 접속 상태", adbHealthText(), DIM);
         row(page, "HUD 소유권 상태", hudHealthText(), DIM);
         note(page, "Android Auto는 순정 무선 지원과 등록이 필요합니다. CarPlay 전용 중계는 적용되지 않습니다.");
         section(page, "설치");
@@ -678,7 +787,8 @@ public final class MainActivity extends Activity {
                 SystemClock.elapsedRealtime() / 1000);
         if (owner.equals("STOCK")) return "순정 내비 우선 (출력 차단)";
         if (owner.equals("UNKNOWN")) return "소유권 확인 실패 (출력 차단)";
-        if (owner.equals("CARPLAY") || owner.equals("AA")) return "출력 허용 (실제 표시는 별도 확인)";
+        if (owner.equals("CARPLAY")) return "순정 내비 미안내 (폰 HUD 대기)";
+        if (owner.equals("AA")) return "Android Auto 출력 대기/허용";
         return "서비스 응답 없음";
     }
 
@@ -688,12 +798,37 @@ public final class MainActivity extends Activity {
         LinkedHashSet<String> sources = new LinkedHashSet<String>();
         for (String line : logLines) { int bar = line.indexOf('|'); if (bar > 0) sources.add(line.substring(0, bar)); }
         if (!sources.contains(sourceFilter)) sourceFilter = "all";
+        int errorCount = 0;
+        for (String line : logLines) {
+            int bar = line.indexOf('|');
+            String src = bar > 0 ? line.substring(0, bar) : "";
+            String rawLine = bar > 0 ? line.substring(bar + 1) : line;
+            if (!sourceFilter.equals("all") && !sourceFilter.equals(src)) continue;
+            if ("error".equals(LogTranslator.category(src, rawLine))) errorCount++;
+        }
         LinearLayout filters = new LinearLayout(this);
         filters.setGravity(Gravity.BOTTOM);
         filters.setPadding(dp(8), 0, 0, 0);
-        tab(filters, "전체", "all"); tab(filters, "오류", "error"); tab(filters, "무선", "wireless"); tab(filters, "설치", "install");
-        View gap = new View(this);
-        filters.addView(gap, new LinearLayout.LayoutParams(0, 1, 1f));
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        filterStrip = hsv;
+        final LinearLayout tabs = new LinearLayout(this);
+        tab(tabs, "전체", "all", "", false);
+        tab(tabs, "오류", "error", errorCount > 0 ? " (" + errorCount + ")" : "", errorCount > 0);
+        tab(tabs, "무선", "wireless", "", false);
+        tab(tabs, "설치", "install", "", false);
+        hsv.addView(tabs);
+        filters.addView(hsv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        final int keepX = filterScrollX;
+        hsv.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            public boolean onPreDraw() {
+                if (filterStrip != null) {
+                    filterStrip.getViewTreeObserver().removeOnPreDrawListener(this);
+                    filterStrip.scrollTo(keepX, 0);
+                }
+                return true;
+            }
+        });
         final ArrayList<String> order = new ArrayList<String>();
         order.add("all");
         order.addAll(sources);
@@ -713,21 +848,23 @@ public final class MainActivity extends Activity {
             }
         });
         LinearLayout.LayoutParams fromLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        fromLp.setMargins(0, 0, dp(8), dp(6));
+        fromLp.setMargins(dp(4), 0, dp(8), dp(6));
         filters.addView(from, fromLp);
         page.addView(filters);
         page.addView(divider());
         panel = null;
         openPanel(page, 0);
         int shown = 0;
-        for (String line : logLines) {
+        for (int i = logLines.size() - 1; i >= 0; i--) {
+            String line = logLines.get(i);
             int bar = line.indexOf('|');
             String source = bar > 0 ? line.substring(0, bar) : "";
             String raw = bar > 0 ? line.substring(bar + 1) : line;
             if (!sourceFilter.equals("all") && !sourceFilter.equals(source)) continue;
-            if (!categoryFilter.equals("all") && !categoryFilter.equals(LogTranslator.category(raw))) continue;
+            String cat = LogTranslator.category(source, raw);
+            if (!categoryFilter.equals("all") && !categoryFilter.equals(cat)) continue;
             String korean = I18n.english() ? raw : LogTranslator.translate(raw);
-            boolean error = LogTranslator.category(raw).equals("error");
+            boolean error = "error".equals(cat);
             LinearLayout entry = new LinearLayout(this);
             entry.setPadding(dp(22), dp(12), dp(22), dp(12));
             if (source.length() > 0) {
@@ -754,17 +891,23 @@ public final class MainActivity extends Activity {
             add(page, entry);
             shown++;
         }
-        if (shown == 0) note(page, "이 조건에 맞는 기록이 없습니다.");
+        if (shown == 0) note(page, "error".equals(categoryFilter) ? "기록된 오류가 없습니다." : "이 조건에 맞는 기록이 없습니다.");
     }
 
     /** A text tab with a cyan underline when chosen, like the stock tab strips. */
-    private void tab(LinearLayout row, String text, final String value) {
+    private void tab(LinearLayout row, String text, final String value, String suffix, boolean alert) {
         boolean on = categoryFilter.equals(value);
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
         t.setBackgroundDrawable(skin.tab());
         t.setSelected(on);
-        TextView name = label(text, 24, on ? ACTIVE_BLUE : TEXT, on);
+        TextView name = new TextView(this);
+        name.setText(I18n.t(text) + suffix);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        name.setTextColor(on ? ACTIVE_BLUE : alert ? RED : TEXT);
+        name.setIncludeFontPadding(false);
+        name.setShadowLayer(1f, 0f, 1f, BLACK);
+        if (on) name.setTypeface(Typeface.DEFAULT_BOLD);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, dp(12), 0, dp(10));
         int width = (int) name.getPaint().measureText(name.getText().toString()) + dp(24); // a MATCH_PARENT underline would stretch the tab
@@ -773,7 +916,11 @@ public final class MainActivity extends Activity {
         underline.setBackgroundColor(0x00000000); // OEM tab drawable already carries its highlight line.
         t.addView(underline, new LinearLayout.LayoutParams(width, dp(3)));
         t.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { categoryFilter = value; render(); }
+            public void onClick(View v) {
+                if (filterStrip != null) filterScrollX = filterStrip.getScrollX();
+                categoryFilter = value;
+                render();
+            }
         });
         row.addView(t);
     }

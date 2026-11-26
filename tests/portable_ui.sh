@@ -22,7 +22,7 @@ R=$t/root; B=$R/data/nemesis/apps/gen5w.kr.portable; A=$t/actions
 N=$R/data/nemesis; UI=$N/gen5wkr.ui; P=$R/data/local/gen5w-portable
 APP=$R/data/data/kr.gen5w.core; REQ=$APP/files/ui-request
 mkdir -p "$B/bin" "$N/logs/gen5w.kr.portable" "$P"/{boot,overlay,runtime,session} "$APP/files" \
-    "$R/data/data/kr.gen5w.wirelesshost/files" "$R/proc/sys/kernel/random" "$R/sys/class/net/wlan0" "$R/storage/usb0" "$A/props"
+    "$R/data/data/kr.gen5w.wirelesshost/files" "$R/proc/sys/kernel/random" "$R/sys/class/net/wlan0" "$R/storage/usb0" "$A/props" "$A/settings"
 cp tools/portable/ui.sh tools/portable/boot.sh tools/portable/diagnostics.sh tools/portable/NEMESIS.data "$B/"
 cp .build/portable/dex-patch-host "$B/bin/dex-patch"
 chmod 755 "$B/ui.sh" "$B/bin/dex-patch"; chmod 700 "$APP"; chmod 700 "$APP/files"
@@ -35,6 +35,23 @@ cat > "$t/adapter" <<'SH'
 #!/bin/bash
 case "$1" in
 get) cat "$ACTIONS/props/$2" 2>/dev/null || :;;
+settings-get)
+    [ ! -f "$ACTIONS/settings-get-fail" ] || exit 1
+    if [ -f "$ACTIONS/settings-get-fail-on" ]; then
+        target=$(cat "$ACTIONS/settings-get-fail-on")
+        [ "$2" = "$target" ] && exit 1
+    fi
+    cat "$ACTIONS/settings/$2" 2>/dev/null || :;;
+settings-put)
+    [ ! -f "$ACTIONS/settings-fail" ] || exit 1
+    if [ -f "$ACTIONS/settings-fail-on" ]; then
+        target=$(cat "$ACTIONS/settings-fail-on")
+        [ "$2" = "$target" ] && exit 1
+    fi
+    printf '%s\n' "$3" > "$ACTIONS/settings/$2";;
+broadcast-cp-split) echo "broadcast-cp-split $2" >> "$ACTIONS/calls";;
+broadcast-pp-status) echo "broadcast-pp-status $2 $3" >> "$ACTIONS/calls";;
+restart-carplay) echo "restart-carplay ${2:-}" >> "$ACTIONS/calls"; [ ! -f "$ACTIONS/restart-fail" ];;
 disable)
     echo "disable $2" >> "$ACTIONS/calls"
     [ ! -f "$ACTIONS/disable-delay" ] || sleep "$(cat "$ACTIONS/disable-delay")"
@@ -42,6 +59,10 @@ disable)
     exit "$(cat "$ACTIONS/disable-rc" 2>/dev/null || echo 0)";;
 sync) :;;
 snapshot) mksh "$2" active "$3";;
+errors)
+    [ ! -d "$PORTABLE_TEST_ROOT/data/local/gen5w-portable/.ui-stage" ] || stat -c %a "$PORTABLE_TEST_ROOT/data/local/gen5w-portable/.ui-stage" > "$ACTIONS/stage-mode"
+    [ ! -f "$ACTIONS/errors-fail" ] || exit 1
+    [ ! -f "$ACTIONS/errors" ] || cat "$ACTIONS/errors";;
 *) echo "unexpected $*" >> "$ACTIONS/calls"; exit 1;;
 esac
 SH
@@ -58,6 +79,7 @@ disables() { grep -c '^disable ' "$A/calls" || :; }
 
 # Healthy portable state of this boot, a live host and a live session.
 echo 1 > "$P/boot/enabled"; echo "$BOOT|healthy" > "$P/boot/attempt"; echo startup-healthy > "$P/boot/reason"; echo full > "$P/boot/runtime-mode"
+: > "$P/split-default-applied"
 echo committed > "$P/overlay/state"; echo "$BOOT" > "$P/overlay/boot"
 echo committed > "$P/runtime/phase"; echo "$BOOT" > "$P/runtime/boot"
 echo '/system/bin/sh /data/local/gen5w-portable/runtime-payload/wrap-dipo.sh' > "$A/props/wrap.com.daudio.app.dipo"
@@ -82,7 +104,9 @@ echo "touch $A/OLD-RECOVERY-RAN" > "$N/gen5wkr.recovery/current/recovery.sh"
 # 1. Status/log schema from portable journals and the live host.
 echo builtin > "$P/wifi-backend"
 collect
-for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=0.3.85 apguard=on wired=no sw_wireless=on \
+VERSION=$(sed -n 's/^package-version=//p' "$B/NEMESIS.data")
+[ -n "$VERSION" ] || fail 'NEMESIS.data version missing'
+for kv in ts=100 boot=$BOOT host=alive relay=on backend=builtin version=$VERSION apguard=on wired=no sw_wireless=on \
           sw_timer=on sw_bluelink=on sw_adb=unknown adb_health=unknown adb_result=0:none saved=0:none removed=0:none \
           wlan=present recovery_state=none recovery_available=no recovery_request=0 recovery_result=none \
           portable_enabled=1 portable_phase=healthy portable_mode=full portable_overlay=committed portable_runtime=committed portable_session=running; do
@@ -91,7 +115,7 @@ done
 [ "$(stat -c %a "$UI")" = 755 ] && [ "$(stat -c %a "$UI/status")" = 644 ] && [ "$(stat -c %a "$UI/log")" = 644 ] || fail 'ui modes'
 [ "$(wc -l < "$UI/status")" -le 50 ] && [ "$(wc -l < "$UI/log")" -le 200 ] || fail 'bounds'
 grep -q '^portable|session: host/AP/HUD supervisor running$' "$UI/log" || fail 'package log missing'
-! grep -q 'aa:bb:cc' "$UI/log" || fail 'private line in log'
+grep -q 'aa:bb:cc' "$UI/log" || fail 'MAC line kept (privacy filter removed)'
 grep -q '^boot|enabled=1 phase=healthy' "$UI/log" || fail 'journal summary missing'
 [ ! -e "$APP/files/status" ] && [ "$(ls "$APP/files")" = "" ] || fail 'root wrote into the app folder'
 pass 'status/log follow the StatusModel schema from portable journals; private lines dropped; root-owned 755/644'
@@ -145,6 +169,12 @@ echo static > "$P/boot/runtime-mode"; echo disabled > "$P/runtime/phase"; rm "$A
 collect; expect host dead static; expect relay off static; expect apguard off static
 echo full > "$P/boot/runtime-mode"; echo committed > "$P/runtime/phase"
 collect; expect relay unknown 'committed journal without the owned wrapper'
+echo persistent-start-ready > "$P/boot/reason"; echo none > "$P/boot/runtime-mode"; echo disabled > "$P/runtime/phase"
+printf '%s\n' 'W=/data/nemesis/apps/gen5w.kr.portable/wrap-dipo.sh;[ -f $W ]||W=;exec ${W:+sh $W}' > "$A/props/wrap.com.daudio.app.dipo"
+collect; expect relay on 'persistent wrapper with disabled runtime'
+rm "$A/props/wrap.com.daudio.app.dipo"
+collect; expect relay off 'persistent install without matching dipo wrapper'
+echo startup-healthy > "$P/boot/reason"; echo full > "$P/boot/runtime-mode"; echo committed > "$P/runtime/phase"
 pass 'host marker bound to boot+pid+starttime; AP guard evidence locks the switch unless the host is live; static/missing wrapper not shown working'
 
 # 3. Envelope: stale, forged, oversized, symlinked and foreign requests change nothing.
@@ -228,13 +258,13 @@ pass 'concurrent restore refused as busy; interrupted restore shown as failed'
 
 # 8. Diagnosis export: bounded status+log; USB only on a verified FAT mount.
 envelope save=70; collect; expect saved 70:nousb 'no USB mount'
-[ -s "$UI/diag-latest.txt" ] && ! grep -q 'aa:bb:cc\|SSID' "$UI/diag-latest.txt" || fail 'in-car diagnosis copy'
+[ -s "$UI/diag-latest.txt" ] && grep -q 'aa:bb:cc' "$UI/diag-latest.txt" || fail 'in-car diagnosis copy (unfiltered)'
 echo '/dev/block/sda1 /storage/usb0 ext4 rw 0 0' > "$R/proc/mounts"; envelope save=71; collect; expect saved 71:nousb 'non-FAT mount'
 [ ! -e "$R/storage/usb0/gen5w-kr-diag" ] || fail 'wrote to non-FAT mount'
 echo '/dev/block/vold/8:1 /storage/usb0 vfat rw 0 0' > "$R/proc/mounts"; envelope save=72; collect; expect saved 72:usb 'FAT mount'
 [ -s "$R/storage/usb0/gen5w-kr-diag/diag-72.txt" ] || fail 'USB file missing'
 [ "$(wc -l < "$R/storage/usb0/gen5w-kr-diag/diag-72.txt")" -le 260 ] || fail 'diagnosis not bounded'
-! grep -q 'aa:bb:cc' "$R/storage/usb0/gen5w-kr-diag/diag-72.txt" || fail 'private line exported'
+grep -q 'aa:bb:cc' "$R/storage/usb0/gen5w-kr-diag/diag-72.txt" || fail 'unfiltered line exported'
 echo private > "$t/elsewhere"; ln -s "$t/elsewhere" "$R/storage/usb0/gen5w-kr-diag/diag-73.txt.tmp"
 envelope save=73; collect; expect saved 73:fail 'planted link'
 [ "$(cat "$t/elsewhere")" = private ] || fail 'followed a planted link'
@@ -244,10 +274,13 @@ mv "$R/proc/mounts" "$R/proc/self/mounts"
 ln -s self/mounts "$R/proc/mounts"
 mkdir -p "$P/diagnostics/failure-$BOOT"
 echo retained-failure > "$P/diagnostics/failure-$BOOT/START"
+echo raw-secret > "$P/diagnostics/failure-$BOOT/wifi.txt.part"
+echo raw-secret > "$P/diagnostics/failure-$BOOT/debug.log.raw"
 envelope save=74; collect; expect saved 74:usb 'normal procfs mounts link'
 [ -s "$UI/diagnostics/diag-$BOOT-70.txt" ] || fail 'first local diagnosis was overwritten'
 [ -s "$UI/diagnostics/diag-$BOOT-74.txt" ] || fail 'latest local diagnosis archive missing'
 grep -q retained-failure "$R/storage/usb0/gen5w-kr-diag/failure-$BOOT/START" || fail 'automatic failure evidence not exported'
+[ ! -e "$R/storage/usb0/gen5w-kr-diag/failure-$BOOT/wifi.txt.part" ] && [ ! -e "$R/storage/usb0/gen5w-kr-diag/failure-$BOOT/debug.log.raw" ] || fail 'stray raw/part staging file exported to USB'
 rm "$R/proc/mounts"; ln -s "$t/elsewhere" "$R/proc/mounts"
 envelope save=75; collect; expect saved 75:nousb 'foreign mounts link'
 rm "$R/proc/mounts"; mv "$R/proc/self/mounts" "$R/proc/mounts"
@@ -279,4 +312,197 @@ rm -f "$P/session/epoch" "$P/session/ready"; collect
 ! grep -q "can't open\|open: No such" "$t/out" || fail "missing session file reported as a shell error: $(cat "$t/out")"
 expect portable_session stopped 'no session'
 pass 'missing session files read quietly'
+# 11. UI debug switch on creates focus-reset before DEBUG_ON when turning on.
+envelope debug=on; collect
+[ -f "$N/gen5wkr.debug-on" ] && [ -f "$P/debug/focus-reset" ] || fail 'ui debug=on missing focus-reset'
+rm -f "$P/debug/focus-reset"
+envelope debug=on; collect
+[ ! -e "$P/debug/focus-reset" ] || fail 'idempotent ui debug=on must not re-arm focus-reset'
+envelope debug=off; collect
+[ ! -e "$N/gen5wkr.debug-on" ] || fail 'ui debug=off did not clear flag'
+pass 'ui debug switch arms focus-reset only on off->on transition'
+# 12. Hidden stock PhoneProjection settings: base + _dr1/_dr2, per-profile split sync, replay, locks & failures.
+envelope pp=cp_split:on:101; collect
+expect pp_result 101:ok 'cp_split ok'
+for k in carplay_ss_osd carplay_ss_osd_dr1 carplay_ss_osd_dr2 phoneprojection_setting_use_split_screen phoneprojection_setting_use_split_screen_dr1 phoneprojection_setting_use_split_screen_dr2; do
+    [ "$(cat "$A/settings/$k")" = 1 ] || fail "missing $k=1"
+done
+grep -qx 'broadcast-cp-split 1' "$A/calls" || fail 'missing split broadcast 1'
+[ "$(grep -cx 'restart-carplay 1' "$A/calls")" = 1 ] || fail 'cp_split must request once'
+rm -f "$A/settings/carplay_ss_osd"
+envelope pp=cp_split:on:101; collect
+[ ! -e "$A/settings/carplay_ss_osd" ] || fail 'replayed pp token executed again'
+envelope pp=aa_split:on:102; collect
+expect pp_result 102:ok 'aa_split ok'
+for k in androidauto_ss_osd androidauto_ss_osd_dr1 androidauto_ss_osd_dr2 phoneprojection_setting_use_split_screen; do
+    [ "$(cat "$A/settings/$k")" = 1 ] || fail "missing $k=1"
+done
+# Per-profile split sync: _dr1 has AA split ON, base & _dr2 have AA split OFF -> cp_split=off clears base & _dr2, keeps _dr1=1.
+printf '0\n' > "$A/settings/androidauto_ss_osd"
+printf '1\n' > "$A/settings/androidauto_ss_osd_dr1"
+printf '0\n' > "$A/settings/androidauto_ss_osd_dr2"
+envelope pp=cp_split:off:103; collect
+expect pp_result 103:ok 'cp_split off ok'
+[ "$(cat "$A/settings/carplay_ss_osd")" = 0 ] || fail 'cp_split=off did not clear carplay_ss_osd'
+[ "$(cat "$A/settings/phoneprojection_setting_use_split_screen")" = 0 ] || fail 'base shared split remained 1 while both base splits are 0'
+[ "$(cat "$A/settings/phoneprojection_setting_use_split_screen_dr1")" = 1 ] || fail '_dr1 shared split dropped while aa_ss_osd_dr1=1'
+[ "$(cat "$A/settings/phoneprojection_setting_use_split_screen_dr2")" = 0 ] || fail '_dr2 shared split remained 1 while both _dr2 splits are 0'
+grep -qx 'broadcast-cp-split 0' "$A/calls" || fail 'missing split broadcast 0'
+grep -qx 'restart-carplay 0' "$A/calls" || fail 'missing restart-carplay 0 on cp_split=off'
+envelope pp=aa_split:off:104; collect
+expect pp_result 104:ok 'aa_split off ok'
+[ "$(cat "$A/settings/androidauto_ss_osd_dr1")" = 0 ] && [ "$(cat "$A/settings/phoneprojection_setting_use_split_screen_dr1")" = 0 ] || fail 'aa_split=off did not clear _dr1 shared split'
+# cp_enable / aa_enable update Settings.System + broadcast status, never touch persist.ium.support.
+printf 'carplay\n' > "$A/props/persist.ium.support"
+envelope pp=cp_enable:off:105; collect
+expect pp_result 105:ok 'cp_enable off ok'
+[ "$(cat "$A/settings/carplay_information")" = 0 ] && [ "$(cat "$A/settings/carplay_information_dr1")" = 0 ] && [ "$(cat "$A/settings/carplay_information_dr2")" = 0 ] || fail 'cp_enable=off settings missing'
+[ "$(cat "$A/props/persist.ium.support")" = carplay ] || fail 'cp_enable=off mutated persist.ium.support'
+grep -qx 'broadcast-pp-status android.intent.action.daudio.connectivity.carplay.statuschanged false' "$A/calls" || fail 'missing carplay off broadcast'
+envelope pp=cp_enable:on:106; collect
+expect pp_result 106:ok 'cp_enable on ok'
+[ "$(cat "$A/settings/carplay_information")" = 1 ] && [ "$(cat "$A/props/persist.ium.support")" = carplay ] || fail 'cp_enable=on'
+grep -qx 'broadcast-pp-status android.intent.action.daudio.connectivity.carplay.statuschanged true' "$A/calls" || fail 'missing carplay on broadcast'
+envelope pp=aa_enable:off:107; collect
+expect pp_result 107:ok 'aa_enable off ok'
+[ "$(cat "$A/settings/androidauto_information")" = 0 ] && [ "$(cat "$A/settings/androidauto_information_dr1")" = 0 ] && [ "$(cat "$A/settings/androidauto_information_dr2")" = 0 ] || fail 'aa_enable=off'
+grep -qx 'broadcast-pp-status android.intent.action.daudio.connectivity.androidauto.statuschanged false' "$A/calls" || fail 'missing aa off broadcast'
+envelope pp=cp_rhd:on:108; collect
+expect pp_result 108:ok 'cp_rhd on ok'
+[ "$(cat "$A/settings/carplya_rhd")" = 1 ] && [ "$(cat "$A/settings/carplya_rhd_dr1")" = 1 ] && [ "$(cat "$A/settings/carplya_rhd_dr2")" = 1 ] || fail 'cp_rhd=on'
+grep -qx 'restart-carplay ' "$A/calls" || fail 'missing restart-carplay on cp_rhd'
+: > "$A/restart-fail"
+before_restart=$(grep -c '^restart-carplay' "$A/calls")
+envelope pp=cp_rhd:off:1081; collect
+expect pp_result 1081:failed 'unapplied restart fails'
+after_restart=$(grep -c '^restart-carplay' "$A/calls")
+[ "$after_restart" = "$((before_restart + 1))" ] || fail 'failed restart must not be re-sent'
+rm "$A/restart-fail"
+envelope pp=cp_rhd:on:108; collect
+
+envelope pp=evil:on:109; collect; [ "$(cat "$N/gen5wkr.ui-portable-pp")" = '108 ok' ] || fail 'forged pp key accepted'
+envelope pp=cp_split:on:1:2; collect; [ "$(cat "$N/gen5wkr.ui-portable-pp")" = '108 ok' ] || fail 'extra colon pp token accepted'
+envelope pp=cp_rhd:off:110 timer=off; collect; [ "$(cat "$N/gen5wkr.ui-portable-pp")" = '108 ok' ] || fail 'non-exclusive pp accepted'
+# Live pp-lock causes server-side busy rejection without changing carplya_rhd.
+sleep 30 & LWPID=$!
+LWKEY=$(awk '{print $22}' "/proc/$LWPID/stat" 2>/dev/null || :)
+mkdir -p "$N/gen5wkr.ui-portable-pp-lock"
+printf '%s|%s:%s\n' "$BOOT" "$LWPID" "$LWKEY" > "$N/gen5wkr.ui-portable-pp-lock/owner"
+envelope pp=cp_rhd:off:1100; collect
+expect pp_result '1100:failed:busy' 'busy pp lock rejected'
+[ "$(cat "$A/settings/carplya_rhd")" = 1 ] || fail 'busy lock mutated carplya_rhd'
+kill "$LWPID" 2>/dev/null; wait "$LWPID" 2>/dev/null || :
+rm -rf "$N/gen5wkr.ui-portable-pp-lock"
+# Stale empty/missing-owner pp-lock is recovered and request succeeds.
+mkdir -p "$N/gen5wkr.ui-portable-pp-lock"
+: > "$N/gen5wkr.ui-portable-pp-lock/owner"
+envelope pp=cp_rhd:off:1101; collect
+expect pp_result 1101:ok 'stale empty owner pp lock recovered'
+[ "$(cat "$A/settings/carplya_rhd")" = 0 ] || fail 'stale pp lock recovery did not apply cp_rhd=off'
+# Partial _dr1 failure must return failed.
+printf 'carplya_rhd_dr1\n' > "$A/settings-fail-on"
+envelope pp=cp_rhd:on:111; collect
+expect pp_result 111:failed 'partial _dr1 failure'
+rm -f "$A/settings-fail-on"
+# Whole settings-put failure must return failed.
+: > "$A/settings-fail"
+envelope pp=cp_rhd:on:112; collect
+expect pp_result 112:failed 'settings-put failure'
+rm -f "$A/settings-fail"
+# Read failure on the peer split key must fail without clearing phoneprojection_setting_use_split_screen.
+printf '1\n' > "$A/settings/androidauto_ss_osd_dr1"
+printf '1\n' > "$A/settings/phoneprojection_setting_use_split_screen_dr1"
+printf 'androidauto_ss_osd_dr1\n' > "$A/settings-get-fail-on"
+envelope pp=cp_split:off:113; collect
+expect pp_result 113:failed 'settings-get failure on peer key must fail'
+[ "$(cat "$A/settings/phoneprojection_setting_use_split_screen_dr1")" = 1 ] || fail 'peer settings-get failure cleared shared split'
+rm -f "$A/settings-get-fail-on"
+# Live pp-lock causes restore (remove) request to be rejected as busy without running disable.
+before_disables=$(disables)
+sleep 30 & LWPID=$!
+LWKEY=$(awk '{print $22}' "/proc/$LWPID/stat" 2>/dev/null || :)
+mkdir -p "$N/gen5wkr.ui-portable-pp-lock"
+printf '%s|%s:%s\n' "$BOOT" "$LWPID" "$LWKEY" > "$N/gen5wkr.ui-portable-pp-lock/owner"
+envelope remove=114; collect
+expect removed '114:failed:busy' 'restore rejected while pp_live'
+[ "$(disables)" -eq "$before_disables" ] || fail 'restore ran while pp_live'
+kill "$LWPID" 2>/dev/null; wait "$LWPID" 2>/dev/null || :
+rm -rf "$N/gen5wkr.ui-portable-pp-lock"
+pass 'hidden stock PhoneProjection settings: per-profile split sync, status broadcast, locks and partial failure handling'
+
+# 9. In-car runtime/worker error collection, private 0700 stage, failure retention, and oversized/small growing log tailing.
+echo 'worker=owner exit=23' > "$P/boot/health-lost"
+printf '11-25 10:00:00.000 E/Gen5wCore( 100): boom fail\n11-25 10:00:00.500 E/audio_a2dp_hw( 147): in_read : socket underrun (requested 512 bytes)\n11-25 10:00:01.000 E/Gen5wCore( 100): BT_NAME=SecretPhone MAC=11:22:33:44:55:66\n11-25 10:00:02.000 W/UnrelatedTag( 200): ignore me\n11-25 10:00:03.000 E/Gen5wCore( 100): ErrorsUnterminatedFragmentWithoutNewline' > "$ACTIONS/errors"
+printf 'FAIL small log complete error line\nBT_NAME=SmallLogPrivateSentinel\nSmallLogUserPrefixWithoutNewline' > "$N/logs/gen5w.kr.portable/small.log"
+printf 'boot: nemesis complete line\nboot: BT_NAME=NemesisPrivateSentinel\nboot: NemesisUnterminatedFragmentWithoutNewline' > "$N/nemesis.log"
+python3 - "$N/logs/gen5w.kr.portable/big.log" <<'PY'
+import sys
+with open(sys.argv[1], 'w') as f:
+    for i in range(4000):
+        f.write(f'padding log line number {i:05d} with normal output text\n')
+    f.write('FAIL oversized trailing error line\n')
+    f.write('UserPrefixBeforePrivateSuffixWithoutNewline')
+PY
+rm -f "$UI/errors.cache"
+collect
+grep -qx 'error|worker=owner exit=23' "$UI/log" || fail 'worker health-lost error missing'
+grep -q '^error|11-25 10:00:00.000 E/Gen5wCore( 100): boom fail$' "$UI/log" || fail 'runtime error missing from ui log'
+grep -q 'audio_a2dp_hw( 147): in_read : socket underrun' "$UI/log" || fail 'A2DP underrun error missing from ui log'
+grep -qx 'portable|FAIL small log complete error line' "$UI/log" || fail 'small log complete error line missing'
+grep -qx 'nemesis|boot: nemesis complete line' "$UI/log" || fail 'nemesis complete line missing'
+! grep -qE 'UnrelatedTag|SmallLogUserPrefixWithoutNewline|ErrorsUnterminatedFragmentWithoutNewline|NemesisUnterminatedFragmentWithoutNewline' "$UI/log" || fail 'unrelated or unterminated error line leaked'
+grep -qx 'portable|FAIL oversized trailing error line' "$UI/log" || fail 'oversized log lost trailing error line'
+[ "$(cat "$ACTIONS/stage-mode" 2>/dev/null || :)" = 700 ] || fail 'ui staging directory must be 0700 while active'
+[ ! -e "$P/.ui-stage" ] || fail 'ui staging directory was not cleaned up on exit'
+[ ! -e "$UI/errors.raw" ] && [ ! -e "$UI/tail.tmp" ] || fail 'intermediate files in world-readable UI dir'
+# A failing op errors must retain the last good errors.cache and surface a collector failure note.
+rm -f "$UI/errors.cache"
+: > "$ACTIONS/errors-fail"
+rm -f "$UI/errors.cache"
+echo '11-25 10:00:00.000 E/Gen5wCore( 100): retained cached error' > "$UI/errors.cache"
+collect
+grep -q 'retained cached error' "$UI/log" || fail 'failed op errors overwrote good errors.cache'
+grep -qx 'ui|FAIL error log collector failed' "$UI/log" || fail 'missing collector failure indicator'
+rm -f "$ACTIONS/errors-fail"
+pass 'in-car UI log surfaces worker/runtime errors, keeps 0700 stage, retains cache on error, and tails oversized logs'
+
+# 10. Default split-screen applies once when split-default-applied marker is absent, and persists user off thereafter.
+rm -f "$P/split-default-applied" "$A/settings/"*
+: > "$A/calls"
+collect
+[ -f "$P/split-default-applied" ] || fail 'split-default-applied marker not created'
+for k in carplay_ss_osd carplay_ss_osd_dr1 carplay_ss_osd_dr2 androidauto_ss_osd androidauto_ss_osd_dr1 androidauto_ss_osd_dr2 phoneprojection_setting_use_split_screen phoneprojection_setting_use_split_screen_dr1 phoneprojection_setting_use_split_screen_dr2; do
+    [ "$(cat "$A/settings/$k")" = 1 ] || fail "default split missing $k=1"
+done
+grep -qx 'broadcast-cp-split 1' "$A/calls" || fail 'default split broadcast 1 missing'
+envelope pp=cp_split:off:115; collect
+expect pp_result 115:ok 'user turned split off after default'
+: > "$A/calls"
+collect
+[ "$(cat "$A/settings/carplay_ss_osd")" = 0 ] || fail 'default split overwrote user disabled state'
+[ ! -s "$A/calls" ] || fail 'default split re-ran while marker existed'
+pass 'default split screen activates once on fresh install and preserves user toggle off'
 [ -z "${PORTABLE_UI_EXPORT:-}" ] || cp "$UI/status" "$UI/log" "$PORTABLE_UI_EXPORT/"
+
+# Exercise the real production op result parser, without executing Android commands.
+awk '/^op\(\)/,/^}/' tools/portable/ui.sh > "$t/restart-probe"
+cat >> "$t/restart-probe" <<'EOF'
+ROOT=
+HELPER=$PROBE_HELPER
+op restart-carplay
+EOF
+cat > "$t/restart-helper" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$PROBE_CALLS"
+echo "Broadcast completed: result=$PROBE_RESULT"
+EOF
+chmod +x "$t/restart-helper"
+for result in 0 1 2 3 4 30; do
+    : > "$t/restart-calls"
+    status=0
+    PROBE_HELPER=$t/restart-helper PROBE_CALLS=$t/restart-calls PROBE_RESULT=$result \
+        mksh "$t/restart-probe" || status=$?
+    case "$result:$status" in 3:0|4:0) ;; 0:1|1:1|2:1|30:1) ;; *) fail "restart result mapping $result:$status";; esac
+    [ "$(wc -l < "$t/restart-calls")" = 1 ] || fail 'one supervised request per restart, no guessed chain'
+done
+pass 'ordered result parser: applied/no-session succeed; requested/rejected/unavailable fail'

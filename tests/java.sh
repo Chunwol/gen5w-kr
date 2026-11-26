@@ -6,12 +6,11 @@ if ! command -v javac >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then
     echo "SKIP JVM tests (need both javac and java)"
     exit 77
 fi
-mkdir -p .build
-work=$(mktemp -d "$PWD/.build/java-tests.XXXXXX")
+work=$(mktemp -d "$PWD/tests/java-tests.XXXXXX")
 trap 'rc=$?; rm -rf "$work"; exit $rc' EXIT
 javac -encoding UTF-8 -nowarn --release 8 -d "$work" \
     shared/src/kr/gen5w/diag/*.java app/src/kr/gen5w/ui/RecoveryStatus.java \
-    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/core/HudSwitch.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/I18n.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/src/kr/gen5w/ui/SwitchRequest.java app/test/*Test.java \
+    app/src/kr/gen5w/hud/*.java app/src/kr/gen5w/core/StockFlag.java app/src/kr/gen5w/core/HudSwitch.java app/src/kr/gen5w/ui/LogTranslator.java app/src/kr/gen5w/ui/I18n.java app/src/kr/gen5w/ui/ProjectionSettings.java app/src/kr/gen5w/ui/StatusModel.java app/src/kr/gen5w/ui/BoundedLines.java app/src/kr/gen5w/ui/SwitchRequest.java app/test/*Test.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/WirelessSession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelaySession.java \
     packages/wireless-bridge/src/kr/gen5w/wireless/BtRelayPipe.java \
@@ -62,6 +61,7 @@ java -cp "$work" TbtDistanceTest
 java -cp "$work" StockFlagTest
 java -cp "$work" HudSwitchTest
 java -cp "$work" SwitchRequestTest
+java -cp "$work" ProjectionSettingsTest
 java -cp "$work" LogTranslatorTest
 java -cp "$work" StatusModelTest
 java -cp "$work" BoundedLinesTest
@@ -74,3 +74,7 @@ PY=$(command -v python3 || command -v python)
 "$PY" tests/wireless_bridge_integration.py
 "$PY" tests/relay_coordinator_integration.py
 "$PY" tests/relay_adapter_ownership.py
+
+java -cp "$work" AaWireFrameTest
+java -cp "$work" AaNavigationParserTest
+java -cp "$work" AaNavigationStateTest

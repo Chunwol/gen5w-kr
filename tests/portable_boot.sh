@@ -47,6 +47,9 @@ rescue-requested)
  if [ -f "$ACTIONS/rescue-usb-late" ]; then n=$(cat "$ACTIONS/rescue-calls" 2>/dev/null || echo 0); echo $((n+1)) > "$ACTIONS/rescue-calls"; [ "$n" -ge 1 ]
  else test -f "$ACTIONS/rescue-usb"; fi;;
 ap-prepare|ap-disable) :;;
+persistent-restore)
+ echo persistent-restore >> "$ACTIONS/log"
+ [ ! -f "$ACTIONS/fail.persistent-restore" ];;
 ap-check) [ ! -f "$ACTIONS/ap-unsafe" ] || exit 77;;
 owned-overlays) test -f "$ACTIONS/owned-overlays";;
 dependencies) echo media; echo netd;;
@@ -611,3 +614,15 @@ boot run
 [ "$(grep -cx stop "$ACTIONS/log")" = "$old_stop" ]
 rm "$ACTIONS/rescue-usb"
 echo 'PASS rescue USB fences arm and startup before maintenance'
+
+mkdir -p "$t/root/data/local/gen5w-portable/persistent/recovery"
+echo manifest > "$t/root/data/local/gen5w-portable/persistent/recovery/manifest"
+: > "$ACTIONS/log"
+boot disable
+grep -qx persistent-restore "$ACTIONS/log"
+echo ready > "$t/root/data/local/gen5w-portable/boot/reason"
+touch "$ACTIONS/fail.persistent-restore"
+if boot disable; then echo 'FAIL persistent restore failure was ignored'; exit 1; fi
+! grep -qx disabled-restored "$t/root/data/local/gen5w-portable/boot/reason"
+rm "$ACTIONS/fail.persistent-restore" "$t/root/data/local/gen5w-portable/persistent/recovery/manifest"
+echo 'PASS disable requires persistent restore even without dirty overlays'

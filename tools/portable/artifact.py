@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import struct
 import zipfile
+import io
 
 
 def dex(data, fixtures=False):
@@ -71,13 +72,15 @@ def audit(files):
                'app/wireless-host.apk', 'app/gen5w-core.apk', 'dalvik/engine.jar',
                'dalvik/adapter.jar', 'dalvik/hook-vm-test.jar', 'dalvik/libgen5whook.so', 'dalvik/abi.sha256'}
     allowed.update(n+'.sh' for n in ('prepare', 'overlay', 'portable', 'check', 'runtime', 'ap', 'framework', 'persistent-migrate', 'persistent-start', 'wrap-dipo',
-                   'wrap-gpm', 'wrap-common', 'wrap-probe', 'session', 'diagnostics', 'debug', 'ui', 'boot', 'rescue', 'rescue-watch', 'bootguard', 'bootguard-restore', 'state-reset',
-                   'package-pre', 'package-post', 'package-preun', 'service', 'wifi-backend', 'dongle'))
+                   'wrap-gpm', 'wrap-navi', 'wrap-common', 'wrap-probe', 'session', 'diagnostics', 'debug', 'ui', 'boot', 'rescue', 'rescue-watch', 'bootguard', 'bootguard-restore', 'state-reset',
+                   'package-pre', 'package-post', 'package-preun', 'service', 'wifi-backend', 'dongle', 'network-adb', 'core-ready'))
     allowed.update('permissions/'+n+'.xml' for n in ('com.hkmc.software.connectivity.carplay_wireless',
                    'com.hkmc.software.connectivity.androidauto_wireless', 'com.hkmc.software.wifihotspot'))
     allowed.update('timer/'+n+'.sh' for n in ('common', 'errors', 'install-hold', 'timer'))
     allowed.update('bluelink/'+n+'.sh' for n in ('common', 'errors', 'install-hold', 'quiet', 'post', 'preun'))
+    allowed.update('drivelog/'+n+'.sh' for n in ('service', 'common', 'install-hold'))
     allowed.add('bin/sha256-check')
+    allowed.add('bin/aa-native-patch')
     required = allowed - {'bin/audio-patch', 'bin/audio-patch-v035', 'bin/audio-region-patch', 'audio/recipe.sh', 'audio/recipe-v035.sh', 'bin/sha256-check'}
     assert required <= set(files), 'missing package member: '+str(required-set(files))
     # USB Wi-Fi dongle payload: a fixed set of names under dongle/ only.
@@ -95,6 +98,10 @@ def audit(files):
     for key in ('preinstall', 'postinstall', 'preuninstall'):
         assert meta['nemesis'][key] in files, 'missing install hook'
     assert meta['service.1']['path'] == 'ui.sh' and meta['service.1']['uid'] == 'root'
+    with zipfile.ZipFile(io.BytesIO(files['app/gen5w-core.apk'])) as core:
+        core_dex = core.read('classes.dex')
+    for descriptor in (b'Lkr/gen5w/hud/AaNavigationParser;', b'Lkr/gen5w/hud/AaNavigationState;', b'Lkr/gen5w/hud/AaWireFrame;'):
+        assert descriptor in core_dex, 'AA native producer requires fresh Core parser/state/framing'
     info = json.loads(files['CANDIDATE.json'])
     assert info['vehicle_verified'] is False and re.fullmatch('[a-f0-9]{40}', info['source_revision'])
     assert info['activation'] == 'persistent-system-next-boot-wireless'
@@ -105,6 +112,7 @@ def audit(files):
     assert meta['service.4']['path'] == 'timer/timer.sh' and meta['service.4']['uid'] == 'root'
     assert meta['service.5']['path'] == 'bluelink/quiet.sh' and meta['service.5']['uid'] == 'system'
     assert meta['service.6']['path'] == 'dongle.sh' and meta['service.6']['uid'] == 'root' and meta['service.6']['mode'] == 'background'
+    assert meta['service.7']['path'] == 'drivelog/service.sh' and meta['service.7']['uid'] == 'root' and meta['service.7']['mode'] == 'background'
     assert files.get('bin/sha256-check', b'') == files.get('bin/audio-patch', b''), 'timer helper differs from the audio helper'
     for name, data in files.items():
         if name.endswith(('.sh', '.data', '.xml')): assert b'\r' not in data, 'CRLF: '+name

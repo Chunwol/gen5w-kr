@@ -21,10 +21,12 @@ import kr.gen5w.dipo.RelayBridge;
 /** App-local, opt-in adapters. Loading this class installs nothing. */
 public final class DipoAdapters {
   private static ProjectionAdapters.Transaction transaction;
+  private static volatile boolean restartReceiverRegistered;
   private static Field binderLocal, localOwner;
   private static Method notifications;
   private static Field detailsService, serviceOwner, serviceBluetooth;
   private static Field iapSendLength, iapSendBytes;
+  private static final ThreadLocal<Boolean> splitQuery = new ThreadLocal<Boolean>();
   private static final ThreadLocal<Reconnect> reconnect =
       new ThreadLocal<Reconnect>();
   private static final class Reconnect {
@@ -134,6 +136,20 @@ public final class DipoAdapters {
       } catch (NoSuchMethodException absent) { /* unrelated class */
       }
     }
+    // V039's display configuration owns mU()/mV()/mW(). Discover the role
+    // without initializing OEM classes; ambiguity must abort before any hooks.
+    Class<?> screen = Class.forName("com.daudio.app.dipo.telechips.CarPlayScreen",
+                                    false, context.getClassLoader());
+    List<Class<?>> displays = new ArrayList<Class<?>>();
+    for (Class<?> type : all) {
+      try {
+        method(type, "mU", Integer.TYPE);
+        method(type, "mV", Integer.TYPE);
+        method(type, "mW", screen);
+        displays.add(type);
+      } catch (NoSuchMethodException absent) { /* unrelated class */ }
+    }
+    Class<?> display = unique(displays, "display configuration");
     Class<?> binderType = unique(binder, "binder listener"),
              localType = unique(local, "local listener");
     Field binderLink = uniqueField(binderType, localType);
@@ -274,6 +290,26 @@ public final class DipoAdapters {
     plan.add(
         new Entry(method(wireless, "isSupportWirelessCarPlay", Boolean.TYPE),
                   "wirelessSupport", Object.class, Integer.TYPE));
+    // The reviewed V039 utility F(Context) checks this same capability before
+    // reading the driver's split-screen preference. Limit the capability override
+    // to that query and mU() below; leave OEM wireless transport handling off.
+    try {
+      plan.add(new Entry(method(wireless, "F", Boolean.TYPE, Context.class),
+                         "splitScreen", Object.class, Object.class, Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
+    // Stock mU() otherwise reduces a 1920 display to 1280 when fy() is on.
+    // Both createCarPlay's dimensions and mW()'s video enum use this query.
+    // Scope only this leaf query, never createCarPlay/onResume/service callbacks:
+    // those wider frames can also reach connection, authentication and RHD code.
+    plan.add(new Entry(method(display, "mU", Integer.TYPE),
+                       "screenWidth", Object.class, Integer.TYPE));
+    // Observe DipoService.fy() split-screen state and both Settings keys for
+    // diagnostics while preserving the stock decision (on Kona stepofspec >= 35,
+    // both PhoneProjection CarPlayFragment and DipoService.fy() use carplay_ss_osd).
+    try {
+      plan.add(new Entry(method(dipoService, "fy", Boolean.TYPE),
+                         "splitScreenEnabled", Object.class, Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
     plan.add(new Entry(details, "sessionDetails", Object.class, Object.class,
                        Object.class, Object.class, Object.class, Integer.TYPE));
     plan.add(
@@ -309,6 +345,18 @@ public final class DipoAdapters {
                          Integer.TYPE, Integer.TYPE, Integer.TYPE));
     } catch (NoSuchMethodException absent) { }
     try {
+      plan.add(new Entry(method(service, "onAudioStreamStop", Void.TYPE,
+                                Integer.TYPE),
+                         "audioStreamStop", Object.class, Integer.TYPE,
+                         Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
+    try {
+      plan.add(new Entry(method(service, "onSetPropertyAudioType", Void.TYPE,
+                                Integer.TYPE),
+                         "setPropertyAudioType", Object.class, Integer.TYPE,
+                         Integer.TYPE));
+    } catch (NoSuchMethodException absent) { }
+    try {
       plan.add(new Entry(method(service, "onModeChanged", Void.TYPE,
                                 Integer.TYPE, Integer.TYPE, Integer.TYPE,
                                 Integer.TYPE, Integer.TYPE, Integer.TYPE),
@@ -335,7 +383,30 @@ public final class DipoAdapters {
     attempt.commit();
     return true;
   }
-  public static synchronized ProjectionAdapters.Transaction beginInstall(Context context) throws Throwable {
+
+  private static void registerRestartReceiver(Context context) {
+    if (restartReceiverRegistered || context == null) return;
+    try {
+      android.content.IntentFilter filter = new android.content.IntentFilter("kr.gen5w.dipo.RESTART_CARPLAY");
+      context.registerReceiver(new android.content.BroadcastReceiver() {
+        @Override public void onReceive(Context c, android.content.Intent intent) {
+          // Stock DipoService.H(true) is asynchronous (V039 :6616); return observed state via ordered result.
+          final android.content.BroadcastReceiver.PendingResult pending = goAsync();
+          new Thread(new Runnable() {
+            public void run() {
+              int result = 2;
+              try { result = RelayBridge.requestCarPlayRestartAndWait(12000L); }
+              finally { if (pending != null) { pending.setResultCode(result); pending.finish(); } }
+            }
+          }, "gen5w-cp-restart").start();
+        }
+      }, filter, "kr.gen5w.permission.HUD_INPUT", null);
+      restartReceiverRegistered = true;
+    } catch (RuntimeException ignored) {
+    } catch (LinkageError ignored) {
+    }
+  }
+  public static synchronized ProjectionAdapters.Transaction beginInstall(final Context context) throws Throwable {
     if (context == null)
       throw new NullPointerException("context");
     if (transaction != null && !transaction.isRolledBack()) {
@@ -353,6 +424,9 @@ public final class DipoAdapters {
     try {
       for (Entry entry : plan)
         transaction.add(entry.target, entry.replacement);
+      transaction.setOnCommit(new Runnable() {
+        public void run() { registerRestartReceiver(context); }
+      });
       return transaction;
     } catch (Throwable failure) {
       try { transaction.rollback(); }
@@ -378,32 +452,73 @@ public final class DipoAdapters {
   public static void sessionFinalized(Object receiver, int reason, int handle)
       throws Throwable {
     kr.gen5w.diag.DebugTrace.event("cp.session.finalized", reason);
-    RelayBridge.sessionFinalized((CarPlayService)receiver);
+    long[] finalizeTicket = new long[1];
+    Object dipoOwner = RelayBridge.finalizeWirelessSession((CarPlayService)receiver, finalizeTicket);
     Hook.original(handle, receiver, new Object[] {reason});
+    if (dipoOwner instanceof IIap2Listener) {
+      synchronized (RelayBridge.binderCallbackLock()) {
+        if (RelayBridge.shouldDeliverFinalizeDisconnect(dipoOwner, finalizeTicket[0])) {
+          try { ((IIap2Listener)dipoOwner).disconnected(1); }
+          catch (RuntimeException failure) { kr.gen5w.diag.SafeDiagnostic.failure("dipo.finalize.disc", failure); }
+        }
+      }
+    }
   }
   public static void fromCarPlay(Object receiver, Object bytes, int length,
                                  int handle) throws Throwable {
-    RelayBridge.fromCarPlay((CarPlayService)receiver, (byte[])bytes, length);
-    Hook.original(handle, receiver, new Object[] {bytes, length});
+    if (!RelayBridge.fromCarPlay((CarPlayService)receiver, (byte[])bytes, length))
+      Hook.original(handle, receiver, new Object[] {bytes, length});
   }
   public static void binderConnected(Object receiver, int component,
                                      Object name, int handle) throws Throwable {
-    int mapped = RelayBridge.listenerComponent(component);
-    if (mapped < 0) {
-      try {
-        notifications.invoke(null, localOwner.get(binderLocal.get(receiver)),
-                             true);
-      } catch (java.lang.reflect.InvocationTargetException failure) {
-        throw failure.getCause();
+    synchronized (RelayBridge.binderCallbackLock()) {
+      String serial = (String)name;
+      long[] ticket = new long[1];
+      int mapped = RelayBridge.prepareListenerConnected(receiver, component, serial, ticket);
+      if (mapped < 0) {
+        kr.gen5w.diag.DebugTrace.event("dipo.iap2.conn", component, mapped,
+                                       serial != null ? 1 : 0, 0);
+        try {
+          notifications.invoke(null, localOwner.get(binderLocal.get(receiver)),
+                               true);
+        } catch (java.lang.reflect.InvocationTargetException failure) {
+          throw failure.getCause();
+        }
+        return;
       }
+      boolean syntheticUsb = component != mapped && mapped == 1;
+      Boolean previousSynthetic = RelayBridge.enterBinderConnected(syntheticUsb);
+      Boolean previousDelivered = RelayBridge.beginLocalDeliveryTracking();
+      boolean delivered = false;
+      boolean consumed = false;
+      try {
+        Hook.original(handle, receiver, new Object[] {mapped, name});
+        delivered = RelayBridge.consumeLocalDeliveryTracking(previousDelivered);
+        consumed = true;
+      } finally {
+        if (!consumed) RelayBridge.consumeLocalDeliveryTracking(previousDelivered);
+        RelayBridge.finishListenerConnected(receiver, mapped, ticket[0], delivered);
+        RelayBridge.exitBinderConnected(previousSynthetic);
+      }
+      kr.gen5w.diag.DebugTrace.event("dipo.iap2.conn", component, mapped,
+                                     serial != null ? 1 : 0, delivered ? 1 : 0);
     }
-    if (mapped >= 0)
-      Hook.original(handle, receiver, new Object[] {mapped, name});
   }
   public static void binderDisconnected(Object receiver, int component,
                                         int handle) throws Throwable {
-    if (!RelayBridge.ignoreListenerDisconnect(component))
-      Hook.original(handle, receiver, new Object[] {component});
+    synchronized (RelayBridge.binderCallbackLock()) {
+      boolean ignored = RelayBridge.ignoreListenerDisconnect(component);
+      int mapped = (!ignored && (component == 4 || component == 5) && RelayBridge.isConnectedOwner(receiver))
+              ? 1 : component;
+      kr.gen5w.diag.DebugTrace.event("dipo.iap2.disc", component, ignored ? 1 : 0);
+      if (!ignored) {
+        try {
+          Hook.original(handle, receiver, new Object[] {mapped});
+        } finally {
+          RelayBridge.listenerDisconnected(receiver, component);
+        }
+      }
+    }
   }
   public static void binderNotify(Object receiver, int what, int arg1, int arg2,
                                   Object message, int handle) throws Throwable {
@@ -412,12 +527,14 @@ public final class DipoAdapters {
   }
   public static void localConnected(Object receiver, int component, Object name,
                                     int handle) throws Throwable {
-    if (!RelayBridge.connected(component, (String)name))
+    if (!RelayBridge.connected(component, (String)name)) {
       Hook.original(handle, receiver, new Object[] {component, name});
+      RelayBridge.markLocalConnectedDelivered(component);
+    }
   }
   public static void localDisconnected(Object receiver, int component,
                                        int handle) throws Throwable {
-    if (!RelayBridge.disconnected(component))
+    if (!RelayBridge.localDisconnected(component))
       Hook.original(handle, receiver, new Object[] {component});
   }
   public static void serviceConnected(Object receiver, Object name,
@@ -476,7 +593,75 @@ public final class DipoAdapters {
     Hook.original(handle, receiver, new Object[] {address});
   }
   public static boolean wirelessSupport(Object receiver, int handle) {
-    return false;
+    return Boolean.TRUE.equals(splitQuery.get());
+  }
+  public static boolean splitScreen(Object receiver, Object context, int handle)
+      throws Throwable {
+    Boolean previous = splitQuery.get();
+    splitQuery.set(Boolean.TRUE);
+    boolean result = false;
+    try {
+      result = ((Boolean)Hook.original(handle, receiver, new Object[] {context})).booleanValue();
+      return result;
+    } finally {
+      kr.gen5w.diag.DebugTrace.event("cp.split.query", context != null ? 1 : 0,
+                                     result ? 1 : 0);
+      if (previous == null) splitQuery.remove(); else splitQuery.set(previous);
+    }
+  }
+  public static int screenWidth(Object receiver, int handle) throws Throwable {
+    Boolean previous = splitQuery.get();
+    splitQuery.set(Boolean.TRUE);
+    try {
+      return ((Integer)Hook.original(handle, receiver, NONE)).intValue();
+    } finally {
+      if (previous == null) splitQuery.remove(); else splitQuery.set(previous);
+    }
+  }
+  private static int readSplitSetting(android.content.ContentResolver resolver, String key) {
+    try {
+      return android.provider.Settings.System.getInt(resolver, key, -1);
+    } catch (Throwable unavailable) {
+      return -2;
+    }
+  }
+  public static boolean splitScreenEnabled(Object receiver, int handle)
+      throws Throwable {
+    boolean stock = ((Boolean)Hook.original(handle, receiver, NONE)).booleanValue();
+    int userType = -1;
+    int cpVal = -2;
+    int ppVal = -2;
+    if (receiver instanceof Context) {
+      try {
+        userType = 0;
+        for (Field f : receiver.getClass().getDeclaredFields()) {
+          if (!Modifier.isStatic(f.getModifiers()) &&
+              "com.hkmc.userprofile.UserProfileManager".equals(f.getType().getName())) {
+            f.setAccessible(true);
+            Object mgr = f.get(receiver);
+            if (mgr != null) {
+              Object val = mgr.getClass().getMethod("getUserType").invoke(mgr);
+              if (val instanceof Number) userType = ((Number)val).intValue();
+            }
+            break;
+          }
+        }
+        android.content.ContentResolver resolver = ((Context)receiver).getContentResolver();
+        if (resolver != null) {
+          String cpKey = userType == 1 ? "carplay_ss_osd_dr1"
+              : userType == 2 ? "carplay_ss_osd_dr2" : "carplay_ss_osd";
+          String ppKey = userType == 1 ? "phoneprojection_setting_use_split_screen_dr1"
+              : userType == 2 ? "phoneprojection_setting_use_split_screen_dr2"
+              : "phoneprojection_setting_use_split_screen";
+          cpVal = readSplitSetting(resolver, cpKey);
+          ppVal = readSplitSetting(resolver, ppKey);
+        }
+      } catch (Throwable unavailable) {
+        userType = -2;
+      }
+    }
+    kr.gen5w.diag.DebugTrace.event("cp.split.state", stock ? 1 : 0, userType, cpVal, ppVal);
+    return stock;
   }
   public static void iapSendLength(Object receiver, int length, int handle)
       throws Throwable {
@@ -491,6 +676,16 @@ public final class DipoAdapters {
                                       int rate, int handle) throws Throwable {
     kr.gen5w.diag.DebugTrace.event("cp.audio.start", stream, role, rate);
     Hook.original(handle, receiver, new Object[] {stream, role, rate});
+  }
+  public static void audioStreamStop(Object receiver, int stream, int handle)
+      throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.audio.stop", stream);
+    Hook.original(handle, receiver, new Object[] {stream});
+  }
+  public static void setPropertyAudioType(Object receiver, int role, int handle)
+      throws Throwable {
+    kr.gen5w.diag.DebugTrace.event("cp.audio.type", role);
+    Hook.original(handle, receiver, new Object[] {role});
   }
   public static void modeChanged(Object receiver, int screen, int audio,
                                  int speech, int phone, int tbt, int speechMode,

@@ -25,7 +25,7 @@ public class RelayAdapterOwnershipTest {
  static void check(boolean b,String m){if(!b)throw new AssertionError(m);}
  static void set(Object o,String n,Object v)throws Exception{java.lang.reflect.Field f=o.getClass().getDeclaredField(n);f.setAccessible(true);f.set(o,v);}
  static int connectedCallbacks;
- static class Manager extends com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager {int connects,registers;boolean connected,up=true;java.util.List<Object> list=new java.util.ArrayList<Object>();Object transmit,serverHas;public com.broadcom.bt.hfdevice.hfbtcm.IHfDeviceBTCMService getRemoteService(){return up?new com.broadcom.bt.hfdevice.hfbtcm.IHfDeviceBTCMService(){}:null;}public void registerHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){registers++;if(transmit==null){transmit=new Object();if(up)serverHas=transmit;}if(!list.contains(l))list.add(l);}public void unregisterHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){list.remove(l);if(list.isEmpty()&&transmit!=null){if(up&&serverHas==transmit)serverHas=null;transmit=null;}}boolean delivers(){return !list.isEmpty()&&transmit!=null&&serverHas==transmit;}public boolean IbtcmSppConnect(String a){connects++;return true;}public boolean IbtcmIsSppConnectedDevice(String a){return connected;}}
+ static class Manager extends com.broadcom.bt.hfdevice.hfbtcm.HfDeviceBTCMManager {int connects,registers;boolean connected,up=true;Runnable onQuery;java.util.List<Object> list=new java.util.ArrayList<Object>();Object transmit,serverHas;public com.broadcom.bt.hfdevice.hfbtcm.IHfDeviceBTCMService getRemoteService(){return up?new com.broadcom.bt.hfdevice.hfbtcm.IHfDeviceBTCMService(){}:null;}public void registerHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){registers++;if(transmit==null){transmit=new Object();if(up)serverHas=transmit;}if(!list.contains(l))list.add(l);}public void unregisterHfDeviceStatusListener(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener l){list.remove(l);if(list.isEmpty()&&transmit!=null){if(up&&serverHas==transmit)serverHas=null;transmit=null;}}boolean delivers(){return !list.isEmpty()&&transmit!=null&&serverHas==transmit;}public boolean IbtcmSppConnect(String a){connects++;return true;}public boolean IbtcmIsSppConnectedDevice(String a){if(onQuery!=null){Runnable r=onQuery;onQuery=null;r.run();}return connected;}}
  public static void main(String[]args)throws Exception{
  V039BtRelayAdapter a=new V039BtRelayAdapter(new android.content.Context(){public Object getSystemService(String n){return null;}},new V039BtRelayAdapter.Listener(){public void ready(){}public void sppConnected(long g){connectedCallbacks++;}public void iap2Connected(long g,int c){}public void disconnected(long g,int c){}public void failed(long g,V039BtRelayAdapter.Failure f){}},new BtRelayPipe.Diagnostics(){public void event(BtRelayPipe.Event e,int c){}});
  Manager m=new Manager();set(a,"btcm",m);set(a,"iap2",new com.tcc.iap2.IIap2Service());
@@ -45,17 +45,27 @@ public class RelayAdapterOwnershipTest {
  m.up=true;svc.onBTCMServiceConnected();check(m.delivers()&&m.list.size()==1,"reconnected service is linked again");
  java.lang.reflect.Field lf=a.getClass().getDeclaredField("btcmListener");lf.setAccessible(true);
  com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener spp=(com.broadcom.bt.hfdevice.hfbtcm.HfDeviceStatusListener)lf.get(a);
- // First attempt: the stock BTCM opens SPP itself (car log: 0.77 s after ACL), so do not start a second connect.
- check(a.connect(1,"phone"),"initial SPP wait");check(m.connects==0,"first attempt waits for the stock SPP link");
+ // First attempt: wait briefly for stock BTCM SPP, then active requestSppConnect fallback runs inside attempt #1.
+ check(a.connect(1,"phone"),"initial SPP wait");check(m.connects==0,"first attempt waits initially for the stock SPP link");
  check(android.util.Log.lines.contains("path=relay event=spp-connect result=waiting-stock-spp device=phone"),"wait is logged");
+ check(!a.requestSppConnect(999L)&&m.connects==0,"stale generation cannot trigger active SPP fallback");
+ check(a.requestSppConnect(1L)&&m.connects==1,"active fallback requests IbtcmSppConnect inside first attempt");
+ check(android.util.Log.lines.contains("path=relay event=spp-connect result=fallback-requested device=phone"),"fallback request is logged");
+ check(!a.requestSppConnect(1L)&&m.connects==1,"duplicate fallback in same generation is ignored");
  check(!a.connect(2,"other"),"single local owner before cleanup");
- spp.onBTCMSppStatusChanged(new android.bluetooth.BluetoothDevice(),1);check(connectedCallbacks==0&&m.connects==0,"a non-connected status before attach changes nothing");
+ spp.onBTCMSppStatusChanged(new android.bluetooth.BluetoothDevice(),1);check(connectedCallbacks==0&&m.connects==1,"a non-connected status before attach changes nothing");
  a.disconnect();check(a.connect(3,"phone"),"SPP timeout cleanup releases adapter owner for retry");
- check(m.connects==1,"retry after a wait that got nothing asks BTCM to connect");
+ check(m.connects==2,"retry after a wait that got nothing asks BTCM to connect");
+ check(!a.requestSppConnect(3L)&&m.connects==2,"retry that already called IbtcmSppConnect does not call it again");
  check(android.util.Log.lines.contains("path=relay event=spp-connect result=requested device=phone"),"request is logged");
  check(android.util.Log.lines.contains("path=relay event=cleanup result=local-owner-released-oem-spp-retained"),"explicit physical SPP limitation diagnostic");
- a.disconnect();m.connected=true;check(a.connect(5,"phone"),"reviewed OEM query permits retained SPP reuse");check(m.connects==1&&connectedCallbacks==1,"retained link attaches fresh pipe without duplicate OEM connect");
+ a.disconnect();m.connected=true;check(a.connect(5,"phone"),"reviewed OEM query permits retained SPP reuse");check(m.connects==2&&connectedCallbacks==1,"retained link attaches fresh pipe without duplicate OEM connect");
  a.stop(4);a.disconnect();check(a.connect(6,"phone"),"reuse after component stop");check(connectedCallbacks==2,"component stop releases pipe before clearing adapter owner");
+ a.stop(4);a.disconnect();m.connected=false;check(a.connect(7,"phone"),"fresh attempt after disconnect");m.connected=true;
+ check(a.requestSppConnect(7L)&&m.connects==2&&connectedCallbacks==3,"fallback attaches if SPP already came up before active call");
+ a.stop(4);a.disconnect();m.connected=false;check(a.connect(8,"phone"),"fresh attempt for concurrent SPP callback");
+ m.onQuery=new Runnable(){public void run(){spp.onBTCMSppStatusChanged(new android.bluetooth.BluetoothDevice(){public String getAddress(){return "phone";}},2);}};
+ check(a.requestSppConnect(8L)&&m.connects==2&&connectedCallbacks==4,"concurrent SPP callback during fallback query prevents duplicate IbtcmSppConnect");
  // Car 2026-11-12 09:15: phone data reached the adapter, the V039 server returned false (it always
  // does) and the relay tore the link down. The stub returns false like the real server.
  final int[] reads={0};final boolean[] lost={false};

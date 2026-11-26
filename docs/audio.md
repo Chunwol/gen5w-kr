@@ -4,7 +4,7 @@
 
 ## 구현과 확인한 ABI
 
-대상은 `libCarPlayAudio.so`의 입력/출력 형식 선택 함수 두 곳입니다. 스트림 100/101, 역할 CFString과 연결 종류를 받아 64비트 형식 비트맵을 반환합니다. 기존 PCM 비트를 유지하면서 AAC-LC와 Opus를 추가합니다. 알려지지 않은 스트림/역할에는 0을 반환합니다. 연결 종류에 따른 분기는 순정과 마찬가지로 없습니다.
+V039 대상은 `libCarPlayAudio.so`의 입력/출력 형식 선택 함수와 형식 목록 생성 함수입니다. 유선 및 기타 전송에서는 순정 PCM 형식만 그대로 유지합니다. 무선 연결 종류 `1`에서만 스트림 100(compatibility/telephony/speechRecognition/alert/default에 Opus 16·24·48 kHz 추가, media/compatibility에 PCM 44.1·48 kHz + AAC-LC 추가), 스트림 101(AltAudio compatibility/default에 Opus 48 kHz 추가), 그리고 음악용 buffered MainHigh 스트림 `102` media 항목(PCM 44.1·48 kHz + AAC-LC)을 광고·선택하도록 구성합니다. V035는 기존 두 함수 패치 바이트를 유지합니다.
 
 | 추가 비트 | 순정 Core 변환 함수가 반환한 형식 | 채널 | 패킷당 프레임 |
 |---|---|---|---|
@@ -12,10 +12,11 @@
 | 23 | AAC-LC 48 kHz | 2 | 1024 |
 | 28 | Opus 16 kHz | 1 | 320 |
 | 29 | Opus 24 kHz | 1 | 480 |
+| 30 | Opus 48 kHz | 1 | 960 |
 
 순정 `AirPlayAudioFormatToASBD`를 ARM 에뮬레이터로 실행하여 위 값을 확인했습니다. 순정 Utils에는 AAC 변환기와 Opus 어댑터가 있으며, Opus는 별도 `libopus.so`를 로드합니다. 설치 전 Audio 전체 파일과 Core/Utils/Opus 세 의존성의 SHA-256을 모두 검사합니다. 현재 Audio 전체 해시로 V035/V039 프로필을 자동 선택하며 각 버전의 Core/Utils/Opus 조합까지 확인합니다. 버전이 섞이거나 알려지지 않은 원본이나 의존성은 처음 설치할 때 77로 건너뛰고, 소유한 설치 상태가 있으면 실패로 보고합니다.
 
-`tools/audio/recipe.json`(V039), `recipe-v035.json`에는 전체 원본/수정 파일 해시, 수정 영역의 위치·길이·해시, 의존성 해시만 있습니다. 순정 코드나 원본 바이트는 저장하지 않습니다. 교체 코드는 `formats.S`에서 직접 빌드하며 생성된 두 영역의 길이와 해시도 레시피와 대조합니다. ASLR 대응 주소 계산, CFEqual 호출, ARM/Thumb 상태 전환, 8바이트 스택 정렬과 callee-saved 레지스터 보존을 시험합니다.
+`tools/audio/recipe.json`(V039), `recipe-v035.json`에는 전체 원본/수정 파일 해시, 수정 영역의 위치·길이·해시, 의존성 해시만 있습니다. 순정 코드나 원본 바이트는 저장하지 않습니다. 교체 코드는 `formats.S`에서 직접 빌드하며 V039 세 영역과 V035 두 영역의 길이·해시를 레시피와 대조합니다. ASLR 대응 주소 계산, CFEqual 호출, ARM/Thumb 상태 전환, 8바이트 스택 정렬과 callee-saved 레지스터 보존을 시험합니다. V039 광고 목록 시험은 원본 이미지를 읽기만 하며, CF 컬렉션 경계는 기록용 대역으로 대체합니다. 실제 차량 스피커 출력은 별도 검증 대상입니다.
 
 ## 설치·복구
 

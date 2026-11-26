@@ -276,6 +276,44 @@ run)
     startup_allowed
     print -r -- "$epoch" > "$STATE/ready" || fail readiness
     echo 'session: AP/HUD supervisor running; vehicle connection and display unverified'
+    owner_restarts=0
+    owner_alive_ticks=0
+    owner_cooldown=0
+    check_owner_worker() {
+        local result=0
+        if [ "$owner" = 0 ]; then
+            if [ "$owner_cooldown" -gt 0 ]; then
+                owner_cooldown=$((owner_cooldown - 1))
+                if [ "$owner_cooldown" -eq 0 ]; then
+                    owner_restarts=0
+                    owner_alive_ticks=0
+                    op owner >> "$STATE/worker-owner.log" 2>&1 & owner=$!
+                    print -r -- "$(op boot)|broker=$broker|owner=$owner" > "$STATE/workers"
+                fi
+            fi
+            return 0
+        fi
+        [ -n "$owner" ] || return 0
+        if process_key "$owner" >/dev/null 2>&1; then
+            owner_alive_ticks=$((owner_alive_ticks + 1))
+            if [ "$owner_alive_ticks" -ge 120 ] && [ "$owner_restarts" -gt 0 ]; then
+                owner_restarts=0
+            fi
+            return 0
+        fi
+        wait "$owner" || result=$?
+        owner_alive_ticks=0
+        echo "session: HUD owner worker exited pid=$owner exit=$result" >&2
+        if [ "$owner_restarts" -lt 5 ]; then
+            owner_restarts=$((owner_restarts + 1))
+            op owner >> "$STATE/worker-owner.log" 2>&1 & owner=$!
+            print -r -- "$(op boot)|broker=$broker|owner=$owner" > "$STATE/workers"
+        else
+            owner=0
+            owner_cooldown=30
+            echo 'session: HUD owner worker paused after retries; wireless session kept' >&2
+        fi
+    }
     monitoring=1
     health_tick=0
     while [ ! -f "$STATE/stop" ]; do
@@ -291,7 +329,7 @@ run)
             if [ "$host" = 1 ]; then op stop-host || fail 'host shutdown failed'; host=0; fi
         fi
         check_worker broker "$broker"
-        check_worker owner "$owner"
+        check_owner_worker
         op pause
     done
     ;;

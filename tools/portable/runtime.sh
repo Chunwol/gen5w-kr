@@ -65,6 +65,7 @@ runtime_files() {
     echo wrap-common.sh
     echo wrap-dipo.sh
     echo wrap-gpm.sh
+    echo wrap-navi.sh
 }
 preflight_record() {
     op boot || return 1
@@ -178,7 +179,7 @@ trap lock_release EXIT
 trap 'exit 1' HUP INT TERM
 stopped() { [ "$(op get init.svc.zygote)" = stopped ]; }
 same_boot() { [ -s "$STATE/boot" ] && [ "$(cat "$STATE/boot")" = "$(op boot)" ]; }
-key_ok() { case "$1" in wrap.com.daudio.app.dipo|wrap.com.google.android.project) return 0;; *) return 1;; esac; }
+key_ok() { case "$1" in wrap.com.daudio.app.dipo|wrap.com.google.android.project|wrap.com.mnsoft.navi) return 0;; *) return 1;; esac; }
 restore() {
     local key wanted before current extra rc=0
     [ -f "$STATE/journal" ] || return 0
@@ -222,7 +223,7 @@ enable)
     stopped || fail 'Android must be stopped before enabling wrappers'
     [ "$#" = 1 ] || fail 'select dipo, gpm, or both'
     probe_only=0
-    case "$1" in probe) apps=dipo; probe_only=1;; dipo) apps=dipo;; gpm) apps=gpm;; both) apps='dipo gpm';; *) fail 'unknown app';; esac
+    case "$1" in probe) apps=dipo; probe_only=1;; dipo) apps=dipo;; gpm) apps=gpm;; navi) apps=navi;; both) apps='dipo gpm navi';; *) fail 'unknown app';; esac
     # Cold boot clears wrap properties; only the expired journal is retired.
     # Existing properties are still checked below and never overwritten.
     if [ "$(phase)" != disabled ] && ! same_boot; then
@@ -234,7 +235,7 @@ enable)
     elif [ "$1" = gpm ]; then
         op feature gpm || unsupported 'gpm prerequisite unavailable'
     fi
-    case "$probe_only:$apps" in 0:dipo|0:'dipo gpm') op feature bt && op feature projection || unsupported 'dipo requires active bt and projection overlays';; esac
+    case "$probe_only:$apps" in 0:dipo|0:'dipo gpm'|0:'dipo gpm navi') op feature bt && op feature projection || unsupported 'dipo requires active bt and projection overlays';; esac
     case "$(phase)" in disabled) :;; *) fail 'disable the previous runtime transaction first';; esac
     for file in "$HELPER" "$BASE/dalvik/engine.jar" "$BASE/dalvik/adapter.jar" "$BASE/dalvik/libgen5whook.so" "$BASE/dalvik/hook-vm-test.jar" "$BASE/wrap-common.sh"; do
         plain "$file" && [ -f "$file" ] || fail 'missing runtime artifact'
@@ -244,7 +245,7 @@ enable)
     for app in $apps; do
         wrapper=$app; [ "$probe_only" = 0 ] || wrapper=probe
         plain "$BASE/wrap-$wrapper.sh" && [ -f "$BASE/wrap-$wrapper.sh" ] || fail 'wrapper missing'
-        case "$app" in dipo) key=wrap.com.daudio.app.dipo;; gpm) key=wrap.com.google.android.project;; esac
+        case "$app" in dipo) key=wrap.com.daudio.app.dipo;; gpm) key=wrap.com.google.android.project;; navi) key=wrap.com.mnsoft.navi;; esac
         wanted="/system/bin/sh $BUNDLE/wrap-$wrapper.sh"
         [ ${#wanted} -le 91 ] || fail 'wrapper property exceeds KitKat value limit'
         [ ${#key} -le 31 ] || fail 'wrapper key exceeds KitKat key limit'

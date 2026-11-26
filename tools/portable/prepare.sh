@@ -224,7 +224,7 @@ load_stock_origin() {
 prefetch_inputs() {
     local list='' p f
     for p in /system/app/Iap2ServerApp.odex /system/app/HKMC_DiPO.odex /system/app/HKMC_GPM.odex \
-             /system/app/HKMC_WifiSettings.odex /system/lib/libCarPlayAudio.so /system/build.prop \
+             /system/app/HKMC_WifiSettings.odex /system/lib/libCarPlayAudio.so /system/lib/libautoreceiver_infobank.so /system/build.prop \
              /system/etc/qb_runtime.sh /system/etc/featurexml.cfg /system/wifi/bcmdhd.ko "$ROOT"/system/etc/permissions/*.xml; do
         case "$p" in "$ROOT"/*) f=$p; p=${p#"$ROOT"};; *) f=$ROOT$p;; esac
         safe "$f" && [ -f "$f" ] && [ ! -L "$f" ] && list="$list $f"
@@ -412,6 +412,24 @@ projection() {
     fi
     status projection prepared configuration-only
 }
+aa_native() (
+    local target=/system/lib/libautoreceiver_infobank.so source=$WORK/files/libautoreceiver_infobank.so
+    local tool=$BASE/bin/aa-native-patch base=$ROOT$target
+    # Never advertise modern AA unless its GPM navigation consumer is present.
+    has_feature gpm || { status aa-native skipped gpm-unavailable; exit 0; }
+    plain "$base" && [ -f "$base" ] && plain "$tool" && [ -x "$tool" ] || { status aa-native skipped missing-native-input; exit 0; }
+    if [ "$ORIGIN_MODE" = on ]; then
+        load_stock_origin "$target" || fail 'cannot validate AA native origin'
+        [ "$STOCK_KIND" = file ] || fail 'AA native origin absent'
+        base=$STOCK_PATH
+    fi
+    "$tool" original "$base" || { status aa-native skipped unsupported-native-ABI; exit 0; }
+    capture_origin "$target" || fail 'AA native origin capture failed'
+    "$tool" apply "$base" "$ROOT$source" || fail 'AA native staging failed'
+    if [ "$ORIGIN_MODE" = on ]; then match_meta "$base" "$ROOT$source" "$STOCK_META"; else match_meta "$base" "$ROOT$source"; fi &&
+        row gpm "$source" "$target" || fail 'AA native metadata/manifest failed'
+    status aa-native prepared modern-navigation-and-protocol
+)
 audio() (
     local suffix tool target=/system/lib/libCarPlayAudio.so source=$WORK/files/libCarPlayAudio.so
     plain "$ROOT$target" && [ -f "$ROOT$target" ] || { status audio skipped missing-stock; exit 0; }
@@ -466,6 +484,7 @@ add_wrapper_property() {
     case "$key" in
         wrap.com.daudio.app.dipo) artifact=wrap-dipo.sh;;
         wrap.com.google.android.project) artifact=wrap-gpm.sh;;
+        wrap.com.mnsoft.navi) artifact=wrap-navi.sh;;
         *) fail 'unsupported persistent wrapper key';;
     esac
     plain "$BASE/$artifact" && [ -f "$BASE/$artifact" ] || fail "persistent wrapper artifact missing: $artifact"
@@ -552,7 +571,7 @@ for feature in "$@"; do
     case "$feature" in
     bt|route) patch "$feature" /system/app/Iap2ServerApp.odex;;
     dipo) patch dipo /system/app/HKMC_DiPO.odex;;
-    gpm) patch gpm /system/app/HKMC_GPM.odex;;
+    gpm) patch gpm /system/app/HKMC_GPM.odex; aa_native || fail 'AA native preparation failed';;
     hotspot) patch hotspot /system/app/HKMC_WifiSettings.odex;;
     projection) projection;;
     audio) audio || fail 'audio preparation failed';;
@@ -570,6 +589,10 @@ if [ "$ORIGIN_MODE" = on ]; then
     fi
     if has_feature gpm; then
         add_wrapper_property wrap.com.google.android.project 'W=/data/nemesis/apps/gen5w.kr.portable/wrap-gpm.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
+        wrapper_properties=1
+    fi
+    if has_feature dipo || has_feature gpm || has_feature route; then
+        add_wrapper_property wrap.com.mnsoft.navi 'W=/data/nemesis/apps/gen5w.kr.portable/wrap-navi.sh;[ -f $W ]||W=;exec ${W:+sh $W}'
         wrapper_properties=1
     fi
     [ "$wrapper_properties" = 0 ] || row runtime "$WORK/files/build.prop" /system/build.prop || fail 'wrapper property manifest failure'

@@ -72,7 +72,7 @@ exec 9<> "$t/console"
 timeout 5 mksh "$t/root/data/bundle/runtime.sh" preflight <&9
 exec 9>&-
 seal=$t/root/data/local/gen5w-portable/runtime/preflight
-[ "$(wc -l < "$seal")" = 9 ] || { echo 'FAIL incomplete artifact seal'; exit 1; }
+[ "$(wc -l < "$seal")" = 10 ] || { echo 'FAIL incomplete artifact seal'; exit 1; }
 echo changed >> "$t/root/data/bundle/dalvik/engine.jar"
 echo stopped > "$PROPS/init.svc.zygote"
 rc=0; run enable both >/dev/null 2>&1 || rc=$?
@@ -136,7 +136,7 @@ mksh -c 'W=/data/nemesis/apps/gen5w.kr.portable-absent/wrap-dipo.sh;[ -f $W ]||W
 echo 'PASS wrapper refuses unsafe sourced path and falls back to the stock start'
 # Zygote blocks all app starts until a wrapped child reports its pid; the wrapper
 # reports it before anything slow and hands WrapperInit fd 0 (VM 2026-11-20).
-for w in wrap-dipo.sh wrap-gpm.sh; do
+for w in wrap-dipo.sh wrap-gpm.sh wrap-navi.sh; do
     rm -f "$t/pid-pipe" "$t/pid-bytes" "$t/stock-ran"; mkfifo "$t/pid-pipe"
     ( od -An -tu1 < "$t/pid-pipe" | tr -s ' ' ' ' > "$t/pid-bytes" ) & reader=$!
     printf '#!/bin/sh\necho "pid=$$ args=$*" > "%s"\n' "$t/stock-ran" > "$t/stock-pid"; chmod +x "$t/stock-pid"
@@ -155,7 +155,7 @@ echo 'PASS wrappers report the app pid to zygote before the slow VM start'
 # No priority change in the wrapped app: Dalvik nukes a thread (SIGSTKFLT) that
 # cannot reach a GC suspend point in time, and low-priority preload threads on a
 # busy unit did not (VM 2026-11-21).
-! grep -q renice tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh || { echo 'FAIL wrapper changes app priority'; exit 1; }
+! grep -q renice tools/portable/wrap-dipo.sh tools/portable/wrap-gpm.sh tools/portable/wrap-navi.sh || { echo 'FAIL wrapper changes app priority'; exit 1; }
 echo 'PASS wrappers leave the app at stock priority'
 
 # The no-hook startup probe bypasses engine discovery and never writes persist.*.
@@ -170,6 +170,7 @@ preflight; run enable both
 echo boot4 > "$PROPS/boot"
 printf '\n' > "$PROPS/wrap.com.daudio.app.dipo"
 printf '\n' > "$PROPS/wrap.com.google.android.project"
+printf '\n' > "$PROPS/wrap.com.mnsoft.navi"
 preflight; run enable both
 run status | grep -qx 'runtime|pending'
 run disable

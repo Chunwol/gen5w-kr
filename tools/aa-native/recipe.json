@@ -1,0 +1,50 @@
+{
+  "id": "aa-modern-v039-1",
+  "original_sha256": "eff8c509b0534950b5e7eeac9e4505e3ab92eb5e4cace27371c254281baa2840",
+  "patched_sha256": "1d95d5c7d3d3938347bde9f0f2b3cb3038ff81bca77905074368f305eb722106",
+  "original_size": 1837108,
+  "output_size": 1852852,
+  "segment": 1851392,
+  "payload_address": 1852416,
+  "symbols": {
+    "_DYNAMIC": 1852852,
+    "aa_route": 1852460,
+    "aa_status": 1852768,
+    "continuation": 1852452,
+    "emit": 1852496,
+    "route_entry": 1852416,
+    "status_entry": 1852456
+  },
+  "patches": [
+    {
+      "offset": 727598,
+      "length": 1,
+      "sha256": "67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6"
+    },
+    {
+      "offset": 747544,
+      "length": 4,
+      "sha256": "8c19784bb1d429e00431a66a86d52f9dde93f7232d3b14f32ca9e38fa010fca9"
+    },
+    {
+      "offset": 1481176,
+      "length": 4,
+      "sha256": "556c5f3cc24a2138e418dd1f69076279a81e14a1e039fc15a963a520dbef777f"
+    },
+    {
+      "offset": 28,
+      "length": 4,
+      "sha256": "73797a9a5202701234b5308211dd395b5a69292a4237dbd659d7c5be4cde536e"
+    },
+    {
+      "offset": 44,
+      "length": 2,
+      "sha256": "a2c4aed1cf757cd9a509734a267ffc7b1166b55f4c8f9c3e3550c56e743328fc"
+    },
+    {
+      "offset": 1852416,
+      "length": 436,
+      "sha256": "ab5eb0b3b884771d8887de6712dcc3dcee7364b1e933dadffd5fce3093adffe4"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "id": "v039-1",
+  "id": "v039-3",
   "original_sha256": "5a54a845d4d20d30f7f53f728b70cbe87c975b25b16872a1fc31ef7a7dc7485d",
   "patches": [
     {
@@ -14,7 +14,14 @@
       "offset": 15220,
       "length": 348,
       "original_span_sha256": "d9a03dd5981c7212ac1e703f28403e2db243462e364018619277f755ca8ae59d",
-      "replacement_sha256": "5a9c7859f478865003a1d486d776b6ecbf90d8f2b9a0f824d7ca2e7f4bb19c8e"
+      "replacement_sha256": "d3fcba6d9f285c4b93a169ae7ee4e584a94a67ab90ce2955e812b489e1f2cd39"
+    },
+    {
+      "section": ".formats",
+      "offset": 15900,
+      "length": 488,
+      "original_span_sha256": "de62ce331014bad6f5b49d898f05b86882e73feea124787dd8d22fcd390acd45",
+      "replacement_sha256": "1624dc5ecc278be12483c69333c8b2c6cbdb2c0f19897a03fb720e22063da512"
     }
   ],
   "dependencies": {
@@ -22,5 +29,5 @@
     "utils": "8bbb98a853748654e802a473bce5e79fd9bd9d04f26270262c2c8edca6545787",
     "opus": "3a80e9cd0341393a71a779bb6454b27b3ff11258e52fbc9e882aa1bf0cc191a4"
   },
-  "patched_sha256": "f88eb320bc5ce92d4b3333b9f73269ceed23b065b3ea00a67434dbeb1ff61da7"
+  "patched_sha256": "59a2f8bfc8d62c5c97ac8fd2e2ae3a5c678dabb1ab1f1d85268b60576b9dfc70"
 }

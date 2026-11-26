@@ -46,6 +46,8 @@ import kr.gen5w.probe.Item;
 public final class CoreService extends Service {
     private static final String TAG = "Gen5wCore";
     private static final String PERM_HUD_INPUT = "kr.gen5w.permission.HUD_INPUT";
+    private static final String ACTION_PHONE_GUIDING = "kr.gen5w.action.PHONE_GUIDING";
+    private static final long PHONE_GUIDING_RENEW_MS = 2000L;
     private static final long RETRY_MS = 5000;
     private static final int AA_SOCKET_TIMEOUT_MS = 1000;
     private static final int AA_SOCKET_MAX_LINES = 16;
@@ -60,7 +62,11 @@ public final class CoreService extends Service {
     private NavigationCluster cluster;
     private StockGuidance stockGuidance;
     private final AaRouteCache aaRoute = new AaRouteCache();
+    private final kr.gen5w.hud.AaNavigationState aaModern = new kr.gen5w.hud.AaNavigationState();
     private String ownerState; // worker thread only
+    private String lastCrossroadSent; // io thread only
+    private boolean lastPhoneGuidingSent; // io thread only
+    private long lastPhoneGuidingSentMs = -PHONE_GUIDING_RENEW_MS; // io thread only
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private int routeSourceCode; // worker thread; numeric diagnostics only
@@ -85,29 +91,33 @@ public final class CoreService extends Service {
             }
         });
         stockGuidance = new StockGuidance();
-        session = new GuidanceSession(new GuidanceSession.TimeSink() {
+        session = new GuidanceSession(new GuidanceSession.TunnelSink() {
             public boolean tbt(int icon, int secondIcon, long meters) {
                 if (!refreshOwnership()) return false;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                    // Stock scale: 0 = METER (<1000m), 1 = KILOMETER (>=1000m).
-                    // combiSideStreet (6th arg) only accepts 0..4 in V039 NavigationCluster;
-                    // secondIcon is carried in sideStreet (2nd arg) and TurnFrame slot 2.
+                    boolean clearing = icon <= 0;
+                    int displayType = TurnFrame.tbtDisplayType(icon);
+                    if (!clearing) notifyNaviPhoneGuiding(true);
+                    // Stock scale: 0 = METER (<1000m, distanceErr=-2), 1 = KILOMETER (>=1000m, distanceErr=0).
+                    // sideStreet is a 16-bit spoke mask (0 in DiPO); second/third icons travel in 0xF2 TurnListNew.
                     cluster.updateTBTInfo(
-                            icon,
-                            secondIcon,
+                            displayType,
+                            0,
                             0f,
-                            TurnFrame.tbtDistanceValue(meters),
-                            TurnFrame.tbtDistanceError(meters),
+                            clearing ? 0f : TurnFrame.tbtDistanceValue(meters),
+                            clearing ? TurnFrame.DIST_ERR_UNKNOWN : TurnFrame.tbtDistanceError(meters),
                             0,
-                            TurnFrame.tbtDistanceScale(meters),
-                            0,
-                            0);
+                            clearing ? TurnFrame.SCALE_METER : TurnFrame.tbtDistanceScale(meters),
+                            TurnFrame.tbtBarGraphLevel(clearing ? 0 : icon, clearing ? -1L : meters),
+                            TurnFrame.tbtBarGraphError(clearing ? 0 : icon, clearing ? -1L : meters));
+                    if (!sendHudDistance2C(clearing ? -1L : meters)) return false;
+                    if (clearing && !session.hasPhoneRoute() && !isAaGuidanceActive()) notifyNaviPhoneGuiding(false);
                     DriveLog.core(24, icon, secondIcon, meters, 1, 0, 0);
                     kr.gen5w.diag.DebugTrace.event("hud.output.tbt", icon, secondIcon, meters);
-                    writeDebugLog("TBT: 1st=0x" + Integer.toHexString(icon)
-                            + " 2nd=0x" + Integer.toHexString(secondIcon)
-                            + " dist=" + meters + "m");
+                    writeDebugLog("TBT: 1st=0x" + Integer.toHexString(displayType)
+                            + " 2nd=0x" + Integer.toHexString(clearing ? 0 : secondIcon)
+                            + " dist=" + (clearing ? -1L : meters) + "m");
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
@@ -118,6 +128,7 @@ public final class CoreService extends Service {
             }
             public boolean timeRemaining(long seconds) {
                 subSeconds = seconds;
+                subArrivalMs = (seconds < 0 || seconds > TimeFrame.MAX_SECONDS) ? -1L : System.currentTimeMillis() + seconds * 1000L;
                 return sendSubInfo();
             }
             /** Stock DiPO sends type 0 plus the name to updateTPFlexibleDestinationName. */
@@ -130,7 +141,7 @@ public final class CoreService extends Service {
                     d.type = 0;
                     d.name = name;
                     cluster.updateTPFlexibleDestinationName(d);
-                    writeDebugLog("DEST: len=" + name.length());
+                    writeDebugLog("DEST: \"" + name + "\"");
                     return true;
                 } catch (NoSuchMethodError e) { destMissing = true; return true; }
                   catch (RuntimeException e) { return outputError(e); }
@@ -150,7 +161,18 @@ public final class CoreService extends Service {
                 if (!refreshOwnership()) return false;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+                    if (session != null && session.hasPhoneRoute()) notifyNaviPhoneGuiding(true);
                     cluster.updateTPTurnListNew(frame);
+                    if (session != null) {
+                        String road = session.currentRoad();
+                        if (road == null) road = "";
+                        if (!road.equals(lastCrossroadSent)) {
+                            try {
+                                cluster.updateTPCrossroadName(crossroadName(road));
+                                lastCrossroadSent = road;
+                            } catch (NoSuchMethodError ignored) { }
+                        }
+                    }
                     DriveLog.core(26, frame.length > 1 ? frame[1] & 255 : -1,
                             frame.length > 2 ? frame[2] & 255 : -1,
                             frame.length > 3 ? frame[3] & 255 : -1, 1, frame.length,
@@ -158,6 +180,9 @@ public final class CoreService extends Service {
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
+            }
+            public boolean tunnel(boolean active, long distanceMeters) {
+                return syncCarPlayTunnel(active, distanceMeters);
             }
         });
         session.setOutputAllowed(false);
@@ -210,7 +235,7 @@ public final class CoreService extends Service {
         }
         if (bound) { unbindService(connection); bound = false; }
         io.removeCallbacksAndMessages(null);
-        io.post(new Runnable() { public void run() { refreshOwnership(); session.disconnect(); } });
+        io.post(new Runnable() { public void run() { shutdownOutputs(); } });
         worker.quitSafely();
         super.onDestroy();
     }
@@ -223,9 +248,15 @@ public final class CoreService extends Service {
         // active or unknown. Do not let an older cached turn reappear through
         // media OSD restoration after a newer, suppressed update was dropped.
         aaRoute.setOutputAllowed(allowed);
+        if (!allowed) yieldToStock(next == StockGuidance.ACTIVE);
         session.setOutputAllowed(aaRoute.allowCarPlay(allowed));
         String owner = next == StockGuidance.IDLE ? (aaRoute.isActive() ? "AA" : "CARPLAY")
                 : next == StockGuidance.ACTIVE ? "STOCK" : "UNKNOWN";
+        if (!stopping) {
+            boolean guiding = ("CARPLAY".equals(owner) && session != null && session.hasPhoneRoute())
+                    || ("AA".equals(owner) && isAaGuidanceActive());
+            notifyNaviPhoneGuiding(guiding);
+        }
         if (!owner.equals(ownerState)) {
             ownerState = owner;
             DriveLog.core(20, "STOCK".equals(owner) ? 1 : "CARPLAY".equals(owner) ? 2
@@ -239,6 +270,20 @@ public final class CoreService extends Service {
         }
         return allowed;
     }
+    /** Stock guidance is active or unknown: AA state was dropped with aaRoute, including its tunnel request. */
+    private void yieldToStock(boolean stockActive) {
+        aaModern.reset();
+        // Anything the phone sessions showed is stale once stock owns the cluster; the session re-sends its desired values.
+        subMeters = -1; subSeconds = -1; subArrivalMs = -1L;
+        lastCrossroadSent = null;
+        aaTunnelWant = false;
+        aaTunnelDist = -1L;
+        if (stockActive) {
+            // Stock guidance owns PE_00 now; never clear over it later.
+            phoneTunnelSent = false;
+            lastPe00Bucket = Long.MIN_VALUE;
+        }
+    }
     private void purgeLegacyDebugLogs() {
         try {
             java.io.File dir = getFilesDir();
@@ -248,31 +293,139 @@ public final class CoreService extends Service {
         } catch (Throwable ignored) {}
     }
     private long subMeters = -1, subSeconds = -1;
+    private long subArrivalMs = -1L; // io thread only
     /** Stock mnsoft 0x4D sub-info layout: distance + unit (0 m, 1 km); hours/minutes are the arrival clock with
      * time type 1 and 24-hour format (2); hours and minutes 0xff with type 0 mean "none". */
     private boolean sendSubInfo() {
         if (subInfoMissing) return true;
         if (!refreshOwnership()) return false;
+        // SubInfo is an atomic distance+clock packet. A time-only update before the
+        // first route distance must not send an invalid distance over the current one.
+        // Return false so the session retains the pending time until distance arrives.
+        if (session.hasPhoneRoute() && subMeters < 0) return false;
         try {
             if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-            int[] clock = TimeFrame.arrival(System.currentTimeMillis(), subSeconds, java.util.TimeZone.getDefault());
+            // The arrival clock is fixed when the duration arrived, so a re-send does not move it later.
+            int[] clock = subArrivalMs < 0 ? null : TimeFrame.arrival(subArrivalMs, 0L, java.util.TimeZone.getDefault());
             cluster.updateTBTSubInfo(
                     TurnFrame.tbtDistanceValue(subMeters),
                     TurnFrame.tbtDistanceError(subMeters),
                     TurnFrame.tbtDistanceScale(subMeters),
                     clock == null ? 0xff : clock[0], clock == null ? 0xff : clock[1],
-                    clock == null ? 0 : 1, clock == null ? 0 : 2, 0f, TurnFrame.DIST_ERR_UNKNOWN);
+                    clock == null ? 0 : 1, clock == null ? 0 : 2, 0f, -1);
             writeDebugLog("SUB: remaining=" + subMeters + "m time=" + subSeconds + "s");
+            // 36: requested distance/arrival packet (-1 = clear); void API does not acknowledge delivery.
+            DriveLog.core(36, subMeters, subSeconds, clock == null ? -1 : clock[0], clock == null ? -1 : clock[1], 0, 0);
             return true;
         } catch (NoSuchMethodError e) { subInfoMissing = true; return true; }
           catch (RuntimeException e) { return outputError(e); }
           catch (LinkageError e) { return outputError(e); }
     }
     /** Set when this head unit's cluster API lacks an optional method; the output is then skipped. */
-    private boolean subInfoMissing, destMissing;
+    private boolean subInfoMissing, destMissing, subInfo2cMissing, pe00Missing;
+    private boolean phoneTunnelSent; // io thread only
+    private long lastPe00Bucket = Long.MIN_VALUE; // io thread only
+    /** One PE_00 owner for both phone sources: CarPlay (session) wins over AA; io thread only. */
+    private boolean cpTunnelWant, aaTunnelWant;
+    private long cpTunnelDist = -1L, aaTunnelDist = -1L;
+    /**
+     * Low-level PE_00 writer. ClusterService replaces the complete packet, so only the tunnel
+     * fields are set: parking/air-condition fields stay 0 exactly as the stock 4-argument
+     * NavigationCluster.updateSTD_NAVI_PE_00_Info(dist, roadClass, exist, parkingLot) sends them.
+     * A clear is sent only after this app asserted a tunnel, never as a blind background write.
+     */
+    private boolean sendTunnelPe00(boolean active, long meters) {
+        if (pe00Missing) return true;
+        if (!active && !phoneTunnelSent) return true;
+        if (!refreshOwnership()) return false;
+        long bucket = !active ? -1L : (meters < 50L ? 0L : Math.min(1000L, (meters / 50L) * 50L));
+        if (active == phoneTunnelSent && bucket == lastPe00Bucket) return true;
+        try {
+            if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+            if (active) {
+                int dist = (int) Math.min(1023L, Math.max(0L, bucket));
+                cluster.updateSTD_NAVI_PE_00_Info(dist, 0, 1, 0, 0, 0);
+                phoneTunnelSent = true;
+                lastPe00Bucket = bucket;
+            } else {
+                cluster.updateSTD_NAVI_PE_00_Info(0, 0, 0, 0, 0, 0);
+                phoneTunnelSent = false;
+                lastPe00Bucket = -1L;
+            }
+            // 39: requested PE_00 packet (b = distance bucket, -1 = clear; repeat field is zero).
+            DriveLog.core(39, active ? 1 : 0, active ? bucket : -1L, 0, 0, 0, 0);
+            writeDebugLog("PE00: active=" + active + " dist=" + (active ? bucket : -1L) + "m");
+            return true;
+        } catch (NoSuchMethodError e) {
+            pe00Missing = true;
+            phoneTunnelSent = false;
+            lastPe00Bucket = -1L;
+            return true;
+        } catch (RuntimeException e) { return outputError(e); }
+          catch (LinkageError e) { return outputError(e); }
+    }
+    /** Writes the merged phone tunnel state: active CarPlay guidance owns PE_00, otherwise AA, otherwise clear. */
+    private boolean applyTunnelPe00() {
+        boolean carPlayGuiding = session != null && session.hasPhoneRoute();
+        if (cpTunnelWant) return sendTunnelPe00(true, cpTunnelDist);
+        if (aaTunnelWant && !carPlayGuiding) return sendTunnelPe00(true, aaTunnelDist);
+        return sendTunnelPe00(false, -1L);
+    }
+    private boolean syncCarPlayTunnel(boolean active, long meters) {
+        cpTunnelWant = active;
+        cpTunnelDist = active ? meters : -1L;
+        return applyTunnelPe00();
+    }
+    private boolean syncAaTunnel(boolean tunnel, long dist) {
+        boolean active = tunnel && dist >= 0 && dist <= 1000L;
+        aaTunnelWant = active;
+        aaTunnelDist = active ? dist : -1L;
+        return applyTunnelPe00();
+    }
+    /** Retry only an observed local failure; successful packets are deduplicated. */
+    private void maintainTunnelPe00() { applyTunnelPe00(); }
+    /** io thread, service shutdown: clear what AA and CarPlay still show (while stock is idle), then the tunnel flag. */
+    private void shutdownOutputs() {
+        aaClearPending |= isAaGuidanceActive();
+        resetAaState();
+        refreshOwnership();      // re-enables CarPlay output now that the AA route is gone
+        flushAaClear();
+        session.disconnect();
+        session.retryOutput();
+        finalTunnelClear();
+        refreshOwnership();
+        notifyNaviPhoneGuiding(false);
+    }
+    /** io thread. Final clears at shutdown: the delayed maintenance tick will not run again once the worker quits. */
+    private void finalTunnelClear() {
+        cpTunnelWant = false;
+        aaTunnelWant = false;
+        sendTunnelPe00(false, -1L);
+    }
+    private boolean sendHudDistance2C(long meters) {
+        if (subInfo2cMissing || cluster == null) return true;
+        try {
+            if (meters < 0) {
+                cluster.updateTBTSubInfo2C(
+                        TurnFrame.SUB2C_UNIT_INVALID, TurnFrame.SUB2C_FRAC_INVALID, TurnFrame.SUB2C_INT_INVALID,
+                        TurnFrame.SUB2C_UNIT_INVALID, TurnFrame.SUB2C_FRAC_INVALID, TurnFrame.SUB2C_INT_INVALID,
+                        TurnFrame.SUB2C_UNIT_INVALID, TurnFrame.SUB2C_FRAC_INVALID, TurnFrame.SUB2C_INT_INVALID);
+                return true;
+            }
+            cluster.updateTBTSubInfo2C(
+                    TurnFrame.subInfo2CUnit(meters), TurnFrame.subInfo2CTenths(meters), TurnFrame.subInfo2CWhole(meters),
+                    TurnFrame.SUB2C_UNIT_INVALID, TurnFrame.SUB2C_FRAC_INVALID, TurnFrame.SUB2C_INT_INVALID,
+                    TurnFrame.SUB2C_UNIT_INVALID, TurnFrame.SUB2C_FRAC_INVALID, TurnFrame.SUB2C_INT_INVALID);
+            return true;
+        } catch (NoSuchMethodError e) { subInfo2cMissing = true; return true; }
+          catch (RuntimeException e) { return outputError(e); }
+          catch (LinkageError e) { return outputError(e); }
+    }
     private boolean outputError(Throwable e) {
         boolean report=kr.gen5w.diag.SafeDiagnostic.failure("core.hud.output",e);
         cluster = null;
+        lastCrossroadSent = null;
+        lastPe00Bucket = Long.MIN_VALUE;
         session.invalidateOutput();
         DriveLog.core(27, e instanceof LinkageError ? 2 : 1, 0, 0, 0, 0, 0);
         if(report)Log.w(TAG, "cluster output failed: " + e.getClass().getSimpleName());
@@ -309,7 +462,9 @@ public final class CoreService extends Service {
         expireAaRoute();
         flushAaClear();
         retryAaOutput();
+        session.expireLocating(now());
         session.retryOutput();
+        maintainTunnelPe00();
         io.postDelayed(this, 1000);
     }};
     /** Fresh ownership observation only; this does not assert HUD delivery. */
@@ -375,7 +530,12 @@ public final class CoreService extends Service {
         // for stock INFO. Accept/retry independently of route-list discovery.
         final boolean mediaReady = requestMedia(service, ticket);
         try {
-            if (guidanceRequest.ensure(ticket,new GuidanceRequest.LookupBackend() {
+            if (guidanceRequest.ensure(ticket,new GuidanceRequest.ReviewedOemBackend() {
+                public boolean canonicalFallbackAllowed() throws Exception {
+                    Object product = Class.forName("android.os.SystemProperties")
+                            .getMethod("get", String.class).invoke(null, "ro.build.product");
+                    return GuidanceRequest.reviewedCanonicalProfile((String)product);
+                }
                 public int count() throws Exception {
                     int count = service.Iap2SvcGetRouteGuidanceRegisteredComponentCount();
                     kr.gen5w.diag.DebugTrace.event("route.components", ticket, count);
@@ -470,10 +630,8 @@ public final class CoreService extends Service {
                     refreshOwnership();
                     if (outputEpoch != ticket) { session.disconnect(); outputEpoch = ticket; }
                     session.message(what, fields);
-                    kr.gen5w.diag.DebugTrace.event("route.parsed", what, ticket, fields.size(), session.hasActiveGuidance() ? 1 : 0);
-                    if (session.hasActiveGuidance()) {
-                        resetAaState();
-                    }
+                    kr.gen5w.diag.DebugTrace.event("route.parsed", what, ticket, fields.size(), session.hasPhoneRoute() ? 1 : 0);
+                    if (session.hasPhoneRoute()) yieldAaToCarPlay();
                 }
             });
         }
@@ -503,7 +661,8 @@ public final class CoreService extends Service {
                                 m.junctionType, m.distanceMeters, icon);
                         String line = "MANEUVER: comp=" + m.component + " idx=" + m.index + " type=" + m.type
                                 + " angle=" + m.exitAngle + " side=" + m.drivingSide + " junc=" + m.junctionType
-                                + " -> icon=0x" + Integer.toHexString(icon);
+                                + " -> icon=0x" + Integer.toHexString(icon)
+                                + " road=\"" + m.afterRoad + "\" desc=\"" + m.desc + "\"";
                         writeDebugLog(line);
                         String tollText = (m.desc == null ? "" : m.desc) + " " + (m.afterRoad == null ? "" : m.afterRoad);
                         if (TollText.mentionsToll(tollText)) {
@@ -530,6 +689,18 @@ public final class CoreService extends Service {
                     DriveLog.core(29, routeSourceCode, GuidanceDiagnostics.fieldMask(fields),
                             address == null ? -1 : address[0], address == null ? -1 : address[1],
                             0, 0);
+                    GuidanceParser.Lanes ls = GuidanceParser.lanes(fields, null);
+                    if (ls != null) {
+                        StringBuilder sb = new StringBuilder("LANES: comp=").append(ls.component)
+                                .append(" idx=").append(ls.index).append(" n=").append(ls.lanes.size());
+                        for (int li = 0; li < ls.lanes.size(); li++) {
+                            GuidanceParser.Lane gl = ls.lanes.get(li);
+                            sb.append(' ').append(gl.index).append(':').append(gl.status)
+                              .append('/').append(java.util.Arrays.toString(gl.angles))
+                              .append('*').append(java.util.Arrays.toString(gl.highlights));
+                        }
+                        writeDebugLog(sb.toString());
+                    }
                 }
             } catch (Throwable ignored) {}
         }
@@ -569,7 +740,8 @@ public final class CoreService extends Service {
             public void run() {
                 if (outputEpoch <= closed) {
                     refreshOwnership();
-                    session.disconnect(); cluster = null; outputEpoch = closed; routeSourceCode = 0;
+                    session.disconnect(); cluster = null; lastCrossroadSent = null; outputEpoch = closed; routeSourceCode = 0;
+                    notifyNaviPhoneGuiding(false);
                 }
             }
         });
@@ -582,8 +754,18 @@ public final class CoreService extends Service {
         return aaRoute.isActive();
     }
 
+    /** io thread. CarPlay guidance took over: drop AA state, and an AA tunnel must not outlive AA guidance. */
+    private void yieldAaToCarPlay() {
+        boolean aaTunnel = aaTunnelWant;
+        resetAaState();
+        if (aaTunnel) applyTunnelPe00();
+    }
+
     private void resetAaState() {
+        aaModern.reset();
         aaRoute.clear();
+        aaTunnelWant = false;
+        aaTunnelDist = -1L;
     }
 
     private static NavigationCluster.CrossroadName crossroadName(String name) {
@@ -617,12 +799,13 @@ public final class CoreService extends Service {
                         line += " - " + safeArtist;
                     }
                     mediaOsdActive = true;
-                    boolean cpActive = session != null && session.hasActiveGuidance();
+                    boolean cpActive = session != null && session.hasPhoneRoute();
                     boolean aaActive = !cpActive && isAaGuidanceActive();
-                    int icon = aaActive ? aaRoute.icon() : 0x41;
-                    int second = aaActive ? aaRoute.secondIcon() : 0;
+                    int icon = aaActive ? TurnFrame.effectiveIcon(aaRoute.icon(), aaRoute.distance()) : 0x41;
+                    int second = (aaActive && aaRoute.distance() <= TurnFrame.FAR_STRAIGHT_THRESHOLD_M) ? aaRoute.secondIcon() : 0;
                     cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, second}, line));
                     cluster.updateTPCrossroadName(crossroadName(line));
+                    lastCrossroadSent = line;
                     writeDebugLog("MEDIA_OSD: shown");
                     io.removeCallbacks(restoreNaviRunnable);
                     io.postDelayed(restoreNaviRunnable, 3000);
@@ -637,17 +820,23 @@ public final class CoreService extends Service {
             if (!refreshOwnership()) return;
             try {
                 if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-                if (session != null && session.hasActiveGuidance()) {
+                if (session != null && session.hasPhoneRoute()) {
                     resetAaState();
                     cluster.updateTPCrossroadName(crossroadName(""));
+                    lastCrossroadSent = "";
                     session.invalidateOutput();
                     session.retryOutput();
                 } else if (isAaGuidanceActive()) {
-                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{aaRoute.icon(), aaRoute.secondIcon()}, aaRoute.road()));
-                    cluster.updateTPCrossroadName(crossroadName(aaRoute.road()));
+                    String cross = aaRoute.road() != null ? aaRoute.road() : "";
+                    int aaIcon = TurnFrame.effectiveIcon(aaRoute.icon(), aaRoute.distance());
+                    int aaSecond = aaRoute.distance() > TurnFrame.FAR_STRAIGHT_THRESHOLD_M ? 0 : aaRoute.secondIcon();
+                    cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{aaIcon, aaSecond}, aaRoute.road()));
+                    cluster.updateTPCrossroadName(crossroadName(cross));
+                    lastCrossroadSent = cross;
                 } else {
                     cluster.updateTPTurnListNew(TurnFrame.clear());
                     cluster.updateTPCrossroadName(crossroadName(""));
+                    lastCrossroadSent = "";
                 }
                 writeDebugLog("MEDIA_OSD: restored navi");
             } catch (Throwable e) { outputError(e); }
@@ -678,16 +867,30 @@ public final class CoreService extends Service {
         }
     };
 
-    private void renderAaLane(final byte[] frame) {
+    /** Encodes on the io thread so the masks use the maneuver icon of the queued turn updates, not a stale cached one. */
+    private void renderAaLaneSimple(final int laneCount, final int[] dirs, final boolean[] rec) {
         io.post(new Runnable() {
             public void run() {
-                if (!refreshOwnership()) return;
-                if (session != null && session.hasActiveGuidance()) return;
-                byte[] next = frame != null ? frame : LaneFrame.clear();
-                aaRoute.updateLanes(next, now());
-                writeAaLanes(next);
+                renderAaLaneNow(LaneFrame.encodeSimple(laneCount, dirs, rec, aaRoute.icon()));
             }
         });
+    }
+
+    private void renderAaLane(final byte[] frame) {
+        io.post(new Runnable() { public void run() { renderAaLaneNow(frame); } });
+    }
+
+    /** io thread. */
+    private void renderAaLaneNow(byte[] frame) {
+        if (!refreshOwnership()) return;
+        if (session != null && session.hasPhoneRoute()) return;
+        byte[] next = frame != null ? frame : LaneFrame.clear();
+        byte[] held = aaRoute.lanes();
+        // Nothing to clear: no lane frame was ever shown for this route, or the clear is already current.
+        if (java.util.Arrays.equals(next, LaneFrame.clear())
+                && (held == null || java.util.Arrays.equals(held, next))) return;
+        aaRoute.updateLanes(next, now());
+        writeAaLanes(next);
     }
 
     /** io thread. A failed lane write stays pending in aaRoute and is retried with the turn. */
@@ -707,32 +910,42 @@ public final class CoreService extends Service {
         int icon = aaRoute.icon(), secondIcon = aaRoute.secondIcon();
         long dist = aaRoute.distance();
         String road = aaRoute.road();
+        boolean tunnel = aaRoute.tunnel();
+        int displayIcon = TurnFrame.effectiveIcon(icon, dist);
+        int displaySecond = dist > TurnFrame.FAR_STRAIGHT_THRESHOLD_M ? 0 : secondIcon;
         try {
             if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
+            notifyNaviPhoneGuiding(true);
             cluster.updateTBTInfo(
-                    icon,
-                    secondIcon,
+                    displayIcon,
+                    0,
                     0f,
                     TurnFrame.tbtDistanceValue(dist),
                     TurnFrame.tbtDistanceError(dist),
                     0,
                     TurnFrame.tbtDistanceScale(dist),
-                    0,
-                    0);
+                    TurnFrame.tbtBarGraphLevel(displayIcon, dist),
+                    TurnFrame.tbtBarGraphError(displayIcon, dist));
+            if (!sendHudDistance2C(dist)) return;
             if (!mediaOsdActive) {
-                cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{icon, secondIcon}, road));
-                cluster.updateTPCrossroadName(crossroadName(road != null ? road : ""));
+                String cross = road != null ? road : "";
+                cluster.updateTPTurnListNew(TurnFrame.encode(new int[]{displayIcon, displaySecond}, road));
+                cluster.updateTPCrossroadName(crossroadName(cross));
+                lastCrossroadSent = cross;
             }
+            // GPM navigation/a.java:62-63,70-71,81-82,94-95: reset after each turn update.
+            cluster.updateTBTTrapInfo(-1, -1, 3, -1, 0, 0, 0, 0, 15, 65535, 3, 100, 255, 15, 3, 3, 15);
+            if (!syncAaTunnel(tunnel, dist)) return;
             aaRoute.routeSent();
-            writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(icon)
-                    + " 2nd=0x" + Integer.toHexString(secondIcon)
+            writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(displayIcon)
+                    + " 2nd=0x" + Integer.toHexString(displaySecond)
                     + " dist=" + dist + "m");
         } catch (Throwable e) { outputError(e); }
     }
 
     /** io thread, once a second. CarPlay has its own retry; it also owns the display when active. */
     private void retryAaOutput() {
-        if (session != null && session.hasActiveGuidance()) return;
+        if (session != null && session.hasPhoneRoute()) return;
         if (aaRoute.routePending()) writeAaRoute();
         if (aaRoute.lanePending()) writeAaLanes(aaRoute.lanes());
     }
@@ -748,27 +961,70 @@ public final class CoreService extends Service {
 
     private long now() { return android.os.SystemClock.elapsedRealtime(); }
 
+    /** Broadcast active phone guidance lease to wrapped com.mnsoft.navi on io thread. */
+    private void notifyNaviPhoneGuiding(boolean active) {
+        if (active && stopping) return;
+        long t = now();
+        if (active == lastPhoneGuidingSent && (!active || t - lastPhoneGuidingSentMs < PHONE_GUIDING_RENEW_MS)) {
+            return;
+        }
+        // An unleased interval allows stock to replace every packet. Restore all
+        // unchanged desired outputs once ownership is reacquired, rather than on a timer.
+        if (active && (!lastPhoneGuidingSent || t - lastPhoneGuidingSentMs >= 15000L)) {
+            session.invalidateOutput();
+            lastPe00Bucket = Long.MIN_VALUE;
+        }
+        // 37: stock-navigation suppression lease changed (renewals are not logged).
+        if (active != lastPhoneGuidingSent) DriveLog.core(37, active ? 1 : 0, 0, 0, 0, 0, 0);
+        lastPhoneGuidingSent = active;
+        lastPhoneGuidingSentMs = t;
+        try {
+            Intent intent = new Intent(ACTION_PHONE_GUIDING);
+            intent.setPackage("com.mnsoft.navi");
+            intent.putExtra("active", active);
+            intent.putExtra("ts", t);
+            sendBroadcast(intent);
+        } catch (RuntimeException ignored) { }
+    }
+
     private void flushAaClear() {
         if (!aaClearPending || !refreshOwnership()) return;
         try {
             if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
-            if (session != null && session.hasActiveGuidance()) {
+            if (session != null && session.hasPhoneRoute()) {
                 cluster.updateTPCrossroadName(crossroadName(""));
+                lastCrossroadSent = null;
+                aaTunnelWant = false;
+                aaTunnelDist = -1L;
+                if (!applyTunnelPe00()) return;
                 session.invalidateOutput();
                 session.retryOutput();
             } else {
-                cluster.updateTBTInfo(0, 0, 0f, 0f, -3, 0, 0, 0, 0);
+                cluster.updateTBTInfo(
+                        TurnFrame.TBT_DISPLAY_IDLE, 0, 0f, 0f,
+                        TurnFrame.DIST_ERR_UNKNOWN, 0, TurnFrame.SCALE_METER, 0, TurnFrame.BAR_ERR_INVALID);
+                if (!sendHudDistance2C(-1L)) return;
                 if (!mediaOsdActive) {
                     cluster.updateTPTurnListNew(TurnFrame.clear());
                     cluster.updateTPCrossroadName(crossroadName(""));
+                    lastCrossroadSent = "";
                 }
                 cluster.updateLaneInfo(LaneFrame.clear());
+                aaTunnelWant = false;
+                aaTunnelDist = -1L;
+                if (!applyTunnelPe00()) return;
+                notifyNaviPhoneGuiding(false);
             }
             aaClearPending = false;
         } catch (Throwable e) { outputError(e); }
     }
 
     private void renderAaTbt(final int icon, final int secondIcon, final long dist, final String road) {
+        renderAaTbtWithTunnel(icon, secondIcon, dist, road, false);
+    }
+
+    /** Legacy GPM turn updates carry no lane-clear instruction. */
+    private void renderAaTbtWithTunnel(final int icon, final int secondIcon, final long dist, final String road, final boolean tunnel) {
         io.post(new Runnable() {
             public void run() {
                 if (dist < 0 || icon <= 0) {
@@ -778,8 +1034,8 @@ public final class CoreService extends Service {
                     return;
                 }
                 if (!refreshOwnership()) return;
-                if (session != null && session.hasActiveGuidance()) return;
-                if (!aaRoute.update(icon, secondIcon, dist, road, now())) return;
+                if (session != null && session.hasPhoneRoute()) return;
+                if (!aaRoute.update(icon, secondIcon, dist, road, tunnel, now())) return;
                 aaClearPending = false;
                 session.setOutputAllowed(false);
                 writeAaRoute();
@@ -805,6 +1061,8 @@ public final class CoreService extends Service {
                 int exitAngle = intent.getIntExtra("exit_angle", Maneuver.UNKNOWN_ANGLE);
                 DriveLog.core(32, type, icon, second, dist,
                         road == null ? 0 : 1, desc == null ? 0 : 1);
+                writeDebugLog("AA_IN: type=" + type + " icon=0x" + Integer.toHexString(icon) + " dist=" + dist
+                        + " road=\"" + road + "\" desc=\"" + desc + "\"");
                 if (clear || dist < 0) {
                     renderAaTbt(0, 0, -1, null);
                     return;
@@ -818,9 +1076,9 @@ public final class CoreService extends Service {
                     icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
                 // The next icon has no road metadata here; preserve it as received.
-                renderAaTbt(icon, second, dist, road);
-
                 int laneCount = intent.getIntExtra("lane_count", 0);
+                renderAaTbtWithTunnel(icon, second, dist, road, ClusterIcon.isTunnelText(road, desc));
+
                 if (laneCount > 0) {
                     int[] dirs = intent.getIntArrayExtra("lane_dirs");
                     boolean[] rec = intent.getBooleanArrayExtra("lane_rec");
@@ -835,8 +1093,7 @@ public final class CoreService extends Service {
                     int laneCount = intent.getIntExtra("lane_count", 0);
                     int[] dirs = intent.getIntArrayExtra("lane_dirs");
                     boolean[] rec = intent.getBooleanArrayExtra("lane_rec");
-                    byte[] laneFrame = LaneFrame.encodeSimple(laneCount, dirs, rec, aaRoute.icon());
-                    renderAaLane(laneFrame);
+                    renderAaLaneSimple(laneCount, dirs, rec);
                 }
             }
         }
@@ -904,6 +1161,34 @@ public final class CoreService extends Service {
         aaThread.start();
     }
 
+    /** io thread: never render distance from an older maneuver or retain reroute arrows. */
+    private void acceptModernAa(kr.gen5w.hud.AaNavigationParser.Event event) {
+        if (!refreshOwnership() || (session != null && session.hasPhoneRoute())) {
+            aaModern.reset();
+            return;
+        }
+        kr.gen5w.hud.AaNavigationState.Snapshot next = aaModern.accept(event);
+        kr.gen5w.diag.DebugTrace.event("aa.wire", event.messageId, event.steps.size(), event.distanceMeters);
+        for (int si = 0; si < event.steps.size(); si++) {
+            kr.gen5w.hud.AaNavigationParser.Step st = event.steps.get(si);
+            writeDebugLog("AA_STEP: " + si + " aaType=" + st.aaType + " -> icon=0x" + Integer.toHexString(st.icon())
+                    + " road=\"" + st.maneuver.afterRoad + "\" desc=\"" + st.maneuver.desc + "\"");
+        }
+        if (next == null) return;
+        if (next.clear) {
+            aaClearPending |= isAaGuidanceActive();
+            aaRoute.clear(); // keep pending modern step/distance state; reset only the displayed cache
+            flushAaClear();
+            return;
+        }
+        if (!aaRoute.update(next.icon, next.secondIcon, next.distanceMeters, next.road, next.tunnel, now())) return;
+        aaClearPending = false;
+        session.setOutputAllowed(false);
+        writeAaRoute();
+        aaRoute.updateLanes(next.lanes(), now());
+        writeAaLanes(aaRoute.lanes());
+    }
+
     private void handleAaClient(LocalSocket client) {
         if (client == null) return;
         try {
@@ -913,8 +1198,28 @@ public final class CoreService extends Service {
             if (uid != 0 && uid != 1000 && uid != Process.myUid()) {
                 return;
             }
+            java.io.PushbackInputStream input = new java.io.PushbackInputStream(client.getInputStream(), 4);
+            byte[] prefix = new byte[4];
+            int received = 0;
+            while (received < 4) {
+                int count = input.read(prefix, received, 4-received);
+                if (count < 0) break;
+                received += count;
+            }
+            input.unread(prefix, 0, received);
+            if (received == 4 && prefix[0]=='G' && prefix[1]=='A' && prefix[2]=='N' && prefix[3]=='1') {
+                kr.gen5w.hud.AaWireFrame frame = kr.gen5w.hud.AaWireFrame.read(input);
+                final kr.gen5w.hud.AaNavigationParser.Event event;
+                try { event = kr.gen5w.hud.AaNavigationParser.parse(frame.type, frame.payload); }
+                catch (IllegalArgumentException malformed) {
+                    kr.gen5w.diag.DebugTrace.event("aa.wire.invalid", frame.type, frame.payload.length);
+                    return;
+                }
+                io.post(new Runnable() { public void run() { acceptModernAa(event); } });
+                return;
+            }
             java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(client.getInputStream(), "UTF-8"), 1024);
+                    new java.io.InputStreamReader(input, "UTF-8"), 1024);
             String line;
             String road = null, desc = null;
             long dist = -1;
@@ -970,6 +1275,8 @@ public final class CoreService extends Service {
             }
             DriveLog.core(32, type, icon, second, dist,
                     road == null ? 0 : 1, desc == null ? 0 : 1);
+            writeDebugLog("AA_IN: type=" + type + " icon=0x" + Integer.toHexString(icon) + " dist=" + dist
+                    + " road=\"" + road + "\" desc=\"" + desc + "\"");
             if (!clear && dist >= 0) {
                 if (icon <= 0) {
                     Maneuver m = new Maneuver();
@@ -988,7 +1295,7 @@ public final class CoreService extends Service {
                 if (mediaTrack == null) renderAaTbt(0, 0, -1, null);
             } else {
                 // The next icon has no road metadata here; preserve it as received.
-                renderAaTbt(icon, second, dist, road);
+                renderAaTbtWithTunnel(icon, second, dist, road, ClusterIcon.isTunnelText(road, desc));
             }
         } catch (Throwable e) {
             kr.gen5w.diag.SafeDiagnostic.failure("core.aa.receive",e);

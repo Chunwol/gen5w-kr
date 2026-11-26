@@ -2,7 +2,7 @@
 from pathlib import Path
 import importlib.util
 import unittest
-import tempfile
+import repo_tmp as tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "tools/v039-relay/build_dipo_relay.py"
@@ -10,6 +10,15 @@ BRIDGE = ROOT / "tools/v039-relay/dipo-src/kr/gen5w/dipo/RelayBridge.java"
 
 
 class DiPORelayBuilderTest(unittest.TestCase):
+    def test_split_restart_uses_stock_configuration_and_observed_session(self):
+        text = BRIDGE.read_text(encoding='utf-8')
+        self.assertIn('stock.getMethod("H", Boolean.TYPE)', text)
+        self.assertIn('stock.getMethod("bC")', text)
+        self.assertIn('update.invoke(owner, Boolean.TRUE)', text)
+        self.assertIn('startedGeneration == generation', text)
+        self.assertNotIn('Thread.sleep', text)
+        self.assertIn('RESTART_APPLIED = 3, RESTART_NONE = 4', text)
+
     def test_reconnect_patch_is_local_and_rejects_ambiguous_inputs(self):
         spec = importlib.util.spec_from_file_location('dipo_builder', BUILDER)
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
@@ -149,7 +158,7 @@ class DiPORelayBuilderTest(unittest.TestCase):
     def test_handover_request_is_emitted_before_waiting_for_component_five(self):
         text = BRIDGE.read_text(encoding="utf-8")
         notify = text.index("if (requestNow) notifySession(owner, token, HANDOVER_REQUESTED);")
-        waiting_return = text.index("if (!sendNow) return;", notify)
+        waiting_return = text.index("if (!sendNow) return true;", notify)
         self.assertLess(notify, waiting_return)
         self.assertIn("MAX_PENDING = 64", text)
         self.assertIn("new Intent(action).setPackage(HOST_PACKAGE)", text)

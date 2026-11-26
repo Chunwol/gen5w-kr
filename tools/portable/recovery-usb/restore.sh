@@ -1,6 +1,17 @@
 #!/system/bin/sh
 # Fixed-function emergency restore. All targets are explicitly allowlisted.
 set -u
+VERIFY_ONLY=0
+case "$#:${1:-}" in
+    0:) :;;
+    1:--verify-only) VERIFY_ONLY=1;;
+    *) echo 'usage: restore.sh [--verify-only]' >&2; exit 64;;
+esac
+DEFER_REBOOT=${GEN5W_RECOVERY_DEFER_REBOOT:-0}
+case "$DEFER_REBOOT" in 0|1) :;; *) exit 64;; esac
+[ "$VERIFY_ONLY:$DEFER_REBOOT" != 1:1 ] || exit 64
+RESTORE_SETTINGS=${GEN5W_RECOVERY_RESTORE_SETTINGS:-0}
+case "$RESTORE_SETTINGS" in 0|1) :;; *) exit 64;; esac
 
 USB=${GEN5W_RECOVERY_USB_ROOT:-${GEN5W_RECOVERY_TEST_USB:-}}
 ROOT=${GEN5W_RECOVERY_TEST_ROOT:-}
@@ -25,6 +36,26 @@ TMP="$RECOVERY/.restore.$$"
 SYSTEM_RW=0
 
 say() { echo "[recovery] $*"; }
+saved_ap() {
+    if [ -n "$ROOT" ]; then "$HELPER" saved-ap-get
+    else "$HELPER" supervise 30 /system/bin/true /system/bin/sh /system/bin/settings get global wifi_ap_on
+    fi
+}
+restore_saved_ap() {
+    if [ -n "$ROOT" ]; then "$HELPER" saved-ap-off
+    else "$HELPER" supervise 30 /system/bin/true /system/bin/sh /system/bin/settings put global wifi_ap_on 0
+    fi
+}
+NETWORK_STATE=$ROOT/data/local/gen5w-portable/network-adb
+network_pending() { [ -e "$NETWORK_STATE/journal" ] || [ -L "$NETWORK_STATE/journal" ]; }
+restore_network_adb() {
+    network_pending || return 0
+    no_link_components "$NETWORK_STATE/journal" && [ -f "$NETWORK_STATE/journal" ] || return 1
+    local helper=$NETWORK_STATE/restore.sh shell=/system/bin/sh
+    no_link_components "$helper" && [ -f "$helper" ] || return 1
+    [ -z "$ROOT" ] || shell=$(command -v mksh) || return 1
+    PORTABLE_TEST_ROOT="$ROOT" "$shell" "$helper" restore && ! network_pending
+}
 system_is_ro() {
     "$HELPER" is-ro
 }
@@ -47,7 +78,7 @@ reason=$reason" > "$REPORT" 2>/dev/null || :
 }
 path_for() {
     case "$1" in
-        /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/wifi/bcmdhd.ko|/system/etc/featurexml.cfg|/system/onebin/*/featurexml.cfg|/system/featurexml/*/featurexml.cfg|/system/*/featurexml.cfg|/system/etc/permissions/*.xml|/system/etc/permissions/android.hardware.wifi.xml|/system/etc/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml|/system/etc/permissions/com.hkmc.software.connectivity.carplay_wireless.xml|/system/etc/permissions/com.hkmc.software.wifihotspot.xml)
+        /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/lib/libautoreceiver_infobank.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/wifi/bcmdhd.ko|/system/etc/featurexml.cfg|/system/onebin/*/featurexml.cfg|/system/featurexml/*/featurexml.cfg|/system/*/featurexml.cfg|/system/etc/permissions/*.xml|/system/etc/permissions/android.hardware.wifi.xml|/system/etc/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml|/system/etc/permissions/com.hkmc.software.connectivity.carplay_wireless.xml|/system/etc/permissions/com.hkmc.software.wifihotspot.xml)
             case "$1" in *..*|*'//'*) return 1;; esac
             case "$1" in /system/etc/permissions/*.xml)
                 permission_file=${1##*/}
@@ -121,6 +152,7 @@ valid_sha() {
 [ ! -e "$TMP" ] && [ ! -L "$TMP" ] || fail linked-or-stale-completion-temp
 
 # Validate the entire manifest and every backup/live state before remounting.
+say 'phase=preflight-start'
 mkdir -p "$RECOVERY" || fail recovery-directory
 MANIFEST_SHA=$(hash_file "$MANIFEST") || fail unreadable-manifest
 valid_sha "$MANIFEST_SHA" || fail invalid-manifest-digest
@@ -177,6 +209,18 @@ while IFS='|' read -r target kind original_sha applied_sha orig_uid orig_gid ori
 done < "$MANIFEST"
 
 # A completion marker is tied to the exact manifest and current restored state.
+say 'phase=preflight-complete'
+SAVED_AP=0
+if [ "$RESTORE_SETTINGS" = 1 ]; then
+    # Portable admission (USB installer and ap.sh prepare) requires exactly 0
+    # before persistent writes. Restore that known precondition, not an
+    # arbitrary stock preference. This boundary requires running Android;
+    # the pre-zygote emergency guard intentionally leaves it to field recovery.
+    SAVED_AP=$(saved_ap) || fail saved-hotspot-unreadable
+    SAVED_AP=${SAVED_AP%$'\r'}
+    case "$SAVED_AP" in 0|1) :;; *) fail saved-hotspot-unknown;; esac
+    [ "$VERIFY_ONLY:$SAVED_AP" != 1:1 ] || fail saved-hotspot-not-restored
+fi
 # It cannot hide a later update or foreign modification.
 if [ -f "$DONE" ]; then
     done_magic= done_version= done_sha= done_boot= done_extra=
@@ -184,12 +228,14 @@ if [ -f "$DONE" ]; then
     [ "$done_magic" = GEN5W-RESTORE-DONE ] && [ "$done_version" = 1 ] &&
         valid_sha "$done_sha" && [ -z "$done_extra" ] && valid_boot_id "$done_boot" || fail invalid-completion-marker
     if [ "$done_sha" != "$MANIFEST_SHA" ]; then
+        [ "$VERIFY_ONLY" = 0 ] || fail stale-completion-marker
         # A prior install can publish a new, fully validated manifest while
         # leaving the old restore marker behind. It cannot describe this
         # manifest, so discard it and perform the normal restore below.
         rm -f "$DONE" || fail stale-completion-marker
     else
-    needs_restore=0
+    needs_restore=$SAVED_AP
+    network_pending && needs_restore=1
     while IFS='|' read -r target kind original_sha applied_sha orig_uid orig_gid orig_mode orig_label applied_uid applied_gid applied_mode applied_label prior_applied_sha || [ -n "$target" ]; do
         [ "$target" = 'GEN5W-RECOVERY-MANIFEST' ] && continue
         [ "$target" = '' ] && continue
@@ -206,21 +252,31 @@ if [ -f "$DONE" ]; then
         fi
     done < "$MANIFEST"
     if [ "$needs_restore" = 1 ]; then
+        [ "$VERIFY_ONLY" = 0 ] || fail targets-not-restored
         # Reinstalling identical payload can reuse this exact manifest. The
         # complete preflight above still rejects foreign bytes/metadata, and
         # the restore loop rechecks each target immediately before writing.
         rm -f "$DONE" || fail stale-completion-marker
     else
     if ! system_is_ro; then
+        [ "$VERIFY_ONLY" = 0 ] || fail system-not-read-only
         # A prior restore marker does not prove the live mount stayed read-only.
         # Reassert the invariant on every exit while preserving the no-reboot
         # behavior for an already-completed restore.
         SYSTEM_RW=1
-        fail system-not-read-only
+        remount_system_ro || fail system-not-read-only
+        SYSTEM_RW=0
     fi
     current_boot=$(boot_id) || fail boot-id-unavailable
     valid_boot_id "$current_boot" || fail invalid-boot-id
     if [ "$current_boot" = "$done_boot" ]; then
+        if [ "$DEFER_REBOOT" = 1 ]; then
+            print -r -- "result=restored
+system=ro
+reboot=deferred
+manifest_sha256=$MANIFEST_SHA" > "$REPORT" || fail report-write
+            exit 0
+        fi
         fail reboot-not-confirmed
     fi
     print -r -- "result=success
@@ -235,7 +291,9 @@ fi
 # Treat /system as potentially writable before invoking remount. If the helper
 # partially succeeds or a signal arrives after the mount change but before the
 # subprocess returns, the EXIT/signal path must still attempt a read-only remount.
+[ "$VERIFY_ONLY" = 0 ] || fail restore-completion-missing
 SYSTEM_RW=1
+say 'phase=restore-start'
 if [ -n "$ROOT" ]; then
     "$HELPER" remount-rw || fail remount-rw
 else
@@ -280,9 +338,16 @@ while IFS='|' read -r target kind original_sha applied_sha orig_uid orig_gid ori
     fi
 done < "$MANIFEST"
 
+say 'phase=restore-network-adb'
+restore_network_adb || fail network-adb-restore-failed
+if [ "$RESTORE_SETTINGS:$SAVED_AP" = 1:1 ]; then
+    say 'phase=restore-saved-hotspot'
+    restore_saved_ap && [ "$(saved_ap)" = 0 ] || fail saved-hotspot-restore-failed
+fi
 "$HELPER" sync || sync
 SYSTEM_STATE=ro
 if ! remount_system_ro; then
+    [ "$DEFER_REBOOT" = 0 ] || fail system-remount-ro-required-before-removal
     # Running stock processes still map the replaced inodes, so Linux refuses
     # MS_RDONLY (EBUSY). Every target was verified above; the reboot below
     # mounts /system read-only again.
@@ -310,6 +375,14 @@ valid_boot_id "$CURRENT_BOOT" || fail invalid-boot-id
 (set -C; print -r -- "GEN5W-RESTORE-DONE|1|$MANIFEST_SHA|$CURRENT_BOOT" > "$TMP") || fail completion-marker
 mv "$TMP" "$DONE" || fail completion-marker
 "$HELPER" sync || sync
+if [ "$DEFER_REBOOT" = 1 ]; then
+    print -r -- "result=restored
+system=$SYSTEM_STATE
+reboot=deferred
+manifest_sha256=$MANIFEST_SHA" > "$REPORT" || fail report-write
+    say 'result=restored reboot=deferred; caller must finish removal before reboot'
+    exit 0
+fi
 print -r -- "result=restored
 restored=${seen#|}
 system=$SYSTEM_STATE

@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # Sourced only by the two authored app wrappers. No global preload or zygote hook.
 # A failed check runs the stock command (no LD_PRELOAD, no engine) instead of exiting.
-case "$GEN5W_PACKAGE" in com.daudio.app.dipo|com.google.android.projection.sink) :;; *) exec "$@";; esac
+case "$GEN5W_PACKAGE" in com.daudio.app.dipo|com.google.android.projection.sink|com.mnsoft.navi) :;; *) exec "$@";; esac
 case "$BASE" in /data/*) :;; *) exec "$@";; esac
 case "$BASE" in *[!a-zA-Z0-9_./-]*|*/../*|*/./*|*//*) exec "$@";; esac
 GEN5W_ENGINE_JAR=$BASE/dalvik/engine.jar

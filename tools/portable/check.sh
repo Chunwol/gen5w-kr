@@ -70,7 +70,7 @@ maps_device() {
 # Paths overlay.sh may bind; a restored stock boot must not still have one mounted.
 overlay_target() {
     case "$1" in
-    /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/etc/featurexml.cfg|/system/etc/permissions|/system/*/featurexml.cfg|/system/onebin/*/featurexml.cfg|/system/featurexml/*/featurexml.cfg) return 0;;
+    /system/app/Iap2ServerApp.odex|/system/app/HKMC_DiPO.odex|/system/app/HKMC_GPM.odex|/system/app/HKMC_WifiSettings.odex|/system/lib/libCarPlayAudio.so|/system/lib/libautoreceiver_infobank.so|/system/build.prop|/system/etc/qb_runtime.sh|/system/etc/featurexml.cfg|/system/etc/permissions|/system/*/featurexml.cfg|/system/onebin/*/featurexml.cfg|/system/featurexml/*/featurexml.cfg) return 0;;
     esac
     return 1
 }
@@ -120,7 +120,7 @@ mkdir_new() {
 }
 inventory() {
     local path file digest property
-    for path in /system/app/Iap2ServerApp.odex /system/app/HKMC_DiPO.apk /system/app/HKMC_DiPO.odex /system/app/HKMC_GPM.apk /system/app/HKMC_GPM.odex /system/app/HKMC_WifiSettings.odex /system/lib/libCarPlayAudio.so /system/build.prop /system/etc/featurexml.cfg; do
+    for path in /system/app/Iap2ServerApp.odex /system/app/HKMC_DiPO.apk /system/app/HKMC_DiPO.odex /system/app/HKMC_GPM.apk /system/app/HKMC_GPM.odex /system/app/HKMC_WifiSettings.odex /system/lib/libCarPlayAudio.so /system/lib/libautoreceiver_infobank.so /system/build.prop /system/etc/featurexml.cfg; do
         if [ -f "$ROOT$path" ] && [ ! -L "$ROOT$path" ]; then
             digest=$("$HELPER" sha256 "$ROOT$path") || return 1
             echo "$digest|$path"
@@ -135,7 +135,7 @@ inventory() {
 }
 properties() {
     local key value
-    for key in persist.ium.support wrap.com.daudio.app.dipo wrap.com.google.android.project; do
+    for key in persist.ium.support wrap.com.daudio.app.dipo wrap.com.google.android.project wrap.com.mnsoft.navi; do
         value=$(op prop "$key") || return 1
         print -r -- "$key|$value"
     done

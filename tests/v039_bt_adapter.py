@@ -12,6 +12,7 @@ class V039BtRelayAdapterStructureTest(unittest.TestCase):
         for token in (
             'HfDeviceBTCMManager.getLocalBTCMService',
             'IbtcmSppConnect',
+            'requestSppConnect',
             'IbtcmSppOutPutStreamWrite',
             'Iap2SvcTransportReadDone',
             'com.remote.service.IAP2SERVICE',

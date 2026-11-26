@@ -14,6 +14,14 @@ public final class SwitchRequest {
 
     private SwitchRequest() { }
 
+    public static boolean validProjectionKey(String key) {
+        return ProjectionSettings.KEY_CP_SPLIT.equals(key)
+                || ProjectionSettings.KEY_AA_SPLIT.equals(key)
+                || ProjectionSettings.KEY_CP_ENABLE.equals(key)
+                || ProjectionSettings.KEY_AA_ENABLE.equals(key)
+                || ProjectionSettings.KEY_CP_RHD.equals(key);
+    }
+
     /** A value other than "on" or "off" (for example "unknown") is left out of the file. */
     static String content(String wireless, String timer, String bluelink, String adb, String save, String remove) {
         StringBuilder b = new StringBuilder();
@@ -47,6 +55,17 @@ public final class SwitchRequest {
             synchronized (LOCK) {
                 return writeLocked(dir,null,null,null,null,null,null,
                         "boot="+boot+"\nexpires="+expires+"\ndebug="+(on ? "on" : "off")+"\n");
+            }
+        }
+        public synchronized boolean writeProjection(long sequence, File dir, long now, long expires, String boot,
+                String key, boolean on, String token) {
+            if (closed || sequence <= 0 || sequence != latest || now < 0 || expires < now
+                    || expires - now > 30 || expires > 999999999L || !validBoot(boot)
+                    || !validProjectionKey(key) || token == null || !token.matches("[0-9]{1,10}")
+                    || dir == null || !dir.isDirectory()) return false;
+            synchronized (LOCK) {
+                return writeLocked(dir, null, null, null, null, null, null,
+                        "boot=" + boot + "\nexpires=" + expires + "\npp=" + key + ":" + (on ? "on" : "off") + ":" + token + "\n");
             }
         }
         public synchronized boolean writeRecovery(long sequence, File dir, long now, long expires, String boot, String token) {

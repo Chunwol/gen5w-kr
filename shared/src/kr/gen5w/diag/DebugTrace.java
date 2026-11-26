@@ -13,6 +13,16 @@ public final class DebugTrace {
     private static final File FLAG = new File("/data/nemesis/gen5wkr.debug-on");
     private static long checked;
     private static boolean enabled;
+    private static boolean propertyEnabled() {
+        // App UIDs cannot necessarily traverse the NEMESIS state directory.
+        // The root debug service publishes only this owned, non-personal bit.
+        try {
+            Object value = Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class)
+                    .invoke(null, "debug.gen5wkr.trace", "0");
+            return "1".equals(value);
+        } catch (Exception unavailable) { return false; }
+    }
     private final LinkedHashMap<String, Stamp> stamps = new LinkedHashMap<String, Stamp>();
     private static final class Stamp {
         final long at; final String values;
@@ -24,6 +34,7 @@ public final class DebugTrace {
             checked = now;
             try { enabled = FLAG.isFile() && FLAG.getCanonicalFile().equals(FLAG.getAbsoluteFile()); }
             catch (Exception unavailable) { enabled = false; }
+            if (!enabled) enabled = propertyEnabled();
         }
         return enabled;
     }

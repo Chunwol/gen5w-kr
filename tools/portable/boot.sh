@@ -55,6 +55,11 @@ op() {
     ap-prepare) /system/bin/sh "$BASE/ap.sh" prepare;;
     ap-check) /system/bin/sh "$BASE/ap.sh" check;;
     ap-disable) /system/bin/sh "$BASE/ap.sh" disable;;
+    persistent-restore)
+        GEN5W_RECOVERY_USB_ROOT=/data/local/gen5w-portable/persistent/bootguard \
+        GEN5W_RECOVERY_DEFER_REBOOT=1 \
+        GEN5W_RECOVERY_RESTORE_SETTINGS=1 \
+            /system/bin/sh "$BASE/bootguard-restore.sh";;
     owned-overlays)
         local status=$(/system/bin/sh "$BASE/portable.sh" status) || return 1
         case "$status" in 'state|committed'*|'state|pending'*) return 0;; *) return 1;; esac;;
@@ -318,7 +323,7 @@ copy_payload() {
     local name output parent=$ROOT/data/local/gen5w-portable
     plain "$parent" && plain "$PAYLOAD" && plain "$PAYLOAD/bin" && plain "$PAYLOAD/dalvik" || return 1
     mkdir -p "$PAYLOAD/bin" "$PAYLOAD/dalvik" && chmod 755 "$parent" "$PAYLOAD" "$PAYLOAD/bin" "$PAYLOAD/dalvik" || return 1
-    for name in runtime.sh overlay.sh framework.sh wrap-common.sh wrap-dipo.sh wrap-gpm.sh wrap-probe.sh bin/dex-patch dalvik/engine.jar dalvik/adapter.jar dalvik/libgen5whook.so dalvik/hook-vm-test.jar; do
+    for name in runtime.sh overlay.sh framework.sh wrap-common.sh wrap-dipo.sh wrap-gpm.sh wrap-navi.sh wrap-probe.sh bin/dex-patch dalvik/engine.jar dalvik/adapter.jar dalvik/libgen5whook.so dalvik/hook-vm-test.jar; do
         plain "$BASE/$name" && [ -f "$BASE/$name" ] || return 1
         output=$PAYLOAD/$name
         plain "$output" && plain "$output.new" || return 1
@@ -943,6 +948,16 @@ disable)
     [ "$#" = 0 ] || fail arguments
     put enabled 0 || fail disable
     stop_session || fail 'session has not stopped; auto-start is disabled'
+    # Independent recovery lives outside the package, including when NEMESIS
+    # already removed package files after a failed preuninstall hook.
+    network_state=$ROOT/data/local/gen5w-portable/network-adb
+    if [ -e "$network_state/journal" ] || [ -L "$network_state/journal" ]; then
+        plain "$network_state/journal" && [ -f "$network_state/journal" ] &&
+        plain "$network_state/restore.sh" && [ -f "$network_state/restore.sh" ] || fail 'unsafe network ADB recovery'
+        network_shell=/system/bin/sh
+        [ -z "$ROOT" ] || network_shell=$(command -v mksh) || fail 'network recovery shell'
+        PORTABLE_TEST_ROOT="$ROOT" "$network_shell" "$network_state/restore.sh" restore || fail 'network ADB recovery failed'
+    fi
     count=0; deadline 75
     while ! lock; do count=$((count+1)); [ "$count" -lt 75 ] && within || fail 'startup still busy; auto-start is disabled'; op pause; done
     # A surviving supervised worker may not have applied anything yet. Always
@@ -953,6 +968,19 @@ disable)
     done
     if [ "$(cat "$STATE/reason" 2>/dev/null)" != disabled-restored ] && op dirty; then
         copy_rescue && bounded recover && wait_framework || fail 'auto-start disabled; inspect restore/readiness status or reboot'
+    fi
+    # The legacy overlay journal cannot describe direct /system writes. A
+    # removal caller must restore and verify the immutable persistent manifest
+    # before it can report success or delete the owning package. Defer reboot
+    # so NEMESIS can finish its uninstall; the original-state verifier still
+    # requires a different boot before admitting the next installation.
+    persistent_manifest=$ROOT/data/local/gen5w-portable/persistent/recovery/manifest
+    if [ -e "$ROOT/data/local/gen5w-portable/persistent/manifest" ] && [ ! -f "$persistent_manifest" ]; then
+        fail 'persistent recovery manifest missing; package removal must stop'
+    fi
+    if [ -e "$persistent_manifest" ] || [ -L "$persistent_manifest" ]; then
+        plain "$persistent_manifest" && [ -f "$persistent_manifest" ] || fail 'unsafe persistent recovery manifest'
+        op persistent-restore || fail 'persistent /system restore incomplete; package removal must stop'
     fi
     op ap-disable || fail 'automatic application disabled; AP marker restoration failed'
     put reason disabled-restored

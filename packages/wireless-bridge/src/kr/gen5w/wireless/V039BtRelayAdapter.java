@@ -48,6 +48,8 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
     private long generation;
     private boolean bound;
     private boolean registered;
+    private boolean sppRequested;
+    private boolean sppConnected;
     /** Address whose last attempt waited for the stock SPP link without getting it. */
     private String waitedFor;
 
@@ -92,6 +94,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             }
             generation = ownerGeneration;
             address = candidateAddress;
+            sppConnected = false;
             manager = btcm;
         }
         boolean result;
@@ -104,8 +107,11 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             // wait for that link (onBTCMSppStatusChanged) instead of starting a second
             // connect; ask BTCM to connect only if a previous wait got nothing.
             synchronized (lock) {
+                alreadyConnected = alreadyConnected || sppConnected;
+                if (alreadyConnected) sppConnected = true;
                 request = !alreadyConnected && candidateAddress.equals(waitedFor);
                 waitedFor = alreadyConnected ? null : candidateAddress;
+                sppRequested = request;
             }
             result = alreadyConnected || !request || manager.IbtcmSppConnect(candidateAddress);
             android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=" + (alreadyConnected ? "already-connected"
@@ -114,6 +120,47 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         if (!result) fail(ownerGeneration, Failure.SPP_CONNECT);
         else if (alreadyConnected && pipe.attach(ownerGeneration)) listener.sppConnected(ownerGeneration);
         return result;
+    }
+
+    /** Actively asks stock BTCM to open SPP inside the first attempt if stock BTCM stayed idle. */
+    public boolean requestSppConnect(long ownerGeneration) {
+        HfDeviceBTCMManager manager;
+        String peer;
+        synchronized (lock) {
+            if (ownerGeneration <= 0 || generation != ownerGeneration || address == null
+                    || btcm == null || !registered || sppRequested || sppConnected || pipe.isActive()) {
+                return false;
+            }
+            sppRequested = true;
+            manager = btcm;
+            peer = address;
+        }
+        try {
+            if (manager.IbtcmIsSppConnectedDevice(peer)) {
+                synchronized (lock) {
+                    if (generation != ownerGeneration) return false;
+                    waitedFor = null;
+                    sppConnected = true;
+                }
+                if (pipe.attach(ownerGeneration)) listener.sppConnected(ownerGeneration);
+                android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result=already-connected device=" + peer);
+                return true;
+            }
+            synchronized (lock) {
+                if (generation != ownerGeneration) return false;
+                if (sppConnected || pipe.isActive()) {
+                    waitedFor = null;
+                    return true;
+                }
+            }
+            boolean requested = manager.IbtcmSppConnect(peer);
+            android.util.Log.i("Gen5wWireless", "path=relay event=spp-connect result="
+                    + (requested ? "fallback-requested" : "fallback-rejected") + " device=" + peer);
+            return requested;
+        } catch (RuntimeException e) {
+            kr.gen5w.diag.SafeDiagnostic.failure("bt.spp.connect.fallback", e, ownerGeneration);
+            return false;
+        }
     }
 
     public boolean startIap2(long ownerGeneration, int component) {
@@ -201,7 +248,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
         }
         try { if (bound) context.unbindService(iap2Connection); } catch (RuntimeException ignored) { }
         synchronized (lock) {
-            btcm = null; iap2 = null; address = null; generation = 0; bound = false; registered = false;
+            btcm = null; iap2 = null; address = null; generation = 0; bound = false; registered = false; sppRequested = false; sppConnected = false;
         }
     }
 
@@ -226,10 +273,13 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
             synchronized (lock) {
                 if (!matches(device)) return;
                 owner = generation;
+                if (status == SPP_CONNECTED) {
+                    waitedFor = null;
+                    sppConnected = true;
+                }
             }
             android.util.Log.i("Gen5wWireless", "path=relay event=spp-status result=" + status + " owner=" + owner);
             if (status == SPP_CONNECTED) {
-                synchronized (lock) { waitedFor = null; }
                 if (pipe.attach(owner)) listener.sppConnected(owner);
             } else if (owner != 0 && pipe.isActive()) {
                 // Only 2 (connected) is seen in the car log. Before the link is attached
@@ -372,7 +422,7 @@ public final class V039BtRelayAdapter implements BtRelayPipe.SppEndpoint, BtRela
 
     private void clear(long owner) {
         synchronized (lock) {
-            if (generation == owner) { generation = 0; address = null; }
+            if (generation == owner) { generation = 0; address = null; sppRequested = false; sppConnected = false; }
         }
     }
 }

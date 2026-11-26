@@ -89,6 +89,13 @@ def helper_main(args):
         mount.write_text("ro")
     elif cmd == "is-ro":
         return 0 if mount.read_text() == "ro" else 1
+    elif cmd == "saved-ap-get":
+        print((root / ".saved-ap").read_text().strip())
+    elif cmd == "saved-ap-off":
+        event(cmd)
+        if os.environ.get("GEN5W_FAIL_SAVED_AP"):
+            return 1
+        (root / ".saved-ap").write_text("0")
     elif cmd == "sync":
         event(cmd)
     elif cmd == "reboot":
@@ -188,7 +195,7 @@ class RecoveryRestoreTest(unittest.TestCase):
             body += "|".join(row + [prior]) + "\n"
         self.recovery.joinpath("manifest").write_text(body, encoding="ascii")
 
-    def run_restore(self, **extra_env):
+    def run_restore(self, args=(), **extra_env):
         env = os.environ.copy()
         env.update({
             "GEN5W_RECOVERY_TEST_ROOT": str(self.root),
@@ -196,7 +203,7 @@ class RecoveryRestoreTest(unittest.TestCase):
             "GEN5W_RECOVERY_TEST_HELPER": str(self.helper),
         })
         env.update(extra_env)
-        return subprocess.run(["mksh", str(RESTORE)], env=env, text=True,
+        return subprocess.run(["mksh", str(RESTORE), *args], env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
 
     def events(self):
@@ -211,6 +218,34 @@ class RecoveryRestoreTest(unittest.TestCase):
         self.assertEqual((self.root / ".mount-state").read_text(), "ro")
         self.assertEqual(self.events().count("reboot"), 1)
         self.assertTrue((self.usb / "GEN5W-RECOVERY-RESULT.txt").is_file())
+
+    def test_native_aa_library_is_immutable_recovery_target(self):
+        target = "/system/lib/libautoreceiver_infobank.so"
+        self.add_file(target, b"authored-AA-extension", b"stock-native-AA")
+        self.write_manifest()
+        result = self.run_restore()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.live(target).read_bytes(), b"stock-native-AA")
+
+    def test_retained_network_restore_precedes_completion_and_reboot(self):
+        state = self.root / "data/local/gen5w-portable/network-adb"
+        state.mkdir(parents=True)
+        (state / "journal").write_text("owned-network-values")
+        helper = state / "restore.sh"
+        helper.write_text('echo network-restored >> "$PORTABLE_TEST_ROOT/.events"\nrm "$PORTABLE_TEST_ROOT/data/local/gen5w-portable/network-adb/journal"\n')
+        result = self.run_restore()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse((state / "journal").exists())
+        self.assertLess(self.events().index("network-restored"), self.events().index("reboot"))
+
+    def test_missing_network_restore_helper_blocks_success(self):
+        state = self.root / "data/local/gen5w-portable/network-adb"
+        state.mkdir(parents=True)
+        (state / "journal").write_text("owned-network-values")
+        result = self.run_restore()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("reboot", self.events())
+        self.assertFalse((self.recovery / "restore.done").exists())
 
     def test_restores_dongle_stand_in_to_stock_wifi_module(self):
         target = "/system/wifi/bcmdhd.ko"
@@ -494,6 +529,62 @@ class RecoveryRestoreTest(unittest.TestCase):
         report = (self.usb / "GEN5W-RECOVERY-RESULT.txt").read_text()
         self.assertIn("reboot=confirmed", report)
 
+    def test_verify_only_never_starts_an_uncompleted_restore(self):
+        result = self.run_restore(args=("--verify-only",))
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.live(TARGET).read_bytes(), b"patched-dipo")
+        self.assertNotIn("reboot", self.events())
+        self.assertNotIn("remount-rw", self.events())
+
+    def test_verify_only_confirms_rebooted_originals_without_writes(self):
+        self.assertEqual(self.run_restore().returncode, 0)
+        before = self.events()
+        result = self.run_restore(args=("--verify-only",))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.events(), before)
+        (self.root / ".mount-state").write_text("rw")
+        result = self.run_restore(args=("--verify-only",))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.events(), before)
+        self.assertEqual((self.root / ".mount-state").read_text(), "rw")
+
+    def test_deferred_restore_returns_to_uninstaller_without_reboot(self):
+        result = self.run_restore(GEN5W_RECOVERY_DEFER_REBOOT="1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("reboot", self.events())
+        self.assertEqual(self.live(TARGET).read_bytes(), b"stock-dipo")
+        self.assertFalse(self.live(ABSENT).exists())
+        self.assertIn("reboot=deferred", (self.usb / "GEN5W-RECOVERY-RESULT.txt").read_text())
+        again = self.run_restore(GEN5W_RECOVERY_DEFER_REBOOT="1")
+        self.assertEqual(again.returncode, 0, again.stdout)
+        self.assertNotIn("reboot", self.events())
+        normal = self.run_restore(args=("--verify-only",))
+        self.assertNotEqual(normal.returncode, 0)
+        self.assertIn("reboot-not-confirmed", normal.stdout)
+
+    def test_deferred_restore_cannot_claim_success_with_rw_system(self):
+        result = self.run_restore(GEN5W_RECOVERY_DEFER_REBOOT="1", GEN5W_FAIL_RO="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("reboot", self.events())
+
+    def test_field_restore_restores_admitted_hotspot_setting_before_completion(self):
+        (self.root / ".saved-ap").write_text("1")
+        result = self.run_restore(GEN5W_RECOVERY_RESTORE_SETTINGS="1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.root / ".saved-ap").read_text(), "0")
+        self.assertLess(self.events().index("saved-ap-off"), self.events().index("reboot"))
+        (self.root / ".saved-ap").write_text("1")
+        result = self.run_restore(args=("--verify-only",), GEN5W_RECOVERY_RESTORE_SETTINGS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / ".saved-ap").read_text(), "1")
+
+    def test_failed_saved_setting_restore_cannot_publish_completion(self):
+        (self.root / ".saved-ap").write_text("1")
+        result = self.run_restore(GEN5W_RECOVERY_RESTORE_SETTINGS="1", GEN5W_FAIL_SAVED_AP="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.recovery / "restore.done").exists())
+        self.assertNotIn("reboot", self.events())
+
     def test_success_marker_makes_dispatch_idempotent(self):
         self.assertEqual(self.run_restore().returncode, 0)
         count = self.events().count("reboot")
@@ -530,7 +621,7 @@ class RecoveryRestoreTest(unittest.TestCase):
         self.assertFalse(self.live(ABSENT).exists())
         self.assertEqual(self.events().count("reboot"), 1)
 
-    def test_success_marker_reentry_with_rw_system_remounts_ro_without_success(self):
+    def test_success_marker_reentry_with_rw_system_reasserts_ro_before_success(self):
         first = self.run_restore()
         self.assertEqual(first.returncode, 0, first.stdout)
         self.assertTrue((self.recovery / "restore.done").is_file())
@@ -539,12 +630,12 @@ class RecoveryRestoreTest(unittest.TestCase):
 
         second = self.run_restore()
 
-        self.assertNotEqual(second.returncode, 0)
+        self.assertEqual(second.returncode, 0, second.stdout)
         self.assertIn("remount-ro", self.events())
         self.assertEqual((self.root / ".mount-state").read_text(), "ro")
         self.assertEqual(self.events().count("reboot"), reboot_count)
         report = (self.usb / "GEN5W-RECOVERY-RESULT.txt").read_text()
-        self.assertNotIn("result=success", report)
+        self.assertIn("result=success", report)
 
     def test_success_marker_does_not_hide_later_target_change(self):
         self.assertEqual(self.run_restore().returncode, 0)
