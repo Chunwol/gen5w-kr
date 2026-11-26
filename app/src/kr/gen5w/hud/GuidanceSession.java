@@ -13,6 +13,7 @@ public final class GuidanceSession {
     public interface Sink { boolean turns(byte[] frame); }
     public interface LaneSink extends Sink { boolean lanes(byte[] frame); }
     public interface TbtSink extends LaneSink { boolean tbt(int icon, int secondIcon, long distanceMeters); }
+    public interface StockSink extends TunnelSink { boolean tbt(Maneuver maneuver, int icon, int secondIcon, long distanceMeters); }
     /** Optional: remaining distance to the destination; -1 clears. */
     public interface RemainSink extends TbtSink { boolean remaining(long distanceMeters); }
     /** Optional: destination name; empty string clears. */
@@ -40,6 +41,8 @@ public final class GuidanceSession {
     private boolean desiredTbt;
     private int desiredIcon, desiredSecondIcon;
     private long desiredDistance;
+    private Maneuver desiredManeuver;
+    private String sentManeuverSig;
     private boolean desiredTunnelActive, sentTunnelActive, requestedTunnelActive;
     private long desiredTunnelBucket = -1L, sentTunnelBucket = Long.MIN_VALUE;
     private final Map<Long, GuidanceParser.Lanes> laneSets = new LinkedHashMap<Long, GuidanceParser.Lanes>();
@@ -141,6 +144,13 @@ public final class GuidanceSession {
         if (update.hasDistance) distance = update.distanceToNext;
         if (update.hasRemaining && (update.distanceRemaining >= 0 || !phoneRoute)) remaining = update.distanceRemaining;
         if (update.hasTime && (update.timeRemaining >= 0 || !phoneRoute)) { timeLeft = update.timeRemaining; timeLeftAtMs = System.currentTimeMillis(); }
+        // Naver CarPlay sends no TimeRemaining (-1) but a valid EstimatedTimeOfArrival (id 5, Unix
+        // seconds; 2026-11-26 car log: 19:28 start -> ETA 20:04, arrived 20:05). Use it only then.
+        if ((!update.hasTime || update.timeRemaining < 0) && update.etaRaw > 0) {
+            long now = System.currentTimeMillis();
+            long left = update.etaRaw - now / 1000L;
+            if (left >= 0 && left <= 48L * 3600L) { timeLeft = left; timeLeftAtMs = now; }
+        }
         if (update.hasDestination) destination = update.destination == null ? "" : update.destination;
         if (update.hasLaneIndex) laneIndex = update.laneIndex;
         if (update.hasLaneTotal) laneTotal = update.laneTotal;
@@ -184,7 +194,7 @@ public final class GuidanceSession {
         distance = -1; remaining = -1; destination = ""; timeLeft = -1;
         emit(TurnFrame.clear());
         emitLanes(LaneFrame.clear());
-        emitTbt(0, 0, -1);
+        emitTbt(null, 0, 0, -1);
         emitRemaining(-1);
         emitDestination("");
         emitTime(-1);
@@ -204,7 +214,7 @@ public final class GuidanceSession {
         }
         int firstCode = selectedIcon < 0 ? 0 : selectedIcon;
         int secondCode = secondIcon < 0 ? 0 : secondIcon;
-        emitTbt(firstCode, secondCode, selectedIcon < 0 ? -1 : distance);
+        emitTbt(active ? selected : null, firstCode, secondCode, selectedIcon < 0 ? -1 : distance);
         emitRemaining(phoneRoute ? remaining : -1);
         emitDestination(phoneRoute ? destination : "");
         emitTime(phoneRoute ? timeLeft : -1);
@@ -230,12 +240,35 @@ public final class GuidanceSession {
         desiredFrame = frame;
         if (outputAllowed && !Arrays.equals(lastFrame, frame) && sink.turns(frame.clone())) lastFrame = frame;
     }
-    private void emitTbt(int icon, int secondIcon, long meters) {
-        desiredTbt = true; desiredIcon = icon; desiredSecondIcon = secondIcon; desiredDistance = meters;
-        if (outputAllowed && sink instanceof TbtSink && (icon != sentIcon || secondIcon != sentSecondIcon || meters != sentDistance)
-                && ((TbtSink)sink).tbt(icon, secondIcon, meters)) {
-            sentIcon = icon; sentSecondIcon = secondIcon; sentDistance = meters;
+    private void emitTbt(Maneuver maneuver, int icon, int secondIcon, long meters) {
+        desiredTbt = true;
+        desiredManeuver = maneuver == null ? null : maneuver.copy();
+        desiredIcon = icon;
+        desiredSecondIcon = secondIcon;
+        desiredDistance = meters;
+        if (!outputAllowed) return;
+        String sig = maneuverSig(desiredManeuver);
+        boolean changed = icon != sentIcon || secondIcon != sentSecondIcon || meters != sentDistance
+                || (sink instanceof StockSink && !sig.equals(sentManeuverSig));
+        if (!changed) return;
+        boolean ok = false;
+        if (sink instanceof StockSink) {
+            ok = ((StockSink) sink).tbt(desiredManeuver == null ? null : desiredManeuver.copy(), icon, secondIcon, meters);
+        } else if (sink instanceof TbtSink) {
+            ok = ((TbtSink) sink).tbt(icon, secondIcon, meters);
         }
+        if (ok) {
+            sentIcon = icon;
+            sentSecondIcon = secondIcon;
+            sentDistance = meters;
+            sentManeuverSig = sig;
+        }
+    }
+    private static String maneuverSig(Maneuver m) {
+        if (m == null) return "";
+        return m.component + "|" + m.index + "|" + m.type + "|" + m.drivingSide + "|" + m.junctionType
+                + "|" + m.roundaboutExit + "|" + m.exitAngle + "|" + m.hasJunctionElementAngles
+                + "|" + Arrays.toString(m.junctionElementAngles) + "|" + m.afterRoad + "|" + m.desc;
     }
     private long desiredTime = Long.MIN_VALUE;
     private void emitTime(long seconds) {
@@ -299,7 +332,7 @@ public final class GuidanceSession {
     public void retryOutput() {
         if (desiredFrame != null) emit(desiredFrame);
         if (desiredLanes != null) emitLanes(desiredLanes);
-        if (desiredTbt) emitTbt(desiredIcon, desiredSecondIcon, desiredDistance);
+        if (desiredTbt) emitTbt(desiredManeuver, desiredIcon, desiredSecondIcon, desiredDistance);
         if (desiredRemaining != Long.MIN_VALUE) emitRemaining(desiredRemaining);
         if (desiredDestination != null) emitDestination(desiredDestination);
         if (desiredTime != Long.MIN_VALUE) emitTime(desiredTime);
@@ -320,6 +353,7 @@ public final class GuidanceSession {
     public void invalidateOutput() {
         lastFrame = null; lastLanes = null;
         sentIcon = Integer.MIN_VALUE; sentSecondIcon = Integer.MIN_VALUE; sentDistance = Long.MIN_VALUE;
+        sentManeuverSig = null;
         sentRemaining = Long.MIN_VALUE; sentDestination = null; sentTimeMinute = Long.MIN_VALUE;
         sentTunnelBucket = Long.MIN_VALUE;
     }

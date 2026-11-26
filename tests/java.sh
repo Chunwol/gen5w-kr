@@ -78,3 +78,4 @@ PY=$(command -v python3 || command -v python)
 java -cp "$work" AaWireFrameTest
 java -cp "$work" AaNavigationParserTest
 java -cp "$work" AaNavigationStateTest
+java -cp "$work" StockTurnTest

@@ -49,7 +49,7 @@ for file in stop owner epoch ready worker-broker.log worker-owner.log workers; d
 process_key() {
     local pid=$1 line rest count=0
     case "$pid" in ''|*[!0-9]*) return 1;; esac
-    IFS= read -r line < "/proc/$pid/stat" || return 1
+    [ -r "/proc/$pid/stat" ] && { IFS= read -r line < "/proc/$pid/stat"; } 2>/dev/null || return 1
     rest=${line##*) }; [ "$rest" != "$line" ] || return 1
     set -- $rest; [ "$#" -ge 20 ] || return 1
     case "$1" in Z|X|x) return 1;; esac

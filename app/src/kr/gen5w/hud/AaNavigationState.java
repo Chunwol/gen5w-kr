@@ -11,10 +11,11 @@ public final class AaNavigationState {
   public final String road;
   public final boolean tunnel;
   public final boolean clear;
+  public final Maneuver maneuver;
   private final byte[] laneBytes;
-  private Snapshot(int icon,int second,long meters,String road,boolean tunnel,byte[] lanes,boolean clear){
+  private Snapshot(int icon,int second,long meters,String road,boolean tunnel,byte[] lanes,boolean clear,Maneuver maneuver){
    this.icon=icon;secondIcon=second;distanceMeters=meters;this.road=road;this.tunnel=tunnel;
-   laneBytes=lanes.clone();this.clear=clear;
+   laneBytes=lanes.clone();this.clear=clear;this.maneuver=maneuver==null?null:maneuver.copy();
   }
   public byte[] lanes(){return laneBytes.clone();}
  }
@@ -57,8 +58,8 @@ public final class AaNavigationState {
   if(distance>=0)return snapshot();
   return changed && hadGuidance?clear():null;
  }
- private Snapshot snapshot(){return new Snapshot(first.icon(),second==null?0:Math.max(0,second.icon()),distance,first.maneuver.afterRoad,ClusterIcon.isTunnelText(first.maneuver.afterRoad,first.maneuver.desc),first.laneFrame(),false);}
- private static Snapshot clear(){return new Snapshot(0,0,-1,null,false,LaneFrame.clear(),true);}
+ private Snapshot snapshot(){return new Snapshot(first.icon(),second==null?0:Math.max(0,second.icon()),distance,first.maneuver.afterRoad,ClusterIcon.isTunnelText(first.maneuver.afterRoad,first.maneuver.desc),first.laneFrame(),false,first.maneuver);}
+ private static Snapshot clear(){return new Snapshot(0,0,-1,null,false,LaneFrame.clear(),true,null);}
  private static boolean same(AaNavigationParser.Step a,AaNavigationParser.Step b){
   return a.aaType==b.aaType && a.roundaboutExit==b.roundaboutExit && a.roundaboutAngle==b.roundaboutAngle
    && equal(a.maneuver.afterRoad,b.maneuver.afterRoad) && equal(a.maneuver.desc,b.maneuver.desc);

@@ -62,6 +62,16 @@ public class AaNavigationParserTest {
   bad(b(10,9,1));bad(b(0));bad(b(10,128,128,128,128,128,128,128,128,128,2));
   bad(b(120,128,128,128,128,128,128,128,128,128,2));
   for(int i=1;i<turn.length;i++)bad(java.util.Arrays.copyOf(field(1,turn),i));
+  // Roundabout AA maneuver geometry reaches StockTurn via AaNavigationState and AaRouteCache.
+  AaNavigationParser.Event rbEv=AaNavigationParser.parse(0x8006,field(1,field(1,cat(b(8,35),b(16,2),b(24,90)))));
+  AaNavigationState rbState=new AaNavigationState();
+  rbState.accept(rbEv);
+  AaNavigationState.Snapshot rbSnap=rbState.accept(AaNavigationParser.parse(0x8007,b(10,5,10,3,8,244,1)));
+  ok(rbSnap!=null && rbSnap.maneuver!=null && rbSnap.maneuver.junctionType==1 && rbSnap.maneuver.roundaboutExit==2 && rbSnap.maneuver.exitAngle==90);
+  AaRouteCache rbCache=new AaRouteCache(); rbCache.setOutputAllowed(true);
+  ok(rbCache.update(rbSnap.icon,rbSnap.secondIcon,rbSnap.distanceMeters,rbSnap.road,rbSnap.tunnel,rbSnap.maneuver,1000L));
+  StockTurn.Frame rbFrame=StockTurn.build(rbCache.maneuver(),rbCache.icon(),rbCache.distance(),false);
+  ok(rbFrame.displayType==StockTurn.DISPLAY_ROTARY_CCW && rbFrame.directionType==12 && rbFrame.sideStreet==0x0011 && rbFrame.combiSideStreet==0);
   System.out.println("AaNavigationParserTest OK");
  }
 }

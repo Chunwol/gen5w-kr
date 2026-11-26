@@ -139,7 +139,7 @@ uptime_s() {
 process_key() {
     local pid=$1 line rest count=0
     case "$pid" in ''|*[!0-9]*) return 1;; esac
-    IFS= read -r line 2>/dev/null < "/proc/$pid/stat" || return 1
+    [ -r "/proc/$pid/stat" ] && { IFS= read -r line < "/proc/$pid/stat"; } 2>/dev/null || return 1
     rest=${line##*) }; [ "$rest" != "$line" ] || return 1
     set -- $rest; [ "$#" -ge 20 ] || return 1
     case "$1" in Z|X|x) return 1;; esac
@@ -200,7 +200,7 @@ read_portable() {
     case "$P_RUNTIME" in enabling|pending|committed|failed)
         [ -z "$BOOT" ] || [ "$(small "$PSTATE/runtime/boot")" != "$BOOT" ] || RUNTIME_LIVE=1;; esac
     P_SESSION=stopped
-    if IFS='|' read -r epoch_boot epoch_key 2>/dev/null < "$PSTATE/session/epoch" && ready=$(small "$PSTATE/session/ready") &&
+    if [ -r "$PSTATE/session/epoch" ] && { IFS='|' read -r epoch_boot epoch_key < "$PSTATE/session/epoch"; } 2>/dev/null && ready=$(small "$PSTATE/session/ready") &&
        [ -n "$BOOT" ] && [ "$epoch_boot" = "$BOOT" ] && [ "$ready" = "$epoch_boot|$epoch_key" ] &&
        [ "$(process_key "${epoch_key%%:*}")" = "$epoch_key" ] && plain "$PSTATE/session/epoch"; then P_SESSION=running; fi
 }
@@ -230,13 +230,13 @@ ap_blocked() { # what session.sh/ap.sh would refuse before starting the host
 restore_live() { # worker lock: "<boot>|<pid:starttime>"
     local owner_boot owner_key
     [ -d "$RLOCK" ] && [ ! -L "$RLOCK" ] || return 1
-    IFS='|' read -r owner_boot owner_key 2>/dev/null < "$RLOCK/owner" || return 0
+    [ -r "$RLOCK/owner" ] && { IFS='|' read -r owner_boot owner_key < "$RLOCK/owner"; } 2>/dev/null || return 0
     [ "$owner_boot" = "$BOOT" ] && [ "$(process_key "${owner_key%%:*}")" = "$owner_key" ]
 }
 pp_live() { # worker lock: "<boot>|<pid:starttime>"
     local owner_boot owner_key
     [ -d "$PPLOCK" ] && [ ! -L "$PPLOCK" ] && [ -f "$PPLOCK/owner" ] && [ ! -L "$PPLOCK/owner" ] || return 1
-    IFS='|' read -r owner_boot owner_key 2>/dev/null < "$PPLOCK/owner" || return 1
+    { IFS='|' read -r owner_boot owner_key < "$PPLOCK/owner"; } 2>/dev/null || return 1
     [ -n "$owner_boot" ] && [ -n "$owner_key" ] || return 1
     [ "$owner_boot" = "$BOOT" ] && [ "$(process_key "${owner_key%%:*}")" = "$owner_key" ]
 }

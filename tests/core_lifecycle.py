@@ -37,15 +37,31 @@ methods = '\n'.join(method(sig) for sig in [
     'private void maintainTunnelPe00()', 'private void yieldAaToCarPlay()',
     'private void finalTunnelClear()', 'private void shutdownOutputs()', 'private void yieldToStock(',
     'private void flushAaClear()', 'private void renderAaTbt(', 'private void renderAaTbtWithTunnel(final int icon, final int secondIcon, final long dist, final String road, final boolean tunnel) {',
+    'private void renderAaTbtWithTunnel(final int icon, final int secondIcon, final long dist, final String road, final boolean tunnel, final Maneuver maneuver) {',
     'private void renderAaLaneNow(byte[] frame)', 'private void renderAaLane(', 'private void writeAaLanes(', 'private void writeAaRoute()',
     'private void retryAaOutput()', 'private void expireAaRoute()'])
-# The production route cache, nested so the harness stays a single file.
+# The production route cache and stock turn builder, nested so the harness stays self-contained.
 cache = (root/'app/src/kr/gen5w/hud/AaRouteCache.java').read_text(encoding='utf-8')
 cache = cache[cache.index('public final class AaRouteCache'):].replace('public final class', 'static final class', 1)
+maneuver_src = (root/'app/src/kr/gen5w/hud/Maneuver.java').read_text(encoding='utf-8')
+maneuver_src = maneuver_src[maneuver_src.index('public final class Maneuver'):].replace('public final class', 'static final class', 1)
+stockturn_src = (root/'app/src/kr/gen5w/hud/StockTurn.java').read_text(encoding='utf-8')
+stockturn_src = stockturn_src[stockturn_src.index('public final class StockTurn'):].replace('public final class', 'static final class', 1)
 harness = r'''
 import java.util.*;
 public class CoreLifecycleTest {
     static class Handler { void post(Runnable r) { r.run(); } }
+    static class ClusterIcon {
+        static final int OVERPASS_ENTRY_LC=0x58, OVERPASS_ENTRY_R=0x57, OVERPASS_SIDE_L=0x52, OVERPASS_SIDE_R=0x51;
+        static final int UNDERPASS_ENTRY_LC=0x5b, UNDERPASS_ENTRY_R=0x5a, UNDERPASS_SIDE_L=0x55, UNDERPASS_SIDE_R=0x54;
+        static final int IC_ENTER_C=0xa0, IC_ENTER_R=0xa1, IC_ENTER_L=0xa2, IC_EXIT_C=0xa3, IC_EXIT_R=0xa4, IC_EXIT_L=0xa5;
+        static final int TOLL=0xb2, REST_AREA=0xb7;
+        static int of(Maneuver m) { return -1; }
+        static boolean isTunnelText(String a, String b) {
+            return (a != null && a.contains("터널")) || (b != null && b.contains("터널"));
+        }
+    }
+    static class AaNavigationParser { static final int FORK_RIGHT=0xad, FORK_LEFT=0xae; }
     static class NavigationCluster {
         static class CrossroadName { String name; }
         static int subWrites, subError; static float subDistance;
@@ -53,15 +69,14 @@ public class CoreLifecycleTest {
             subWrites++; subDistance=d; subError=err;
         }
         // Static: production code replaces a failed binding with a new instance.
-        static int clears, turns, laneWrites, failTbt, failLanes, lastIcon, lastSideStreet, pe00Writes, pe00Exist, failPe00, pe00Background, laneClears, trapWrites; static long lastDist, pe00Dist;
-        static void reset() { clears=turns=laneWrites=failTbt=failLanes=lastIcon=lastSideStreet=pe00Writes=pe00Exist=failPe00=pe00Background=laneClears=trapWrites=0; lastDist=0; pe00Dist=-1; }
+        static int clears, turns, laneWrites, failTbt, failLanes, lastIcon, lastSideStreet, lastCombi, pe00Writes, pe00Exist, failPe00, pe00Background, laneClears, trapWrites; static long lastDist, pe00Dist; static float lastDirection;
+        static void reset() { clears=turns=laneWrites=failTbt=failLanes=lastIcon=lastSideStreet=lastCombi=pe00Writes=pe00Exist=failPe00=pe00Background=laneClears=trapWrites=0; lastDist=0; pe00Dist=-1; lastDirection=0f; }
         NavigationCluster(Object ctx) {}
         void updateTPCrossroadName(CrossroadName name) {}
         void updateTBTInfo(int i,int side,float a,float b,int c,int d,int e,int f,int g) {
             if (failTbt > 0) { failTbt--; throw new IllegalStateException("cluster binder died"); }
             if (i == 0) throw new AssertionError("displayType 0 is invalid/spinner on V039");
-            if (side != 0) throw new AssertionError("sideStreet must be 0 in V039 TBTInfo: " + side);
-            lastSideStreet = side;
+            lastSideStreet = side; lastDirection = a; lastCombi = d;
             if (i == TurnFrame.TBT_DISPLAY_IDLE) clears++; else { turns++; lastIcon = i; lastDist = (long) b; }
         }
         void updateTPTurnListNew(byte[] frame) {}
@@ -97,6 +112,7 @@ public class CoreLifecycleTest {
         static float tbtDistanceValue(long d) { return d; }
         static int tbtDistanceError(long d) { return 0; }
         static int tbtDistanceScale(long d) { return 0; }
+        static int tbtDisplayType(int icon) { return icon; }
         static int tbtBarGraphLevel(int icon, long d) { return 0; }
         static int tbtBarGraphError(int icon, long d) { return icon <= 0 ? BAR_ERR_INVALID : (d > 300L ? -2 : 0); }
     }
@@ -126,7 +142,8 @@ public class CoreLifecycleTest {
         dist2cCalls++; lastDist2c = m;
         return true;
     }
-    boolean allowed=true, aaClearPending, mediaOsdActive;
+    boolean aaClearPending, mediaOsdActive, allowed=true;
+    boolean cpStockNear, aaStockNear; String cpNearManeuverKey, aaNearManeuverKey;
     boolean pe00Missing, phoneTunnelSent;
     long lastPe00Bucket = Long.MIN_VALUE, lastPe00Ms = Long.MIN_VALUE;
     boolean cpTunnelWant, aaTunnelWant;
@@ -170,7 +187,13 @@ public class CoreLifecycleTest {
         r.session.active=false; r.allowed=false; r.renderAaTbt(68,0,400,"road");
         check(r.shared.turns==1, "no AA write while stock owns display");
         r.allowed=true; r.renderAaTbt(66,65,6000,"far");
-        check(r.shared.lastIcon==66 && r.shared.lastDist==6000, "AA far maneuver keeps its real icon");
+        check(r.shared.lastIcon==66 && r.shared.lastSideStreet==0 && r.shared.lastDist==6000, "AA far maneuver keeps its real icon and sideStreet=0");
+        r.renderAaTbt(66,65,400,"near-road");
+        check(r.shared.lastIcon==StockTurn.DISPLAY_TURN && r.shared.lastSideStreet==0x0005 && r.shared.lastDirection==45f && r.shared.lastCombi==0, "AA near maneuver switches to StockTurn 0x0d");
+        r.renderAaTbt(66,65,500,"near-road");
+        check(r.shared.lastIcon==StockTurn.DISPLAY_TURN, "AA hysteresis holds near at 500m");
+        r.renderAaTbt(66,65,600,"near-road");
+        check(r.shared.lastIcon==66 && r.shared.lastSideStreet==0, "AA hysteresis exits to far icon at 600m");
 
         // A turn with no update for EXPIRE_MS is cleared as if it had ended.
         CoreLifecycleTest x=new CoreLifecycleTest(); x.clock=1000;
@@ -263,6 +286,6 @@ public class CoreLifecycleTest {
 '''
 with tempfile.TemporaryDirectory(prefix='gen5w-core-lifecycle-') as tmp:
     path = Path(tmp)/'CoreLifecycleTest.java'
-    path.write_bytes((harness+'\n'+cache+'\n'+methods+'\n}\n').encode('utf-8'))
+    path.write_bytes((harness+'\n'+maneuver_src+'\n'+stockturn_src+'\n'+cache+'\n'+methods+'\n}\n').encode('utf-8'))
     subprocess.run(['javac','--release','8','-d',tmp,str(path)], check=True)
     subprocess.run(['java','-cp',tmp,'CoreLifecycleTest'], check=True)

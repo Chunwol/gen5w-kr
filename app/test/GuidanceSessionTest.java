@@ -99,6 +99,15 @@ public final class GuidanceSessionTest {
             check("ownership recovery resends unchanged totals", out.remainWrites == writesBefore + 1 && out.remain == 5000);
             route.disconnect(); check("disconnect releases route lease", !route.hasPhoneRoute() && out.remain == -1);
         }
+        {
+            Sink es = new Sink(); GuidanceSession eta = new GuidanceSession(es);
+            eta.maneuver(m(7, 1));
+            GuidanceParser.Status st = s(1, "지도 E", 7);
+            st.hasTime = true; st.timeRemaining = -1;
+            st.etaRaw = System.currentTimeMillis() / 1000L + 1800L;
+            eta.status(st);
+            check("ETA epoch fills arrival time when TimeRemaining is absent", es.time >= 1700 && es.time <= 1800);
+        }
         Sink sink = new Sink(); GuidanceSession session = new GuidanceSession(sink);
         session.maneuver(m(7, 1));
         check("no output before route status", sink.writes == 0);
@@ -425,6 +434,43 @@ public final class GuidanceSessionTest {
         check("native media acceptance is required", media.ensure(1,mediaBackend) && mediaCalls[0]==2);
         check("media is requested once per live session", media.ensure(1,mediaBackend) && mediaCalls[0]==2);
         check("handover requests media on the new session", media.ensure(2,mediaBackend) && mediaCalls[0]==3);
+        {
+            // Synthetic iAP2 payload (ID 10 junction angles + ID 11 exit angle) -> GuidanceSession.StockSink -> StockTurn.
+            final java.util.List<StockTurn.Frame> frames = new java.util.ArrayList<StockTurn.Frame>();
+            GuidanceSession.StockSink stockSink = new GuidanceSession.StockSink() {
+                private boolean near;
+                public boolean tbt(int icon, int secondIcon, long meters) { return tbt(null, icon, secondIcon, meters); }
+                public boolean tbt(Maneuver man, int icon, int secondIcon, long meters) {
+                    if (icon <= 0) { near = false; frames.add(new StockTurn.Frame(0, 0, 0, 0, false)); return true; }
+                    StockTurn.Frame f = StockTurn.build(man, icon, meters, near);
+                    near = f.near;
+                    frames.add(f);
+                    return true;
+                }
+                public boolean tunnel(boolean active, long m) { return true; }
+                public boolean timeRemaining(long s) { return true; }
+                public boolean destination(String d) { return true; }
+                public boolean remaining(long m) { return true; }
+                public boolean lanes(byte[] f) { return true; }
+                public boolean turns(byte[] f) { return true; }
+            };
+            GuidanceSession cp = new GuidanceSession(stockSink);
+            Item ang = new Item(); ang.id = 10; ang.ints = new int[]{0, 22, 337};
+            cp.message(GuidanceParser.MANEUVER, Arrays.asList(
+                    n(0, 1), n(1, 5), n(3, 1), text(4, "역삼역"), n(5, 700), n(8, 0), n(9, 0), ang, n(11, -90)));
+            cp.message(GuidanceParser.STATUS, Arrays.asList(n(0, 1), n(1, 1), n(13, 5), n(10, 700)));
+            check("far CarPlay maneuver keeps Korean icon 0x46", frames.size() == 1 && frames.get(0).displayType == 0x46 && frames.get(0).sideStreet == 0);
+            cp.message(GuidanceParser.STATUS, Arrays.asList(n(0, 1), n(1, 1), n(13, 5), n(10, 400)));
+            check("near CarPlay maneuver switches to 0x0d with ID 10+11 mask", frames.size() == 2
+                    && frames.get(1).displayType == StockTurn.DISPLAY_TURN
+                    && frames.get(1).sideStreet == 0x4803
+                    && frames.get(1).directionType == 36
+                    && frames.get(1).combiSideStreet == 0);
+            // Delta updating ID 10 junction angles at same distance must trigger a StockSink update.
+            Item ang2 = new Item(); ang2.id = 10; ang2.ints = new int[]{0, 270};
+            cp.message(GuidanceParser.MANEUVER, Arrays.asList(n(0, 1), n(1, 5), ang2));
+            check("delta ID 10 re-emits updated StockTurn mask", frames.size() == 3 && frames.get(2).sideStreet == 0x0801);
+        }
         System.out.println("guidance session: " + passed + " passed");
     }
     static Item text(int id,String value) { Item it = new Item(); it.id=id; it.strings=new String[]{value}; return it; }

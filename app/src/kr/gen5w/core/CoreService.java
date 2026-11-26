@@ -35,6 +35,7 @@ import kr.gen5w.hud.TimeFrame;
 import kr.gen5w.hud.TollText;
 import kr.gen5w.hud.NativeWarningSupport;
 import kr.gen5w.hud.TurnFrame;
+import kr.gen5w.hud.StockTurn;
 import kr.gen5w.probe.Convert;
 import kr.gen5w.probe.Item;
 
@@ -71,6 +72,10 @@ public final class CoreService extends Service {
     private long outputEpoch = -1; // accessed only on io
     private int routeSourceCode; // worker thread; numeric diagnostics only
     private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
+    private boolean cpStockNear;
+    private String cpNearManeuverKey;
+    private boolean aaStockNear;
+    private String aaNearManeuverKey;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -91,33 +96,55 @@ public final class CoreService extends Service {
             }
         });
         stockGuidance = new StockGuidance();
-        session = new GuidanceSession(new GuidanceSession.TunnelSink() {
+        session = new GuidanceSession(new GuidanceSession.StockSink() {
             public boolean tbt(int icon, int secondIcon, long meters) {
+                return tbt(null, icon, secondIcon, meters);
+            }
+            public boolean tbt(Maneuver maneuver, int icon, int secondIcon, long meters) {
                 if (!refreshOwnership()) return false;
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     boolean clearing = icon <= 0;
-                    int displayType = TurnFrame.tbtDisplayType(icon);
-                    if (!clearing) notifyNaviPhoneGuiding(true);
-                    // Stock scale: 0 = METER (<1000m, distanceErr=-2), 1 = KILOMETER (>=1000m, distanceErr=0).
-                    // sideStreet is a 16-bit spoke mask (0 in DiPO); second/third icons travel in 0xF2 TurnListNew.
+                    StockTurn.Frame frame;
+                    if (clearing) {
+                        cpStockNear = false;
+                        cpNearManeuverKey = null;
+                        frame = new StockTurn.Frame(0, 0, 0, 0, false);
+                    } else {
+                        String key = StockTurn.maneuverKey(maneuver, icon, maneuver != null ? maneuver.afterRoad : null);
+                        if (cpNearManeuverKey == null || !cpNearManeuverKey.equals(key)) {
+                            cpStockNear = false;
+                            cpNearManeuverKey = key;
+                        }
+                        frame = StockTurn.build(maneuver, icon, meters, cpStockNear);
+                        cpStockNear = frame.near;
+                        notifyNaviPhoneGuiding(true);
+                    }
+                    float distVal = clearing ? 0f : TurnFrame.tbtDistanceValue(meters);
+                    int distErr = clearing ? TurnFrame.DIST_ERR_UNKNOWN : TurnFrame.tbtDistanceError(meters);
+                    int distScale = clearing ? TurnFrame.SCALE_METER : TurnFrame.tbtDistanceScale(meters);
+                    int barLevel = TurnFrame.tbtBarGraphLevel(clearing ? 0 : icon, clearing ? -1L : meters);
+                    int barErr = TurnFrame.tbtBarGraphError(clearing ? 0 : icon, clearing ? -1L : meters);
                     cluster.updateTBTInfo(
-                            displayType,
-                            0,
-                            0f,
-                            clearing ? 0f : TurnFrame.tbtDistanceValue(meters),
-                            clearing ? TurnFrame.DIST_ERR_UNKNOWN : TurnFrame.tbtDistanceError(meters),
-                            0,
-                            clearing ? TurnFrame.SCALE_METER : TurnFrame.tbtDistanceScale(meters),
-                            TurnFrame.tbtBarGraphLevel(clearing ? 0 : icon, clearing ? -1L : meters),
-                            TurnFrame.tbtBarGraphError(clearing ? 0 : icon, clearing ? -1L : meters));
+                            frame.displayType,
+                            frame.sideStreet,
+                            frame.directionDegrees,
+                            distVal,
+                            distErr,
+                            frame.combiSideStreet,
+                            distScale,
+                            barLevel,
+                            barErr);
                     if (!sendHudDistance2C(clearing ? -1L : meters)) return false;
                     if (clearing && !session.hasPhoneRoute() && !isAaGuidanceActive()) notifyNaviPhoneGuiding(false);
                     DriveLog.core(24, icon, secondIcon, meters, 1, 0, 0);
                     kr.gen5w.diag.DebugTrace.event("hud.output.tbt", icon, secondIcon, meters);
-                    writeDebugLog("TBT: 1st=0x" + Integer.toHexString(displayType)
+                    writeDebugLog("OURS updateTBTInfo " + frame.displayType + " " + frame.sideStreet + " " + frame.directionDegrees + " " + distVal
+                            + " " + distErr + " " + frame.combiSideStreet + " " + distScale + " " + barLevel + " " + barErr);
+                    writeDebugLog("TBT: 1st=0x" + Integer.toHexString(frame.displayType)
                             + " 2nd=0x" + Integer.toHexString(clearing ? 0 : secondIcon)
-                            + " dist=" + (clearing ? -1L : meters) + "m");
+                            + " dist=" + (clearing ? -1L : meters) + "m"
+                            + (frame.near ? " near mask=0x" + Integer.toHexString(frame.sideStreet) + " dir=" + frame.directionType : " far"));
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
                   catch (LinkageError e) { return outputError(e); }
@@ -152,6 +179,7 @@ public final class CoreService extends Service {
                 try {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     cluster.updateLaneInfo(frame);
+                    writeDebugLog("OURS updateLaneInfo " + hex(frame));
                     logLaneBits(frame);
                     return true;
                 } catch (RuntimeException e) { return outputError(e); }
@@ -163,12 +191,14 @@ public final class CoreService extends Service {
                     if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
                     if (session != null && session.hasPhoneRoute()) notifyNaviPhoneGuiding(true);
                     cluster.updateTPTurnListNew(frame);
+                    writeDebugLog("OURS updateTPTurnListNew " + hex(frame));
                     if (session != null) {
                         String road = session.currentRoad();
                         if (road == null) road = "";
                         if (!road.equals(lastCrossroadSent)) {
                             try {
                                 cluster.updateTPCrossroadName(crossroadName(road));
+                                writeDebugLog("OURS updateTPCrossroadName \"" + road + "\"");
                                 lastCrossroadSent = road;
                             } catch (NoSuchMethodError ignored) { }
                         }
@@ -273,6 +303,10 @@ public final class CoreService extends Service {
     /** Stock guidance is active or unknown: AA state was dropped with aaRoute, including its tunnel request. */
     private void yieldToStock(boolean stockActive) {
         aaModern.reset();
+        cpStockNear = false;
+        cpNearManeuverKey = null;
+        aaStockNear = false;
+        aaNearManeuverKey = null;
         // Anything the phone sessions showed is stale once stock owns the cluster; the session re-sends its desired values.
         subMeters = -1; subSeconds = -1; subArrivalMs = -1L;
         lastCrossroadSent = null;
@@ -314,6 +348,7 @@ public final class CoreService extends Service {
                     clock == null ? 0xff : clock[0], clock == null ? 0xff : clock[1],
                     clock == null ? 0 : 1, clock == null ? 0 : 2, 0f, -1);
             writeDebugLog("SUB: remaining=" + subMeters + "m time=" + subSeconds + "s");
+            writeDebugLog("OURS updateTBTSubInfo9 " + TurnFrame.tbtDistanceValue(subMeters) + " " + TurnFrame.tbtDistanceError(subMeters) + " " + TurnFrame.tbtDistanceScale(subMeters) + " " + (clock == null ? 255 : clock[0]) + " " + (clock == null ? 255 : clock[1]) + " " + (clock == null ? 0 : 1) + " " + (clock == null ? 0 : 2) + " 0.0 -1");
             // 36: requested distance/arrival packet (-1 = clear); void API does not acknowledge delivery.
             DriveLog.core(36, subMeters, subSeconds, clock == null ? -1 : clock[0], clock == null ? -1 : clock[1], 0, 0);
             return true;
@@ -661,6 +696,7 @@ public final class CoreService extends Service {
                                 m.junctionType, m.distanceMeters, icon);
                         String line = "MANEUVER: comp=" + m.component + " idx=" + m.index + " type=" + m.type
                                 + " angle=" + m.exitAngle + " side=" + m.drivingSide + " junc=" + m.junctionType
+                                + (m.hasJunctionElementAngles ? " angles=" + java.util.Arrays.toString(m.junctionElementAngles) : "")
                                 + " -> icon=0x" + Integer.toHexString(icon)
                                 + " road=\"" + m.afterRoad + "\" desc=\"" + m.desc + "\"";
                         writeDebugLog(line);
@@ -763,11 +799,19 @@ public final class CoreService extends Service {
 
     private void resetAaState() {
         aaModern.reset();
+        aaStockNear = false;
+        aaNearManeuverKey = null;
         aaRoute.clear();
         aaTunnelWant = false;
         aaTunnelDist = -1L;
     }
 
+    private static String hex(byte[] a) {
+        if (a == null) return "null";
+        StringBuilder b = new StringBuilder("bytes[").append(a.length).append("]=");
+        for (byte x : a) { b.append(Character.forDigit((x >> 4) & 15, 16)).append(Character.forDigit(x & 15, 16)); }
+        return b.toString();
+    }
     private static NavigationCluster.CrossroadName crossroadName(String name) {
         NavigationCluster.CrossroadName cr = new NavigationCluster.CrossroadName();
         cr.name = name != null ? name : "";
@@ -911,21 +955,34 @@ public final class CoreService extends Service {
         long dist = aaRoute.distance();
         String road = aaRoute.road();
         boolean tunnel = aaRoute.tunnel();
+        Maneuver maneuver = aaRoute.maneuver();
         int displayIcon = TurnFrame.effectiveIcon(icon, dist);
         int displaySecond = dist > TurnFrame.FAR_STRAIGHT_THRESHOLD_M ? 0 : secondIcon;
+        String key = StockTurn.maneuverKey(maneuver, displayIcon, road);
+        if (aaNearManeuverKey == null || !aaNearManeuverKey.equals(key)) {
+            aaStockNear = false;
+            aaNearManeuverKey = key;
+        }
+        StockTurn.Frame frame = StockTurn.build(maneuver, displayIcon, dist, aaStockNear);
+        aaStockNear = frame.near;
         try {
             if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
             notifyNaviPhoneGuiding(true);
+            float distVal = TurnFrame.tbtDistanceValue(dist);
+            int distErr = TurnFrame.tbtDistanceError(dist);
+            int distScale = TurnFrame.tbtDistanceScale(dist);
+            int barLevel = TurnFrame.tbtBarGraphLevel(displayIcon, dist);
+            int barErr = TurnFrame.tbtBarGraphError(displayIcon, dist);
             cluster.updateTBTInfo(
-                    displayIcon,
-                    0,
-                    0f,
-                    TurnFrame.tbtDistanceValue(dist),
-                    TurnFrame.tbtDistanceError(dist),
-                    0,
-                    TurnFrame.tbtDistanceScale(dist),
-                    TurnFrame.tbtBarGraphLevel(displayIcon, dist),
-                    TurnFrame.tbtBarGraphError(displayIcon, dist));
+                    frame.displayType,
+                    frame.sideStreet,
+                    frame.directionDegrees,
+                    distVal,
+                    distErr,
+                    frame.combiSideStreet,
+                    distScale,
+                    barLevel,
+                    barErr);
             if (!sendHudDistance2C(dist)) return;
             if (!mediaOsdActive) {
                 String cross = road != null ? road : "";
@@ -937,9 +994,13 @@ public final class CoreService extends Service {
             cluster.updateTBTTrapInfo(-1, -1, 3, -1, 0, 0, 0, 0, 15, 65535, 3, 100, 255, 15, 3, 3, 15);
             if (!syncAaTunnel(tunnel, dist)) return;
             aaRoute.routeSent();
-            writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(displayIcon)
+            writeDebugLog("OURS updateTBTInfo " + frame.displayType + " " + frame.sideStreet + " " + frame.directionDegrees + " " + distVal
+                    + " " + distErr + " " + frame.combiSideStreet + " " + distScale + " " + barLevel + " " + barErr);
+            writeDebugLog("AA_TBT: 1st=0x" + Integer.toHexString(frame.displayType)
+                    + " (icon=0x" + Integer.toHexString(displayIcon) + ")"
                     + " 2nd=0x" + Integer.toHexString(displaySecond)
-                    + " dist=" + dist + "m");
+                    + " dist=" + dist + "m"
+                    + (frame.near ? " near mask=0x" + Integer.toHexString(frame.sideStreet) + " dir=" + frame.directionType : " far"));
         } catch (Throwable e) { outputError(e); }
     }
 
@@ -1025,6 +1086,10 @@ public final class CoreService extends Service {
 
     /** Legacy GPM turn updates carry no lane-clear instruction. */
     private void renderAaTbtWithTunnel(final int icon, final int secondIcon, final long dist, final String road, final boolean tunnel) {
+        renderAaTbtWithTunnel(icon, secondIcon, dist, road, tunnel, null);
+    }
+
+    private void renderAaTbtWithTunnel(final int icon, final int secondIcon, final long dist, final String road, final boolean tunnel, final Maneuver maneuver) {
         io.post(new Runnable() {
             public void run() {
                 if (dist < 0 || icon <= 0) {
@@ -1035,7 +1100,7 @@ public final class CoreService extends Service {
                 }
                 if (!refreshOwnership()) return;
                 if (session != null && session.hasPhoneRoute()) return;
-                if (!aaRoute.update(icon, secondIcon, dist, road, tunnel, now())) return;
+                if (!aaRoute.update(icon, secondIcon, dist, road, tunnel, maneuver, now())) return;
                 aaClearPending = false;
                 session.setOutputAllowed(false);
                 writeAaRoute();
@@ -1067,17 +1132,17 @@ public final class CoreService extends Service {
                     renderAaTbt(0, 0, -1, null);
                     return;
                 }
+                Maneuver m = new Maneuver();
+                m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
+                m.exitAngle = exitAngle; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                 if (icon <= 0) {
-                    Maneuver m = new Maneuver();
-                    m.type = type; m.drivingSide = drivingSide; m.junctionType = junctionType;
-                    m.exitAngle = exitAngle; m.afterRoad = road; m.desc = desc; m.appSource = "AndroidAuto";
                     icon = ClusterIcon.of(m);
                 } else {
                     icon = ClusterIcon.refineManeuver(icon, road, desc);
                 }
                 // The next icon has no road metadata here; preserve it as received.
                 int laneCount = intent.getIntExtra("lane_count", 0);
-                renderAaTbtWithTunnel(icon, second, dist, road, ClusterIcon.isTunnelText(road, desc));
+                renderAaTbtWithTunnel(icon, second, dist, road, ClusterIcon.isTunnelText(road, desc), m);
 
                 if (laneCount > 0) {
                     int[] dirs = intent.getIntArrayExtra("lane_dirs");
@@ -1165,6 +1230,8 @@ public final class CoreService extends Service {
     private void acceptModernAa(kr.gen5w.hud.AaNavigationParser.Event event) {
         if (!refreshOwnership() || (session != null && session.hasPhoneRoute())) {
             aaModern.reset();
+            aaStockNear = false;
+            aaNearManeuverKey = null;
             return;
         }
         kr.gen5w.hud.AaNavigationState.Snapshot next = aaModern.accept(event);
@@ -1181,7 +1248,7 @@ public final class CoreService extends Service {
             flushAaClear();
             return;
         }
-        if (!aaRoute.update(next.icon, next.secondIcon, next.distanceMeters, next.road, next.tunnel, now())) return;
+        if (!aaRoute.update(next.icon, next.secondIcon, next.distanceMeters, next.road, next.tunnel, next.maneuver, now())) return;
         aaClearPending = false;
         session.setOutputAllowed(false);
         writeAaRoute();

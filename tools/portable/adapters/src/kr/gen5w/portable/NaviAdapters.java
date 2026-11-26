@@ -67,6 +67,54 @@ public final class NaviAdapters {
     } catch (Throwable ignored) {}
   }
 
+
+  private static final java.util.HashMap<String, String> RAW_LAST = new java.util.HashMap<String, String>();
+
+  /** Full-value record of every stock cluster call (on change per method) for stock-vs-phone comparison. */
+  static void rawLog(String method, Object... args) {
+    try {
+      StringBuilder b = new StringBuilder();
+      for (int i = 0; i < args.length; i++) { if (i > 0) b.append(' '); dumpValue(b, args[i], 0); }
+      String v = b.toString();
+      synchronized (RAW_LAST) {
+        if (v.equals(RAW_LAST.get(method))) return;
+        RAW_LAST.put(method, v);
+      }
+      android.util.Log.i("Gen5wNavi", "STOCK " + method + (stockActive ? " active " : " idle ") + v);
+    } catch (Throwable ignored) {}
+  }
+
+  static void dumpValue(StringBuilder b, Object o, int depth) {
+    if (o == null) { b.append("null"); return; }
+    if (o instanceof byte[]) {
+      byte[] a = (byte[]) o; b.append("bytes[").append(a.length).append("]=");
+      for (int i = 0; i < a.length; i++) { int x = a[i] & 255; b.append(Character.forDigit(x >> 4, 16)).append(Character.forDigit(x & 15, 16)); }
+      return;
+    }
+    if (o instanceof int[]) { b.append(java.util.Arrays.toString((int[]) o)); return; }
+    if (o instanceof Number || o instanceof Boolean || o instanceof Character) { b.append(o); return; }
+    if (o instanceof CharSequence) { b.append('"').append(o).append('"'); return; }
+    if (o.getClass().isArray()) {
+      int n = java.lang.reflect.Array.getLength(o); b.append('[');
+      for (int i = 0; i < n; i++) { if (i > 0) b.append(','); dumpValue(b, java.lang.reflect.Array.get(o, i), depth + 1); }
+      b.append(']'); return;
+    }
+    if (depth > 2) { b.append(o); return; }
+    b.append(o.getClass().getSimpleName()).append('{');
+    boolean first = true;
+    for (java.lang.reflect.Field f : o.getClass().getDeclaredFields()) {
+      if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+      try {
+        f.setAccessible(true);
+        if (!first) b.append(',');
+        first = false;
+        b.append(f.getName()).append('=');
+        dumpValue(b, f.get(o), depth + 1);
+      } catch (Throwable e) { b.append('?'); }
+    }
+    b.append('}');
+  }
+
   private static void ensureReceiver() {
     if (!receiverRegistered && !receiverScheduled) {
       scheduleReceiver(appContext, transaction);
@@ -330,6 +378,7 @@ public final class NaviAdapters {
         }
       }
       driveLog(KIND_TBT, suppress, displayType, distanceErr);
+      rawLog("updateTBTInfo", displayType, sideStreet, direction, distance, distanceErr, combiSideStreet, scale, barGraphLevel, barGraphLevelErr);
       iconLog(displayType, sideStreet, combiSideStreet, distance, distanceErr);
       if (suppress) return;
       Hook.original(handle, receiver, new Object[] {
@@ -347,6 +396,7 @@ public final class NaviAdapters {
   public static void dropPe00(Object receiver, int distance, int roadClass, int exist,
       int parking, int warning, int type, int handle) throws Throwable {
     ensureReceiver();
+    rawLog("PE_00", distance, roadClass, exist, parking, warning, type);
     synchronized (OUTPUT_LOCK) {
       if (isPhoneGuidingLocked() && parking == 0 && warning == 0 && type == 0) return;
       Hook.original(handle, receiver, new Object[] {
@@ -359,6 +409,7 @@ public final class NaviAdapters {
       int unit, int hours, int minutes, int timeType, int timeFormat,
       float compassDegree, int compassDegreeErr, int handle) throws Throwable {
     ensureReceiver();
+    rawLog("updateTBTSubInfo9", distance, distanceErr, unit, hours, minutes, timeType, timeFormat, compassDegree, compassDegreeErr);
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_SUB, drop, distanceErr, (long) distance);
@@ -379,6 +430,7 @@ public final class NaviAdapters {
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_SUB, drop, distanceErr, (long) distance);
+      rawLog("updateTBTSubInfo10", distance, distanceErr, unit, hours, minutes, timeType, timeFormat, compassDegree, compassDegreeErr, estPointType);
       if (drop) return;
       Hook.original(handle, receiver, new Object[] {
           Float.valueOf(distance), Integer.valueOf(distanceErr),
@@ -392,6 +444,7 @@ public final class NaviAdapters {
   public static void dropTbtSubInfo2_7(Object receiver, float p1, int p1Err,
       float p2, int p2Err, float p3, int p3Err, int unit, int handle) throws Throwable {
     ensureReceiver();
+    rawLog("updateTBTSubInfo2_7", p1, p1Err, p2, p2Err, p3, p3Err, unit);
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_SUB2, drop, p1Err, (long) p1);
@@ -407,6 +460,7 @@ public final class NaviAdapters {
       int p1Unit, float p2, int p2Err, int p2Unit, float p3, int p3Err,
       int p3Unit, int handle) throws Throwable {
     ensureReceiver();
+    rawLog("updateTBTSubInfo2_9", p1, p1Err, p1Unit, p2, p2Err, p2Unit, p3, p3Err, p3Unit);
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_SUB2, drop, p1Err, (long) p1);
@@ -424,6 +478,7 @@ public final class NaviAdapters {
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_SUB2C, drop, u1, i1);
+      rawLog("updateTBTSubInfo2C", u1, f1, i1, u2, f2, i2, u3, f3, i3);
       if (drop) return;
       Hook.original(handle, receiver, new Object[] {
           Integer.valueOf(u1), Integer.valueOf(f1), Integer.valueOf(i1),
@@ -438,6 +493,7 @@ public final class NaviAdapters {
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_REMAIN, drop, rem, unit);
+      rawLog("updateRemainDis", rem, unit, dec, tg);
       if (drop) return;
       Hook.original(handle, receiver, new Object[] {
           Integer.valueOf(rem), Integer.valueOf(unit),
@@ -450,6 +506,7 @@ public final class NaviAdapters {
     synchronized (OUTPUT_LOCK) {
       boolean drop = isPhoneGuidingLocked();
       driveLog(KIND_TEXT, drop, 0, 0);
+      rawLog("oneArg:" + (arg == null ? "null" : arg instanceof byte[] ? "bytes" + ((byte[]) arg).length : arg.getClass().getSimpleName()), arg);
       if (drop) return;
       Hook.original(handle, receiver, new Object[] {arg});
     }

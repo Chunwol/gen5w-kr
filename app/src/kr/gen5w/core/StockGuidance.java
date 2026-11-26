@@ -12,7 +12,7 @@ final class StockGuidance {
         LocalSocket socket = new LocalSocket();
         try {
             socket.connect(new LocalSocketAddress(SOCKET));
-            socket.setSoTimeout(250);
+            socket.setSoTimeout(400);
             if (socket.getPeerCredentials().getUid() != 1000) return UNKNOWN;
             socket.getOutputStream().write('?');
             int value = socket.getInputStream().read();

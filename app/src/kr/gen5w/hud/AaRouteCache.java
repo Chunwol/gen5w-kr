@@ -13,6 +13,7 @@ public final class AaRouteCache {
     private long distance = -1;
     private String road;
     private boolean tunnel;
+    private Maneuver maneuver;
     private long updatedAt;
     private boolean routePending, lanePending;
     private byte[] lanes;
@@ -24,17 +25,23 @@ public final class AaRouteCache {
 
     /** Returns false when the update was not accepted (output yielded or no turn). */
     public synchronized boolean update(int first, int second, long meters, String name, long now) {
-        return update(first, second, meters, name, false, now);
+        return update(first, second, meters, name, false, null, now);
     }
 
     /** Returns false when the update was not accepted (output yielded or no turn). */
     public synchronized boolean update(int first, int second, long meters, String name, boolean isTunnel, long now) {
+        return update(first, second, meters, name, isTunnel, null, now);
+    }
+
+    /** Returns false when the update was not accepted (output yielded or no turn). */
+    public synchronized boolean update(int first, int second, long meters, String name, boolean isTunnel, Maneuver m, long now) {
         if (!allowed || first <= 0 || meters < 0) return false;
         icon = first;
         secondIcon = second;
         distance = meters;
         road = name;
         tunnel = isTunnel;
+        maneuver = m == null ? null : m.copy();
         updatedAt = now;
         routePending = true;
         return true;
@@ -50,7 +57,7 @@ public final class AaRouteCache {
     }
 
     public synchronized void clear() {
-        icon = 0; secondIcon = 0; distance = -1; road = null; tunnel = false;
+        icon = 0; secondIcon = 0; distance = -1; road = null; tunnel = false; maneuver = null;
         routePending = false; lanePending = false; lanes = null; updatedAt = 0;
     }
     public synchronized boolean isActive() { return distance >= 0 && icon > 0; }
@@ -65,5 +72,6 @@ public final class AaRouteCache {
     public synchronized long distance() { return distance; }
     public synchronized String road() { return road; }
     public synchronized boolean tunnel() { return tunnel; }
+    public synchronized Maneuver maneuver() { return maneuver == null ? null : maneuver.copy(); }
     public synchronized byte[] lanes() { return lanes == null ? null : lanes.clone(); }
 }

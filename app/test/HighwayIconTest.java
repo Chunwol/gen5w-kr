@@ -25,6 +25,18 @@ public final class HighwayIconTest {
         eq("IC text on straight stays straight", ClusterIcon.of(m(3, "판교IC")), 0x41);
         int[] icons = {0, -1, 0x43, ClusterIcon.IC_EXIT_R, ClusterIcon.TOLL, ClusterIcon.REST_AREA};
         for (int icon : icons) eq("AA directional/facility icon preserved", ClusterIcon.refineManeuver(icon, "좌측 서울TG", "우측"), icon);
+        // Verbatim guidance templates found in the 3 apps' packages (Kakao KNSDKWrapper,
+        // Naver resources.arsc, Tmap binary/classes30.dex), on the slight-right base they arrive as.
+        String[][] app = {
+            {"오른쪽 지하차도 옆길", "54"}, {"지하차도 오른쪽 옆길입니다.", "54"}, {"지하차도 옆길 입니다.", "55"},
+            {"지하도로 옆", "55"}, {"오른쪽 지하차도 진입", "5a"}, {"지하차도 진입입니다.", "5a"},
+            {"오른쪽 고가도로 옆길", "51"}, {"고가차도 오른쪽 옆길입니다.", "51"}, {"고가도로 옆", "51"},
+            {"오른쪽 고가도로 진입", "57"}, {"오른쪽 지하차도로 진입하세요.", "5a"}};
+        for (String[] c : app) {
+            int want = Integer.parseInt(c[1], 16);
+            int base = want == 0x55 ? 0x47 : 0x42;
+            eq("app template " + c[0], ClusterIcon.refineManeuver(base, "", c[0]), want);
+        }
         System.out.println("PASS HighwayIconTest " + checks);
     }
 }

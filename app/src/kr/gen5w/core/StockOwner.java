@@ -14,7 +14,8 @@ import android.os.Process;
 public final class StockOwner {
     private static final Uri STATE = Uri.parse("content://com.mnsoft.navi/State_Table");
     private static final Observation observation = new Observation();
-    private static final int GC_QUERY_INTERVAL = 120;
+    private static final int GC_QUERY_INTERVAL = 60;
+    private static final java.util.concurrent.atomic.AtomicBoolean gcRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private static int queryCount;
 
     interface Source { Cursor query(Uri uri, String[] columns) throws Exception; }
@@ -192,9 +193,19 @@ public final class StockOwner {
                             if (client.getPeerCredentials().getUid() == clientUid
                                     && client.getInputStream().read() == '?') {
                                 client.getOutputStream().write(read(source));
-                                if ((++queryCount % GC_QUERY_INTERVAL) == 0) {
-                                    System.gc();
-                                    System.runFinalization();
+                                if ((++queryCount % GC_QUERY_INTERVAL) == 0 && gcRunning.compareAndSet(false, true)) {
+                                    Thread gcThread = new Thread(new Runnable() {
+                                        public void run() {
+                                            try {
+                                                System.gc();
+                                                System.runFinalization();
+                                            } finally {
+                                                gcRunning.set(false);
+                                            }
+                                        }
+                                    }, "gen5w-stock-gc");
+                                    gcThread.setDaemon(true);
+                                    gcThread.start();
                                 }
                             }
                         } catch (java.io.IOException ignored) { }

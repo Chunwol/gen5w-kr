@@ -67,7 +67,13 @@ public final class GuidanceParser {
             if (m.distanceMeters < -1 || m.distanceMeters > 0xffffffffL) return null;
             m.drivingSide = unsigned(f, 8, previous == null ? Maneuver.UNKNOWN_DRIVING_SIDE : previous.drivingSide, 1);
             m.junctionType = unsigned(f, 9, previous == null ? -1 : previous.junctionType, 65535);
-            m.exitAngle = integer(f, 11, previous == null ? Maneuver.UNKNOWN_ANGLE : previous.exitAngle);
+            m.junctionElementAngles = f.containsKey(10)
+                    ? angles(f.get(10))
+                    : (previous == null ? new int[0] : previous.junctionElementAngles.clone());
+            m.hasJunctionElementAngles = f.containsKey(10) || (previous != null && previous.hasJunctionElementAngles);
+            m.exitAngle = f.containsKey(11)
+                    ? signedAngle(f, 11, Maneuver.UNKNOWN_ANGLE)
+                    : (previous == null ? Maneuver.UNKNOWN_ANGLE : previous.exitAngle);
             return m;
         } catch (IllegalArgumentException e) { return null; }
     }
@@ -243,5 +249,19 @@ public final class GuidanceParser {
         if (item == null) return new int[0];
         if (item.ints == null || item.ints.length > 32) throw new IllegalArgumentException();
         return item.ints.clone();
+    }
+    private static int normalizeAngle(int raw) {
+        if (raw == Maneuver.UNKNOWN_ANGLE) return raw;
+        if (raw >= 32768 && raw <= 65535) return (short) raw;
+        return raw;
+    }
+    private static int signedAngle(Map<Integer, Item> f, int id, int fallback) {
+        if (!f.containsKey(id)) return fallback;
+        return normalizeAngle(integer(f, id, fallback));
+    }
+    private static int[] angles(Item item) {
+        int[] raw = array(item);
+        for (int i = 0; i < raw.length; i++) raw[i] = normalizeAngle(raw[i]);
+        return raw;
     }
 }

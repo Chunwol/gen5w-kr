@@ -19,6 +19,18 @@ public final class GuidanceParserTest {
             number(3, 23), text(4, "동탄IC"), number(5, 150), number(8, 0), number(9, 0), number(11, 90)));
         check("stock maneuver field ids", m != null && m.component == 1 && m.index == 7 && m.type == 23
             && m.drivingSide == 0 && m.exitAngle == 90 && m.distanceMeters == 150 && "동탄IC".equals(m.afterRoad));
+        Item angles = new Item(); angles.id = 10; angles.ints = new int[]{0, 90, 65446};
+        m = GuidanceParser.maneuver(fields(number(0, 1), number(1, 7), number(3, 1), angles, number(11, 270), number(12, 99)));
+        check("junction geometry survives iAP2 ID 10 and ID 11", m != null && m.hasJunctionElementAngles
+            && m.junctionElementAngles.length == 3 && m.junctionElementAngles[1] == 90
+            && m.junctionElementAngles[2] == -90 && m.exitAngle == 270);
+        Maneuver delta = GuidanceParser.maneuver(fields(number(0, 1), number(1, 7), number(5, 350)), m);
+        check("delta maneuver preserves iAP2 junction angles and exit angle", delta != null
+            && delta.hasJunctionElementAngles && delta.junctionElementAngles.length == 3
+            && delta.junctionElementAngles[2] == -90 && delta.exitAngle == 270 && delta.distanceMeters == 350);
+        Maneuver onlyId12 = GuidanceParser.maneuver(fields(number(0, 1), number(1, 8), number(3, 1), number(12, 55)));
+        check("iAP2 ID 12 LinkedLaneGuidanceInformation is not parsed as junction angles",
+            onlyId12 != null && !onlyId12.hasJunctionElementAngles && onlyId12.exitAngle == Maneuver.UNKNOWN_ANGLE);
         check("maneuver requires type", GuidanceParser.maneuver(fields(number(0, 1), number(1, 0))) == null);
         check("maneuver requires component", GuidanceParser.maneuver(fields(number(1, 0), number(3, 1))) == null);
         check("maneuver rejects duplicate ids", GuidanceParser.maneuver(fields(number(0, 1), number(1, 0), number(3, 1), number(3, 2))) == null);

@@ -110,19 +110,30 @@ public final class AaNavigationParser {
    case 8:m.type=2;m.exitAngle=90;break;
    case 9:m.type=47;m.exitAngle=-135;break;
    case 10:m.type=48;m.exitAngle=135;break;
-   case 11:m.type=4;break;
-   case 12:m.type=4;m.drivingSide=1;break;
+   case 11:m.type=4;m.exitAngle=Maneuver.UNKNOWN_ANGLE;break;
+   case 12:m.type=4;m.drivingSide=1;m.exitAngle=Maneuver.UNKNOWN_ANGLE;break;
    case 13:case 15:case 17:case 19:m.type=9;break;
    case 14:case 16:case 18:case 20:m.type=9;break;
-   case 21:case 23:m.type=22;break;
-   case 22:case 24:m.type=23;break;
+   case 21:case 23:m.type=22;m.exitAngle=Maneuver.UNKNOWN_ANGLE;break;
+   case 22:case 24:m.type=23;m.exitAngle=Maneuver.UNKNOWN_ANGLE;break;
    // Forks are drawn by Step.icon(); the maneuver keeps the side for text refinement.
-   case 25:m.type=13;break;case 26:m.type=14;break;
+   case 25:m.type=13;m.exitAngle=Maneuver.UNKNOWN_ANGLE;break;
+   case 26:m.type=14;m.exitAngle=Maneuver.UNKNOWN_ANGLE;break;
    // Stock GPM shows MERGE as straight ahead (65).
    case 27:case 28:case 29:m.type=3;break;
    // ROUNDABOUT_ENTER/EXIT without an exit: straight ahead unless a previous exit is kept.
    case 30:case 31:m.type=3;break;
-   case 32:case 33:case 34:case 35:m.type=3;break;
+   case 32:case 33:case 34:case 35:{
+    boolean cw=s.aaType==32 || s.aaType==33;
+    m.type=3;
+    m.junctionType=1;
+    m.drivingSide=cw?1:0;
+    m.roundaboutExit=s.roundaboutExit;
+    m.exitAngle=(s.roundaboutAngle==Maneuver.UNKNOWN_ANGLE || s.roundaboutAngle<=0 || s.roundaboutAngle>360)
+     ? Maneuver.UNKNOWN_ANGLE
+     : (cw ? (s.roundaboutAngle+180)%360 : ((180-s.roundaboutAngle)%360+360)%360);
+    break;
+   }
    case 37:m.type=15;break;
    case 39:case 40:m.type=10;break;
    case 41:m.type=24;break;case 42:m.type=25;break;
