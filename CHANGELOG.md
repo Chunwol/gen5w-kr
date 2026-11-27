@@ -1,5 +1,12 @@
 # 변경 내역
 
+## 범용판 v0.3.101 (2026-11-28, 실차 미검증)
+
+- **CarPlay 분할 화면 터치·해상도 불일치 수정(0.3.101)**: `DipoAdapters`가 `com.daudio.app.dipo.e.a.i.mU()`를 1920으로 강제하던 훅(`screenWidth`)을 제거해 순정 분할 SurfaceView(`1280x720`)와 CarPlay 영상 스트림·터치 좌표(`0..1280`)가 일치하도록 바로잡았습니다. 전체 화면(`1920x720`)은 순정 설정("Apple CarPlay 분할 화면 사용" 끄기)에서 동작합니다.
+- **카카오내비/티맵 CarPlay 회전 아이콘 누락 수정(0.3.101)**: iAP2 회전 메시지에서 `JunctionType`(항목 9)이 생략되면 순정 `HKMC_DiPO`(`e/v.java`)와 동일하게 기본값 `0`(교차로)으로 해석(`GuidanceParser`·`ClusterIcon`)해 `type=3` 직진/유도 아이콘이 `-1`(대기 화면)로 떨어지지 않도록 수정하고, `STATUS` 출처(`src`) 및 드롭(`MANEUVER_DROP`) 진단 로그를 보강했습니다.
+- **`StockOwner`·AA 소켓 서버 FD 누수 수정(0.3.101)**: Android 4.3 `LocalServerSocket.accept()`가 `LocalSocketImpl.mFdCreatedInternally=false`를 남겨 `close()` 시 커널 FD를 닫지 못하는 프레임워크 결함을 회피(`StockOwner.closeAccepted`)해 약 7~9분 주기 `StockOwner exit=1` 및 `HUD owner=UNKNOWN` 이탈을 해소했습니다.
+- **일시적 `UNKNOWN` 전환 시 근접 막대 게이지 보존(0.3.101)**: `CoreService.yieldToStock()`이 실제 순정 길안내(`STOCK`) 진입일 때만 `cpNearGuideDist`/`aaNearGuideDist`를 초기화하도록 바꿔, 일시적 `UNKNOWN` 직후 근접 막대 게이지가 `100`으로 되튀지 않게 했습니다.
+
 ## 범용판 v0.3.100 (2026-11-27, 실차 미검증)
 
 - **CarPlay iAP2 차선 안내 식별(0.3.100)**: `Iap2ServerApp.odex` 패치(`route`/`bt` 모드)가 `RouteGuidanceDisplayComponent`에 차선 설명 최대 길이(항목 7=64)와 차선 저장 개수(항목 8=10)를 함께 알리고, 수정된 `RouteGuidanceItem` 클래스의 레지스터 맵을 비워 Dalvik 검증을 유지하도록 확장했습니다.

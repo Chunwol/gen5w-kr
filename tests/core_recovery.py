@@ -83,6 +83,56 @@ with tempfile.TemporaryDirectory(prefix='gen5w-recovery-') as tmp:
     subprocess.run(['javac', '--release', '8', '-d', tmp, str(path),str(root/'shared/src/kr/gen5w/diag/SafeDiagnostic.java'),str(root/'shared/src/kr/gen5w/diag/DebugTrace.java')], check=True)
     subprocess.run(['java', '-cp', tmp, 'OwnerRecoveryTest'], check=True, timeout=10)
 
+close_accepted = owner[owner.index('private static volatile Class<?> cachedSocketClass;'):owner.index('public static void main(')]
+fd_harness = r'''
+public class SocketFdLeakTest {
+    static class FakeSocketImpl {
+        boolean mFdCreatedInternally = false;
+        boolean fdClosed = false;
+        int fdCloseCount = 0;
+    }
+    static class LocalSocket {
+        FakeSocketImpl impl = new FakeSocketImpl();
+        boolean closed;
+        void close() throws java.io.IOException {
+            closed = true;
+            synchronized (impl) {
+                if (!impl.mFdCreatedInternally) return;
+                if (!impl.fdClosed) {
+                    impl.fdClosed = true;
+                    impl.fdCloseCount++;
+                }
+            }
+        }
+    }
+    static class NoImplLocalSocket extends LocalSocket {
+        int fallbackClosed;
+        @Override void close() throws java.io.IOException { fallbackClosed++; }
+    }
+    static void check(boolean value, String message) { if (!value) throw new AssertionError(message); }
+    public static void main(String[] args) throws Exception {
+        LocalSocket leaked = new LocalSocket();
+        leaked.close();
+        check(leaked.closed && !leaked.impl.fdClosed, "raw Android 4.3 accepted LocalSocket.close() reproduces FD leak");
+        LocalSocket fixed = new LocalSocket();
+        closeAccepted(fixed);
+        check(fixed.closed && fixed.impl.mFdCreatedInternally && fixed.impl.fdClosed && fixed.impl.fdCloseCount == 1,
+                "closeAccepted must set mFdCreatedInternally=true before close() so underlying FD closes");
+        closeAccepted(fixed);
+        check(fixed.impl.fdCloseCount == 1, "repeated closeAccepted remains idempotent");
+        closeAccepted(null);
+        NoImplLocalSocket noImpl = new NoImplLocalSocket();
+        closeAccepted(noImpl);
+        check(noImpl.fallbackClosed == 1, "missing impl field degrades safely and still closes socket");
+        System.out.println("PASS accepted LocalSocket FD leak repair");
+    }
+'''
+with tempfile.TemporaryDirectory(prefix='gen5w-fd-leak-') as tmp:
+    path = Path(tmp)/'SocketFdLeakTest.java'
+    path.write_text(fd_harness + close_accepted + '\n}', encoding='utf-8')
+    subprocess.run(['javac', '--release', '8', '-d', tmp, str(path)], check=True)
+    subprocess.run(['java', '-cp', tmp, 'SocketFdLeakTest'], check=True, timeout=10)
+
 core = (root/'app/src/kr/gen5w/core/CoreService.java').read_text(encoding='utf-8')
 methods = block(core, 'private void startAaSocketServer()')
 if 'private void stopAaSocketServer()' in core:
@@ -100,6 +150,7 @@ public class SocketRecoveryTest {
     boolean blockClient;
     static class Log { static void w(String tag, String value) {} static void i(String tag, String value) {} }
     static class LocalSocket { volatile boolean closed; void close() throws java.io.IOException { closed=true; } }
+    static class StockOwner { static void closeAccepted(LocalSocket s) { if (s != null) try { s.close(); } catch (java.io.IOException ignored) {} } }
     static class LocalServerSocket {
         static volatile int binds, closed;
         int accepts;

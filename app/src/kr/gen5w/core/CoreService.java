@@ -312,18 +312,19 @@ public final class CoreService extends Service {
     /** Stock guidance is active or unknown: AA state was dropped with aaRoute, including its tunnel request. */
     private void yieldToStock(boolean stockActive) {
         aaModern.reset();
-        cpStockNear = false;
-        cpNearManeuverKey = null;
-        cpNearGuideDist = 0L;
-        aaStockNear = false;
-        aaNearManeuverKey = null;
-        aaNearGuideDist = 0L;
         // Anything the phone sessions showed is stale once stock owns the cluster; the session re-sends its desired values.
         subMeters = -1; subSeconds = -1; subArrivalMs = -1L;
         lastCrossroadSent = null;
         aaTunnelWant = false;
         aaTunnelDist = -1L;
         if (stockActive) {
+            // Reset near-view gauge baselines only on confirmed stock guidance, not transient UNKNOWN flickers.
+            cpStockNear = false;
+            cpNearManeuverKey = null;
+            cpNearGuideDist = 0L;
+            aaStockNear = false;
+            aaNearManeuverKey = null;
+            aaNearGuideDist = 0L;
             // Stock guidance owns PE_00 now; never clear over it later.
             phoneTunnelSent = false;
             lastPe00Bucket = Long.MIN_VALUE;
@@ -751,6 +752,11 @@ public final class CoreService extends Service {
                             DriveLog.core(34, TollText.amount(tollText), tollText.length(),
                                     m.type, m.exitAngle, icon, 0);
                         }
+                    } else {
+                        writeDebugLog("MANEUVER_DROP: comp=" + (address == null ? -1 : address[0])
+                                + " idx=" + (address == null ? -1 : address[1])
+                                + " mask=0x" + Long.toHexString(GuidanceDiagnostics.fieldMask(fields))
+                                + " fields=" + fields.size());
                     }
                 } else if (what == GuidanceParser.STATUS) {
                     GuidanceParser.Status s = GuidanceParser.status(fields);
@@ -762,6 +768,7 @@ public final class CoreService extends Service {
                                 s.component, s.state, s.current.length, 0);
                         logRouteEstimates(s, fields);
                         String line = "STATUS: comp=" + s.component + " state=" + s.state
+                                + (s.hasSource ? " src=\"" + s.source + "\"" : "")
                                 + " dist=" + s.distanceToNext
                                 + " curr=" + java.util.Arrays.toString(s.current)
                                 + (s.hasLaneIndex || s.hasLaneTotal || s.hasLaneVisible
@@ -1233,7 +1240,7 @@ public final class CoreService extends Service {
 
     private void stopAaSocketServer() {
         synchronized (aaSocketLock) {
-            if (aaClient != null) try { aaClient.close(); } catch (java.io.IOException ignored) { }
+            if (aaClient != null) StockOwner.closeAccepted(aaClient);
             if (aaServer != null) try { aaServer.close(); } catch (java.io.IOException ignored) { }
             aaClient = null;
             aaServer = null;
@@ -1257,7 +1264,7 @@ public final class CoreService extends Service {
                             LocalSocket client = server.accept();
                             synchronized (aaSocketLock) {
                                 if (stopping) {
-                                    client.close();
+                                    StockOwner.closeAccepted(client);
                                     break;
                                 }
                                 aaClient = client;
@@ -1429,7 +1436,7 @@ public final class CoreService extends Service {
         } catch (Throwable e) {
             kr.gen5w.diag.SafeDiagnostic.failure("core.aa.receive",e);
         } finally {
-            try { client.close(); } catch (Throwable ignored) {}
+            StockOwner.closeAccepted(client);
         }
     }
 }

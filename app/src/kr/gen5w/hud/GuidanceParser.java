@@ -66,7 +66,8 @@ public final class GuidanceParser {
             m.distanceMeters = number(f, 5, previous == null ? -1 : previous.distanceMeters);
             if (m.distanceMeters < -1 || m.distanceMeters > 0xffffffffL) return null;
             m.drivingSide = unsigned(f, 8, previous == null ? Maneuver.UNKNOWN_DRIVING_SIDE : previous.drivingSide, 1);
-            m.junctionType = unsigned(f, 9, previous == null ? -1 : previous.junctionType, 65535);
+            // Stock HKMC_DiPO (v.java:224) defaults omitted JunctionType (param 9) to 0 (Intersection).
+            m.junctionType = unsigned(f, 9, previous == null ? 0 : previous.junctionType, 65535);
             m.junctionElementAngles = f.containsKey(10)
                     ? angles(f.get(10))
                     : (previous == null ? new int[0] : previous.junctionElementAngles.clone());

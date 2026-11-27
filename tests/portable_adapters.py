@@ -34,7 +34,7 @@ STUBS.update({
 'com/daudio/app/dipo/renamed/Sentinel.java':'''package com.daudio.app.dipo.renamed;public class Sentinel{public static int initialized;}''',
 'com/daudio/app/dipo/renamed/Wireless.java':'''package com.daudio.app.dipo.renamed;public class Wireless{static{Sentinel.initialized++;}public boolean isSupportWirelessCarPlay(){return true;}public boolean F(android.content.Context c)throws Throwable{return c!=null&&(Boolean)kr.gen5w.portable.Hook.call("wirelessSupport",this);}}''',
 'com/daudio/app/dipo/telechips/CarPlayScreen.java':'''package com.daudio.app.dipo.telechips;public enum CarPlayScreen{VideoStream_1280x720_60fps,VideoStream_1920x720_60fps}''',
-'com/daudio/app/dipo/renamed/DisplayConfig.java':'''package com.daudio.app.dipo.renamed;public class DisplayConfig{public int width=1920,calls;public boolean split=true;public RuntimeException failure;public Runnable during;public int mU()throws Throwable{calls++;boolean wireless=(Boolean)kr.gen5w.portable.Hook.call("wirelessSupport",new Wireless());if(during!=null)during.run();if(failure!=null)throw failure;return !wireless&&split&&width==1920?1280:width;}public int mV(){return 720;}public com.daudio.app.dipo.telechips.CarPlayScreen mW()throws Throwable{return ((Integer)kr.gen5w.portable.Hook.call("screenWidth",this))==1280?com.daudio.app.dipo.telechips.CarPlayScreen.VideoStream_1280x720_60fps:com.daudio.app.dipo.telechips.CarPlayScreen.VideoStream_1920x720_60fps;}}''',
+'com/daudio/app/dipo/renamed/DisplayConfig.java':'''package com.daudio.app.dipo.renamed;public class DisplayConfig{public int width=1920,calls;public boolean split=true;public RuntimeException failure;public Runnable during;public int mU()throws Throwable{calls++;boolean wireless=(Boolean)kr.gen5w.portable.Hook.call("wirelessSupport",new Wireless());if(during!=null)during.run();if(failure!=null)throw failure;return !wireless&&split&&width==1920?1280:width;}public int mV(){return 720;}public com.daudio.app.dipo.telechips.CarPlayScreen mW()throws Throwable{return mU()==1280?com.daudio.app.dipo.telechips.CarPlayScreen.VideoStream_1280x720_60fps:com.daudio.app.dipo.telechips.CarPlayScreen.VideoStream_1920x720_60fps;}}''',
 'com/daudio/app/dipo/renamed/ExtraDisplay.java':'''package com.daudio.app.dipo.renamed;public class ExtraDisplay{public int mU(){return 1920;}public int mV(){return 720;}public com.daudio.app.dipo.telechips.CarPlayScreen mW(){return null;}}''',
 'com/daudio/app/dipo/renamed/ExtraWireless.java':'''package com.daudio.app.dipo.renamed;public class ExtraWireless{public boolean isSupportWirelessCarPlay(){return true;}}''',
 'com/daudio/app/dipo/renamed/Owner.java':'''package com.daudio.app.dipo.renamed;import com.tcc.iap2.*;import android.content.*;import android.os.*;public class Owner{public String address;public synchronized String identity(){return address;}private boolean notifications;public boolean enabled(){return notifications;}public void clearNotifications(){notifications=false;}public boolean dropBeforeLocal,throwInLocal;public java.util.concurrent.CountDownLatch enteredLatch,releaseLatch;public class Local implements IIap2Listener{public int calls,component;public void connected(int c,String s){if(Owner.this.enteredLatch!=null){Owner.this.enteredLatch.countDown();try{Owner.this.releaseLatch.await(2000,java.util.concurrent.TimeUnit.MILLISECONDS);}catch(InterruptedException ignored){}}if(Owner.this.throwInLocal)throw new RuntimeException("boom");calls++;component=c;}public void disconnected(int c){calls++;component=c;}public void notify(int w,int a,int b,Iap2NotiMsg m){}public class BinderListener extends IIap2Listener.Stub{public int calls,component;public void connected(int c,String s){if(s==null)return;calls++;component=c;if(c==1&&!Owner.this.dropBeforeLocal){Owner.this.notifications=true;try{kr.gen5w.portable.Hook.call("localConnected",Local.this,c,s);}catch(RuntimeException|Error e){throw e;}catch(Throwable e){throw new RuntimeException(e);}}}public void disconnected(int c){calls++;component=c;if(c==1){Owner.this.notifications=false;try{kr.gen5w.portable.Hook.call("localDisconnected",Local.this,c);}catch(RuntimeException|Error e){throw e;}catch(Throwable e){throw new RuntimeException(e);}}}public void notify(int w,int a,int b,Iap2NotiMsg m){calls++;component=w;}}}public class OtherConnection implements ServiceConnection{public int calls;public void onServiceConnected(ComponentName n,IBinder b){calls++;}public void onServiceDisconnected(ComponentName n){}}public class Connection implements ServiceConnection{public int calls;public void onServiceConnected(ComponentName n,IBinder b){calls++;}public void onServiceDisconnected(ComponentName n){}}}''',
@@ -50,14 +50,6 @@ public class AdapterTest {
  public static void main(String[] args)throws Throwable{
  String mode=args[0];Context c=new Context();dalvik.system.DexFile.names=new String[]{"com.daudio.app.dipo.renamed.Owner","com.daudio.app.dipo.renamed.Owner$Local","com.daudio.app.dipo.renamed.Owner$Local$BinderListener","com.daudio.app.dipo.renamed.Owner$Connection","com.daudio.app.dipo.renamed.Owner$OtherConnection","com.daudio.app.dipo.renamed.Wireless","com.daudio.app.dipo.renamed.DisplayConfig","com.daudio.app.dipo.renamed.BluetoothManager","com.daudio.app.dipo.service.DipoService$Details"};
  if(mode.equals("ambiguous")){String[] old=dalvik.system.DexFile.names;dalvik.system.DexFile.names=java.util.Arrays.copyOf(old,old.length+1);dalvik.system.DexFile.names[old.length]="com.daudio.app.dipo.renamed.ExtraWireless";try{ProjectionAdapters.install(c);throw new AssertionError("accepted ambiguity");}catch(IllegalArgumentException expected){}check(Hook.targets.size()==0,"ambiguity must install nothing");return;}
- if(mode.startsWith("display-")){
-  java.util.List<String> names=new java.util.ArrayList<String>(java.util.Arrays.asList(dalvik.system.DexFile.names));
-  if(mode.equals("display-missing"))names.remove("com.daudio.app.dipo.renamed.DisplayConfig");
-  else names.add("com.daudio.app.dipo.renamed.ExtraDisplay");
-  dalvik.system.DexFile.names=names.toArray(new String[0]);
-  try{ProjectionAdapters.install(c);throw new AssertionError("accepted missing/ambiguous display role");}catch(IllegalArgumentException expected){}
-  check(Hook.targets.size()==0,"invalid display role installs nothing");return;
- }
  if(mode.equals("rollback")){Hook.fail=5;try{ProjectionAdapters.install(c);throw new AssertionError("accepted failed install");}catch(IllegalStateException expected){}check(Hook.removed.equals(java.util.Arrays.asList(4,3,2,1,0)),"rollback reverse order");return;}
  if(mode.startsWith("gpm")){c.pkg="com.google.android.projection.sink";ProjectionAdapters.install(c);ContextWrapper receiver=new ContextWrapper();Intent intent=new Intent("start");intent.component=new ComponentName("com.google.android.projection.sink","com.google.android.projection.service.GalReceiverService");intent.mode=1;intent.device=new UsbDevice(8,9);
  check(Hook.call("startService",receiver,intent)==null&&receiver.calls==0,"storage-only service start suppressed");
@@ -161,7 +153,7 @@ public class AdapterTest {
  c.registeredReceiver.onReceive(c,new Intent("kr.gen5w.dipo.RESTART_CARPLAY"));
  for(int n=0;n<200&&!android.content.BroadcastReceiver.last.finished;n++)Thread.sleep(5);
  check(android.content.BroadcastReceiver.last.finished&&android.content.BroadcastReceiver.last.code==kr.gen5w.dipo.RelayBridge.RESTART_NONE,"ordered receiver distinguishes NO_SESSION");
- check(Hook.targets.size()==24,"complete hook set");check(Sentinel.initialized==0,"discovery must not initialize classes");check(ProjectionAdapters.install(c)&&Hook.targets.size()==24,"installation idempotent");
+ check(Hook.targets.size()==23,"complete hook set");check(Sentinel.initialized==0,"discovery must not initialize classes");check(ProjectionAdapters.install(c)&&Hook.targets.size()==23,"installation idempotent");
  Owner owner=new Owner();Owner.Local local=owner.new Local();Owner.Local.BinderListener binder=local.new BinderListener();Owner.Connection connection=owner.new Connection();CarPlayService car=new CarPlayService();
  owner.dropBeforeLocal=true;
  Hook.call("binderConnected",binder,5,"peer");check(binder.calls==1&&local.calls==0,"OEM early drop must not lock cp5 remap");
@@ -221,25 +213,10 @@ public class AdapterTest {
  Hook.call("binderConnected",binder2,4,"peer");check(RelayBridge.isConnectedOwner(binder2),"4 mapped to 1 while idle");Hook.call("binderDisconnected",binder2,4);check(!owner.enabled() && binder2.component==1 && !RelayBridge.isConnectedOwner(binder2),"pre-wireless BT disconnect maps 4->1 so DiPO clears CarPlay connected state");
  check(!(Boolean)Hook.call("wirelessSupport",new Wireless()),"stock wireless path disabled");
  DisplayConfig display=new DisplayConfig();
- check(display.mU()==1280,"fixture reproduces forced-false regression");
- check((Integer)Hook.call("screenWidth",display)==1920,"split ON advertises full 1920 video");
- check(display.calls==2,"width scope delegates original exactly once");
- check(display.mW()==CarPlayScreen.VideoStream_1920x720_60fps,"mW selects full video via scoped mU");
- display.split=false;check((Integer)Hook.call("screenWidth",display)==1920,"split OFF remains full width");
- display.width=800;check((Integer)Hook.call("screenWidth",display)==800,"800 display remains stock");
- display.width=1280;check((Integer)Hook.call("screenWidth",display)==1280,"1280 display remains stock");
- display.width=1920;display.split=true;
- display.during=()->{try{
-  check((Boolean)Hook.call("splitScreen",new Wireless(),c),"nested preference scope");
-  check((Boolean)Hook.call("wirelessSupport",new Wireless()),"nested scope restores outer capability");
-  final boolean[] leaked={true};Thread otherThread=new Thread(()->{try{leaked[0]=(Boolean)Hook.call("wirelessSupport",new Wireless());}catch(Throwable t){throw new AssertionError(t);}});
-  otherThread.start();otherThread.join();check(!leaked[0],"width scope cannot leak across threads");
- }catch(Throwable t){throw new AssertionError(t);}};
- Hook.call("screenWidth",display);display.during=null;
- RuntimeException widthFailure=new RuntimeException("width failure");display.failure=widthFailure;
- try{Hook.call("screenWidth",display);throw new AssertionError("width exception swallowed");}catch(RuntimeException expected){check(expected==widthFailure,"original exception identity");}
- check(!(Boolean)Hook.call("wirelessSupport",new Wireless()),"width scope removed after exception");
- display.failure=null;
+ check(display.mU()==1280,"split ON keeps stock 1280 width matching 1280x720 SurfaceView");
+ check(display.mW()==CarPlayScreen.VideoStream_1280x720_60fps,"split ON selects 1280x720 video stream");
+ display.split=false;
+ check(display.mU()==1920&&display.mW()==CarPlayScreen.VideoStream_1920x720_60fps,"split OFF keeps full 1920x720 video");
 
  check((Boolean)Hook.call("splitScreen",new Wireless(),c),"INFO capability must be available inside OEM split preference query");
  check(!(Boolean)Hook.call("splitScreen",new Wireless(),(Object)null),"OEM null context rejection retained");
@@ -281,7 +258,7 @@ def main():
   sources += [ROOT/'shared/src/kr/gen5w/diag/DebugTrace.java']
   sources += [ROOT/'tools/v039-relay/dipo-src/kr/gen5w/dipo/RelayBridge.java',ROOT/'tools/v039-relay/gpm-src/kr/gen5w/gpm/GpmUsbGuard.java']
   subprocess.run(['javac','--release','8','-Xlint:-options','-d',str(tmp/'classes'),*map(str,sources)],check=True)
-  for case in ['dipo','ambiguous','display-missing','display-ambiguous','rollback','reconnect','navi','gpm']:
+  for case in ['dipo','ambiguous','rollback','reconnect','navi','gpm']:
    if case=='gpm':
     (tmp/'classes/com/daudio').rename(tmp/'hidden-dipo');(tmp/'classes/com/tcc').rename(tmp/'hidden-tcc')
    subprocess.run(['java','-cp',str(tmp/'classes'),'GpmOnlyTest' if case=='gpm' else 'AdapterTest',case],check=True,timeout=30)

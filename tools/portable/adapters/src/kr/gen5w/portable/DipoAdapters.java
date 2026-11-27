@@ -136,20 +136,6 @@ public final class DipoAdapters {
       } catch (NoSuchMethodException absent) { /* unrelated class */
       }
     }
-    // V039's display configuration owns mU()/mV()/mW(). Discover the role
-    // without initializing OEM classes; ambiguity must abort before any hooks.
-    Class<?> screen = Class.forName("com.daudio.app.dipo.telechips.CarPlayScreen",
-                                    false, context.getClassLoader());
-    List<Class<?>> displays = new ArrayList<Class<?>>();
-    for (Class<?> type : all) {
-      try {
-        method(type, "mU", Integer.TYPE);
-        method(type, "mV", Integer.TYPE);
-        method(type, "mW", screen);
-        displays.add(type);
-      } catch (NoSuchMethodException absent) { /* unrelated class */ }
-    }
-    Class<?> display = unique(displays, "display configuration");
     Class<?> binderType = unique(binder, "binder listener"),
              localType = unique(local, "local listener");
     Field binderLink = uniqueField(binderType, localType);
@@ -292,17 +278,12 @@ public final class DipoAdapters {
                   "wirelessSupport", Object.class, Integer.TYPE));
     // The reviewed V039 utility F(Context) checks this same capability before
     // reading the driver's split-screen preference. Limit the capability override
-    // to that query and mU() below; leave OEM wireless transport handling off.
+    // to that query; leave mU() and OEM wireless transport handling stock so
+    // CarPlay stream dimensions match DiPO's 1280x720 split / 1920x720 full SurfaceView.
     try {
       plan.add(new Entry(method(wireless, "F", Boolean.TYPE, Context.class),
                          "splitScreen", Object.class, Object.class, Integer.TYPE));
     } catch (NoSuchMethodException absent) { }
-    // Stock mU() otherwise reduces a 1920 display to 1280 when fy() is on.
-    // Both createCarPlay's dimensions and mW()'s video enum use this query.
-    // Scope only this leaf query, never createCarPlay/onResume/service callbacks:
-    // those wider frames can also reach connection, authentication and RHD code.
-    plan.add(new Entry(method(display, "mU", Integer.TYPE),
-                       "screenWidth", Object.class, Integer.TYPE));
     // Observe DipoService.fy() split-screen state and both Settings keys for
     // diagnostics while preserving the stock decision (on Kona stepofspec >= 35,
     // both PhoneProjection CarPlayFragment and DipoService.fy() use carplay_ss_osd).
@@ -606,15 +587,6 @@ public final class DipoAdapters {
     } finally {
       kr.gen5w.diag.DebugTrace.event("cp.split.query", context != null ? 1 : 0,
                                      result ? 1 : 0);
-      if (previous == null) splitQuery.remove(); else splitQuery.set(previous);
-    }
-  }
-  public static int screenWidth(Object receiver, int handle) throws Throwable {
-    Boolean previous = splitQuery.get();
-    splitQuery.set(Boolean.TRUE);
-    try {
-      return ((Integer)Hook.original(handle, receiver, NONE)).intValue();
-    } finally {
       if (previous == null) splitQuery.remove(); else splitQuery.set(previous);
     }
   }

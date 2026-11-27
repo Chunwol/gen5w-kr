@@ -172,6 +172,47 @@ public final class StockOwner {
         }
     }
 
+    private static volatile Class<?> cachedSocketClass;
+    private static volatile java.lang.reflect.Field cachedImplField;
+    private static volatile java.lang.reflect.Field cachedFdInternalField;
+
+    /**
+     * Android 4.3 (API 18) LocalServerSocket.accept() leaves LocalSocketImpl.mFdCreatedInternally
+     * false, causing LocalSocketImpl.close() to skip Libcore.os.close(fd) and leak one FD per accept.
+     * Mark the accepted impl internally owned under its monitor before closing; safe no-op if absent.
+     */
+    static void closeAccepted(LocalSocket client) {
+        if (client == null) return;
+        try {
+            Class<?> socketClass = client.getClass();
+            java.lang.reflect.Field implField = cachedImplField;
+            java.lang.reflect.Field fdInternalField = cachedFdInternalField;
+            if (socketClass != cachedSocketClass) {
+                implField = socketClass.getDeclaredField("impl");
+                implField.setAccessible(true);
+                Object probe = implField.get(client);
+                if (probe != null) {
+                    fdInternalField = probe.getClass().getDeclaredField("mFdCreatedInternally");
+                    fdInternalField.setAccessible(true);
+                    cachedImplField = implField;
+                    cachedFdInternalField = fdInternalField;
+                    cachedSocketClass = socketClass;
+                } else {
+                    fdInternalField = null;
+                }
+            }
+            if (implField != null && fdInternalField != null) {
+                Object impl = implField.get(client);
+                if (impl != null) {
+                    synchronized (impl) {
+                        fdInternalField.setBoolean(impl, true);
+                    }
+                }
+            }
+        } catch (Throwable ignored) { }
+        try { client.close(); } catch (java.io.IOException ignored) { } catch (RuntimeException ignored) { }
+    }
+
     public static void main(String[] args) throws Exception {
         if (Process.myUid() != 1000 || args.length != 0) System.exit(1);
         Looper.prepareMainLooper();
@@ -209,7 +250,7 @@ public final class StockOwner {
                                 }
                             }
                         } catch (java.io.IOException ignored) { }
-                        finally { try { client.close(); } catch (java.io.IOException ignored) { } }
+                        finally { closeAccepted(client); }
                     } catch (java.io.IOException e) {
                         kr.gen5w.diag.SafeDiagnostic.failure("core.owner.accept", e);
                         if (++acceptErrors >= 20) System.exit(1);

@@ -92,6 +92,18 @@ public final class GuidanceParserTest {
         gap.groups.add(fields(number(0,0),number(1,1),number(2,0)));
         gap.groups.add(fields(number(0,2),number(1,1),number(2,90)));
         check("lane index gaps rejected", GuidanceParser.lanes(fields(number(0,1),number(1,7),gap)) == null);
+        // Wire regression (Tmap/Kakao mask=0x1ff): omitted JunctionType defaults to 0 so type=3 maps to 0x41.
+        Maneuver noJunc = GuidanceParser.maneuver(fields(number(0, 5), number(1, 3), text(2, "직진"),
+            number(3, 3), text(4, "정왕역"), number(5, 250), number(8, 0)));
+        check("omitted junctionType defaults to 0 and maps straight icon",
+            noJunc != null && noJunc.junctionType == 0 && kr.gen5w.hud.ClusterIcon.of(noJunc) == 0x41);
+        Maneuver roundabout = GuidanceParser.maneuver(fields(number(0, 5), number(1, 4),
+            number(3, 6), number(8, 0), number(9, 1), number(11, 90)));
+        check("explicit junctionType=1 retains roundabout icon",
+            roundabout != null && roundabout.junctionType == 1 && kr.gen5w.hud.ClusterIcon.of(roundabout) == 0x63);
+        Maneuver negJunc = new Maneuver();
+        negJunc.type = 3; negJunc.drivingSide = 0; negJunc.junctionType = -1; negJunc.exitAngle = Maneuver.UNKNOWN_ANGLE;
+        check("ClusterIcon normalizes negative junctionType to 0", kr.gen5w.hud.ClusterIcon.of(negJunc) == 0x41);
         System.out.println("guidance parser: " + passed + " passed");
     }
     static boolean allClear(int... states) {

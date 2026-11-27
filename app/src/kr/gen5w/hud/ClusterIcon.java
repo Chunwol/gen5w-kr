@@ -24,7 +24,7 @@ public final class ClusterIcon {
      */
     public static int of(Maneuver m) {
         if (m == null || m.type < 0 || m.type > 53) return NONE;
-        final int d = m.drivingSide, j = m.junctionType, a = m.exitAngle;
+        final int d = m.drivingSide, j = m.junctionType < 0 ? 0 : m.junctionType, a = m.exitAngle;
         switch (m.type) {
             case 0:
                 if (j == 1) return d == 0 ? roundaboutByAngle(a) : NONE;

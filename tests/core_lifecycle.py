@@ -293,6 +293,18 @@ public class CoreLifecycleTest {
         t.renderAaTbt(66,0,800,"road"); check(NavigationCluster.trapWrites==tw+2, "trap reset follows each turn update as in GPM");
         t.renderAaTbt(0,0,-1,null); t.renderAaTbt(66,0,700,"road"); check(NavigationCluster.trapWrites==tw+3, "trap reset sent again for a new guidance");
         check(NavigationCluster.pe00Background==0, "phone PE_00 never fabricates parking/air-condition/road-class fields");
+        // Transient UNKNOWN HUD owner flickers must preserve near-view gauge baselines; confirmed STOCK ownership resets them.
+        CoreLifecycleTest unk=new CoreLifecycleTest();
+        unk.cpStockNear=true; unk.cpNearManeuverKey="m1"; unk.cpNearGuideDist=400L;
+        unk.aaStockNear=true; unk.aaNearManeuverKey="a1"; unk.aaNearGuideDist=400L;
+        unk.yieldToStock(false);
+        check(unk.cpStockNear && "m1".equals(unk.cpNearManeuverKey) && unk.cpNearGuideDist==400L
+                && unk.aaStockNear && "a1".equals(unk.aaNearManeuverKey) && unk.aaNearGuideDist==400L,
+                "transient UNKNOWN owner must preserve near-view gauge baselines");
+        unk.yieldToStock(true);
+        check(!unk.cpStockNear && unk.cpNearManeuverKey==null && unk.cpNearGuideDist==0L
+                && !unk.aaStockNear && unk.aaNearManeuverKey==null && unk.aaNearGuideDist==0L,
+                "confirmed STOCK owner must reset near-view gauge baselines");
         System.out.println("PASS Core lifecycle: stock ownership, deferred AA clear, CarPlay preservation, AA retry, expiry, and PE_00");
     }
 '''
