@@ -59,7 +59,7 @@ public final class StockTurn {
     }
 
     public static Frame build(Maneuver m, int icon, long meters, boolean previousNear) {
-        if (icon <= 0) return new Frame(0, 0, 0, COMBI_NONE, false);
+        if (icon <= 0) return new Frame(TurnFrame.TBT_DISPLAY_IDLE, 0, 0, COMBI_NONE, false);
         int farDisplayType = TurnFrame.tbtDisplayType(icon);
         boolean isNear = near(meters, previousNear);
         if (isDestWaypoint(m, icon)) {
@@ -218,10 +218,24 @@ public final class StockTurn {
         }
     }
 
-    /** CJunctionViewGuidance::GetRemainDistRatio (0..300m -> 1..10, else 15). */
+    /** Caps the dynamic guide distance at NEAR_ENTER_M when entering near view. */
+    public static long guideDistance(long entryMeters) {
+        if (entryMeters <= 0L) return NEAR_ENTER_M;
+        return Math.min(NEAR_ENTER_M, entryMeters);
+    }
+
+    /** Stock CJunctionViewGuidance::GetRemainDistRatio + SetCase* (10..1 draining in near view, 0x0f far/idle). */
+    public static int remainRatio(long meters, boolean near, long guideDistMeters) {
+        if (!near || meters < 0) return 0x0f;
+        long guide = guideDistMeters > 0L ? guideDistMeters : NEAR_ENTER_M;
+        int elapsedPct = meters >= guide ? 0
+                : (int) Math.min(100L, 100L - Math.min(100L, (meters * 100L) / guide));
+        int remPct = 100 - Math.min(100, elapsedPct);
+        return remPct <= 9 ? 1 : Math.min(10, remPct / 10);
+    }
+
     public static int remainRatio(long meters) {
-        if (meters < 0 || meters > 300) return 0x0f;
-        return Math.max(1, Math.min(10, (int) ((300 - meters + 29) / 30)));
+        return remainRatio(meters, meters >= 0 && meters <= NEAR_ENTER_M, NEAR_ENTER_M);
     }
 
     private static boolean isDestWaypoint(Maneuver m, int icon) {

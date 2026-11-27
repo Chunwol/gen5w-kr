@@ -25,8 +25,9 @@ public final class LaneFrame {
                 seen |= 1 << direction;
                 boolean highlight = highlightAll;
                 for (int angle : lane.highlights) if (direction(angle) == direction) highlight = true;
+                int poss = highlight ? 2 : (lane.status == 0 ? 3 : 1);
                 out[0x13 + 3 * i + outSlot] = (byte) direction;
-                out[3 + i] |= (highlight ? 2 : 1) << (2 * outSlot);
+                out[3 + i] |= poss << (2 * outSlot);
                 recommended[i] |= highlight;
                 outSlot++;
             }
@@ -68,6 +69,7 @@ public final class LaneFrame {
             }
             lane.angles = new int[]{angle};
             boolean rec = recommended != null && i < recommended.length && recommended[i];
+            lane.status = rec ? 2 : 1;
             lane.highlights = rec ? new int[]{angle} : new int[0];
             lanes.lanes.add(lane);
         }

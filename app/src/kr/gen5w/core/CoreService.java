@@ -71,11 +71,14 @@ public final class CoreService extends Service {
     private final NotificationEpoch epoch = new NotificationEpoch();
     private long outputEpoch = -1; // accessed only on io
     private int routeSourceCode; // worker thread; numeric diagnostics only
-    private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // main only
+    private final GuidanceRequest guidanceRequest = new GuidanceRequest(); // synchronized internally
+    private volatile boolean stockOwnsHud;
     private boolean cpStockNear;
     private String cpNearManeuverKey;
+    private long cpNearGuideDist;
     private boolean aaStockNear;
     private String aaNearManeuverKey;
+    private long aaNearGuideDist;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -109,22 +112,27 @@ public final class CoreService extends Service {
                     if (clearing) {
                         cpStockNear = false;
                         cpNearManeuverKey = null;
-                        frame = new StockTurn.Frame(0, 0, 0, 0, false);
+                        cpNearGuideDist = 0L;
+                        frame = new StockTurn.Frame(TurnFrame.TBT_DISPLAY_IDLE, 0, 0, 0, false);
                     } else {
                         String key = StockTurn.maneuverKey(maneuver, icon, maneuver != null ? maneuver.afterRoad : null);
                         if (cpNearManeuverKey == null || !cpNearManeuverKey.equals(key)) {
                             cpStockNear = false;
                             cpNearManeuverKey = key;
+                            cpNearGuideDist = 0L;
                         }
+                        boolean wasNear = cpStockNear;
                         frame = StockTurn.build(maneuver, icon, meters, cpStockNear);
+                        if (!wasNear && frame.near) cpNearGuideDist = StockTurn.guideDistance(meters);
+                        else if (!frame.near) cpNearGuideDist = 0L;
                         cpStockNear = frame.near;
                         notifyNaviPhoneGuiding(true);
                     }
                     float distVal = clearing ? 0f : TurnFrame.tbtDistanceValue(meters);
                     int distErr = clearing ? TurnFrame.DIST_ERR_UNKNOWN : TurnFrame.tbtDistanceError(meters);
                     int distScale = clearing ? TurnFrame.SCALE_METER : TurnFrame.tbtDistanceScale(meters);
-                    int barLevel = TurnFrame.tbtBarGraphLevel(clearing ? 0 : icon, clearing ? -1L : meters);
-                    int barErr = TurnFrame.tbtBarGraphError(clearing ? 0 : icon, clearing ? -1L : meters);
+                    int barLevel = TurnFrame.tbtBarGraphLevel(clearing ? 0 : icon, clearing ? -1L : meters, frame.near, cpNearGuideDist);
+                    int barErr = TurnFrame.tbtBarGraphError(clearing ? 0 : icon, clearing ? -1L : meters, frame.near);
                     cluster.updateTBTInfo(
                             frame.displayType,
                             frame.sideStreet,
@@ -273,6 +281,7 @@ public final class CoreService extends Service {
     private boolean refreshOwnership() {
         int next = stockGuidance.read();
         kr.gen5w.diag.DebugTrace.event("hud.owner", next, epoch.ticket());
+        stockOwnsHud = (next == StockGuidance.ACTIVE);
         boolean allowed = (next == StockGuidance.IDLE);
         // AA updates are intentionally not accepted while stock ownership is
         // active or unknown. Do not let an older cached turn reappear through
@@ -305,8 +314,10 @@ public final class CoreService extends Service {
         aaModern.reset();
         cpStockNear = false;
         cpNearManeuverKey = null;
+        cpNearGuideDist = 0L;
         aaStockNear = false;
         aaNearManeuverKey = null;
+        aaNearGuideDist = 0L;
         // Anything the phone sessions showed is stale once stock owns the cluster; the session re-sends its desired values.
         subMeters = -1; subSeconds = -1; subArrivalMs = -1L;
         lastCrossroadSent = null;
@@ -550,9 +561,13 @@ public final class CoreService extends Service {
             return true;
         }
     }
-    private void queueGuidanceRequest() {
+    private void queueGuidanceRequest(long delayMs) {
         main.removeCallbacks(routeRetry);
-        if (!stopping) main.post(routeRetry);
+        if (stopping) return;
+        long ticket = epoch.ticket();
+        if (ticket >= 0 && guidanceRequest.isConfirmed(ticket)) return;
+        if (delayMs <= 0L) main.post(routeRetry);
+        else main.postDelayed(routeRetry, delayMs);
     }
     private void requestGuidance() {
         if (stopping || !registered || iap2 == null) return;
@@ -564,8 +579,22 @@ public final class CoreService extends Service {
         // relayed component-5 iAP2 link still needs this shared native feed
         // for stock INFO. Accept/retry independently of route-list discovery.
         final boolean mediaReady = requestMedia(service, ticket);
+        if (guidanceRequest.isConfirmed(ticket)) {
+            if (!mediaReady && !stopping && registered && iap2 == service && epoch.isCurrent(ticket)) {
+                main.postDelayed(routeRetry, RETRY_MS);
+            }
+            return;
+        }
+        if (stockOwnsHud) {
+            if (!stopping && registered && iap2 == service && epoch.isCurrent(ticket)) {
+                main.postDelayed(routeRetry, RETRY_MS);
+            }
+            return;
+        }
+        long nextDelay = RETRY_MS;
+        boolean needRetry = !mediaReady;
         try {
-            if (guidanceRequest.ensure(ticket,new GuidanceRequest.ReviewedOemBackend() {
+            GuidanceRequest.Step step = guidanceRequest.step(ticket, new GuidanceRequest.StopBackend() {
                 public boolean canonicalFallbackAllowed() throws Exception {
                     Object product = Class.forName("android.os.SystemProperties")
                             .getMethod("get", String.class).invoke(null, "ro.build.product");
@@ -590,14 +619,30 @@ public final class CoreService extends Service {
                 }
                 public boolean start(String[] names) throws Exception {
                     boolean accepted = service.Iap2SvcStartRouteGuidanceUpdate(names,true,true);
+                    Log.i(TAG, "route.start ticket=" + ticket + " accepted=" + accepted);
                     kr.gen5w.diag.DebugTrace.event("route.start", ticket, names.length, accepted ? 1 : 0);
                     return accepted;
                 }
-            }) && mediaReady) return;
-        } catch (Exception e) { Log.w(TAG,"route request not ready: " + e.getClass().getSimpleName()); }
-          catch (LinkageError e) { Log.w(TAG,"route request API unavailable"); return; }
-        if (!stopping && registered && iap2 == service && epoch.isCurrent(ticket)) {
-            main.postDelayed(routeRetry,RETRY_MS);
+                public boolean stop(String[] names) throws Exception {
+                    boolean accepted = service.Iap2SvcStopRouteGuidanceUpdate(names);
+                    Log.i(TAG, "route.stop ticket=" + ticket + " accepted=" + accepted);
+                    kr.gen5w.diag.DebugTrace.event("route.stop", ticket, names.length, accepted ? 1 : 0);
+                    return accepted;
+                }
+            });
+            if (!step.done) {
+                needRetry = true;
+                nextDelay = !mediaReady && step.nextDelayMs > RETRY_MS ? RETRY_MS : step.nextDelayMs;
+            }
+        } catch (Exception e) {
+            needRetry = true;
+            Log.w(TAG,"route request not ready: " + e.getClass().getSimpleName());
+        } catch (LinkageError e) {
+            Log.w(TAG,"route request API unavailable");
+            return;
+        }
+        if (needRetry && !stopping && registered && iap2 == service && epoch.isCurrent(ticket)) {
+            main.postDelayed(routeRetry, nextDelay > 0L ? nextDelay : RETRY_MS);
         }
     }
     private void register() {
@@ -611,7 +656,7 @@ public final class CoreService extends Service {
             if (iap2.Iap2SvcIsIap2Connected()) epoch.open();
             if (iap2.Iap2SvcInit(listener, info)) {
                 registered = true;
-                queueGuidanceRequest();
+                queueGuidanceRequest(GuidanceRequest.INITIAL_SETTLE_MS);
                 Log.i(TAG, "route listener registered"); return;
             }
         } catch (Exception e) { Log.w(TAG, "route registration failed: " + e.getClass().getSimpleName()); }
@@ -637,7 +682,7 @@ public final class CoreService extends Service {
                 long ticket = epoch.open(type);
                 kr.gen5w.diag.DebugTrace.event("route.connected", type, ticket);
                 io.post(new Runnable() { public void run() { routeSourceCode = 0; resetAaState(); } });
-                queueGuidanceRequest();
+                queueGuidanceRequest(GuidanceRequest.INITIAL_SETTLE_MS);
             }
         }
         public void disconnected(int type) {
@@ -650,11 +695,12 @@ public final class CoreService extends Service {
         public void notify(final int what, int a, int b, Iap2NotiMsg message) {
             kr.gen5w.diag.DebugTrace.event("route.notify", what, epoch.ticket());
             // Stock NotiType: IdentificationAccepted=0, AuthenticationSuccess=5.
-            if (!stopping && (what == 0 || what == 5)) { queueGuidanceRequest(); return; }
+            if (!stopping && (what == 0 || what == 5)) { queueGuidanceRequest(GuidanceRequest.INITIAL_SETTLE_MS); return; }
             if (stopping || (what != GuidanceParser.STATUS && what != GuidanceParser.MANEUVER
                     && what != GuidanceParser.LANES)) return;
             final long ticket = epoch.ticket();
             if (ticket < 0) return;
+            guidanceRequest.confirmData(ticket);
             final List<Item> fields;
             try { fields = Convert.of(message); }
             catch (RuntimeException e) { clear(ticket); return; }
@@ -717,7 +763,9 @@ public final class CoreService extends Service {
                         logRouteEstimates(s, fields);
                         String line = "STATUS: comp=" + s.component + " state=" + s.state
                                 + " dist=" + s.distanceToNext
-                                + " curr=" + java.util.Arrays.toString(s.current);
+                                + " curr=" + java.util.Arrays.toString(s.current)
+                                + (s.hasLaneIndex || s.hasLaneTotal || s.hasLaneVisible
+                                    ? " lane=" + s.laneIndex + "/" + s.laneTotal + " vis=" + s.laneVisible : "");
                         writeDebugLog(line);
                     }
                 } else if (what == GuidanceParser.LANES) {
@@ -736,6 +784,10 @@ public final class CoreService extends Service {
                               .append('*').append(java.util.Arrays.toString(gl.highlights));
                         }
                         writeDebugLog(sb.toString());
+                    } else {
+                        writeDebugLog("LANES: comp=" + (address == null ? -1 : address[0])
+                                + " idx=" + (address == null ? -1 : address[1])
+                                + " fields=" + fields.size());
                     }
                 }
             } catch (Throwable ignored) {}
@@ -772,6 +824,7 @@ public final class CoreService extends Service {
     }
     private void finishDisconnect(final long closed) {
         main.removeCallbacks(routeRetry);
+        guidanceRequest.reset();
         io.post(new Runnable() {
             public void run() {
                 if (outputEpoch <= closed) {
@@ -801,6 +854,7 @@ public final class CoreService extends Service {
         aaModern.reset();
         aaStockNear = false;
         aaNearManeuverKey = null;
+        aaNearGuideDist = 0L;
         aaRoute.clear();
         aaTunnelWant = false;
         aaTunnelDist = -1L;
@@ -944,6 +998,8 @@ public final class CoreService extends Service {
             if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
             cluster.updateLaneInfo(frame);
             aaRoute.laneSent();
+            writeDebugLog("OURS updateLaneInfo " + hex(frame));
+            logLaneBits(frame);
             writeDebugLog("AA_LANE: updated " + frame.length + " bytes");
         } catch (Throwable e) { outputError(e); }
     }
@@ -962,8 +1018,12 @@ public final class CoreService extends Service {
         if (aaNearManeuverKey == null || !aaNearManeuverKey.equals(key)) {
             aaStockNear = false;
             aaNearManeuverKey = key;
+            aaNearGuideDist = 0L;
         }
+        boolean wasNear = aaStockNear;
         StockTurn.Frame frame = StockTurn.build(maneuver, displayIcon, dist, aaStockNear);
+        if (!wasNear && frame.near) aaNearGuideDist = StockTurn.guideDistance(dist);
+        else if (!frame.near) aaNearGuideDist = 0L;
         aaStockNear = frame.near;
         try {
             if (cluster == null) cluster = new NavigationCluster(getApplicationContext());
@@ -971,8 +1031,8 @@ public final class CoreService extends Service {
             float distVal = TurnFrame.tbtDistanceValue(dist);
             int distErr = TurnFrame.tbtDistanceError(dist);
             int distScale = TurnFrame.tbtDistanceScale(dist);
-            int barLevel = TurnFrame.tbtBarGraphLevel(displayIcon, dist);
-            int barErr = TurnFrame.tbtBarGraphError(displayIcon, dist);
+            int barLevel = TurnFrame.tbtBarGraphLevel(displayIcon, dist, frame.near, aaNearGuideDist);
+            int barErr = TurnFrame.tbtBarGraphError(displayIcon, dist, frame.near);
             cluster.updateTBTInfo(
                     frame.displayType,
                     frame.sideStreet,
@@ -1064,6 +1124,8 @@ public final class CoreService extends Service {
                 cluster.updateTBTInfo(
                         TurnFrame.TBT_DISPLAY_IDLE, 0, 0f, 0f,
                         TurnFrame.DIST_ERR_UNKNOWN, 0, TurnFrame.SCALE_METER, 0, TurnFrame.BAR_ERR_INVALID);
+                writeDebugLog("OURS updateTBTInfo " + TurnFrame.TBT_DISPLAY_IDLE + " 0 0.0 0.0 "
+                        + TurnFrame.DIST_ERR_UNKNOWN + " 0 " + TurnFrame.SCALE_METER + " 0 " + TurnFrame.BAR_ERR_INVALID);
                 if (!sendHudDistance2C(-1L)) return;
                 if (!mediaOsdActive) {
                     cluster.updateTPTurnListNew(TurnFrame.clear());

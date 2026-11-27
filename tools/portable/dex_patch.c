@@ -164,6 +164,19 @@ static int findstr(const char *n) {
     bad = 1;
   return found;
 }
+static int findtype(const char *n) {
+  uint32_t i;
+  int found = -1;
+  for (i = 0; i < nt; i++)
+    if (!strcmp(typ(i), n)) {
+      if (found >= 0)
+        bad = 1;
+      found = i;
+    }
+  if (found < 0 || found > 65535)
+    bad = 1;
+  return found;
+}
 static void table(unsigned pos, unsigned width_, uint32_t *count,
                   uint32_t *off) {
   *count = r32(pos);
@@ -483,6 +496,81 @@ static void prove_v3(uint32_t c, uint32_t n) {
 }
 #define INFO "Lcom/tcc/iap2server/Iap2InitInformationMsg;"
 #define SERVICE "Lcom/tcc/iap2server/Iap2Service;"
+#define RG_ITEM "Lcom/tcc/iap2server/Iap2InitInformationMsg$RouteGuidanceComponent$RouteGuidanceItem;"
+#define W(p) r16(c + 16 + (p) * 2)
+static void lane_ident(void) {
+  uint32_t c = code(RG_ITEM "->getComponentInfo(Lcom/tcc/iap2/Iap2NotiMsg;)V"),
+           n = r32(c + 12), pc;
+  int int_arr = findtype("[I"),
+      add_int = findmethod("Lcom/tcc/iap2/Iap2NotiMsg$Iap2ObjGroup;->addObject(II[I)V");
+  validate(c);
+  if (r16(c) < 10 || r16(c + 2) != 2 || r16(c + 4) < 4 || r16(c + 6) != 0 || n < 48) {
+    bad = 1;
+    return;
+  }
+  if (W(0) != 0x5712 || W(1) != 0x0612 || W(2) != 0x1512 || W(11) != 0x106e ||
+      !method_eq(W(12), "Lcom/tcc/iap2/Iap2NotiMsg;->createIap2NotiObjGroup()Lcom/tcc/iap2/Iap2NotiMsg$Iap2ObjGroup;") ||
+      W(14) != 0x000c || !boundary(c, 15) || !boundary(c, 43)) {
+    bad = 1;
+    return;
+  }
+  if (W(15) != 0x0071 || W(18) != 0x020c || W(19) != 0x0322 || W(40) != 0x2071 ||
+      !method_eq(W(41), "Landroid/util/Log;->d(Ljava/lang/String;Ljava/lang/String;)I") ||
+      W(42) != 0x0032) {
+    bad = 1;
+    return;
+  }
+  if ((W(43) & 0xff) != 0x13 || (W(43) >> 8) != 2 ||
+      (W(45) & 0xff) != 0x23 || ((W(45) >> 8) & 15) != 3 ||
+      (W(47) & 0xff) != 0x54 || ((W(47) >> 8) & 15) != 4) {
+    bad = 1;
+    return;
+  }
+  for (pc = 0; pc < n && !bad;) {
+    uint32_t word = W(pc);
+    unsigned op = word & 255, w = step(c, pc, n);
+    int64_t target = -1;
+    if (!w)
+      break;
+    if ((op == 0 && word) || op == 0x26 || op == 0x2b || op == 0x2c) {
+      bad = 1;
+      break;
+    }
+    if (pc >= 15 && pc < 43) {
+      int pair = 0;
+      int reg = destination(c, pc, &pair);
+      if (pair || (reg >= 0 && reg != 2 && reg != 3 && reg != 4)) {
+        bad = 1;
+        break;
+      }
+    }
+    if (op == 0x28)
+      target = (int64_t)pc + (int8_t)(word >> 8);
+    else if (op == 0x29 || (op >= 0x32 && op <= 0x3d))
+      target = (int64_t)pc + (int16_t)W(pc + 1);
+    else if (op == 0x2a)
+      target = (int64_t)pc + (int32_t)r32(c + 18 + pc * 2);
+    if ((op == 0x28 || op == 0x29 || op == 0x2a || (op >= 0x32 && op <= 0x3d)) &&
+        (target < 0 || target >= n || (target >= 15 && target < 43))) {
+      bad = 1;
+      break;
+    }
+    pc += w;
+  }
+  if (bad)
+    return;
+  {
+    const uint16_t patch[28] = {
+        0x7212, (uint16_t)0x5323, (uint16_t)int_arr, 0x0413, 0x0040, 0x044b, 0x0603,
+        0x406e, (uint16_t)add_int, 0x3720,
+        0x0213, 0x0008, (uint16_t)0x5323, (uint16_t)int_arr, 0x0413, 0x000a, 0x044b, 0x0603,
+        0x406e, (uint16_t)add_int, 0x3720,
+        0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
+    unsigned i;
+    for (i = 0; i < 28; i++)
+      w16(c + 16 + (15 + i) * 2, patch[i]);
+  }
+}
 static void capability(void) {
   uint32_t c = code(INFO "->checkSupportsFeatures()V"), n = r32(c + 12), pc;
   int a = findfield(INFO "->iAP2UsedWifiInformation:I"),
@@ -512,6 +600,8 @@ static void capability(void) {
   }
   if (na != 1 || nb != 3)
     bad = 1;
+  if (!bad)
+    lane_ident();
 }
 static void putleb(uint32_t p, uint32_t v, uint32_t n) {
   uint32_t i;
@@ -588,7 +678,6 @@ static void bluetooth(void) {
   putleb(oper[b], ca, width[b]);
   capability();
 }
-#define W(p) r16(c + 16 + (p) * 2)
 static void gpm(void) {
   uint32_t c = code("Lcom/google/android/projection/service/"
                     "GalConnectionSession;-><init>(Landroid/content/"
@@ -812,7 +901,9 @@ static void seal(const char *kind) {
           d = raw;
           len = total;
           if ((!strcmp(kind, "bt") &&
-               (!strcmp(n, SERVICE) || !strcmp(n, INFO))) ||
+               (!strcmp(n, SERVICE) || !strcmp(n, INFO) ||
+                !strcmp(n, RG_ITEM))) ||
+              (!strcmp(kind, "route") && !strcmp(n, RG_ITEM)) ||
               (!strcmp(kind, "dipo") &&
                !strcmp(n, "Lcom/daudio/app/dipo/service/DipoService;")) ||
               (!strcmp(kind, "gpm") &&

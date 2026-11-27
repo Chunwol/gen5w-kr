@@ -155,6 +155,16 @@ class BtRecipeTest(unittest.TestCase):
             release_recipe('v035')
         self.assertEqual(bt['original_sha256'], route['original_sha256'])
         self.assertNotEqual(bt['patched_sha256'], route['patched_sha256'])
+        bt_lane = [p for p in bt['patches'] if len(p['bytes']) == 56]
+        route_lane = [p for p in route['patches'] if len(p['bytes']) == 56]
+        self.assertEqual(len(bt_lane), 1)
+        self.assertEqual(bt_lane, route_lane)
+        words = struct.unpack('<28H', bytes(bt_lane[0]['bytes']))
+        self.assertEqual(words[0], 0x7212)
+        self.assertEqual(words[3:8], (0x0413, 0x0040, 0x044b, 0x0603, 0x406e))
+        self.assertEqual(words[9:13], (0x3720, 0x0213, 0x0008, 0x5323))
+        self.assertEqual(words[14:19], (0x0413, 0x000a, 0x044b, 0x0603, 0x406e))
+        self.assertEqual(words[20:], (0x3720,) + (0,) * 7)
 
     def test_private_stock_v039_rebuilds_the_exact_recipe_and_integrity(self):
         if PRIVATE_STOCK is None:

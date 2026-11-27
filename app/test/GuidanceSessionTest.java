@@ -360,6 +360,26 @@ public final class GuidanceSessionTest {
         session.message(GuidanceParser.LANES, Arrays.asList(n(0,1),n(1,3),n(1,4)));
         check("malformed lane message clears stale frame", sink.lanes[1] == 0);
         {
+            // Pre-loaded 0x7a lane sets survive maneuver changes and activate on param 16 (even without param 18).
+            Sink ls = new Sink(); GuidanceSession lses = new GuidanceSession(ls);
+            Item lg = new Item(); lg.id = 2;
+            lg.groups.add(Arrays.asList(n(0,0),n(1,0),n(2,0)));
+            lg.groups.add(Arrays.asList(n(0,1),n(1,2),n(2,0,90),n(3,90)));
+            lses.maneuver(m(7, 3));
+            lses.maneuver(m(8, 2));
+            lses.message(GuidanceParser.STATUS, Arrays.asList(n(0,1),n(1,1),n(13,7)));
+            lses.message(GuidanceParser.LANES, Arrays.asList(n(0,1),n(1,5),lg));
+            lses.message(GuidanceParser.STATUS, Arrays.asList(n(0,1),n(13,8)));
+            check("turn transition clears active lane display", ls.lanes[1] == 0);
+            lses.message(GuidanceParser.STATUS, Arrays.asList(n(0,1),n(16,5)));
+            check("preloaded lane set activates on param 16 without param 18",
+                    ls.lanes[1] == 2 && (ls.lanes[3] & 255) == 3 && (ls.lanes[4] & 255) == (1 | (2 << 2)));
+            lses.message(GuidanceParser.STATUS, Arrays.asList(n(0,1),n(18,0)));
+            check("explicit param 18=0 hides lanes", ls.lanes[1] == 0);
+            lses.message(GuidanceParser.STATUS, Arrays.asList(n(0,1),n(18,1)));
+            check("explicit param 18=1 shows lanes again", ls.lanes[1] == 2);
+        }
+        {
             // CoreService retries every second with no route input (outputRetry -> retryOutput).
             Sink cs = new Sink(); GuidanceSession cp = new GuidanceSession(cs);
             cs.rejectTbt = true; cs.rejectTurns = true;
@@ -410,6 +430,27 @@ public final class GuidanceSessionTest {
         check("confirmed OEM component requested", "RouteGuidanceComponent0".equals(backend.lastName));
         backend.lookupId=0; backend.reviewed=true;
         check("reviewed OEM profile may request its canonical single component",request.ensure(5,backend));
+        {
+            GuidanceRequest rec = new GuidanceRequest();
+            StopRequestBackend sb = new StopRequestBackend();
+            GuidanceRequest.Step st0 = rec.step(10L, sb);
+            check("initial step sends start and arms 2s confirm check", !st0.done && st0.nextDelayMs == 2000L && sb.starts == 1 && sb.stops == 0);
+            long[] expectedBackoff = { 5000L, 10000L, 30000L, 30000L, 30000L, -1L };
+            for (int i = 0; i < expectedBackoff.length; i++) {
+                GuidanceRequest.Step sStop = rec.step(10L, sb);
+                check("unconfirmed retry " + (i + 1) + " calls stop then 200ms start", !sStop.done && sStop.nextDelayMs == 200L && sb.stops == i + 1);
+                GuidanceRequest.Step sStart = rec.step(10L, sb);
+                check("retry " + (i + 1) + " start schedules backoff", sStart.nextDelayMs == expectedBackoff[i] && sb.starts == i + 2 && sStart.done == (expectedBackoff[i] < 0));
+            }
+            GuidanceRequest.Step capped = rec.step(10L, sb);
+            check("retry stops after max 6 attempts", capped.done && sb.stops == 6 && sb.starts == 7);
+            rec.reset();
+            GuidanceRequest.Step fresh = rec.step(10L, sb);
+            check("reset allows fresh start on same/next epoch", !fresh.done && fresh.nextDelayMs == 2000L && sb.starts == 8);
+            rec.confirmData(10L);
+            GuidanceRequest.Step confirmed = rec.step(10L, sb);
+            check("confirmation immediately stops retries without Stop+Start", confirmed.done && sb.stops == 6 && sb.starts == 8);
+        }
         check("canonical fallback permits all V039 models and build dates",
                 GuidanceRequest.reviewedCanonicalProfile("OSHEV.KOR.0000.V039.001.260902")
                 && GuidanceRequest.reviewedCanonicalProfile("OTHER.V039.001.260902")
@@ -481,5 +522,14 @@ public final class GuidanceSessionTest {
         public int components(int[] ids,String[] names) { if(listUnavailable)return 0; ids[0]=0; names[0]=invalid ? null : "RouteGuidanceComponent0"; return 1; }
         public int componentId(String name) { return lookupId; }
         public boolean start(String[] names) { starts++; lastName=names[0]; return accept; }
+    }
+    static final class StopRequestBackend implements GuidanceRequest.StopBackend {
+        int starts, stops;
+        public boolean canonicalFallbackAllowed() { return true; }
+        public int count() { return 1; }
+        public int components(int[] ids, String[] names) { ids[0] = 5; names[0] = "RouteGuidanceComponent0"; return 1; }
+        public int componentId(String name) { return 5; }
+        public boolean start(String[] names) { starts++; return true; }
+        public boolean stop(String[] names) { stops++; return true; }
     }
 }

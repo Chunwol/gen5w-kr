@@ -89,7 +89,7 @@ public final class AaNavigationParser {
   map(s);return s;
  }
  private static GuidanceParser.Lane lane(Reader r,int index){
-  GuidanceParser.Lane lane=new GuidanceParser.Lane();lane.index=index;
+  GuidanceParser.Lane lane=new GuidanceParser.Lane();lane.index=index;lane.status=1;
   List<Integer> a=new ArrayList<Integer>(), h=new ArrayList<Integer>();
   while(r.more()){int t=r.tag();if(t!=10){r.skip(t);continue;}Reader d=r.child();int shape=0;boolean rec=false;
    while(d.more()){int dt=d.tag();if(dt==8)shape=d.integer();else if(dt==16)rec=d.varint()!=0;else d.skip(dt);}

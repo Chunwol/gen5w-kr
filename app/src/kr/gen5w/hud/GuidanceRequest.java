@@ -2,11 +2,16 @@ package kr.gen5w.hud;
 
 import java.util.Arrays;
 
-/** Native route-component discovery and one successful shared request per link.
- * No stop operation: stopping the shared stream could disrupt stock consumers.
- * Serialized by the caller, independent of Android for JVM verification.
+/** Native route-component discovery, initial settle, and bounded Stop+Start
+ * recovery if CarPlay sends no 0x78/0x79/0x7a data. Serialized internally
+ * so binder callbacks and the main retry loop cannot race.
  */
 public final class GuidanceRequest {
+    public static final long INITIAL_SETTLE_MS = 1000L;
+    public static final long STOP_TO_START_DELAY_MS = 200L;
+    public static final long DISCOVERY_RETRY_MS = 2000L;
+    public static final long[] RETRY_BACKOFF_MS = { 2000L, 5000L, 10000L, 30000L, 30000L, 30000L };
+
     public interface Backend {
         int count() throws Exception;
         int components(int[] ids, String[] names) throws Exception;
@@ -18,6 +23,19 @@ public final class GuidanceRequest {
     public interface ReviewedOemBackend extends LookupBackend {
         boolean canonicalFallbackAllowed() throws Exception;
     }
+    public interface StopBackend extends ReviewedOemBackend {
+        boolean stop(String[] names) throws Exception;
+    }
+    public static final class Step {
+        public final boolean done;
+        public final long nextDelayMs;
+        public final int attempt;
+        public Step(boolean done, long nextDelayMs, int attempt) {
+            this.done = done;
+            this.nextDelayMs = nextDelayMs;
+            this.attempt = attempt;
+        }
+    }
     public static boolean reviewedCanonicalProfile(String product) {
         if (product == null) return false;
         // Shared V039 policy: model, market and build date do not restrict this fallback.
@@ -27,7 +45,27 @@ public final class GuidanceRequest {
         return false;
     }
     private long successfulEpoch = -1;
-    public boolean ensure(long epoch, Backend backend) throws Exception {
+    private long confirmedEpoch = -1;
+    private long recoveryEpoch = -1;
+    private String[] lastNames;
+    private int retryCount;
+    private boolean pendingStartAfterStop;
+
+    public synchronized void confirmData(long epoch) {
+        if (epoch >= 0) confirmedEpoch = epoch;
+    }
+    public synchronized boolean isConfirmed(long epoch) {
+        return epoch >= 0 && confirmedEpoch == epoch;
+    }
+    public synchronized void reset() {
+        successfulEpoch = -1;
+        confirmedEpoch = -1;
+        recoveryEpoch = -1;
+        lastNames = null;
+        retryCount = 0;
+        pendingStartAfterStop = false;
+    }
+    public synchronized boolean ensure(long epoch, Backend backend) throws Exception {
         if (epoch < 0) return false;
         if (successfulEpoch == epoch) return true;
         int count = backend.count();
@@ -57,8 +95,40 @@ public final class GuidanceRequest {
                     || names[i].length() == 0 || names[i].length() > 128) return false;
             for (int j = 0; j < i; j++) if (ids[j] == ids[i] || names[j].equals(names[i])) return false;
         }
-        if (!backend.start(Arrays.copyOf(names,received))) return false;
+        String[] selected = Arrays.copyOf(names, received);
+        if (!backend.start(selected)) return false;
         successfulEpoch = epoch;
+        lastNames = selected;
         return true;
+    }
+    public synchronized Step step(long epoch, Backend backend) throws Exception {
+        if (epoch < 0) return new Step(true, -1L, 0);
+        if (confirmedEpoch == epoch) {
+            pendingStartAfterStop = false;
+            return new Step(true, -1L, retryCount);
+        }
+        if (recoveryEpoch != epoch) {
+            recoveryEpoch = epoch;
+            lastNames = null;
+            retryCount = 0;
+            pendingStartAfterStop = false;
+        }
+        if (successfulEpoch != epoch) {
+            if (!ensure(epoch, backend)) return new Step(false, DISCOVERY_RETRY_MS, 0);
+            return new Step(false, RETRY_BACKOFF_MS[0], 0);
+        }
+        if (pendingStartAfterStop) {
+            pendingStartAfterStop = false;
+            if (lastNames != null) backend.start(lastNames);
+            long nextDelay = retryCount < RETRY_BACKOFF_MS.length ? RETRY_BACKOFF_MS[retryCount] : -1L;
+            return new Step(nextDelay < 0, nextDelay, retryCount);
+        }
+        if (retryCount >= RETRY_BACKOFF_MS.length || lastNames == null) {
+            return new Step(true, -1L, retryCount);
+        }
+        retryCount++;
+        if (backend instanceof StopBackend) ((StopBackend) backend).stop(lastNames);
+        pendingStartAfterStop = true;
+        return new Step(false, STOP_TO_START_DELAY_MS, retryCount);
     }
 }

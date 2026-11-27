@@ -21,6 +21,7 @@ from pathlib import Path
 import struct
 
 from control_patch import Dex, finalize, leb
+from route_patch import RG_ITEM, lane_ident_patches
 
 SERVICE = 'Lcom/tcc/iap2server/Iap2Service;->'
 INFO = 'Lcom/tcc/iap2server/Iap2InitInformationMsg;->'
@@ -112,7 +113,8 @@ def make_recipe(raw):
                 counts[field] += 1
     if counts != {'iAP2UsedWifiInformation': 1, 'iAP2UsedRouteGuidance': 3}:
         raise ValueError('unexpected capability assignments: ' + str(counts))
-    recipe, result = finalize(raw, dex, patches, [SERVICE[:-2], INFO[:-2]])
+    patches.extend(lane_ident_patches(dex))
+    recipe, result = finalize(raw, dex, patches, [SERVICE[:-2], INFO[:-2], RG_ITEM])
     recipe['id'] = 'iap2-bt-session-1'
     return recipe, result
 

@@ -18,6 +18,7 @@ assert 'ClusterIcon.refineManeuver(second, road, null)' not in source, 'AA next 
 # Stock/unknown ownership must drop the AA tunnel request together with the AA route cache.
 assert 'if (!allowed) yieldToStock(next == StockGuidance.ACTIVE);' in source, 'refreshOwnership must yield AA PE_00 state to stock'
 assert 'maintainTunnelPe00();\n        io.postDelayed(this, 1000);' in source, 'outputRetry must maintain PE_00'
+assert 'new StockTurn.Frame(0, 0, 0, 0, false)' not in source, 'clear must use TBT_DISPLAY_IDLE=8, not 0'
 
 def method(signature):
     start = source.index(signature)
@@ -69,14 +70,14 @@ public class CoreLifecycleTest {
             subWrites++; subDistance=d; subError=err;
         }
         // Static: production code replaces a failed binding with a new instance.
-        static int clears, turns, laneWrites, failTbt, failLanes, lastIcon, lastSideStreet, lastCombi, pe00Writes, pe00Exist, failPe00, pe00Background, laneClears, trapWrites; static long lastDist, pe00Dist; static float lastDirection;
-        static void reset() { clears=turns=laneWrites=failTbt=failLanes=lastIcon=lastSideStreet=lastCombi=pe00Writes=pe00Exist=failPe00=pe00Background=laneClears=trapWrites=0; lastDist=0; pe00Dist=-1; lastDirection=0f; }
+        static int clears, turns, laneWrites, failTbt, failLanes, lastIcon, lastSideStreet, lastCombi, lastDistErr, lastBarLevel, lastBarErr, pe00Writes, pe00Exist, failPe00, pe00Background, laneClears, trapWrites; static long lastDist, pe00Dist; static float lastDirection;
+        static void reset() { clears=turns=laneWrites=failTbt=failLanes=lastIcon=lastSideStreet=lastCombi=lastDistErr=lastBarLevel=lastBarErr=pe00Writes=pe00Exist=failPe00=pe00Background=laneClears=trapWrites=0; lastDist=0; pe00Dist=-1; lastDirection=0f; }
         NavigationCluster(Object ctx) {}
         void updateTPCrossroadName(CrossroadName name) {}
         void updateTBTInfo(int i,int side,float a,float b,int c,int d,int e,int f,int g) {
             if (failTbt > 0) { failTbt--; throw new IllegalStateException("cluster binder died"); }
             if (i == 0) throw new AssertionError("displayType 0 is invalid/spinner on V039");
-            lastSideStreet = side; lastDirection = a; lastCombi = d;
+            lastSideStreet = side; lastDirection = a; lastCombi = d; lastDistErr = c; lastBarLevel = f; lastBarErr = g;
             if (i == TurnFrame.TBT_DISPLAY_IDLE) clears++; else { turns++; lastIcon = i; lastDist = (long) b; }
         }
         void updateTPTurnListNew(byte[] frame) {}
@@ -104,17 +105,21 @@ public class CoreLifecycleTest {
     static class TimeFrame { static int[] arrival(long at,long seconds,java.util.TimeZone zone) { return new int[]{12,30}; } }
     static class LaneFrame { static byte[] clear() { return new byte[]{0}; } }
     static class TurnFrame {
-        static final int ICON_STRAIGHT = 0x41, TBT_DISPLAY_IDLE = 8, DIST_ERR_UNKNOWN = -3, SCALE_METER = 0, BAR_ERR_INVALID = -1;
+        static final int ICON_STRAIGHT = 0x41, TBT_DISPLAY_IDLE = 8, DIST_ERR_OK = 0, DIST_ERR_UNKNOWN = -3, SCALE_METER = 0, BAR_ERR_OK = 0, BAR_ERR_INVALID = -1;
         static final long FAR_STRAIGHT_THRESHOLD_M = Long.MAX_VALUE;
         static byte[] clear() { return null; }
         static byte[] encode(int[] icons, String road) { return null; }
         static int effectiveIcon(int icon, long d) { return icon > 0 && d > FAR_STRAIGHT_THRESHOLD_M ? ICON_STRAIGHT : icon; }
         static float tbtDistanceValue(long d) { return d; }
-        static int tbtDistanceError(long d) { return 0; }
+        static int tbtDistanceError(long d) { return d < 0 ? DIST_ERR_UNKNOWN : DIST_ERR_OK; }
         static int tbtDistanceScale(long d) { return 0; }
-        static int tbtDisplayType(int icon) { return icon; }
-        static int tbtBarGraphLevel(int icon, long d) { return 0; }
-        static int tbtBarGraphError(int icon, long d) { return icon <= 0 ? BAR_ERR_INVALID : (d > 300L ? -2 : 0); }
+        static int tbtDisplayType(int icon) { return icon > 0 ? icon : TBT_DISPLAY_IDLE; }
+        static int tbtBarGraphLevel(int icon, long d, boolean near, long guide) {
+            if (icon <= 0 || !near || d < 0) return 0;
+            int r = StockTurn.remainRatio(d, near, guide);
+            return (r >= 1 && r <= 10) ? r * 10 : 0;
+        }
+        static int tbtBarGraphError(int icon, long d, boolean near) { return (icon <= 0 || !near || d < 0) ? BAR_ERR_INVALID : BAR_ERR_OK; }
     }
     static class Session {
         boolean active; int retries;
@@ -144,6 +149,7 @@ public class CoreLifecycleTest {
     }
     boolean aaClearPending, mediaOsdActive, allowed=true;
     boolean cpStockNear, aaStockNear; String cpNearManeuverKey, aaNearManeuverKey;
+    long cpNearGuideDist, aaNearGuideDist;
     boolean pe00Missing, phoneTunnelSent;
     long lastPe00Bucket = Long.MIN_VALUE, lastPe00Ms = Long.MIN_VALUE;
     boolean cpTunnelWant, aaTunnelWant;
@@ -154,6 +160,8 @@ public class CoreLifecycleTest {
     long subMeters=-1, subSeconds=-1, subArrivalMs=-1L, lastSubMs=Long.MIN_VALUE; boolean subInfoMissing; int subSends;
     Object getApplicationContext() { return null; }
     void writeDebugLog(String s) {}
+    static String hex(byte[] a) { return a == null ? "null" : "bytes[" + a.length + "]"; }
+    void logLaneBits(byte[] frame) {}
     int outputErrors; boolean expectErrors;
     boolean outputError(Throwable e) { if (!expectErrors) throw new AssertionError(e); outputErrors++; cluster = null; lastPe00Bucket = Long.MIN_VALUE; return false; }
     static void check(boolean condition, String message) { if(!condition) throw new AssertionError(message); }
@@ -187,13 +195,17 @@ public class CoreLifecycleTest {
         r.session.active=false; r.allowed=false; r.renderAaTbt(68,0,400,"road");
         check(r.shared.turns==1, "no AA write while stock owns display");
         r.allowed=true; r.renderAaTbt(66,65,6000,"far");
-        check(r.shared.lastIcon==66 && r.shared.lastSideStreet==0 && r.shared.lastDist==6000, "AA far maneuver keeps its real icon and sideStreet=0");
+        check(r.shared.lastIcon==66 && r.shared.lastSideStreet==0 && r.shared.lastDist==6000 && r.shared.lastDistErr==0 && r.shared.lastBarErr==-1 && r.shared.lastBarLevel==0, "AA far maneuver keeps its real icon, sideStreet=0, barErr=-1");
         r.renderAaTbt(66,65,400,"near-road");
-        check(r.shared.lastIcon==StockTurn.DISPLAY_TURN && r.shared.lastSideStreet==0x0005 && r.shared.lastDirection==45f && r.shared.lastCombi==0, "AA near maneuver switches to StockTurn 0x0d");
+        check(r.shared.lastIcon==StockTurn.DISPLAY_TURN && r.shared.lastSideStreet==0x0005 && r.shared.lastDirection==45f && r.shared.lastCombi==0 && r.shared.lastDistErr==0 && r.shared.lastBarErr==0 && r.shared.lastBarLevel==100, "AA near maneuver switches to StockTurn 0x0d with bar 100");
+        r.renderAaTbt(66,65,200,"near-road");
+        check(r.shared.lastBarErr==0 && r.shared.lastBarLevel==50, "AA near maneuver drains bar to 50 at 200m");
+        r.renderAaTbt(66,65,30,"near-road");
+        check(r.shared.lastBarErr==0 && r.shared.lastBarLevel==10, "AA near maneuver drains bar to 10 at 30m");
         r.renderAaTbt(66,65,500,"near-road");
         check(r.shared.lastIcon==StockTurn.DISPLAY_TURN, "AA hysteresis holds near at 500m");
         r.renderAaTbt(66,65,600,"near-road");
-        check(r.shared.lastIcon==66 && r.shared.lastSideStreet==0, "AA hysteresis exits to far icon at 600m");
+        check(r.shared.lastIcon==66 && r.shared.lastSideStreet==0 && r.shared.lastBarErr==-1 && r.shared.lastBarLevel==0, "AA hysteresis exits to far icon at 600m with barErr=-1");
 
         // A turn with no update for EXPIRE_MS is cleared as if it had ended.
         CoreLifecycleTest x=new CoreLifecycleTest(); x.clock=1000;

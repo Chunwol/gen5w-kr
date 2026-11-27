@@ -23,8 +23,16 @@ public final class StockTurnTest {
         }
         check("right direction", 12, StockTurn.directionFromAngle(90));
         check("left direction", 36, StockTurn.directionFromAngle(270));
-        check("near bar", 10, StockTurn.remainRatio(0));
-        check("far bar hidden", 15, StockTurn.remainRatio(301));
+        check("near bar at 400m", 10, StockTurn.remainRatio(400));
+        check("near bar at 0m drains to 1", 1, StockTurn.remainRatio(0));
+        check("far bar hidden", 15, StockTurn.remainRatio(401));
+        check("stock drive 290/340", 8, StockTurn.remainRatio(290, true, 340));
+        check("stock drive 250/340", 7, StockTurn.remainRatio(250, true, 340));
+        check("stock drive 90/340", 2, StockTurn.remainRatio(90, true, 340));
+        check("stock drive 60/340", 1, StockTurn.remainRatio(60, true, 340));
+        check("guideDistance caps at 400", 400, (int) StockTurn.guideDistance(700));
+        check("guideDistance keeps entry < 400", 250, (int) StockTurn.guideDistance(250));
+        check("clear frame uses idle displayType 8", 8, StockTurn.build(null, 0, -1, false).displayType);
 
         // Near/far hysteresis (400m enter, 550m exit).
         check("far stays far above 400", !StockTurn.near(401, false));

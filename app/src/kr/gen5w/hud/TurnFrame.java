@@ -16,9 +16,9 @@ public final class TurnFrame {
     public static final int BAR_ERR_OK = 0;
     public static final int BAR_ERR_INVALID = -1;
     public static final int BAR_ERR_HIDDEN = -2;
+    public static final int SUB2C_UNIT_METER = 0;
+    public static final int SUB2C_UNIT_KILOMETER = 1;
     public static final int SUB2C_UNIT_NONE = 0;
-    public static final int SUB2C_UNIT_METER = 1;
-    public static final int SUB2C_UNIT_KILOMETER = 2;
     public static final int SUB2C_UNIT_INVALID = 15;
     public static final int SUB2C_FRAC_INVALID = 15;
     public static final int SUB2C_INT_INVALID = 65535;
@@ -62,19 +62,27 @@ public final class TurnFrame {
     }
 
     public static int tbtDistanceError(long meters) {
-        if (meters < 0) return DIST_ERR_UNKNOWN;
-        return meters < 1000L ? DIST_ERR_NO_DECIMAL : DIST_ERR_OK;
+        return meters < 0 ? DIST_ERR_UNKNOWN : DIST_ERR_OK;
+    }
+
+    public static int tbtBarGraphError(int icon, long meters, boolean near) {
+        if (icon <= 0 || !near || meters < 0) return BAR_ERR_INVALID;
+        return BAR_ERR_OK;
     }
 
     public static int tbtBarGraphError(int icon, long meters) {
-        if (icon <= 0) return BAR_ERR_INVALID;
-        return (meters < 0 || meters > 300L) ? BAR_ERR_HIDDEN : BAR_ERR_OK;
+        return tbtBarGraphError(icon, meters, meters >= 0 && meters <= StockTurn.NEAR_ENTER_M);
     }
 
-    /** 0..100 (ClusterService rounds /10 into the 4-bit bar); the stock engine never shows an empty bar (>= 1 step). */
+    /** 0..100 (ClusterService rounds /10 into the 4-bit bar); drains like stock remainDistanceRatio in near view. */
+    public static int tbtBarGraphLevel(int icon, long meters, boolean near, long guideDistMeters) {
+        if (icon <= 0 || !near || meters < 0) return 0;
+        int ratio = StockTurn.remainRatio(meters, near, guideDistMeters);
+        return (ratio >= 1 && ratio <= 10) ? ratio * 10 : 0;
+    }
+
     public static int tbtBarGraphLevel(int icon, long meters) {
-        if (icon <= 0 || meters < 0 || meters > 300L) return 0;
-        return (int) Math.min(100L, Math.max(10L, ((300L - meters) * 100L) / 300L));
+        return tbtBarGraphLevel(icon, meters, meters >= 0 && meters <= StockTurn.NEAR_ENTER_M, StockTurn.NEAR_ENTER_M);
     }
 
     public static int subInfo2CUnit(long meters) {
@@ -92,7 +100,8 @@ public final class TurnFrame {
     }
 
     public static int subInfo2CTenths(long meters) {
-        if (meters < 0 || meters < 1000L) return SUB2C_FRAC_INVALID;
+        if (meters < 0) return SUB2C_FRAC_INVALID;
+        if (meters < 1000L) return 0;
         return (int) (subInfo2CTenthsTotal(meters) % 10L);
     }
 

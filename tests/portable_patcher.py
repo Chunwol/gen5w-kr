@@ -14,7 +14,44 @@ RUN=['qemu-arm',str(BIN)] if '--arm' in sys.argv else [str(BIN)]
 PRIVATE=ROOT.parent/'analysis_private/hud-v039/sys/app'
 INFO='Lcom/tcc/iap2server/Iap2InitInformationMsg;'
 CAP=INFO+'->checkSupportsFeatures()V'
+RG_ITEM='Lcom/tcc/iap2server/Iap2InitInformationMsg$RouteGuidanceComponent$RouteGuidanceItem;'
+RG_INFO=RG_ITEM+'->getComponentInfo(Lcom/tcc/iap2/Iap2NotiMsg;)V'
 UNUSED_OPCODES=(0x3e,0x3f,0x40,0x41,0x42,0x43,0x73,0x79,0x7a,0xec,0xff)
+def rmap_slot(raw, class_name):
+ dex=Dex(raw)
+ idx=dex.class_names.index(class_name)
+ opt,size=struct.unpack_from('<II',raw,24)
+ pos=opt
+ while pos+8<=opt+size:
+  tag,length=struct.unpack_from('<II',raw,pos)
+  if tag==0x41454e44: break
+  if tag==0x524d4150:
+   return struct.unpack_from('<I',raw,pos+12+idx*4)[0]
+  pos=(pos+8+length+7)&~7
+ raise AssertionError('RMAP missing')
+def verify_lane_ident(before_raw, after_raw):
+ before_dex=Dex(before_raw); after_dex=Dex(after_raw)
+ b_off=before_dex.code[RG_INFO][0]; a_off=after_dex.code[RG_INFO][0]
+ assert b_off==a_off, 'getComponentInfo code_off shifted'
+ b_hdr=struct.unpack_from('<HHHHII',before_dex.data,b_off)
+ a_hdr=struct.unpack_from('<HHHHII',after_dex.data,a_off)
+ assert b_hdr[:4]==a_hdr[:4] and b_hdr[5]==a_hdr[5], 'getComponentInfo size/header changed'
+ count=a_hdr[5]
+ words=list(struct.unpack_from('<'+'H'*count,after_dex.data,a_off+16))
+ decoded=list(dipo_patch.instructions(words))
+ assert sum(w for _,_,w in decoded)==count, 'patched instructions misaligned'
+ boundaries={pc for pc,_,_ in decoded}
+ for pc,op,w in decoded:
+  assert op not in UNUSED_OPCODES, f'unused opcode {op:#x} in patched getComponentInfo'
+  if op==0x38:
+   target=pc+struct.unpack('<h',struct.pack('<H',words[pc+1]))[0]
+   assert target in boundaries, f'branch target {target} not on boundary'
+ int_arr=after_dex.types.index('[I')
+ add_int=after_dex.methods.index('Lcom/tcc/iap2/Iap2NotiMsg$Iap2ObjGroup;->addObject(II[I)V')
+ expected=[0x7212,0x5323,int_arr,0x0413,0x0040,0x044b,0x0603,0x406e,add_int,0x3720,
+           0x0213,0x0008,0x5323,int_arr,0x0413,0x000a,0x044b,0x0603,0x406e,add_int,0x3720]+[0]*7
+ assert words[15:43]==expected, 'patched lane ident instructions mismatch'
+ assert rmap_slot(after_raw, RG_ITEM)==0, 'RouteGuidanceItem RMAP must be zeroed'
 def method_words(raw,name):
  dex=Dex(raw);code=dex.code[name][0];count=struct.unpack_from('<I',dex.data,code+12)[0]
  return dex.base+code+16,list(struct.unpack_from('<'+'H'*count,dex.data,code+16))
@@ -74,6 +111,11 @@ def shape_regressions(tmp):
   pc=next(p for p,op,w in dipo_patch.instructions(body) if w==1 and op)
   for op in (0x3e,0x73,0xff):
    refused(kind,with_words(stock,begin,{pc:(body[pc]&0xff00)|op}),'unused opcode %#x in %s'%(op,method.split('->')[1]))
+ rg_start,_=method_words(raw,RG_INFO)
+ for why,pc,val in [('mutated v7 setup in getComponentInfo',0,0x0712),
+                    ('mutated Log.d call in getComponentInfo',15,0x0000),
+                    ('branch into Log.d slot in getComponentInfo',10,0x0006)]:
+  for kind in ('route','bt'): refused(kind,with_words(raw,rg_start,{pc:val}),why)
  return checked
 def main():
  assert BIN.exists(), 'native structural patcher is missing'
@@ -84,6 +126,7 @@ def main():
    r=subprocess.run([*RUN,kind,str(source),str(output)])
    assert r.returncode==0,kind
    assert output.read_bytes()==oracle(raw)[1],kind+' differs from Python oracle'
+   if kind in ('bt','route'): verify_lane_ident(raw, output.read_bytes())
    assert subprocess.run([*RUN,kind,str(source),str(output)]).returncode!=0
    assert output.read_bytes()==oracle(raw)[1]
    changed=bytearray(raw);changed[36]^=1

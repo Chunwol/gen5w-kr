@@ -17,6 +17,7 @@ public interface IIap2Service extends IInterface {
     boolean Iap2SvcNowPlayingStart() throws RemoteException;
     int Iap2SvcGetRouteGuidanceComponentNameIdList(int[] ids, String[] names) throws RemoteException;
     boolean Iap2SvcStartRouteGuidanceUpdate(String[] names, boolean sourceName, boolean sourceSupport) throws RemoteException;
+    boolean Iap2SvcStopRouteGuidanceUpdate(String[] names) throws RemoteException;
 
     abstract class Stub extends android.os.Binder implements IIap2Service {
         public static IIap2Service asInterface(IBinder b) { throw new RuntimeException("stub"); }

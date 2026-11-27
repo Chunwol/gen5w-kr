@@ -69,7 +69,16 @@ def main():
         route=json.loads((ROOT/'tools/iap2'/f'route-{version}.json').read_text())
         assert route['original_sha256']==recipe['original_sha256'];checks+=1
         assert route['patched_sha256']!=recipe['patched_sha256'];checks+=1
-        assert len(route['patches'])==6;checks+=1
+        if version == 'v035':
+            assert len(route['patches'])==6;checks+=1
+        else:
+            assert len(route['patches'])==8;checks+=1
+            lane_patches = [bytes(x['bytes']) for x in route['patches'] if len(x['bytes']) == 56]
+            assert len(lane_patches) == 1;checks+=1
+            words = struct.unpack('<28H', lane_patches[0])
+            assert words[:2] == (0x7212, 0x5323) and words[3:10] == (0x0413, 0x0040, 0x044b, 0x0603, 0x406e, words[8], 0x3720);checks+=1
+            assert words[10:13] == (0x0213, 0x0008, 0x5323) and words[14:21] == (0x0413, 0x000a, 0x044b, 0x0603, 0x406e, words[8], 0x3720);checks+=1
+            assert words[2] == words[13] and words[21:] == (0,) * 7;checks+=1
         assert sum(bytes(x['bytes'])==b'\x67\x03' for x in route['patches'])==4;checks+=1
     for path in a.stock:audit_private(path)
     for path in a.stock:

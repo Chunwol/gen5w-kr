@@ -84,6 +84,25 @@ public final class HudTest {
         eq("simple lane count", simple[1], 3);
         eq("simple recommended lane", (simple[4] & 0x02) != 0 ? 1 : 0, 1);
 
+        // Stock 81-byte 0xF1 possibility encoding: status=0 NotGood -> 3, status=1 Good -> 1, highlight -> 2.
+        GuidanceParser.Lanes multi = new GuidanceParser.Lanes();
+        GuidanceParser.Lane l0 = new GuidanceParser.Lane();
+        l0.index = 0; l0.status = 0; l0.angles = new int[]{0, 90}; l0.highlights = new int[0];
+        GuidanceParser.Lane l1 = new GuidanceParser.Lane();
+        l1.index = 1; l1.status = 1; l1.angles = new int[]{0}; l1.highlights = new int[0];
+        GuidanceParser.Lane l2 = new GuidanceParser.Lane();
+        l2.index = 2; l2.status = 2; l2.angles = new int[]{90}; l2.highlights = new int[]{90};
+        multi.lanes.add(l0); multi.lanes.add(l1); multi.lanes.add(l2);
+        byte[] stockLike = LaneFrame.encode(multi, 0);
+        eq("stock-like 0xF1 length", stockLike.length, 81);
+        eq("not-good lane two arrows 0b1111", stockLike[3] & 255, 0x0f);
+        eq("good lane straight 0b01", stockLike[4] & 255, 0x01);
+        eq("preferred lane right 0b10", stockLike[5] & 255, 0x02);
+        eq("lane0 slot0 straight", stockLike[0x13] & 255, 1);
+        eq("lane0 slot1 right", stockLike[0x14] & 255, 3);
+        eq("lane1 slot0 straight", stockLike[0x16] & 255, 1);
+        eq("lane2 slot0 right", stockLike[0x19] & 255, 3);
+
         System.out.println(fails == 0 ? "hud all match" : fails + " failed");
         System.exit(fails == 0 ? 0 : 1);
     }

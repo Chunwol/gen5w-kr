@@ -48,6 +48,7 @@ public final class GuidanceSession {
     private final Map<Long, GuidanceParser.Lanes> laneSets = new LinkedHashMap<Long, GuidanceParser.Lanes>();
     private int laneIndex = -1, laneTotal = -1;
     private boolean laneVisible;
+    private boolean laneVisibleExplicit;
     private long distance = -1, sentDistance = Long.MIN_VALUE;
     private long remaining = -1, sentRemaining = Long.MIN_VALUE;
     private String destination = "", sentDestination;
@@ -135,7 +136,7 @@ public final class GuidanceSession {
         }
         boolean keepEmptyLocatingCurrent = holdingLocating && update.hasCurrent && update.current.length == 0;
         if (update.hasCurrent && !Arrays.equals(current,update.current) && !update.hasLaneIndex && !keepEmptyLocatingCurrent) {
-            clearLaneState();
+            clearLaneSelection();
         }
         if (update.hasCurrent && !keepEmptyLocatingCurrent) {
             if (!Arrays.equals(current,update.current)) distance = -1;
@@ -152,9 +153,16 @@ public final class GuidanceSession {
             if (left >= 0 && left <= 48L * 3600L) { timeLeft = left; timeLeftAtMs = now; }
         }
         if (update.hasDestination) destination = update.destination == null ? "" : update.destination;
-        if (update.hasLaneIndex) laneIndex = update.laneIndex;
+        if (update.hasLaneIndex) {
+            if (update.laneIndex != laneIndex) laneVisibleExplicit = false;
+            laneIndex = update.laneIndex;
+            if (!update.hasLaneVisible && !laneVisibleExplicit) laneVisible = true;
+        }
         if (update.hasLaneTotal) laneTotal = update.laneTotal;
-        if (update.hasLaneVisible) laneVisible = update.laneVisible;
+        if (update.hasLaneVisible) {
+            laneVisible = update.laneVisible;
+            laneVisibleExplicit = true;
+        }
         if (!isDisplayActive()) {
             // A long tunnel outlives the locating grace: the phone still owns its route (state 4)
             // and only resends maneuver definitions when they change, so keep them for the GPS
@@ -313,7 +321,10 @@ public final class GuidanceSession {
         }
     }
     private void clearLaneState() {
-        laneSets.clear(); laneIndex = -1; laneTotal = -1; laneVisible = false;
+        laneSets.clear(); clearLaneSelection();
+    }
+    private void clearLaneSelection() {
+        laneIndex = -1; laneTotal = -1; laneVisible = false; laneVisibleExplicit = false;
     }
     private void renderLanes() {
         if (!isDisplayActive() || !laneVisible || laneIndex < 0 || laneTotal == 0) {

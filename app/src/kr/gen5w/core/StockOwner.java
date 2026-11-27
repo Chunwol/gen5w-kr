@@ -118,7 +118,7 @@ public final class StockOwner {
             }
             pending = worker.submit(query);
             try {
-                int value = pending.get(150, java.util.concurrent.TimeUnit.MILLISECONDS);
+                int value = pending.get(350, java.util.concurrent.TimeUnit.MILLISECONDS);
                 pending = null;
                 return value;
             } catch (java.util.concurrent.TimeoutException e) {
@@ -189,7 +189,7 @@ public final class StockOwner {
                         LocalSocket client = server.accept();
                         acceptErrors = 0;
                         try {
-                            client.setSoTimeout(200);
+                            client.setSoTimeout(350);
                             if (client.getPeerCredentials().getUid() == clientUid
                                     && client.getInputStream().read() == '?') {
                                 client.getOutputStream().write(read(source));
